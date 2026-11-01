@@ -217,6 +217,7 @@ struct CloudCLITargetTests {
             machinePlatform: MachineCatalogPlatform(os: "linux", arch: "arm64"), machineCapabilities: ["mcap-one"],
             machineName: "vm-host-name", generation: "gen-7", workspaceRevision: 31, lifecycleReady: false)
         identity.launchSnapshotPath = "/private/tmp/cn-launch-snapshot.json"
+        identity.cliPath = "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui"
         return identity
     }
 
@@ -228,6 +229,7 @@ struct CloudCLITargetTests {
         "machine_platform": ["os": "linux", "arch": "arm64"], "machine_capabilities": ["mcap-one"],
         "machine_name": "vm-host-name", "generation": "gen-7", "workspace_revision": 31, "lifecycle_ready": false,
         "launch_snapshot_path": "/private/tmp/cn-launch-snapshot.json",
+        "cli_path": "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui",
     ] }
 
     static func json(_ text: String) throws -> [String: Any] {

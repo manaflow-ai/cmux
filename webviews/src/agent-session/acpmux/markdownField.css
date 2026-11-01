@@ -342,7 +342,7 @@
 }
 .acpmux-md-inline-chip[data-state="loading"],
 .acpmux-md-inline-chip[data-state="failed"] {
-  width: 64px;
+  width: 72px;
 }
 /* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
    a video's poster is as tall as two control rows so it sits in a line of text; an image that could
@@ -358,13 +358,19 @@
   overflow: visible;
   color: var(--agent-text);
 }
-.acpmux-md-inline-retry {
+/* A huge paste's name: a click puts its text back in the prompt. */
+.acpmux-md-inline-retry:not(.acpmux-attachment-retry) {
   padding: 0 8px;
   border: 0;
   background: none;
   color: var(--agent-text);
   font-size: inherit;
   text-decoration: underline;
+}
+/* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
+.acpmux-md-inline-chip[data-state="failed"] {
+  gap: 4px;
+  padding-right: 16px;
 }
 .acpmux-md-inline-remove {
   position: absolute;

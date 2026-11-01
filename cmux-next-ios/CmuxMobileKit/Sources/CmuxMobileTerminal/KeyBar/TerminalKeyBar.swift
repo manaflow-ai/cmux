@@ -206,7 +206,7 @@ struct KeyCap: View {
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(locked || armed ? Color.white : key == .hideChrome ? Color.primary.opacity(0.72) : .primary)
+            .foregroundStyle(locked || armed ? Color.cmuxMobileOnAccent : key == .hideChrome ? Color.primary.opacity(0.72) : .primary)
         }
         .buttonStyle(KeyCapStyle(locked: locked, armed: armed,
                                  width: key.isGlyph ? TerminalDockMetrics.minKeyWidth : nil))
@@ -247,7 +247,7 @@ struct KeyCapStyle: ButtonStyle {
             .overlay(alignment: .bottom) {
                 // Locked: a 2 pt underline under the armed tint (SPEC M1).
                 if locked {
-                    Capsule().fill(Color.white).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
+                    Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
             .opacity(configuration.isPressed ? 0.7 : 1)
@@ -256,7 +256,8 @@ struct KeyCapStyle: ButtonStyle {
 }
 
 /// The key row's Liquid Glass (classic: `UIButton.Configuration.glass()`,
-/// `.prominentGlass()` with the accent when a modifier is armed or locked).
+/// `.prominentGlass()` with the accent when a modifier is armed or locked;
+/// the monochrome accent, never blue: design/ios.md).
 enum KeyRowGlass {
     static let cornerRadius: CGFloat = 8
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
@@ -266,7 +267,7 @@ enum KeyRowGlass {
 extension View {
     func keyGlass(armed: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
-        return glassEffect(armed ? .regular.tint(Color(uiColor: .systemBlue)).interactive() : .regular.interactive(), in: shape)
+        return glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : .regular.interactive(), in: shape)
     }
 }
 

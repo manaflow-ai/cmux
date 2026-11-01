@@ -44,21 +44,40 @@ enum CloudCreationRows {
     /// (link or daemon gave up, the provider failed it) with its reason as
     /// the tooltip, so it keeps its header in the one list instead of
     /// "connecting" for ever.
-    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil) -> SidebarMachine {
+    static func machine(_ session: CloudMachineSession, compatibility: DaemonCompatibility?, limits: CloudMachineLimits? = nil,
+                        updates: DaemonUpdateBoard) -> SidebarMachine {
         var header = SidebarBridge.machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                              compatibility: compatibility)
         header.cost = cost(session.machine, limits: limits)
         let stage = session.stage
-        if case .paused(let idle) = stage, header.status == .connecting || header.status == .offline {
+        if let changing = changeStatus(stage) {
+            // A pause, resume or delete on its way reads as itself, whatever the link says.
+            header.status = changing
+        } else if case .paused(let idle) = stage, header.status == .connecting || header.status == .offline {
             // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
             header.status = idle ? .pausedIdle : .paused
         } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
             header.status = session.stageInput.isDisconnect ? .disconnected : .failed
             header.detail = failure
         }
-        header.detail = withUpdate(header.detail, DaemonUpdateBoard.shared.targets[CloudMachineUpdateTarget.id(session.machineID)],
+        // The server answered a pause, resume or resize at once and its provider call failed
+        // after: the machine went back, and the header's tooltip says why.
+        if let failure = session.machine.lastChangeFailure, header.detail != failure.text {
+            header.detail = [header.detail, CloudStrings.changeFailed(failure.text)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        }
+        header.detail = withUpdate(header.detail, updates.targets[CloudMachineUpdateTarget.id(session.machineID)],
                                    compatibility: compatibility)
         return header.redialing(session.link?.redial.isRedialing == true)
+    }
+
+    /// The header status of a change the server accepted (``CloudMachineStage/isChanging``).
+    static func changeStatus(_ stage: CloudMachineStage) -> SidebarMachine.Status? {
+        switch stage {
+        case .pausing: .pausing
+        case .resuming: .resuming
+        case .deleting: .deleting
+        default: nil
+        }
     }
 
     /// The automatic update's state (``CloudMachineUpdates``) in a machine header's detail: while it

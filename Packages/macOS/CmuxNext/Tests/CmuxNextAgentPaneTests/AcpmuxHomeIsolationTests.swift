@@ -114,10 +114,10 @@ struct AcpmuxOtherHomeDaemonTests {
         var started: Int32?
         var bUsedIt = false
         do {
-            try await AcpmuxHost(environment: a).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: a).prewarm()
             started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             try FileManager.default.removeItem(at: binA.appendingPathComponent("acpmux"))
-            bUsedIt = (try? await AcpmuxHost(environment: b).prewarm()) != nil
+            bUsedIt = (try? await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: b).prewarm()) != nil
         } catch {
             Issue.record("daemon A did not start: \(error)")
         }
@@ -147,7 +147,7 @@ struct AcpmuxOtherHomeDaemonTests {
         var refused: (any Error)?
         var started: Int32?
         do {
-            try await AcpmuxHost(environment: environment).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment).prewarm()
             started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             do {
                 try await AcpmuxStatusClient.shutdown(socketPath: socket, home: other, deadline: .seconds(10))

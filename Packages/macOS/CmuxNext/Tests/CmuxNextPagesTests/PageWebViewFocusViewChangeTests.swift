@@ -1,6 +1,7 @@
 @testable import CmuxNextPages
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,6 +13,7 @@ import Testing
 /// W1 "appkit content (PageWebView) != model agentPage", W4 "chromium page nil != model tab").
 /// A page with no focus model still grants it itself.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageWebViewFocusViewChangeTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.focus-view", resource: "focus-view", namespaces: [])
@@ -37,6 +39,10 @@ struct PageWebViewFocusViewChangeTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let (view, window) = try shownAndFocused(hosting)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
         view.chromiumClock = PageTestClock.never
         let focusViews = FocusViewRecord()
         hosting.focusModel = { page in
@@ -50,21 +56,21 @@ struct PageWebViewFocusViewChangeTests {
         #expect(focusViews.views.count == 1, "the host was not told that Chromium's page takes the keys now")
         #expect((focusViews.views.first ?? nil) === page.contentView)
         #expect(page.focusAsks.isEmpty, "the page granted Chromium focus behind the host's focus model: \(page.focusAsks)")
-        window.close()
-        view.close()
     }
 
     @Test func withNoHostThePageTakesTheKeysItselfWhenItsWebKitViewHadThem() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let (view, window) = try shownAndFocused(hosting)
+        defer {
+            window.closeAfterTest()
+            view.close()
+        }
         view.chromiumClock = PageTestClock.never
 
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         #expect(page.focusAsks == [true])
-        window.close()
-        view.close()
     }
 }
 
