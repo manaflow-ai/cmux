@@ -175,6 +175,95 @@ class Guards(unittest.TestCase):
         self.assertGreaterEqual(len(password), 43)
 
 
+GRANT_ID = "5a5cb0e8-b92d-4a29-8a92-7a0d4e37d2ae"
+GRANT_EMAIL = "owner@example.test"
+
+
+class GrantPlanOnly(unittest.TestCase):
+    def fake(self, **user):
+        return FakeStack([{"id": GRANT_ID, "primary_email": GRANT_EMAIL, "password": "keep",
+                           "client_read_only_metadata": {"other": 1}} | user])
+
+    def test_grant_merges_the_plan_and_patches_only_metadata(self):
+        fake, lines = self.fake(), []
+        self.assertEqual(provision.grant_plan(stack(fake), GRANT_ID, GRANT_EMAIL.upper(), log=lines.append), "pro")
+        self.assertEqual([(r[0], r[1]) for r in fake.requests],
+                         [("GET", f"/users/{GRANT_ID}"), ("PATCH", f"/users/{GRANT_ID}"), ("GET", f"/users/{GRANT_ID}")])
+        self.assertEqual(fake.requests[1][3], {"client_read_only_metadata": {"other": 1, "cmuxVmPlan": "pro"}})
+        self.assertEqual(fake.users[GRANT_ID]["password"], "keep")
+        self.assertFalse([r for r in fake.requests if "sign-in" in r[1]])
+        self.assertEqual(lines[-1], f"GET /users/{GRANT_ID} HTTP 200; after cmuxVmPlan='pro'")
+        self.assertIn("before cmuxVmPlan=None", lines[0])
+        # Only status codes and the plan value: no email or other metadata in the log.
+        self.assertNotIn(GRANT_EMAIL, "\n".join(lines))
+        self.assertNotIn("other", "\n".join(lines))
+
+    def test_a_mismatched_email_refuses_before_any_write(self):
+        fake = self.fake()
+        with self.assertRaisesRegex(provision.ProvisionError, "does not match"):
+            provision.grant_plan(stack(fake), GRANT_ID, "someone-else@example.test", log=lambda _: None)
+        self.assertEqual([r[0] for r in fake.requests], ["GET"])
+
+    def test_a_bad_user_id_refuses_before_any_request(self):
+        fake = self.fake()
+        for bad in ("", "../users", GRANT_ID.upper(), GRANT_ID + "/x"):
+            with self.assertRaisesRegex(provision.ProvisionError, "not a Stack user id"):
+                provision.grant_plan(stack(fake), bad, GRANT_EMAIL, log=lambda _: None)
+        self.assertEqual(fake.requests, [])
+
+    def test_another_project_refuses(self):
+        s = stack(self.fake())
+        s.project_id = "some-production-project"
+        with self.assertRaisesRegex(provision.ProvisionError, "not the staging project"):
+            provision.grant_plan(s, GRANT_ID, GRANT_EMAIL, log=lambda _: None)
+        self.assertEqual(s.transport.requests, [])
+
+    def test_a_plan_that_does_not_read_back_fails(self):
+        fake = self.fake()
+        original = fake.__call__
+
+        def transport(method, url, headers, body, timeout=None):
+            if method == "PATCH":
+                fake.requests.append((method, url, headers, body))
+                return 200, {}, {}
+            return original(method, url, headers, body, timeout)
+        with self.assertRaisesRegex(provision.ProvisionError, "did not read back"):
+            provision.grant_plan(stack(transport), GRANT_ID, GRANT_EMAIL, log=lambda _: None)
+
+    def test_main_grant_mode_makes_no_password_and_writes_no_bundle(self):
+        fake = self.fake()
+        env = {"NEXT_PUBLIC_STACK_PROJECT_ID": provision.STAGING_PROJECT_ID, "STACK_SECRET_SERVER_KEY": "k",
+               "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY": "c"}
+        stdout = io.StringIO()
+        real = provision.Stack
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(provision, "Stack", lambda p, s, c: real(p, s, c, transport=fake)), \
+                mock.patch.object(provision, "new_password", side_effect=AssertionError("no password")), \
+                mock.patch.object(provision, "provision", side_effect=AssertionError("no sealing")), \
+                contextlib.redirect_stdout(stdout):
+            code = provision.main(["--grant-plan-only", "--user-id", GRANT_ID, "--email", GRANT_EMAIL])
+        self.assertEqual(code, 0)
+        self.assertIn("after cmuxVmPlan='pro'", stdout.getvalue())
+
+    def test_main_refuses_mixed_flags(self):
+        for argv in (["--grant-plan-only", "--user-id", GRANT_ID],
+                     ["--grant-plan-only", "--user-id", GRANT_ID, "--email", GRANT_EMAIL, "--out", "x"],
+                     ["--out", "x", "--user-id", GRANT_ID], []):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                provision.main(argv)
+
+    def test_workflow_skips_sealing_and_upload_in_grant_mode(self):
+        text = (ROOT / ".github/workflows/cloud-capture-provision.yml").read_text()
+        self.assertIn("grant_plan_user_id:", text)
+        self.assertIn("grant_plan_email:", text)
+        self.assertIn("if: github.ref == 'refs/heads/main'", text)
+        # The inputs reach the script only through env, never interpolated into the shell line.
+        self.assertIn('--grant-plan-only --user-id "$GRANT_USER_ID" --email "$GRANT_EMAIL"', text)
+        for step in ("- name: Provision and seal", "- name: Upload the sealed bundle (ciphertext only)"):
+            after = text.split(step, 1)[1].lstrip().splitlines()[0]
+            self.assertEqual(after.strip(), "if: inputs.grant_plan_user_id == '' && inputs.grant_plan_email == ''", step)
+
+
 class Put(unittest.TestCase):
     BUNDLE = {"version": 1, "repo": "o/r", "environment": "env", "key_id": "42",
               "key": base64.b64encode(b"k" * 32).decode(),
