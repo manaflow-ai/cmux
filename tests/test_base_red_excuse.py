@@ -285,6 +285,10 @@ if mode == "http":
 if mode == "other-flag":
     sys.stderr.write("unknown flag: --hostname-x\\nunknown flag: --allow-escape-sequences\\n")
     sys.exit(1)
+if mode == "big":
+    line = "2026-10-30T12:00:00.000Z " + "x" * 1000 + "\\n"
+    sys.stdout.write(line * (41 * 1024 * 1024 // len(line)) + "2026-10-30T12:00:00.000Z tail\\n")
+    sys.exit(0)
 print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
@@ -330,6 +334,13 @@ class PortableGhLog(unittest.TestCase):
                 with self.assertRaises(excuse.Refused):
                     self.read(mode)
                 self.assertEqual(len(self.asked()), 1)
+
+    def test_a_job_log_over_32_mib_is_read_whole(self):
+        # 2026-11-01: #28391's cmux-next swift test log was about 40 MB, past the old 32 MiB cap.
+        text = self.read("big")
+        self.assertGreater(len(text), 40 * 1024 * 1024)
+        self.assertTrue(text.endswith("tail\n"))
+
 
 class Excusing(unittest.TestCase):
     def setUp(self):
