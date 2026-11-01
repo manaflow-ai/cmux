@@ -61,6 +61,34 @@ struct AgentTabRemoteStartTests {
         #expect(tabs.sessions[key] == nil)
     }
 
+    /// The linked Mac still has its old attach-time owner answer, but the owner has revoked the
+    /// teammate's chat-start grant. A *new* chat must never reach the remote daemon on that lease.
+    @Test func revokingAChatGrantRefusesAnotherStartOnAnAlreadyOpenLink() async throws {
+        let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
+        await #expect(throws: AgentRemoteStartRefusal.teamMachine(machine: "Shared VM")) {
+            _ = try await tabs.startRemoteChat(key, machine: "Shared VM", ownerLink: { 17 },
+                                               verifyChatStart: { false }, teammate: { false },
+                                               endpoint: { Issue.record("a revoked grant started another chat"); throw CancellationError() })
+        }
+        #expect(tabs.sessions[key] == nil)
+    }
+
+    /// An unavailable role/grant check must fail closed even if the old link still says owner.
+    @Test func anUnreadableGrantRefusesAnotherStartWithoutDialing() async throws {
+        let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
+        await #expect(throws: AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: "Shared VM")) {
+            _ = try await tabs.startRemoteChat(key, machine: "Shared VM", ownerLink: { 17 },
+                                               verifyChatStart: { throw CancellationError() }, teammate: { false },
+                                               endpoint: { Issue.record("the permission check failed but a start was dialed"); throw CancellationError() })
+        }
+        #expect(tabs.sessions[key] == nil)
+    }
+
+    @Test func anExistingGrantCanStillStartAfterAFreshAuthorizationCheck() async throws {
+        let request = try await start(harness: nil, model: nil, verifyChatStart: { true })
+        #expect(request["vm_kind"] as? String == "owner")
+    }
+
     /// Only an owner check's refusal becomes the teammate one, and only on a teammate's link; the
     /// owner check itself is never skipped (`host_unverified` stays for a machine of no known kind).
     @Test func onlyAnUnverifiedOwnerOnATeammatesLinkIsATeamRefusal() {
@@ -97,12 +125,14 @@ struct AgentTabRemoteStartTests {
     /// Exercise the tab store's first-Send route through the real attach client, including
     /// capability negotiation, and inspect the frame received by the remote daemon.
     private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
-                       expectedCwd: String? = "/home/dev/project", supportsNoCwd: Bool = false) async throws -> [String: Any] {
+                       expectedCwd: String? = "/home/dev/project", supportsNoCwd: Bool = false,
+                       verifyChatStart: (@Sendable () async throws -> Bool)? = nil) async throws -> [String: Any] {
         let (tabs, key) = try makeTabs(seedCwd: seedCwd)
         let daemon = try RemoteStartDaemon(supportsNoCwd: supportsNoCwd)
         async let received = daemon.firstStart()
         let started = try await tabs.startRemoteChat(key, machine: "Cloud fixture", harness: harness, model: model,
-                                                    ownerLink: { 1 }, endpoint: { DaemonEndpoint(socketPath: daemon.path) })
+                                                    ownerLink: { 1 }, verifyChatStart: verifyChatStart,
+                                                    endpoint: { DaemonEndpoint(socketPath: daemon.path) })
         #expect(started == AgentTabRemoteStart.Started(surface: 7, session: "remote-session"))
         #expect(tabs.sessions[key] == "remote-session")
         let data = try await received
