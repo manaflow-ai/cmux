@@ -207,7 +207,7 @@ impl Snapshot {
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let row = |key: &Value| row_text(text, spans, key, budget);
         let whole = cursor.is_none() && {
-            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            let bytes: usize = rows.iter().map(|key| row(key).len().saturating_add(1)).sum();
             bytes <= budget
         };
         let (page, next) = if whole {
@@ -761,6 +761,34 @@ mod tests {
         let held = Arc::new(Snapshot::new(key(hub), serial, window, Default::default()));
         hub.list_guard.state.lock().await.last = Some(held.clone());
         held
+    }
+
+    /// A respawn's mark and its end each change a row (`respawnPending`): no list shows the
+    /// row as it was (review 2 of the profile respawn).
+    #[tokio::test]
+    async fn a_profile_respawn_mark_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        let seq = session.state_seq.load(Ordering::SeqCst);
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "the mark rebuilds");
+        assert!(session.state_seq.load(Ordering::SeqCst) > seq, "watchers see the mark");
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "marked again: no change");
+        hub.settle_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        let held = hold(&hub, minute).await;
+        hub.settle_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
     }
 
     #[tokio::test]

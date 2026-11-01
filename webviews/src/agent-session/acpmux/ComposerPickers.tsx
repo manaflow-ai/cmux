@@ -494,6 +494,20 @@ export function ComposerPickers({
   // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
   // the session names once it opens (heldOptions.ts), or drops when it offers none.
   const presession = holdsModePick && !summary?.sessionId;
+  // A harness picked without a model (an account, a profile's New chat, another harness's row) is a
+  // pick too: the next New Tab, new chat and split start on it (lastPick.ts).
+  const pickHarness =
+    switchHarness &&
+    ((picked: string, pickedModel?: string, options?: Readonly<Record<string, string>>) => {
+      if (remembers)
+        rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
+      switchHarness(picked, pickedModel, options);
+    });
+  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
+  const forkTo = (picked: string) => {
+    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
+    fork?.to(picked);
+  };
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
@@ -999,11 +1013,12 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={switchHarness}
+          onHarness={pickHarness}
           {...(locked && fork
             ? {
                 fork: {
-                  ...fork,
+                  ready: fork.ready,
+                  to: forkTo,
                   targets: new Set(
                     continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
                   ),
@@ -1389,9 +1404,7 @@ export function ContextRing({
   size,
   setup,
   breakdown: reported,
-  onCompact,
   onOpenDetails,
-  working = false,
 }: {
   used?: number;
   size?: number;
@@ -1399,10 +1412,8 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  onCompact?(): void;
   /// Opens the Inspector at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
-  working?: boolean;
 }) {
   const t = useT();
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
@@ -1465,7 +1476,7 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [closeCard, pinned]);
-  /// The card's buttons the keyboard reaches (Compact, Details ›).
+  /// The card's buttons the keyboard reaches (Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
   const tabPastCard = () => {
@@ -1575,14 +1586,6 @@ export function ContextRing({
               size={size}
               setup={setup}
               breakdown={reported}
-              working={working}
-              onCompact={
-                onCompact &&
-                (() => {
-                  closeCard();
-                  onCompact();
-                })
-              }
               onOpenDetails={
                 onOpenDetails &&
                 (() => {
