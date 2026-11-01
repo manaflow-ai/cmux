@@ -36,18 +36,22 @@ struct DebugAgentPaneScriptTests {
     /// task is cancelled, so a dead page held the test, and the lane, past `.timeLimit` until the
     /// lane's own 900 s stop (review of #30786). The script marks that it runs, then never answers.
     @Test func aCallThatNeverAnswersEndsWhenTheTestIsCancelled() async throws {
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let hanging = HangStarted()
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(hanging, name: "cmuxTestHang")
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        defer { configuration.userContentController.removeScriptMessageHandler(forName: "cmuxTestHang") }
         let loaded = LoadWait()
         webView.navigationDelegate = loaded
         webView.loadHTMLString("<!doctype html><title>dead</title>", baseURL: nil)
         try await loaded.finished()
 
         let running = Task { @MainActor in
-            await Self.call(webView, "window.cmuxTestHang = true; await new Promise(() => {}); return 'never';", arguments: [:])
+            await Self.call(webView, "window.webkit.messageHandlers.cmuxTestHang.postMessage(1); await new Promise(() => {}); return 'never';",
+                            arguments: [:])
         }
-        // WebKit runs a page's calls in order: this answers once the hanging call has started.
-        let started = try await webView.evaluateJavaScript("window.cmuxTestHang === true") as? Bool
-        #expect(started == true, "the hanging call did not start")
+        // The page says the call runs (an event, not a time): only then is the cancel a cancel of a running call.
+        await hanging.outcome.value()
 
         running.cancel()
         let ended = FirstOutcome<Bool>()
@@ -65,6 +69,15 @@ struct DebugAgentPaneScriptTests {
         net.cancel()
         join.cancel()
         #expect(returned, "a cancelled call that never answers did not return within 10 s")
+    }
+
+    /// The hanging script's "I run" message.
+    private final class HangStarted: NSObject, WKScriptMessageHandler {
+        let outcome = FirstOutcome<Void>()
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            outcome.resolve(())
+        }
     }
 
     /// The test's one way to call a page script.
