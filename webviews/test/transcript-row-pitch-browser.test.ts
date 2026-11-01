@@ -171,11 +171,20 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
             const box = el.getBoundingClientRect();
             const icon = el.querySelector(ICON);
             const article = el.closest<HTMLElement>(".acpmux-row");
+            // How far the line's own parts (its buttons, its sentence) stand out of its box.
+            const overhang = Math.max(
+              0,
+              ...[...el.children].map((child) => {
+                const part = child.getBoundingClientRect();
+                return part.height === 0 ? 0 : Math.max(box.top - part.top, part.bottom - box.bottom);
+              }),
+            );
             return {
               row: article?.dataset.rowId ?? "?",
               line: el.className.toString().split(" ")[0],
               top: box.top,
               height: box.height,
+              overhang,
               icon: icon?.getBoundingClientRect().left ?? Number.NaN,
               text: textLeft(el, icon),
             };
@@ -206,6 +215,7 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
             ...(Math.abs(line.height - first!.height) > 0.5
               ? [`${name} is ${line.height}px tall, ${first!.row} ${first!.height}px`]
               : []),
+            ...(line.overhang > 0.5 ? [`${name} has a part ${line.overhang}px out of its line`] : []),
             ...(previous && Math.abs(line.top - previous.top - pitch) > 0.5
               ? [`${name} sits ${line.top - previous.top}px under ${previous.row}, ${pitch}px elsewhere`]
               : []),
