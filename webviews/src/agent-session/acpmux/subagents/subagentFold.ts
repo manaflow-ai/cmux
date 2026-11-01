@@ -207,9 +207,12 @@ export class SubagentFold {
 
   /// Seeds the native root before a persisted event window is replayed. A malformed historical
   /// record can mention the root as a subagent, so this must happen before the first `apply`.
-  setRoot(id: string | undefined): void {
-    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
+  /// True when a record folded already named the root (``names``): the fold repaired its tree
+  /// here, and a pane that drew it folds again (direct.ts `seedRoots`).
+  setRoot(id: string | undefined): boolean {
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return false;
     this.rootThreads.add(id);
+    const named = this.named.has(id);
     this.resolvePending(id, null, true);
     // A live update can arrive before the session summary. Remove that late phantom and promote
     // anything it had already acquired so a later root seed repairs the in-memory tree too.
@@ -217,8 +220,8 @@ export class SubagentFold {
     if (phantom) this.dropPhantom(id);
     // Children can name the root as parent without the root ever getting a row of its own.
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
-    if (promoted.length === 0) return;
     for (const agent of promoted) this.moveAgent(agent, null);
+    return named;
   }
   /// Removes a root thread that was folded as a subagent before its identity was known.
   private dropPhantom(id: string): void {
@@ -277,7 +280,10 @@ export class SubagentFold {
     // Codex puts its collaboration item on the session update itself. Keep the event-level
     // fallback for older persisted records that lifted `_meta` beside `update`.
     const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
-    const sender = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    const reporter = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
+    // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
+    const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
@@ -287,7 +293,7 @@ export class SubagentFold {
       const rootRepair =
         typeof change.parent === "string" &&
         this.rootThreads.has(change.parent) &&
-        (sender === undefined || this.rootThreads.has(sender));
+        (reporter === undefined || this.rootThreads.has(reporter));
       const normalized =
         sender === undefined
           ? rootRepair
@@ -308,6 +314,15 @@ export class SubagentFold {
     // A subagent's own `acpmux run --parent` never becomes one of the chat's calls, but its child
     // comes to the chat's log too: it competes for the parent's child records, as a start_session does.
     if (tag !== undefined && !this.isChat(tag) && call) this.reduceNestedRun(`${tag}\u0000${call}`, update);
+    // A tail page can start after the child's spawn. Its ownership tag still keeps its work
+    // out of the parent transcript; retain that work for its own view without inventing a
+    // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
+    if (tag !== undefined && !this.isChat(tag) && !owner) {
+      const spawnCall = call !== undefined && this.spawnCalls.has(call);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(tag, { event, update });
+      return true;
+    }
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -947,7 +962,7 @@ export class SubagentFold {
   /// own subagent, nested under that child, and every later subagent nested under the chat (Leo's
   /// staircase, 2026-10-22). Records written then still say so, so the fold reads them by lineage.
   private isChat(id: string): boolean {
-    return id === this.chat;
+    return id === this.chat || this.rootThreads.has(id);
   }
 
   /// Whether a folded record named `id` as a subagent, a subagent's parent or an update's owner.

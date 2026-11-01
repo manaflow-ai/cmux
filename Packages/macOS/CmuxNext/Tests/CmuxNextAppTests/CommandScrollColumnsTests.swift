@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextWakeupsTestSupport
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -15,6 +16,7 @@ import Testing
 ///   (``PageCommandScrollArbiter``). A page that cancels the wheel event (Figma, Excalidraw zoom)
 ///   gets the held events and keeps the gesture; otherwise the columns pan with them.
 @MainActor
+@Suite(.closesItsWindows)
 struct CommandScrollColumnsTests {
     typealias Base = LayoutScrollModifierTests
 
@@ -59,13 +61,31 @@ struct CommandScrollColumnsTests {
         var pages: [NSWindow] = []
         /// The layout's deadline clock: the page's answer deadline moves only when a test advances it.
         let clock = ManualClock()
+        private let arbiter: FakeArbiter?
 
-        init(model: LayoutModel, arbiter: (any PageCommandScrollArbiter)? = nil) {
+        init(model: LayoutModel, arbiter: FakeArbiter? = nil) {
+            self.arbiter = arbiter
+            window.isReleasedWhenClosed = false
             root = LayoutRootView(model: model, contentProvider: provider, scrollbarClock: clock, pageCommandScroll: arbiter)
             root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
+        }
+
+        /// End pending probes and close the windows even when a throwing assertion exits early.
+        func close() {
+            root.pageProbe = nil
+            root.pageProbeTimer.cancel()
+            root.pageProbeTask?.cancel()
+            arbiter?.release()
+            for page in pages {
+                window.removeChildWindow(page)
+                page.close()
+            }
+            pages.removeAll()
+            window.contentView = nil
+            window.close()
         }
 
         func center(_ pane: PaneID) throws -> CGPoint {
@@ -117,6 +137,7 @@ struct CommandScrollColumnsTests {
     /// follows the fingers (rubber band) and springs back where it was.
     @Test func aCommandSwipeOverATerminalWhereTheStripFitsIsTheLayouts() throws {
         let h = Harness(model: Self.oneColumn())
+        defer { h.close() }
         let point = try h.center("a")
         let before = try #require(h.root.frame(of: "a"))
         let strip = try #require(h.root.screenViews["s"])
@@ -134,6 +155,7 @@ struct CommandScrollColumnsTests {
 
     @Test func aCommandVerticalSwipeAndWheelOverATerminalWhereTheStripFitsAreTheLayouts() throws {
         let h = Harness(model: Self.oneColumn())
+        defer { h.close() }
         let point = try h.center("a")
         #expect(Base.scroll(h.root, at: point, dy: -30, phase: .began, command: true), "up and down too")
         #expect(Base.scroll(h.root, at: point, dy: -30, phase: .changed, command: true))
@@ -146,6 +168,7 @@ struct CommandScrollColumnsTests {
     /// Two columns that fit, the second focused: a Command swipe rubber-bands and leaves focus.
     @Test func aCommandSwipeOverFittingColumnsKeepsFocusAndPlace() throws {
         let h = Harness(model: Self.twoFittingColumns())
+        defer { h.close() }
         let point = try h.center("b")
         let before = try #require(h.root.frame(of: "b"))
         #expect(Base.scroll(h.root, at: point, dx: 40, phase: .began, command: true))
@@ -166,6 +189,7 @@ struct CommandScrollColumnsTests {
     @Test func aCommandSwipeOverABrowserWhereTheStripFitsIsTheLayouts() async throws {
         let arbiter = FakeArbiter(answer: false)
         let h = Harness(model: Self.twoFittingColumns(), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "b")
         let point = try h.center("b")
         let before = try #require(h.root.frame(of: "b"))
@@ -189,6 +213,7 @@ struct CommandScrollColumnsTests {
     @Test func aCommandWheelOverABrowserWhereTheStripFitsIsTheLayouts() async throws {
         let arbiter = FakeArbiter(answer: false)
         let h = Harness(model: Self.oneColumn(), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "a")
         let point = try h.center("a")
         #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true), "a Command notch is held")
@@ -203,6 +228,7 @@ struct CommandScrollColumnsTests {
         let model = Self.oneColumn()
         model.pagesHandleCommandScrollOverride = false
         let h = Harness(model: model, arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "a")
         let point = try h.center("a")
         #expect(Base.scroll(h.root, from: page, at: point, dy: -30, phase: .began, command: true))
@@ -216,6 +242,7 @@ struct CommandScrollColumnsTests {
     @Test func aPageThatHandlesCommandScrollKeepsItWhereTheStripFits() async throws {
         let arbiter = FakeArbiter(answer: true)
         let h = Harness(model: Self.oneColumn(), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "a")
         let point = try h.center("a")
         _ = Base.scroll(h.root, from: page, at: point, dy: -20, phase: .began, command: true)
@@ -232,6 +259,7 @@ struct CommandScrollColumnsTests {
     @Test func aPageThatHandlesCommandScrollKeepsTheGesture() async throws {
         let arbiter = FakeArbiter(answer: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         let before = try #require(h.root.frame(of: "p2"))
@@ -255,6 +283,7 @@ struct CommandScrollColumnsTests {
     @Test func aPageThatDoesNotHandleCommandScrollLetsTheColumnsPan() async throws {
         let arbiter = FakeArbiter(answer: false)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         let before = try #require(h.root.frame(of: "p2"))
@@ -278,6 +307,7 @@ struct CommandScrollColumnsTests {
     /// A gesture shorter than the ask (a quick flick, ended before the answer) still pans.
     @Test func aFlickThatEndsBeforeThePageAnswersStillPans() async throws {
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: FakeArbiter(answer: false))
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         let before = try #require(h.root.frame(of: "p2"))
@@ -298,6 +328,7 @@ struct CommandScrollColumnsTests {
     @Test func aPageThatDoesNotAnswerInTimeLosesTheGestureToTheColumns() async throws {
         let arbiter = FakeArbiter(answer: true, waits: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(Base.scroll(h.root, from: page, at: point, dx: -30, phase: .began, command: true))
@@ -320,6 +351,7 @@ struct CommandScrollColumnsTests {
     @Test func aCommandWheelOverAPageThatHandlesItGoesToThePage() async throws {
         let arbiter = FakeArbiter(answer: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true), "held")
@@ -331,6 +363,7 @@ struct CommandScrollColumnsTests {
 
     @Test func aCommandWheelOverAnOrdinaryPagePansTheColumns() async throws {
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: FakeArbiter(answer: false))
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         let before = try #require(h.root.frame(of: "p2"))
@@ -345,6 +378,7 @@ struct CommandScrollColumnsTests {
     @Test func aPlainScrollOverAPageIsNeverHeld() throws {
         let arbiter = FakeArbiter(answer: false)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(!Base.scroll(h.root, from: page, at: point, dx: -20, phase: .began))
@@ -359,6 +393,7 @@ struct CommandScrollColumnsTests {
         let model = Base.columnsModel(modifier: .command)
         model.pagesHandleCommandScrollOverride = false
         let h = Harness(model: model, arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(Base.scroll(h.root, from: page, at: point, dx: -20, phase: .began, command: true))
@@ -373,6 +408,7 @@ struct CommandScrollColumnsTests {
     @Test func aScrollElsewhereDuringTheAskIsNotHeldForThePage() async throws {
         let arbiter = FakeArbiter(answer: true, waits: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         #expect(Base.scroll(h.root, from: page, at: try h.center("p2"), dy: -1, units: .line, command: true), "held")
         #expect(!Base.scroll(h.root, at: try h.center("p3"), dy: -1, units: .line), "a plain notch over a terminal goes on now")
@@ -385,6 +421,7 @@ struct CommandScrollColumnsTests {
     @Test func aTimedOutWheelAskIsNotKeptForTheSpin() async throws {
         let arbiter = FakeArbiter(answer: true, waits: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        defer { h.close() }
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true))

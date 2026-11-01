@@ -142,6 +142,44 @@ export const LOCAL_CHECKS = {
     });
     return { ok: tabs.length > 0 && wrong.length === 0, detail: `${tabs.length} new, ${wrong.length} not stacked`, category: "wrong_place" };
   },
+  /**
+   * The app opened exactly `count` (default 1) viewer tabs of `kind` (file, diff, page) whose
+   * path or URL matches `what`, each on `side` of `of` (an alias or "origin", default origin):
+   * right, left, below, above, "in" (that pane itself), or "other_workspace". A tab the app
+   * put in the chat's own pane never counts as right, left, below or above. `docked`: the
+   * tab's pane is in a docked (sticky) column, or not.
+   */
+  opened(ctx, { kind, what, side, of = "origin", count = 1, docked }) {
+    const ref = of === "origin" ? ctx.origin.pane_id : ctx.aliases?.[of] ?? of;
+    const at = (id) => ctx.after.panes.find((p) => p.id === id);
+    const base = at(ref);
+    const opens = (ctx.appOpens ?? []).filter((o) => (!kind || o.kind === kind) && (!what || new RegExp(what, "i").test(o.what ?? "")));
+    const where = (o) => {
+      const p = at(o.pane);
+      if (p && base && p.workspace_id !== base.workspace_id) return "other_workspace";
+      if (!p || !base || p.screen_id !== base.screen_id) return "elsewhere";
+      if (p.id === base.id) return "in";
+      if (p.column_index > base.column_index) return "right";
+      if (p.column_index < base.column_index) return "left";
+      return p.row_index > base.row_index ? "below" : "above";
+    };
+    const sides = opens.map(where);
+    const dockOk = docked === undefined || opens.every((o) => !!at(o.pane)?.docked === docked);
+    const ok = opens.length === count && (!side || sides.every((s) => s === side)) && dockOk;
+    const detail = `${opens.length} ${kind ?? ""} opened${sides.length ? ` (${sides.join(", ")})` : ""}; all opens: ${(ctx.appOpens ?? []).map((o) => `${o.kind} ${o.what}`).join(" | ").slice(0, 160)}`;
+    return { ok, detail, category: opens.length === count ? "wrong_place" : "not_done" };
+  },
+  /** `pane` (an alias) is in a docked (sticky) column, or is not when `docked` is false. */
+  pane_docked(ctx, { pane, docked = true }) {
+    const id = pane === "origin" ? ctx.origin.pane_id : ctx.aliases?.[pane] ?? pane;
+    const p = ctx.after.panes.find((x) => x.id === id);
+    return { ok: !!p && !!p.docked === docked, detail: p ? `docked ${p.docked}` : "no pane", category: "not_done" };
+  },
+  /** The person's focus is on the pane the app opened into (they asked to go there). */
+  focus_on_opened(ctx) {
+    const panes = new Set((ctx.appOpens ?? []).map((o) => o.pane));
+    return { ok: panes.has(ctx.after.focus.pane_id), detail: `focus ${ctx.after.focus.pane_id}`, category: "not_done" };
+  },
   /** The person's focus is on `pane` (an alias): for a turn that was asked to move it. */
   focus_on_pane(ctx, { pane }) {
     const id = ctx.aliases?.[pane] ?? pane;

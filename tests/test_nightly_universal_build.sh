@@ -159,7 +159,7 @@ if ! awk '
   exit 1
 fi
 if ! awk '
-  /^  prepare-nightly-variant-fallback:/ { in_fallback=1 }
+  /^  prepare-nightly-variant:/ { in_fallback=1 }
   in_fallback && /needs: .*prepare-nightly-variant-primary/ { saw_dependency=1 }
   in_fallback && /result == '\''failure'\''/ { saw_failure_gate=1 }
   END { exit !(saw_dependency && saw_failure_gate) }
@@ -1456,7 +1456,7 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
@@ -1470,7 +1470,7 @@ for expected in \
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]" \
-  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do

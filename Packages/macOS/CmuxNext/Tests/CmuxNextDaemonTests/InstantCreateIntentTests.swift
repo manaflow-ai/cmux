@@ -167,16 +167,17 @@ struct InstantCreateIntentTests {
 
     /// New Column (`new-pane-right` with client-minted ids): in the intent's turn the screen shows
     /// a new scrolling column after the pane's, holding the provisional pane, at the requested
-    /// width, and the split-tree screen's lone column takes the width the new column leaves.
+    /// width, and the split-tree screen's lone column stays full width (R3b: a new column never
+    /// resizes the columns there).
     @Test func newColumnShowsItsColumnInTheIntentsTurn() throws {
         let store = Self.store()
-        let provisional = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        let provisional = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: provisional), transaction: .generate())
         let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
         #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
         #expect(screen.layout.paneIDs.contains(provisional.handle))
         #expect(screen.columns.map(\.layout.paneIDs) == [[Self.pane], [provisional.handle]], "New Column split the pane instead")
-        #expect(screen.columns.map(\.width) == [0.5, 0.5])
+        #expect(screen.columns.map(\.width) == [1, 0.5])
         #expect(store.mirrorViolations.isEmpty)
     }
 
@@ -255,7 +256,7 @@ struct InstantCreateIntentTests {
     /// the stand-in's handle, which the daemon does not know.
     @Test func newColumnOnAPendingColumnFollowsItsDaemonPane() throws {
         let store = Self.store()
-        let first = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        let first = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
         let second = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: first.handle, direction: .right, ratio: 0.5, provisional: second), transaction: .generate())
