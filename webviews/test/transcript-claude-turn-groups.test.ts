@@ -94,13 +94,23 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   // The short notes between calls are inside the runs: none stands between two runs.
   const between = view.flatMap((row, at) =>
     row.kind === "assistant" && SHORT.test(row.text ?? "") && view[at - 1]?.foldRun && view[at + 1]?.foldRun
-      ? [[row.text, view[at - 1]!.items?.map((item) => item.tool?.kind ?? item.kind), view[at + 1]!.items?.map((item) => item.tool?.kind ?? item.kind)]]
+      ? [
+          [
+            row.text,
+            view[at - 1]!.items?.map((item) => item.tool?.kind ?? item.kind),
+            view[at + 1]!.items?.map((item) => item.tool?.kind ?? item.kind),
+          ],
+        ]
       : [],
   );
   expect(between).toEqual([]);
   expect(runs.some((row) => (row.items ?? []).some((item) => item.kind === "note"))).toBe(true);
   // The longer messages stay in place between the runs, and the final answer is the turn's last words.
-  expect(assistants(view).filter((row) => LONG.test(row.text ?? "")).map(longAt)).toEqual([14, 16, 17]);
+  expect(
+    assistants(view)
+      .filter((row) => LONG.test(row.text ?? ""))
+      .map(longAt),
+  ).toEqual([14, 16, 17]);
   const summary = view.findIndex((row) => row.kind === "turnSummary");
   expect(assistants(view.slice(0, summary)).at(-1)?.text).toMatch(/^Step 17 found/);
   expect(view[summary]?.folded).toBe(false);
@@ -146,7 +156,11 @@ function steered() {
 }
 
 test("a steered Claude turn keeps the steer and the reply before it in sight, each run on its own line", () => {
-  const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "claude" });
+  const view = turnView(steered(), new Set(), {
+    now: Date.UTC(2026, 10, 1, 10),
+    liveRuns: true,
+    agentFamily: "claude",
+  });
   expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
   // The notes inside a run draw as its quiet lines; the reply before the steer is never one.
   const notes = (id: string) =>
