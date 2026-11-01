@@ -20,8 +20,11 @@ struct RestoreWindowFieldsDebugTests {
         try await Self.withApp { services, router in
             let controller = try #require(services.windows.active)
             try #require(controller.window).setFrame(NSRect(x: 0, y: 0, width: 1100, height: 760), display: true)
+            let timer = PhaseTimer("rwf-body")
             let id = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
+            timer.mark("created")
             try await Self.until({ Self.livePane(controller, workspace: id) != nil })
+            timer.mark("pane-live")
             let pane = try #require(Self.livePane(controller, workspace: id))
             // The font size actions take the terminal's tab.
             let tab = try #require(pane.selectedTab?.id)
@@ -37,6 +40,7 @@ struct RestoreWindowFieldsDebugTests {
                 let report = try await router.call("debug.windows")
                 return Self.windowEntry(report, controller.state.id)?["sidebar_width"] == .number(300)
             }, report: { String(describing: try await router.call("debug.windows")) })
+            timer.mark("sidebar-reported")
             let windows = try await router.call("debug.windows")
             let window = try #require(Self.windowEntry(windows, controller.state.id))
             #expect(window["full_screen"] == .bool(false))
@@ -54,6 +58,7 @@ struct RestoreWindowFieldsDebugTests {
                 let report = try await router.call("debug.surfaces")
                 return (Self.fontScale(report, pane: pane.paneKey) ?? 0) > 1.05
             }, report: { String(describing: try await router.call("debug.surfaces")) })
+            timer.mark("font-up")
             // Back to the configured size: the scale reads 1.
             #expect(services.registry.perform("terminal.resetFontSize",
                                               invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .cli)))
@@ -61,6 +66,7 @@ struct RestoreWindowFieldsDebugTests {
                 let report = try await router.call("debug.surfaces")
                 return Self.fontScale(report, pane: pane.paneKey) == 1
             }, report: { String(describing: try await router.call("debug.surfaces")) })
+            timer.mark("font-reset")
         }
     }
 
@@ -103,6 +109,7 @@ struct RestoreWindowFieldsDebugTests {
     /// The app's services on a fresh same-tree daemon with its window on screen, and a control
     /// router with the app's window and surface debug methods.
     private static func withApp(_ body: (AppServices, Router) async throws -> Void) async throws {
+        let timer = PhaseTimer("rwf")
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-rjfields-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -121,6 +128,9 @@ struct RestoreWindowFieldsDebugTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
+        let watches = [timer.watch("restored") { services.windows.restored }, timer.watch("connected") { services.daemon.connection != nil },
+                       timer.watch("store-loaded") { services.daemon.store.isLoaded }]
+        defer { for watch in watches { watch.cancel() } }
         defer { for controller in services.windows.controllers { controller.window?.close() } }
         let result: Result<Void, any Error>
         do {
@@ -128,13 +138,16 @@ struct RestoreWindowFieldsDebugTests {
             // that, `restore()` could land it over the test's workspace mid-body.
             try await until({ services.windows.active?.window != nil && services.daemon.connection != nil && !services.windows.registry.isLaunching },
                             within: .seconds(90))
+            timer.mark("launch-over")
             result = .success(try await body(services, Router(router: router)))
-        } catch { result = .failure(error) }
+            timer.mark("body")
+        } catch { result = .failure(error); timer.mark("body-threw") }
         if let connection = services.daemon.connection {
             services.daemon.shutdownConnection()
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
+        timer.mark("stopped")
         try result.get()
     }
 }

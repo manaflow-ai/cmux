@@ -546,6 +546,7 @@ struct CloudMoveTests {
     /// Runs `body` with a live chat tab on this Mac and a connected Cloud machine; the stand-in
     /// CLI answers as `mode` says (``Stop``'s raw values, or `moves`).
     private static func withMove(_ mode: String, _ body: (Move) async throws -> Void) async throws {
+        let timer = PhaseTimer("move")
         let binary = try #require(SameTreeDaemonBinary.url)
         // A real path (no /tmp symlink): the daemon reports a terminal's folder as it launched it.
         let root = URL(fileURLWithPath: "/private/tmp/cn-move-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
@@ -570,6 +571,7 @@ struct CloudMoveTests {
         let ledger = try #require(UserDefaults(suiteName: suite))
         defer { ledger.removePersistentDomain(forName: suite) }
         let vmSocket = try await vm.endpointProvider().socketPath
+        timer.mark("vm-endpoint")
         func app() async throws -> (AppServices, CloudMachineSession) {
             let services = AppServices(environment: AppEnvironment.current([:]))
             AppActions.bind(services)
@@ -585,20 +587,26 @@ struct CloudMoveTests {
             return (services, machine)
         }
         let (services, machine) = try await app()
+        let watches = [timer.watch("restored") { services.windows.restored }, timer.watch("mac-connected") { services.daemon.connection != nil }]
+        defer { for watch in watches { watch.cancel() } }
 
         let move = Move(services: services, machine: machine, project: project, workRoot: workRoot, log: log, vmSocket: vmSocket)
         move.relaunched = app
         let result: Result<Void, any Error>
         do {
             try await openChat(move)
+            timer.mark("chat-tab")
             try await body(move)
+            timer.mark("body")
             result = .success(())
         } catch {
             result = .failure(error)
+            timer.mark("body-threw")
         }
         await end(move.services.daemon)
         await end(move.machine.daemon)
         for controller in move.services.windows.controllers { controller.window?.close() }
+        timer.mark("ended")
         try result.get()
     }
 

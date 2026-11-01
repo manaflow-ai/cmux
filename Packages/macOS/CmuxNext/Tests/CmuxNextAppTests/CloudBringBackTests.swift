@@ -403,6 +403,7 @@ struct CloudBringBackTests {
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
     /// has the chat ask for a file, `secret` for a secret; `revokeOnce` fails the first `link access revoke`).
     private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
+        let timer = PhaseTimer("back")
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -430,7 +431,10 @@ struct CloudBringBackTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
+        let watches = [timer.watch("restored") { services.windows.restored }, timer.watch("mac-connected") { services.daemon.connection != nil }]
+        defer { for watch in watches { watch.cancel() } }
         let vmSocket = try await vm.endpointProvider().socketPath
+        timer.mark("vm-endpoint")
         let machine = CloudMoveTests.machine(services, cli: cli, root: root)
         services.machines.add(machine)
         machine.daemon.start(remote: { vmSocket })
@@ -438,21 +442,24 @@ struct CloudBringBackTests {
         let trip = Trip(services: services, machine: machine, project: project, log: log, vmSocket: vmSocket)
         let result: Result<Void, any Error>
         do {
-            try await moveToCloud(trip)
+            try await moveToCloud(trip, timer)
             try await body(trip)
+            timer.mark("body")
             result = .success(())
         } catch {
             result = .failure(error)
+            timer.mark("body-threw")
         }
         await CloudMoveTests.end(services.daemon)
         await CloudMoveTests.end(machine.daemon)
         for controller in services.windows.controllers { controller.window?.close() }
+        timer.mark("ended")
         try result.get()
     }
 
     /// Opens a live chat in this Mac's first workspace and moves it to the machine with
     /// `cmux cloud move`, as a person would before bringing it back.
-    private static func moveToCloud(_ trip: Trip) async throws {
+    private static func moveToCloud(_ trip: Trip, _ timer: PhaseTimer) async throws {
         let services = trip.services, machine = trip.machine
         let deadline = ContinuousClock.now + .seconds(60)
         func ready() -> Bool {
@@ -461,6 +468,7 @@ struct CloudBringBackTests {
         }
         while !ready(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
         try #require(ready(), "the daemons did not come up")
+        timer.mark("daemons-ready")
         trip.macSocket = await services.daemon.connection?.endpoint?.socketPath ?? ""
         let connection = try #require(services.daemon.connection)
         let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
@@ -468,6 +476,7 @@ struct CloudBringBackTests {
         let created = try await connection.request(NewConversationTabRequest(agentSession: record, pane: pane.handle))
         let tabID = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         while services.locateTab(tabID, onMachine: services.machines.local.machineID) == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        timer.mark("chat-tab")
         // Setup only needs the moved chat; waiting for the full move action
         // couples setup to the control deadline and turns slow daemon startup
         // into a false timeout.
@@ -475,6 +484,7 @@ struct CloudBringBackTests {
             Issue.record("cmux cloud move: \(error.code) \(error.message)")
         }
         try await trip.waitUntil { trip.machineChat() != nil && trip.localChat() == nil }
+        timer.mark("moved calls=\(trip.calls().count)")
         let moved = try #require(trip.machineChat(), "the chat did not move to the machine")
         trip.machineKey = moved.id
         trip.machineSurface = moved.surface.rawValue

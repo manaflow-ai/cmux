@@ -39,8 +39,10 @@ actor AppTestDaemonOwner {
         // A cancelled ensure can have detached its owner before stdout reports it. Let this
         // bounded attempt finish and record ownership; stop() joins its caller before reaping.
         let launcher = launcher
+        let timer = PhaseTimer("daemon")
         do {
             let endpoint = try await launcher.endpointProvider()
+            timer.mark("endpoint")
             record(endpoint)
             return endpoint
         } catch {
@@ -249,6 +251,7 @@ struct PinnedPageTests {
     /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
     static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+        let timer = PhaseTimer("pinned")
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
         var reaped = false
@@ -266,8 +269,10 @@ struct PinnedPageTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: owner.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
+        let watches = [timer.watch("restored") { services.windows.restored }, timer.watch("launch-over") { !services.windows.registry.isLaunching }]
         // Registered before restore can suspend or fail, including before the test body starts.
         defer {
+            for watch in watches { watch.cancel() }
             for controller in services.windows.controllers { controller.window?.close() }
             for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
             let panels = NSApp.windows.filter { services.palette.owns($0) }
@@ -277,11 +282,15 @@ struct PinnedPageTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            timer.mark("store-panes")
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
+            timer.mark("window-panes restored=\(services.windows.restored) launching=\(services.windows.registry.isLaunching)")
             result = .success(try await body(services, try #require(services.daemon.connection)))
-        } catch { result = .failure(error) }
+            timer.mark("body")
+        } catch { result = .failure(error); timer.mark("body-threw") }
         reaped = await owner.stop(services)
+        timer.mark("stopped")
         try result.get()
     }
 }

@@ -69,6 +69,7 @@ struct ClassicMigrationTests {
     /// The first app launch on `mac`: restore and the launch's migration, then `after`.
     private func launch(_ mac: Mac, state: String = "state", confirm: Bool = true,
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
+        let timer = PhaseTimer("migrate")
         let binary = try #require(SameTreeDaemonBinary.url)
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-migrate-\(UUID().uuidString.prefix(8).lowercased())",
@@ -88,6 +89,9 @@ struct ClassicMigrationTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
+        let watches = [timer.watch("restored") { services.windows.restored }, timer.watch("connected") { services.daemon.connection != nil },
+                       timer.watch("run-started") { services.onboarding.classicMigrationRun != nil }]
+        defer { for watch in watches { watch.cancel() } }
         defer {
             services.daemon.shutdownConnection()
             for controller in services.windows.controllers { controller.window?.close() }
@@ -95,16 +99,20 @@ struct ClassicMigrationTests {
         let result: Result<Tree, any Error>
         do {
             try await Self.awaitMigration(services)
+            timer.mark("migrated")
             try await after(services)
+            timer.mark("after")
             // The run queues its sidebar placements; read the tree once they have landed.
             await services.placementsSettled()
+            timer.mark("settled")
             result = .success(Self.read(services))
-        } catch { result = .failure(error) }
+        } catch { result = .failure(error); timer.mark("threw") }
         if let connection = services.daemon.connection {
             services.daemon.shutdownConnection()
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
+        timer.mark("stopped")
         return try result.get()
     }
 
