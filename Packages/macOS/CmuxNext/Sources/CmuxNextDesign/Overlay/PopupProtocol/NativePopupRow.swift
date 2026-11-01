@@ -1,0 +1,50 @@
+import Foundation
+
+/// NativePopupRow on the native popup wire.
+public struct NativePopupRow: Codable, Equatable, Sendable {
+    public var `id`: String
+    public var `kind`: NativePopupRowKind
+    public var `label`: String
+    public var `description`: String?
+    public var `icon`: String?
+    public var `shortcut`: String?
+    public var `disabled`: Bool?
+    public var `disabledReason`: String?
+    public var `checked`: Bool?
+    public var `value`: String?
+    public var `keepOpen`: Bool?
+    public var `placeholder`: String?
+    public var `options`: [NativePopupOption]?
+    public var `actions`: [NativePopupAction]?
+    public var `children`: [NativePopupRow]?
+    public var `minimum`: Double?
+    public var `maximum`: Double?
+    public var `step`: Double?
+    public var `slider`: NativePopupSlider?
+    public var `completion`: String?
+    public var `editSequence`: Int?
+
+    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil, completion: String? = nil, editSequence: Int? = nil) {
+        self.id = id
+        self.kind = kind
+        self.label = label
+        self.description = description
+        self.icon = icon
+        self.shortcut = shortcut
+        self.disabled = disabled
+        self.disabledReason = disabledReason
+        self.checked = checked
+        self.value = value
+        self.keepOpen = keepOpen
+        self.placeholder = placeholder
+        self.options = options
+        self.actions = actions
+        self.children = children
+        self.minimum = minimum
+        self.maximum = maximum
+        self.step = step
+        self.slider = slider
+        self.completion = completion
+        self.editSequence = editSequence
+    }
+}

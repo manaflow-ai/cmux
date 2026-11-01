@@ -3,8 +3,9 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// The bar shows only while there is more than one profile.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
+    /// A profile mark remains useful with one profile: it identifies the
+    /// current space and is the hover target for the new-space affordance.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
     /// clamped at the ends (no wrap). Nil when nothing changes.

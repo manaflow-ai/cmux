@@ -159,6 +159,31 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       state.handle = 0;
     };
   }, []);
+  // Reduce Motion can change while the row is mounted, and the stylesheet follows it at once.
+  // Turned on, the whole reply shows now: the pending frame is cancelled and no step is left
+  // fading; later text shows as it arrives. Turned off, later text is paced again.
+  useLayoutEffect(() => {
+    const query = typeof window === "undefined" ? undefined : window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const changed = () => {
+      const on = query.matches;
+      if (reduce.current === on) return;
+      reduce.current = on;
+      reveal.current!.setReduceMotion(on, latest.current.text);
+      if (!on) return;
+      const state = loop.current;
+      revealFrames.cancel(state.handle);
+      state.handle = 0;
+      const { text: target, shown: before } = latest.current;
+      if (before.length === target.length && !before.fresh.length) return;
+      const next = { length: target.length, fresh: [], now: before.now };
+      latest.current.shown = next;
+      setShown(next);
+    };
+    changed();
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  }, []);
   return {
     visible: text.slice(0, Math.min(shown.length, text.length)),
     fresh: shown.fresh,
