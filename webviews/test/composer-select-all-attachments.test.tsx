@@ -5,7 +5,7 @@
 // same order, and Cut takes both out (composer/composerCopy.ts, composer/inlineNode.ts).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef, type ComponentProps, type RefObject } from "react";
+import { act, createRef, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
@@ -138,11 +138,6 @@ function imageEngine() {
 }
 
 const pngBase64 = btoa(String.fromCharCode(...PNG));
-const dataUri = `data:image/png;base64,${pngBase64}`;
-/// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
-const imageHtml = (count: number) =>
-  Array.from({ length: count }, (_, index) => `<img src="${dataUri}" alt="Screenshot · 778×69${index}">`).join("");
-
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
   const deadline = performance.now() + 2_000;
@@ -153,9 +148,6 @@ async function until(ready: () => boolean, what: string) {
     });
   }
 }
-
-/// The open composer's handle, for `paste` to read its chips.
-let opened: RefObject<ComposerHandle | null> | undefined;
 
 let composerCount = 0;
 type ComposerProps = ComponentProps<typeof import("../src/agent-session/acpmux/Composer").Composer>;
@@ -170,7 +162,6 @@ async function openComposer(
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
-  opened = handle;
   const sessionId = newChat ? undefined : `chat-${++composerCount}`;
   const snapshot = noChat(
     [],
@@ -202,27 +193,6 @@ async function openComposer(
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
-
-/// Pastes on the prompt field as WebKit delivers it: one ClipboardEvent with the clipboard's data.
-async function paste(clipboard: { files?: File[]; html?: string; plain?: string }) {
-  const data = {
-    files: clipboard.files ?? [],
-    types: [
-      ...(clipboard.files?.length ? ["Files"] : []),
-      ...(clipboard.html ? ["text/html"] : []),
-      ...(clipboard.plain ? ["text/plain"] : []),
-    ],
-    getData: (type: string) =>
-      type === "text/html" ? (clipboard.html ?? "") : type === "text/plain" ? (clipboard.plain ?? "") : "",
-  };
-  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", { value: data });
-  await act(async () => {
-    field().dispatchEvent(event);
-  });
-  // The chips are read from the files after the event, all of one paste's at once.
-  await until(() => (opened!.current!.wakeState().attachments ?? []).length > 0, "the pasted chips");
-}
 
 const screenshot = (name = "image.png") => new File([PNG], name, { type: "image/png" });
 

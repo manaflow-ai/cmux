@@ -141,7 +141,8 @@ struct AgentPaneComposerCopyTests {
         for file in [image, text] {
             let place = file.deletingLastPathComponent()
             #expect(place.lastPathComponent.count == 8)
-            #expect(place.lastPathComponent.allSatisfy(\.isHexDigit))
+            let hex = place.lastPathComponent.allSatisfy { $0.isHexDigit }
+            #expect(hex)
             #expect(place.deletingLastPathComponent().lastPathComponent == "Composer Copies")
         }
     }
@@ -197,7 +198,8 @@ struct AgentPaneComposerCopyTests {
         // The reply names each kept file by its item, so the page knows its copy again on a paste.
         let written = try #require((reply["value"] as? [String: Any])?["files"] as? [[String: Any]])
         #expect(written.count == (reply["value"] as? [String: Any])?["copied"] as? Int)
-        #expect(written.allSatisfy { ($0["item"] as? Int) != nil && !(($0["name"] as? String) ?? "").isEmpty })
+        let named = written.allSatisfy { ($0["item"] as? Int) != nil && !(($0["name"] as? String) ?? "").isEmpty }
+        #expect(named)
         let items = try #require(effects.copied.first)
         #expect(items.count == 1)
         let file = try #require(Self.fileURL(items[0]))
