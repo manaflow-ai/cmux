@@ -32,6 +32,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
+#[path = "watch_seed_tests.rs"]
+mod seed_tests;
+
 /// How often a watched transcript is checked for new lines.
 const POLL: Duration = Duration::from_millis(400);
 
@@ -141,7 +145,21 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            hub.seek_watch_to_page(&session).await;
+            // Do not start copying the transcript before its older-history
+            // boundary is safely journaled and checkpointed. Retry a transient
+            // append, fsync, or metadata error while this is still a watch.
+            loop {
+                if hub.seek_watch_to_page(&session).await {
+                    break;
+                }
+                if session.meta().watching.is_none()
+                    || session.purged.load(std::sync::atomic::Ordering::SeqCst)
+                    || session.status() == SessionStatus::Closed
+                {
+                    return;
+                }
+                tokio::time::sleep(POLL).await;
+            }
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -171,10 +189,13 @@ impl Hub {
     /// (`adopt_replay_page.rs`): the newest turns show at once, instead of the newest 64 MiB read
     /// oldest first. The older turns stay in the transcript, from the `native_history` record's
     /// `before` back.
-    async fn seek_watch_to_page(&self, session: &Arc<Session>) {
-        let Some(watching) = session.meta().watching else { return };
+    /// True when the initial history boundary is ready, or this is not a first
+    /// Claude read. A write failure keeps the reader out of the older transcript
+    /// until its seed has a durable journal marker (start_watch retries).
+    async fn seek_watch_to_page(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+        let Some(watching) = session.meta().watching else { return true };
         if watching.offset != 0 || watching.family != "claude" {
-            return;
+            return true;
         }
         let file = watching.file.clone();
         // The newest page that starts at a prompt, so the first turn followed opens as a turn.
@@ -190,26 +211,105 @@ impl Hub {
         .ok()
         .flatten()
         .unwrap_or((0, None));
-        if start == 0 || mark.is_none() {
-            return;
+        if start == 0 {
+            return true;
         }
-        // Publishing the native-history marker belongs to the watched side of the
-        // takeover boundary, even if the file scan finished after Take Over began.
+        // A readable page boundary whose marker could not be computed must
+        // wait for the source to become readable again.
+        let Some(mark) = mark else { return false };
+        self.commit_watch_page(session, start, mark).await
+    }
+
+    /// Publish the native-history seed ahead of its byte checkpoint. A failed
+    /// append or fsync leaves the checkpoint at zero; a crash between a durable
+    /// marker and metadata save retries the same marker only once.
+    async fn commit_watch_page(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        start: u64,
+        mark: String,
+    ) -> bool {
+        // The watched batch and Take Over use the same turn gate (#29181).
         let _turn = session.turn_lock.lock().await;
+        if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+            return false;
+        }
         {
-            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            match m.watching.as_mut() {
+            let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if meta.status == SessionStatus::Closed
+                || !meta.watching.as_ref().is_some_and(|w| w.offset == 0 && w.family == "claude")
+            {
+                return false;
+            }
+        }
+        // A marker may have been written and synced before the prior process
+        // died (or before a metadata write failed). Reuse its exact boundary
+        // instead of inserting a second historical-page marker.
+        let mut recorded = false;
+        if let Err(error) = self.store.scan_kinds(&session.id, &["native_history"], &mut |event| {
+            if event.dir == "mux"
+                && event.msg.get("before").and_then(Value::as_u64) == Some(start)
+                && event.msg.get("mark").and_then(Value::as_str) == Some(mark.as_str())
+            {
+                recorded = true;
+                false
+            } else {
+                true
+            }
+        }) {
+            tracing::warn!(session = %session.id, "read native history seed failed: {error}");
+            return false;
+        }
+        if !recorded
+            && !self.append_stored(
+                session,
+                "mux",
+                "native_history",
+                json!({"family": "claude", "before": start, "mark": mark}),
+            )
+        {
+            return false;
+        }
+        // Journal append only guarantees a write, not a disk sync. Hold the
+        // takeover gate while syncing the log and its directories, off runtime
+        // workers: session.json may name this boundary only after that sync.
+        let (hub, id) = (self.clone(), session.id.clone());
+        match tokio::task::spawn_blocking(move || hub.store.flush_session(&id)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(session = %session.id, "sync native history seed failed: {error}");
+                return false;
+            }
+            Err(error) => {
+                tracing::warn!(session = %session.id, "join native history seed sync failed: {error}");
+                return false;
+            }
+        }
+        {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            match meta.watching.as_mut() {
                 Some(w) if w.offset == 0 => w.offset = start,
-                _ => return,
+                _ => return false,
             }
         }
         self.save_meta(session);
-        self.append(
-            session,
-            "mux",
-            "native_history",
-            json!({"family": "claude", "before": start, "mark": mark}),
-        );
+        // save_meta logs and swallows a storage error. Check the persistent
+        // checkpoint once here so a failed session.json write also retries.
+        let saved = self
+            .store
+            .load(&session.id)
+            .ok()
+            .flatten()
+            .is_some_and(|meta| meta.watching.as_ref().is_some_and(|w| w.offset == start));
+        if !saved {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(w) = meta.watching.as_mut()
+                && w.offset == start
+            {
+                w.offset = 0;
+            }
+        }
+        saved
     }
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the

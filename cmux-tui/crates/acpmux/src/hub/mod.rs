@@ -103,6 +103,7 @@ mod prompt_line;
 mod prompt_line_tests;
 mod protected_hold;
 mod queue;
+mod queue_admission;
 mod queue_edit;
 pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
@@ -419,6 +420,10 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// The queue took it already and it goes back in (a Send now or a steer whose turn ended
+    /// first): its room is not checked again (`queue_admission.rs`), so a prompt it accepted is
+    /// never refused for room.
+    pub admitted: bool,
     /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
     /// turn's cap (`turn_cap.rs`).
     pub send_now: bool,
@@ -1165,6 +1170,7 @@ impl Hub {
             transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
+            digest_bytes: AtomicU64::new(0),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -1187,6 +1193,7 @@ impl Hub {
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
+            person: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
