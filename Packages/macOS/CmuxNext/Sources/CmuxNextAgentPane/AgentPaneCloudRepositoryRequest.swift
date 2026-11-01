@@ -1,7 +1,7 @@
 public import CmuxNextDaemon
 import Foundation
 
-private extension JSONValue {
+private nonisolated extension JSONValue {
     var objectValue: [String: JSONValue]? { if case .object(let value) = self { return value }; return nil }
     var arrayValue: [JSONValue]? { if case .array(let value) = self { return value }; return nil }
     var intValue: Int? {
