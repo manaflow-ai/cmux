@@ -26,11 +26,45 @@ public struct ScreenInput: Codable, Sendable {
     public var i: Int?
     /// Modifier keysyms for `chord`.
     public var m: [UInt32]?
+    /// The unit of a `scroll`'s `dx`/`dy`: nil for lines (every host), or
+    /// ``pixelUnit`` for pixels, sent only to a host whose `caps` message
+    /// listed ``ScreenHostMessage/pixelScrollCapability``.
+    public var u: String?
+
+    /// `u` for a scroll in pixels. Send whole pixels and carry the leftover
+    /// fraction into the next scroll: a fraction rounds to the nearest pixel,
+    /// so many small deltas sent as they come would round to nothing.
+    public static let pixelUnit = "px"
 
     public init(t: String, x: Double? = nil, y: Double? = nil, b: UInt8? = nil, dx: Int? = nil, dy: Int? = nil,
-                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil) {
+                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil, u: String? = nil) {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
-        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m
+        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m; self.u = u
+    }
+
+    /// As the synthesized decoding, except that a fractional `dx`/`dy` (a
+    /// pixel scroll) rounds to the nearest whole value instead of failing
+    /// the whole message.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func delta(_ key: CodingKeys) throws -> Int? {
+            if let whole = try? container.decodeIfPresent(Int.self, forKey: key) { return whole }
+            guard let value = try container.decodeIfPresent(Double.self, forKey: key) else { return nil }
+            guard value.isFinite else { throw DecodingError.dataCorruptedError(forKey: key, in: container, debugDescription: "not a finite delta") }
+            return Int(clamping: Int64(max(min(value.rounded(), 1e15), -1e15)))
+        }
+        t = try container.decode(String.self, forKey: .t)
+        x = try container.decodeIfPresent(Double.self, forKey: .x)
+        y = try container.decodeIfPresent(Double.self, forKey: .y)
+        b = try container.decodeIfPresent(UInt8.self, forKey: .b)
+        dx = try delta(.dx)
+        dy = try delta(.dy)
+        k = try container.decodeIfPresent(UInt32.self, forKey: .k)
+        d = try container.decodeIfPresent(Bool.self, forKey: .d)
+        s = try container.decodeIfPresent(String.self, forKey: .s)
+        i = try container.decodeIfPresent(Int.self, forKey: .i)
+        m = try container.decodeIfPresent([UInt32].self, forKey: .m)
+        u = try container.decodeIfPresent(String.self, forKey: .u)
     }
 }
 
@@ -135,6 +169,17 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var name: String?
     /// The frames per second the stream is set to (the agreed rate, not the measured one).
     public var fps: Int?
+    /// For `caps`: the input this host understands beyond the first
+    /// protocol, as a comma list (``pixelScrollCapability``,
+    /// ``modifiedPointerCapability``). An older host sends no `caps`.
+    public var s: String?
+
+    /// `t` of the message a host sends once its input channel opens.
+    public static let capabilitiesType = "caps"
+    /// The host posts `scroll` with `u: "px"` as pixel (continuous) scrolling.
+    public static let pixelScrollCapability = "scroll-px"
+    /// Pointer events carry the modifier keys held down (a modifier `key` down, then a click, is a modified click).
+    public static let modifiedPointerCapability = "mods"
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -149,6 +194,9 @@ public protocol ScreenBackend: AnyObject, Sendable {
     func select(display index: Int)
     func handle(_ input: ScreenInput)
     func stop()
+    /// What the host tells the viewer it understands in `caps`
+    /// (``ScreenHostMessage/pixelScrollCapability``, ...); none by default.
+    var inputCapabilities: [String] { get }
     /// The most frames per second the streaming display shows (ProMotion:
     /// 120); nil when the source does not know. Read again whenever the
     /// source reports its displays.
@@ -161,6 +209,7 @@ public protocol ScreenBackend: AnyObject, Sendable {
 /// loopback) report none and keep their own pace: the stream stays at 60.
 public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
+    var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
 }
 
@@ -368,6 +417,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.lock.withLock { session.opened = true }
         log("channel open; starting \(type(of: session.backend))")
         emit(.viewerConnected)
+        sendCapabilities(session)
         session.tasks.append(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
@@ -480,11 +530,30 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return
         }
         guard !viewOnly || Self.viewOnlyMessages.contains(input.t) else { return }
+        // A scroll in a unit the backend did not advertise never reaches it (40 px is not 40 lines).
+        if input.t == "scroll", let unit = input.u,
+           unit != ScreenInput.pixelUnit || !backend.inputCapabilities.contains(ScreenHostMessage.pixelScrollCapability) { return }
         backend.handle(input)
     }
 
     /// What a view-only viewer may still send: a request for a fresh frame (no input reaches the Mac).
     static let viewOnlyMessages: Set<String> = ["refresh"]
+
+    /// The `caps` message for a backend's input capabilities.
+    /// None for a view-only session (it takes no input) or a backend with none.
+    static func capabilitiesMessage(for capabilities: [String], viewOnly: Bool) -> ScreenHostMessage? {
+        guard !viewOnly, !capabilities.isEmpty else { return nil }
+        return ScreenHostMessage(t: ScreenHostMessage.capabilitiesType, s: capabilities.joined(separator: ","))
+    }
+
+    /// Tells the viewer what input this host understands, once, as its
+    /// channel opens: before the first displays message, so an older viewer
+    /// that reads any host message as displays shows the real ones last.
+    private func sendCapabilities(_ session: Session) {
+        guard let message = Self.capabilitiesMessage(for: session.backend.inputCapabilities, viewOnly: viewOnly),
+              let data = try? JSONEncoder().encode(message) else { return }
+        _ = session.link.sendText(String(decoding: data, as: UTF8.self))
+    }
 
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
@@ -649,6 +718,10 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
     public var onVideo: (@Sendable (VideoTrackBox) -> Void)?
     public var onDisplays: (@Sendable (ScreenHostMessage) -> Void)?
+    /// The host's `caps` list (``ScreenHostMessage/pixelScrollCapability``, ...),
+    /// once after the channel opens; a host that sends none predates them
+    /// (send only line scrolls).
+    public var onCapabilities: (@Sendable ([String]) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -715,7 +788,12 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                     self?.lock.withLock { self?.track = track }
                     self?.onVideo?(track)
                 case let .message(data):
-                    if let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) { self?.onDisplays?(message) }
+                    guard let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) else { break }
+                    if let capabilities = Self.capabilities(in: message) {
+                        self?.onCapabilities?(capabilities)
+                    } else if Self.isDisplays(message) {
+                        self?.onDisplays?(message)
+                    }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
                     self?.onPath?(relay ? "Relay" : "Direct")
@@ -797,6 +875,17 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         case .hello, .offer, .path:
             break
         }
+    }
+
+    /// Whether a host message is the displays message (`onDisplays`).
+    static func isDisplays(_ message: ScreenHostMessage) -> Bool {
+        message.t == "displays"
+    }
+
+    /// The host's input capabilities from its `caps` message; nil for any other message.
+    static func capabilities(in message: ScreenHostMessage) -> [String]? {
+        guard message.t == ScreenHostMessage.capabilitiesType else { return nil }
+        return (message.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     /// The input message type that reports the viewer's display rate.

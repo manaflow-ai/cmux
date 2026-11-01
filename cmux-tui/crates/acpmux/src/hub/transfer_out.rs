@@ -105,6 +105,10 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
 /// move has that id, so it is never committed, aborted or watched again.
 pub(super) const MOVED_AWAY: &str = "moved-away";
 
+/// The `moving` mark of a chat being imported here (`transfer.rs` `import_into`): published
+/// frozen and freed once its own `imported` receipt is logged. No move has that id.
+pub(super) const IMPORTING: &str = "importing";
+
 /// The `moving` mark of a chat whose log could not be read at load (`queue.rs`
 /// `restore_queue`): whether a move of it began is unknown, so it stays frozen, as a move would
 /// keep it, until a later load reads its log. No move has that id.
@@ -118,9 +122,9 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 }
 
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
-/// chat (`MOVED_AWAY`, `LOG_UNREADABLE`).
+/// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    mark != MOVED_AWAY && mark != LOG_UNREADABLE
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
 }
 
 #[cfg(test)]
@@ -441,7 +445,7 @@ impl Hub {
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy
     /// that changed while it moved (a deny-all default skips a moving chat, `policy_mode.rs`) is
     /// followed, then its queued prompts run again.
-    fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(super) fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
         tokio::spawn(async move {

@@ -218,9 +218,11 @@ impl Hub {
                             tap_hub.observe_task_line(&tap_session, line);
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
-                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
+                        // its assistant and user lines the bodies those messages carry.
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
+                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
                         return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
@@ -268,20 +270,27 @@ impl Hub {
                 super::drop_display_lines(params);
             }
             let mut subagent = None;
+            // Whether this update changed which background subagents run: a root learned late
+            // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
+            let mut background_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                // The chat's own thread is never one of its subagents.
-                let own = tap_session
-                    .meta
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .agent_session_id
-                    .clone();
+                // The chat's own thread is never one of its subagents. Seed the
+                // native roots (the current one and the earlier ones a daemon restart
+                // forgot) before handling updates so echoed root activity cannot
+                // create a phantom child; replay keeps live/background semantics.
+                let (own, retired) = {
+                    let meta = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
+                };
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
+                let before = tree.background_running();
+                tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
+                background_changed = tree.background_running() != before;
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -315,7 +324,7 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
-            if subagent_events {
+            if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
             }
             // A background shell, a subagent's too (`processes.rs`).
@@ -351,3 +360,7 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "tap_bodies_tests.rs"]
+mod bodies_tests;

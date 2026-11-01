@@ -1,0 +1,140 @@
+{
+  "title": "A 750-turn agent session with seven queued prompts (live turn, queued rows, right panel)",
+  "settings": null,
+  "launch_args": [
+    "--showcase"
+  ],
+  "steps": [
+    {
+      "title": "seed the showcase window and open its agent tab",
+      "rpc": {
+        "method": "debug.showcase.seed",
+        "params": {
+          "focus": true
+        }
+      },
+      "wait": 6
+    },
+    {
+      "title": "agent page ready",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "optional": true,
+      "wait": 2
+    },
+    {
+      "title": "agent page ready (retry)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "optional": true,
+      "wait": 1
+    },
+    {
+      "title": "open a 750-turn session (mock daemon, loadFixture.ts)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "load_seed",
+          "turns": 750
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "prompt 1",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Rename the old limit alias in the billing docs too."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 2",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Then rerun the proration tests on the mid-cycle fixtures."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 3",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Add a changelog entry for the ceiling fix."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 4",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Check the orders API still returns the same totals."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 5",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Open a draft PR with a short summary when that passes."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 6",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Ask me before touching the migration."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "prompt 7",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Last: tidy the debug logging in the cache module."
+        }
+      },
+      "wait": 0
+    },
+    {
+      "title": "close menus",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "close_menus"
+        }
+      },
+      "optional": true,
+      "wait": 0.3
+    }
+  ]
+}

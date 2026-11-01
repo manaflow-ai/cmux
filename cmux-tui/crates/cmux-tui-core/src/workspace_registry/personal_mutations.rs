@@ -14,7 +14,8 @@ use super::personal_store::{
     read_groups, read_profile, read_profiles, read_session, read_snapshot, read_workspaces,
     require_icon_asset, subject, validate_appearance, validate_browser_profile_ref, validate_name,
     validate_personal_json, validate_personal_workspace_key, validate_profile_defaults,
-    validate_profile_id, validate_session_id, validate_theme, write_order,
+    validate_profile_id, validate_session_capabilities, validate_session_id, validate_theme,
+    write_order,
 };
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
@@ -404,9 +405,7 @@ impl WorkspaceRegistry {
             }
         }
         let transport = validate_personal_json("transport", transport, true)?;
-        let capabilities = capabilities
-            .map(|value| validate_personal_json("capabilities", value, false))
-            .transpose()?;
+        let capabilities = capabilities.map(validate_session_capabilities).transpose()?;
         if let Some(room) = follow_with {
             validate_profile_id(room)?;
         }

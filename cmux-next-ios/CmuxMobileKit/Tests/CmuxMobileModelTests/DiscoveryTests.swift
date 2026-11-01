@@ -166,10 +166,12 @@ import Testing
         let store = AppStore.mock(tabMemory: TabMemory(defaults: defaults))
         store.accountMacCount = 2
         store.macLinkStatus = ["m": "Connected"]
+        store.macLinkDiagnostics = ["m": "private diagnostic"]
         store.resetForSignOut(defaults: defaults)
 
         #expect(store.teams.isEmpty && store.activeTeamID.isEmpty && store.workspaces.isEmpty)
         #expect(store.accountMacCount == nil && store.macLinkStatus.isEmpty)
+        #expect(store.macLinkDiagnostics.isEmpty)
         #expect(store.teamDataState == .loading)
         for key in account { #expect(defaults.object(forKey: key) == nil, "\(key) survived sign-out") }
         for key in device { #expect(defaults.string(forKey: key) == "x", "\(key) was dropped") }

@@ -4,6 +4,7 @@ import Metal
 import QuartzCore
 import Testing
 import CmuxNextDesignTokens
+import CmuxNextTestSupport
 
 /// `cmux window|pane|tab screenshot` reads the app's own window without the
 /// Screen Recording grant (`NSWindow.screenshotImage`). The window here has
@@ -12,7 +13,7 @@ import CmuxNextDesignTokens
 /// be the window's full pixel size and show both colors, Metal included, not
 /// a blank or covered image. Each capture path is checked on its own, so a
 /// red run says which one gives real Metal pixels.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WindowScreenshotTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct WindowScreenshotTests {
     /// A layer-hosting view whose CAMetalLayer is cleared to red once.
     private final class MetalView: NSView {
         let metal = CAMetalLayer()
@@ -121,17 +122,28 @@ import CmuxNextDesignTokens
         pixel.green > 180 && pixel.red < 90 && pixel.blue < 90 && pixel.alpha > 200
     }
 
-    /// Captures with `capture` until the Metal frame shows (the window
-    /// server composites a presented drawable on its next frame), bounded.
+    /// Captures with `capture` until the window's whole frame shows (the
+    /// window server composites a new window, and a presented drawable, on
+    /// a later frame), bounded. Until then a capture can be all transparent,
+    /// which `screenshotImage` throws as `.blank`, or show only part of the
+    /// Metal layer: on a CI mini, in a test process with no window before
+    /// this one, the first capture threw `.blank` (0.37 s into the test) and
+    /// a crop's corner came out transparent while its center was red (#26809).
+    /// The last capture runs outside the loop and is returned unchecked: a
+    /// window that never shows still fails, with that capture's own error or
+    /// in the caller's `expectWindowPixels`, which every test runs on it.
     private func settledImage(_ fixture: Fixture, _ capture: () async throws -> CGImage?) async throws -> CGImage? {
         let deadline = ContinuousClock.now + .seconds(5)
-        var last: CGImage?
+        let size = fixture.window.frame.size
+        let corner = fixture.metal.convert(CGPoint(x: 2, y: 2), to: nil)
         repeat {
-            last = try await capture()
-            if let last, isRed(pixel(last, at: CGPoint(x: 180, y: 60), size: fixture.window.frame.size)) { return last }
+            if let image = try? await capture(), isRed(pixel(image, at: CGPoint(x: 180, y: 60), size: size)),
+               isRed(pixel(image, at: corner, size: size)), isGreen(pixel(image, at: CGPoint(x: 60, y: 60), size: size)) {
+                return image
+            }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
-        return last
+        return try await capture()
     }
 
     /// `exactSize`: the image is frame x backing scale pixels (the
@@ -190,6 +202,8 @@ import CmuxNextDesignTokens
         defer { fixture.close() }
         let window = fixture.window
         let full = try #require(try await settledImage(fixture) { try await window.screenshotImage() })
+        // The whole image first, as the other paths check theirs: a crop of a wrong image proves nothing.
+        try expectWindowPixels(full, fixture, path: "screenshotImage")
         let rect = fixture.metal.convert(fixture.metal.bounds, to: nil)
         let crop = try #require(full.cropped(toWindowRect: rect, windowSize: window.frame.size))
         #expect(crop.width == Int((rect.width * window.backingScaleFactor).rounded()))

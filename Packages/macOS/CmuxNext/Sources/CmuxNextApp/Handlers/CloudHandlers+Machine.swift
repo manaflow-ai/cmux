@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -166,12 +167,46 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
+        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
+        // it a person's run opens the teammates page and a CLI or agent run answers the list.
+        bind("cloudShareMachine", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
+                let shared = invocation["revoke"]?.boolValue != true
+                return result("share machine", context) {
+                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
+                        throw ActionFailure(message: CloudMachineShare.message(error))
+                    }
+                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
+                }
+            }
+            if origin(of: invocation) == .user {
+                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
+                                                     relativeTo: context.activeWindow?.window)
+            }
+            answer("machine shares", invocation, context) {
+                let roster: CloudMachineShareRoster
+                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
+                    throw ActionFailure(message: CloudMachineShare.message(error))
+                }
+                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
+                let teammates = roster.rows.map { row in
+                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
+                }
+                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
+                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
+            }
+        }
+        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
+        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { invocation in
+            (try? machine(invocation, context))?.link == nil
+        }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             result("kill machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
                 try await cloud.deleteMachine(session.machineID)
-                return machineFields(session.machineID, ["status": .string("deleted")])
+                return deletionPending(session.machineID)
             }
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
@@ -185,6 +220,14 @@ extension CloudHandlers {
             runTracked("resume machine", context) {
                 try await cloud.resumeMachine(session.machineID)
             }
+        }
+        // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
+        // and app-link resume can both change the server without refreshing that record.
+        // This only changes menu visibility; explicit commands remain idempotent.
+        ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
+            guard let session = try? machine(invocation, context), session.daemon.connection != nil else { return false }
+            if case .connected = session.daemon.store.connectionState { return true }
+            return false
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -241,10 +284,13 @@ extension CloudHandlers {
                 // Stats are a separate provider read, while idle-pause diagnostics
                 // live on the VM record. Fetch both so a status action observes a
                 // cron decision written after the sidebar last refreshed.
+                let read = cloud.beginRecordRead(machineID: session.machineID)
+                defer { cloud.finishRecordRead(read) }
                 async let statsRequest = cloud.api.stats(session.machineID)
                 async let recordRequest = cloud.api.machine(session.machineID)
                 let (stats, record) = try await (statsRequest, recordRequest)
-                session.machine = record
+                // Through the list's own path: a pause suspends the link, a resume connects it.
+                cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
         }
@@ -330,6 +376,10 @@ extension CloudHandlers {
     static let terminalAnswerWait: Duration = .seconds(30)
 
     /// The `pending` answer of a terminal run that outlasted ``terminalAnswerWait``.
+    static func deletionPending(_ machineID: String) -> [String: ActionResultValue] {
+        machineFields(machineID, ["pending": .bool(true), "status": .string("deleting")])
+    }
+
     static func terminalPending(_ session: CloudMachineSession) -> [String: ActionResultValue] {
         session.machine.status == .paused
             ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]

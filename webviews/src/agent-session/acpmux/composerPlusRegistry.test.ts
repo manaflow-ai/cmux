@@ -4,8 +4,10 @@ import {
   COMPOSER_PLUS_MOTION,
   COMPOSER_PLUS_SECTIONS,
   composerPlusRegistry,
+  composerPlusSearchExtensions,
   composerPlusSections,
   nativeComposerExtensions,
+  PLUS_SEARCH_ACTIONS,
   runComposerPlusAction,
 } from "./composerPlusRegistry";
 
@@ -32,6 +34,9 @@ test("the plus registry exposes the Add and Files sections in command order", ()
   expect(css).toMatch(
     /\.acpmux-composer-plus \.acpmux-menu-header\s*\{[^}]*background-image:linear-gradient\(var\(--surface-popup\),var\(--surface-popup\)\)/,
   );
+  // The + menu is not held to half the window like other menus: in a short pane its Search rows
+  // stay whole (composer-chip-press.test.ts presses every row at 760x600).
+  expect(css).toMatch(/\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*max-height:min\(520px,calc\(100vh - 16px\)\)/);
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
@@ -176,4 +181,33 @@ test("native catalog rows keep their real action ids and reject malformed rows",
     ["sessions", { kind: "command", id: "search.chats" }],
   ]);
   expect(rows[0]?.icon).toBe("browser");
+});
+
+test("Search chats and Search pages dispatch the app's palette actions through the extension handler", () => {
+  const rows = composerPlusRegistry({ extensions: composerPlusSearchExtensions() });
+  const search = composerPlusSections(rows).get("files") ?? [];
+  expect(search.map((row) => row.name)).toEqual(["Search files", "Search chats", "Search pages"]);
+  const ran: string[] = [];
+  const commands: string[] = [];
+  for (const row of search)
+    expect(
+      runComposerPlusAction(row.action, {
+        command: (id) => commands.push(id),
+        extension: (id) => ran.push(id),
+        slash: () => {},
+      }),
+    ).toBe(true);
+  // Search files stays the composer's own file finder; the other two are app actions the pane may run
+  // (AgentPaneModel.paletteActions), never ids the host refuses.
+  expect(commands).toEqual(["searchFiles"]);
+  expect(ran).toEqual([PLUS_SEARCH_ACTIONS.chats, PLUS_SEARCH_ACTIONS.pages]);
+  const swift = readFileSync(
+    new URL(
+      "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel+Actions.swift",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const allowed = /paletteActions: Set<String> = \[([^\]]*)\]/.exec(swift)?.[1] ?? "";
+  for (const id of Object.values(PLUS_SEARCH_ACTIONS)) expect(allowed).toContain(`"${id}"`);
 });

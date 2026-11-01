@@ -456,9 +456,9 @@ async fn relayed_status(
                     }
                 }
             }
-            status["deliveryId"] = json!(delivery.id);
-            status["relayDeliveryId"] = json!(relay);
-            status["target"] = json!(delivery.target);
+            status.set("deliveryId", json!(delivery.id));
+            status.set("relayDeliveryId", json!(relay));
+            status.set("target", json!(delivery.target));
             status
         }
         Err(_) => own,
