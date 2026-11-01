@@ -2159,133 +2159,133 @@
         }
       }
     },
-    "quit.button.quitEverything": {
+    "quit.button.endKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit Everything"
+            "value": "End Sessions, Keep Layout"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إنهاء كل شيء"
+            "state": "translated",
+            "value": "إنهاء الجلسات مع إبقاء التخطيط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvori sve"
+            "value": "Završi sesije, zadrži raspored"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut alt"
+            "value": "Afslut sessioner, behold layout"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alles beenden"
+            "state": "translated",
+            "value": "Sitzungen beenden, Layout behalten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Salir de todo"
+            "state": "translated",
+            "value": "Finalizar sesiones y mantener el diseño"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tout quitter"
+            "state": "translated",
+            "value": "Terminer les sessions, garder la disposition"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esci da tutto"
+            "value": "Termina le sessioni, mantieni il layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべて終了"
+            "value": "セッションを終了してレイアウトを維持"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាកចេញទាំងអស់"
+            "value": "បញ្ចប់វគ្គ ហើយរក្សាប្លង់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "모두 종료"
+            "state": "translated",
+            "value": "세션 끝내고 레이아웃 유지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt alt"
+            "value": "Avslutt økter, behold oppsett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zakończ wszystko"
+            "value": "Zamknij sesje, zachowaj układ"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Encerrar tudo"
+            "value": "Encerrar sessões e manter o layout"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершить всё"
+            "value": "Завершить сеансы, сохранить макет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ออกทั้งหมด"
+            "value": "จบเซสชัน คงเลย์เอาต์ไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her Şeyden Çık"
+            "value": "Oturumları sonlandır, düzeni koru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершити все"
+            "value": "Завершити сеанси, зберегти макет"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thoát tất cả"
+            "value": "Kết thúc phiên, giữ bố cục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "全部退出"
+            "state": "translated",
+            "value": "结束会话，保留布局"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "全部結束"
+            "state": "translated",
+            "value": "終止工作階段，保留版面"
           }
         }
       }
