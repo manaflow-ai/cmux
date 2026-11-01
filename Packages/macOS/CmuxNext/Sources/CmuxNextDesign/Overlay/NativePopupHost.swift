@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq
@@ -32,6 +33,8 @@ public final class NativePopupHost {
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
+    /// The menu-tracking observers (`watch`), released with the rest by `unwatch`.
+    private var menuObservations: [MainActorObservation] = []
     private var monitors: [Any] = []
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
@@ -227,17 +230,17 @@ public final class NativePopupHost {
                 Task { @MainActor in self?.dismiss() }
             }
         }
-        // A menu opened from inside the popup, noted as AppKit posts it (no queue: delivered at
-        // once on the posting thread, inside the press that opens the menu) so a key loss checked
-        // after the press sees it.
-        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            MainActor.assumeIsolated { self?.menuBegan(menu) }
-        })
-        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            MainActor.assumeIsolated { self?.menuEnded(menu) }
-        })
+        // A menu opened from inside the popup, noted as AppKit posts it (queue: .main runs the
+        // block inline for AppKit's post on main, inside the press that opens the menu) so a key
+        // loss checked after the press sees it. The observation carries the non-Sendable menu.
+        menuObservations = [
+            MainActorObservation(NSMenu.didBeginTrackingNotification, center: center, read: { $0.object as? NSMenu }) { [weak self] menu in
+                if let menu { self?.menuBegan(menu) }
+            },
+            MainActorObservation(NSMenu.didEndTrackingNotification, center: center, read: { $0.object as? NSMenu }) { [weak self] menu in
+                if let menu { self?.menuEnded(menu) }
+            },
+        ]
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
             self.dismiss()
@@ -256,6 +259,7 @@ public final class NativePopupHost {
     private func unwatch() {
         observers.forEach(center.removeObserver)
         observers = []
+        menuObservations = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         childMenus = []
