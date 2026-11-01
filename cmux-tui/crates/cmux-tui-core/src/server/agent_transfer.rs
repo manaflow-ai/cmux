@@ -103,6 +103,10 @@ pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 /// caller's word that the Cloud API answered `vmKind: "owner"` for it on
 /// its link, which a chat move onto a Cloud VM needs.
 pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
+/// This daemon's acpmux continues a turn a move stops (`--interrupt`) where the chat lands, or
+/// here when the move does not happen. An older one stops it for good, so the pump asks for the
+/// Stop only from a source that lists this.
+pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;

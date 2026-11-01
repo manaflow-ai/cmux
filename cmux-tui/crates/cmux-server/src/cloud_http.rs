@@ -43,6 +43,20 @@ impl JsonPoster {
         Ok(JsonPoster { transport: Mutex::new(Some(Transport::new(allow_http)?)), allow_http })
     }
 
+    /// An authenticated JSON GET with POST's HTTPS, size and 20 s bounds; a
+    /// body that is not JSON reads as `{}`. Unlike
+    /// [`JsonPoster::request_with_deadline`], this may carry a bearer: it is
+    /// for the authenticated platform API, not policy or keyset reads.
+    pub fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        check_url(url, self.allow_http).map_err(|e| e.to_string())?;
+        let deadline = RequestDeadline::from_active(Instant::now() + Duration::from_secs(20))
+            .ok_or("Cloud request unavailable")?;
+        let (status, bytes) = self.transport_request(url, None, bearer, &deadline)?;
+        let parsed =
+            serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
+        Ok((status, parsed))
+    }
+
     /// `(status, body)`; a body that is not JSON reads as `{}`.
     pub fn post(
         &self,
@@ -71,6 +85,16 @@ impl JsonPoster {
         if body.is_none() && bearer.is_some() {
             return Err("Cloud request unavailable".into());
         }
+        self.transport_request(url, body, bearer, deadline)
+    }
+
+    fn transport_request(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
         // This synchronous owner is serial. Contention cannot queue a request
         // beyond its original budget.
         let mut slot = self.transport.try_lock().map_err(|_| "Cloud transport unavailable")?;

@@ -3,6 +3,7 @@ import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
+import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -26,10 +27,12 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       // what Find searches and the fold measures.
       text={parts.flatMap((part) => blockText(part) ?? []).join("\n")}
       show={show}
+      huge={hasHugeTypedPart(parts)}
     >
-      {(open) => (
+      {(open, head) => (
         <span className="cv-user__inline-content" data-inline-content="true">
-          {parts.map((part, index) => {
+          {/* A huge prompt collapsed draws only its head (PromptText.tsx): the clamp hides the rest. */}
+          {(head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, typedText) : parts).map((part, index) => {
             // Two text blocks side by side read as the recorded text does, with its newline between
             // them; the strip view's bubble, its attachments moved to the band, is that text. An
             // attachment drawn between two blocks stands in the newline's place.
@@ -48,7 +51,10 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   );
 
   function renderPart(part: PromptContentPart, index: number, open: () => void): ReactNode {
-    if (part.kind === "text") return <PromptTyped key={`text-${index}`} text={part.text} show={show} />;
+    if (part.kind === "text")
+      return (
+        <PromptTyped key={`text-${index}`} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
+      );
     if (part.kind === "image")
       return (
         <span key={`image-${part.id}-${index}`} className="cv-user__inline-image">
@@ -92,6 +98,9 @@ function blockText(part: PromptContentPart): string | undefined {
   if (part.kind === "pasted" || (part.kind === "file" && !part.uri)) return part.text;
   return undefined;
 }
+
+/** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
+const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
 
 /** The parts the strip setting moves to the band above the bubble: attachments, not what reads as
  * the prompt's text (typed text, pasted blocks and a text file's body stay in the bubble, as a

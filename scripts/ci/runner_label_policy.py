@@ -143,7 +143,10 @@ SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 # The light minis' side label for the smallest side-lane jobs (attempt 1);
 # held to the same rule as CI_SIDE_LANE_RUNNER.
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
-SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE)
+# The owned-mini member the no-kernel Linux gates (ci.yml admission, preflight and status gates, ci-web.yml's webview jobs) take
+# ahead of Blacksmith when set: a side label too, for a Blacksmith backlog (2026-11-01).
+LINUX_GATE_OWNED_VARIABLE = "CI_LINUX_GATE_OWNED_RUNNER"
+SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE, LINUX_GATE_OWNED_VARIABLE)
 SIDE_LANE_PREFIX = "glaeda-side-"
 
 
@@ -333,7 +336,7 @@ def forbidden_reason(label: str) -> str | None:
 # SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO".
 NO_HOSTED_MAC_VARIABLES = frozenset({
     "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
-    "LINUX_RUNNER",
+    "LINUX_RUNNER", "CI_NIGHTLY_ONLY_RUNNER",
     "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
@@ -413,6 +416,9 @@ def drifted_runner_variables(
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
+        elif name == "CI_NIGHTLY_ONLY_RUNNER":
+            reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro") else
+                      "must name the enrolled all-nightly reservation or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:

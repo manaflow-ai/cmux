@@ -50,15 +50,30 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var laneSinceMs: UInt64?
     /// The session's folder (`cwd`).
     public var cwd: String?
+    /// The running turn's prompt is acpmux's notice of other agents' messages ("[inbox] New
+    /// messages from other agents…", `turn.notice`), not anyone's words: the hover card's
+    /// History leaves it out.
+    public var promptIsNotice = false
+    /// What the chat runs below its turn now, as acpmux counts it (`subagentsRunning`,
+    /// `subagentNames`, `commandsRunning`): its running subagents at any depth, the first of
+    /// their names, and its running background commands. 0 and empty from an older acpmux.
+    public var subagentsRunning = 0
+    public var subagentNames: [String] = []
+    public var commandsRunning = 0
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
-                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil) {
+                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil, promptIsNotice: Bool = false,
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
         self.laneState = laneState
         self.laneSinceMs = laneSinceMs
         self.cwd = cwd
+        self.promptIsNotice = promptIsNotice
+        self.subagentsRunning = subagentsRunning
+        self.subagentNames = subagentNames
+        self.commandsRunning = commandsRunning
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -69,9 +84,14 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
             return text
         }
         let lane = summary["lane"] as? [String: Any]
+        let count = { (value: Any?) -> Int in max(0, (value as? NSNumber)?.intValue ?? 0) }
         let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
                                      prompt: text(turn?["prompt"]), laneState: text(lane?["state"]),
-                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]))
+                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]),
+                                     promptIsNotice: turn?["notice"] as? Bool == true,
+                                     subagentsRunning: count(summary["subagentsRunning"]),
+                                     subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
+                                     commandsRunning: count(summary["commandsRunning"]))
         return detail == AgentChatDetail() ? nil : detail
     }
 

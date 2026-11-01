@@ -109,6 +109,12 @@ class Limits(unittest.TestCase):
                 self.assertTrue(any(heavy.FRAME_DRIVERS.search(f.read_text(errors="replace"))
                                     for f in (TESTS / target).rglob(f"{name}.swift")), "no longer frame-driving: drop it from SHARED")
 
+    def test_home_sheet_latency_runs_outside_the_shared_app_shard(self) -> None:
+        suites = heavy.heavy_suites(TESTS, "CmuxNextAppTests")
+        self.assertRegex("CmuxNextAppTests.HomeSheetOpensInstantlyTests/inviteShowsInTheCallsFrameAndItsFieldTakesTheFirstKey()",
+                         heavy.pattern(suites))
+        self.assertIn(("CmuxNextAppTests", "HomeSheetOpensInstantlyTests"), suites)
+
     def test_a_suite_with_its_own_time_limit_gets_watchdog_limits_above_it(self) -> None:
         # Its 15-minute .timeLimit: Swift Testing reports a slow test before the watchdog ends the process.
         self.assertEqual(heavy.suite_time_limit(TESTS, "CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests"), 900)

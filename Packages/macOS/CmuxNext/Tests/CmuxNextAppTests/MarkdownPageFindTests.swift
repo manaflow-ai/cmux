@@ -10,7 +10,7 @@ import Testing
 /// terminal find`) and its neighbors reached the code editor page but refused a Markdown page as
 /// "not a terminal", so Cmd-F in a Markdown tab did nothing. They now reach the Markdown page as its
 /// page commands, the same path the code editor takes, and the page draws its find pill.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct MarkdownPageFindTests {
     @Test func findAndItsNeighborsReachTheMarkdownPage() async throws {
         // The test bundle has no built webviews-app: a scratch root serves the page's document, so

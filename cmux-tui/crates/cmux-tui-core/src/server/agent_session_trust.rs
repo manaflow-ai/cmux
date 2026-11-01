@@ -178,23 +178,32 @@ pub(super) fn callers_own_cloud_vm(mux: &Mux, vm_kind: &Option<Option<String>>) 
     vm_word(vm_kind) == Some("owner") && mux.control_clients.agent_sessions.starts.on_cloud_vm()
 }
 
-/// The folder a start on the caller's own Cloud VM runs in: an unconfirmed
-/// home folder (a new chat with no folder of the person's own, which the app
-/// then takes from the workspace's first terminal, `$HOME` on a new machine)
-/// becomes the machine's work folder, made if missing (Leo: "whenever i start
-/// a chat it should be able to send me to cloud automatically"). Any other
-/// folder, a home folder the person chose (Use Home Folder), and every
-/// machine that is not the caller's own Cloud VM keep the folder asked for.
-pub(super) fn owner_cloud_cwd(own: bool, cwd: &str, home_confirmed: bool) -> Option<String> {
+/// The folder a start on the caller's own Cloud VM runs in when no folder was
+/// selected. It is made per chat under `~/chats/<chat-id>` so separate chats
+/// never share state. An older caller that supplied the home folder without a
+/// confirmation is treated as the same no-folder choice; an explicitly chosen
+/// folder (including Use Home Folder) is preserved.
+pub(super) fn owner_cloud_cwd(
+    own: bool,
+    cwd: Option<&str>,
+    home_confirmed: bool,
+    chat_id: u64,
+) -> Option<String> {
     if !own || home_confirmed {
         return None;
     }
-    let home = crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok())?;
-    if std::fs::canonicalize(cwd).ok()? != home {
-        return None;
-    }
-    let work = super::agent_session_folders::own_work_folder(true)?;
-    Some(work.to_string_lossy().into_owned())
+    let no_folder = match cwd {
+        None => true,
+        Some(cwd) => {
+            let home =
+                crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+            home.zip(std::fs::canonicalize(cwd).ok()).is_some_and(|(home, cwd)| home == cwd)
+        }
+    };
+    no_folder
+        .then(|| super::agent_session_folders::own_chat_folder(chat_id, true))
+        .flatten()
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 /// acpmux's trust answer (`acp.trust.get`) for the caller's own Cloud VM:
@@ -218,13 +227,25 @@ pub(super) fn owner_cloud_trust(own: bool, mut answer: Value) -> Value {
     let canonical = |path: &str| std::fs::canonicalize(path).ok();
     let work = super::agent_session_folders::own_work_folder(false);
     let at_work = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
-    if work.is_none() || at_work != work {
+    let chat_root = crate::platform::home_dir().and_then(|home| {
+        std::fs::canonicalize(home)
+            .ok()
+            .map(|home| home.join(super::agent_session_folders::CHAT_FOLDER))
+    });
+    let at_chat = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
+    let in_chat = chat_root.as_ref().is_some_and(|root| {
+        super::agent_session_folders::private_owned_dir(root)
+            && at_chat.as_ref().is_some_and(|path| {
+                path.parent() == Some(root) && super::agent_session_folders::private_owned_dir(path)
+            })
+    });
+    if (work.is_none() || at_work != work) && !in_chat {
         return answer;
     }
     if let Some(object) = answer.as_object_mut() {
         object.insert("level".into(), json!("trusted"));
         object.insert("decided".into(), json!(true));
-        object.insert("auto".into(), json!("cloud_work"));
+        object.insert("auto".into(), json!(if in_chat { "cloud_chat" } else { "cloud_work" }));
     }
     answer
 }

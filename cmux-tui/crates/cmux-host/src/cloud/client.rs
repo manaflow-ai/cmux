@@ -16,7 +16,7 @@ use super::wire::{
     parse_bind_file,
 };
 
-/// One JSON POST: `(status, body)`, or a transport error.
+/// JSON HTTP operations: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
 
@@ -43,6 +43,11 @@ pub trait Http {
         _deadline: &RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
         Err("continuous Cloud transport unavailable".into())
+    }
+
+    /// Optional for POST-only test transports; production implements both methods.
+    fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
+        Err("GET is not supported by this transport".to_owned())
     }
 }
 
@@ -259,6 +264,11 @@ pub fn bind_machine(
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
+    // The new identity IPC stays unavailable if the receipt cannot be saved.
+    // Do not retry a spent bind token or disturb the ordinary bound machine.
+    if crate::identity::record(store, &bound.machine, key).is_err() {
+        store.remove(crate::identity::RECEIPT);
+    }
     // Best effort: the token is spent, so a retry would be refused and lose
     // bind.json. The agent tries again (and logs a failure) once bound and at
     // every restart (role.rs); each try keeps a record that is already there.
@@ -428,6 +438,12 @@ impl<H: Http> CloudClient<H> {
         self.cached = None;
     }
 
+    /// Drops the cached bearer (another origin refused it), so the next
+    /// [`CloudClient::token`] asks for a new one.
+    pub fn forget_token(&mut self) {
+        self.cached = None;
+    }
+
     /// One read on `/v1/read` (`{op, params}`), with the same token
     /// handling as [`CloudClient::op`].
     pub fn read(&mut self, op: &str, params: &Value, now_wall_ms: u64) -> Answer {
@@ -456,6 +472,28 @@ impl<H: Http> CloudClient<H> {
     /// handling as [`CloudClient::op`] (the trajectory routes, `trajectory.rs`).
     pub fn post_json(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
         self.post_with_token(path, body, now_wall_ms)
+    }
+
+    /// A connector read against the environment's platform, authenticated as
+    /// this machine. Neither origin nor team is taken from the socket caller.
+    fn github_repos_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = format!("{}{}", self.bound.env.platform_origin(), path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.get(&url, Some(&token)).ok()
+        };
+        let Some((mut status, mut body)) = send(self) else { return Answer::Transport };
+        if status == 401 {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, body) = again;
+        }
+        Answer::Http { status, body }
+    }
+
+    pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
+        let team = self.bound.team.clone();
+        super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`
