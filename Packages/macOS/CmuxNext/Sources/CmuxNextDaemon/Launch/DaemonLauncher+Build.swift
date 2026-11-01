@@ -36,16 +36,28 @@ extension DaemonLauncher {
         return Self.parseBuildCommit(String(decoding: result.stdout, as: UTF8.self))
     }
 
+    /// Build of the bundled binary (`cmux --version --json`: `build_commit` and `build_identity`),
+    /// for the version handoff; nil when the binary does not answer with that JSON.
+    /// A binary older than `--version --json` (an external `CMUX_NEXT_TUI_BIN`) gets its commit
+    /// from the `--version` text, as before.
+    public func bundledBuild() async throws -> DaemonBuildStamp? {
+        let result = try await ProcessRunner.run(executable: configuration.binary, arguments: ["--version", "--json"],
+                                                 environment: nil, timeout: .seconds(5), clock: clock)
+        if let stamp = DaemonBuildStamp(versionJSON: result.stdout) { return stamp }
+        return try await bundledBuildCommit().map { DaemonBuildStamp(commit: $0, id: nil) }
+    }
+
     static func parseBuildCommit(_ version: String) -> String? {
         guard version.contains("(") else { return nil }
         let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
         return commit.count >= 7 ? String(commit) : nil
     }
 
-    /// True when the running daemon was built from a different commit than
-    /// the bundled binary, so the app should hand off with `restartDaemon`.
+    /// True when the running daemon is another build than the bundled binary
+    /// (``versionDecision(running:bundled:)``), so the app should hand it off.
     public func isStale(_ identity: DaemonIdentity) async -> Bool {
-        guard let running = identity.buildCommit, let bundled = try? await bundledBuildCommit() else { return false }
-        return running != bundled
+        let bundled = try? await bundledBuild()
+        guard case .restart = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled) else { return false }
+        return true
     }
 }

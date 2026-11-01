@@ -4,7 +4,7 @@ import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
-import { sessionStateText, sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionStateText, sessionStatus } from "../session-info/ChildSessionRows";
 import {
   SUBAGENT_RETRY,
   sessionRetry,

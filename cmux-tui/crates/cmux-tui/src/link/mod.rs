@@ -126,7 +126,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return machine_update::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
-        return start_chat_cli::run(&args[1..]);
+        return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
