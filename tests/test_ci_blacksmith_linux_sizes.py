@@ -36,7 +36,7 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 LABEL = re.compile(r"blacksmith-(\d+)vcpu-ubuntu-2404(?![-\w])")
 CAPABILITY_32 = re.compile(r"outputs\.map\)\.linux_32\b")
 # Jobs still on 32 vCPU while an open pull request changes the same runs-on. Lower it as they move; never raise it.
-PENDING = 51
+PENDING = 50
 
 
 def table() -> dict:

@@ -44,6 +44,8 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
@@ -861,6 +863,11 @@ export function SessionInfoPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
+  // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
+  // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
+  // it sits beside the chat and covers nothing.
+  useSeeThroughBlur(frame, placement === "overlay", chatUnderGlass, chatGlass);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);

@@ -51,8 +51,10 @@
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
+/* Match the composer's 8px outset below 298px of content width (#28587). */
 .acpmux-dock > .acpmux-running-tray {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  --acpmux-tray-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
+  margin: 0 calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-tray-outset)) 0 calc(var(--cv-inset) - var(--acpmux-tray-outset));
 }
 /* The cards over the composer: the running tray (Leo, 2026-10-30: "the stupid fucking gap at the
    bottom plus the stupid right indent misalignemnt"). It takes the composer card's two edges
@@ -135,60 +137,6 @@
   .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
   :is(.acpmux-md-field, .acpmux-shell-field) {
   align-self: stretch;
-}
-/* Codex keeps its own non-grid bar, but its draft still yields to the fixed footer and 24px
-   dots row in a short pane. Shrink only the scrolling field; the actions and footer stay reachable. */
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner)) {
-  display: flex;
-  flex: 0 1 auto;
-  flex-direction: column;
-  /* One line of the prompt with its padding (markdownField.css) over the control row. */
-  min-height: calc(
-    var(--text-content--line-height) + var(--acpmux-md-pad-top) + var(--acpmux-md-pad-bottom) + var(--acpmux-codex-row)
-  );
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-md-field {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-shell-prompt {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-}
-.acpmux-main[data-dock="float"]
-  > .acpmux-dock
-  > .acpmux-composer[data-composer-look="codex"]
-  > .acpmux-composer-box:not(:has(> .acpmux-chrome-area > .acpmux-composer-inner))
-  > .acpmux-composer-field-menu
-  > .acpmux-shell-prompt
-  > .acpmux-shell-field {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */

@@ -265,17 +265,6 @@
   padding-block: 6px;
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
-/* Codex's look keeps this row inside the box under the prompt: + stands as far off the box's left
-   as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
-   shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
-.acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
-  /* A 28 px control with 8 px over and under it (composerLook.css --acpmux-codex-row), and + as far
-     off the box's left as off its bottom. */
-  --acpmux-row-edge: calc((var(--acpmux-codex-row) - var(--acpmux-composer-control)) / 2);
-  min-height: var(--acpmux-codex-row);
-  padding-block: 0;
-  padding-inline: var(--acpmux-row-edge);
-}
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {
   width: 30px;
@@ -458,7 +447,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: 4px;
+  gap: var(--acpmux-composer-action-gap);
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -697,8 +686,8 @@
    2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
-/* New Tab's row takes the same forms: with Codex's look its chips sit there (NewTabScreen.tsx), so
-   the model's family and short names must draw as they do in the chat's box row. */
+/* New Tab's row takes the same forms: where its chips sit there (a page with no quiet row,
+   NewTabScreen.tsx), the model's family and short names draw as they do in the chat's row. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button { position: relative; overflow: clip; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
@@ -716,8 +705,8 @@
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
-   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+/* New Tab's row: the effort always, and the model's and mode's other forms too where its chips sit
+   in this row (NewTabScreen.tsx), as the chat's row does. */
 .nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
@@ -732,8 +721,7 @@
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
-   always did. The box's own row keeps them whatever its footer look, since Codex's look puts the
-   mode, model and ring there (composerLook.ts). The guard is
+   always did. The guard is
    `:where(:not(.acpmux-composer-foot[data-footer-look="plain"]))`, never a bare `:not(...)`:
    these rules sit after the hiding rules above and must keep losing to them, so the row's measured
    fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
@@ -1345,7 +1333,9 @@
    whole pane (pane-has-restyle.browser.test.ts). */
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
+.acpmux-dock,
 :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-action-gap: 4px;
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text
@@ -1487,21 +1477,10 @@
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's rows, as Codex's
-   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud, then a hairline and the other
-   machines. No section headers and no second lines; each of the first nine machines ends with its
-   ⌥⌘ digit, then the current one's check. */
+   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
+   its own (Machines…). No section headers and no second lines; each of the first nine machines ends
+   with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 220px; }
-/* The hairline over the person's other machines: the + menu's untitled-group split. */
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { margin-top: 9px; position: relative; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: 6px;
-  right: 6px;
-  border-top: .5px solid var(--acpmux-composer-edge, color-mix(in srgb, currentColor 12%, transparent));
-  pointer-events: none;
-}
 /* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
 .acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
   position: absolute;

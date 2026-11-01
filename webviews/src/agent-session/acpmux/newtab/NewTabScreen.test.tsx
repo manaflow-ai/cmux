@@ -11,6 +11,7 @@ import type { RunMode } from "../sandboxRun";
 import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
+import { translate } from "../i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -94,6 +95,21 @@ async function press(field: MarkdownFieldElement, key: string) {
   await act(async () => {
     editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
+}
+
+/// The environment control's machine list: Machines… on its right-click menu (its main list is This
+/// Mac and Cloud).
+async function openMachines(button: HTMLElement) {
+  await act(async () =>
+    button.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+    (candidate) => candidate.textContent === translate("composer.machinesList"),
+  );
+  expect(item, "no Machines… item").toBeTruthy();
+  await act(async () => item!.click());
 }
 
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
@@ -589,8 +605,9 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const computer = () =>
     container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
-  const choose = async (selector: string) => {
-    await act(async () => computer().click());
+  const choose = async (selector: string, machines = false) => {
+    if (machines) await openMachines(computer());
+    else await act(async () => computer().click());
     await settle();
     const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
     await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
@@ -598,7 +615,7 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   };
   await act(async () => root!.render(<Page />));
   await settle();
-  await choose(".acpmux-env-saved");
+  await choose(".acpmux-env-saved", true);
   expect(computer().getAttribute("aria-label")).toContain("Repo B");
   await choose('[data-mode="cloud"]');
   expect(computer().getAttribute("aria-label")).not.toContain("Repo B");
@@ -705,7 +722,7 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
     await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
   };
   const machine = async (kind: string) => {
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!.click());
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
     await act(async () => document.querySelector<HTMLElement>(`.acpmux-env-row[data-kind="${kind}"]`)!.click());
   };
   await browse();
