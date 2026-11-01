@@ -635,8 +635,8 @@ pub(crate) enum DiscardUnpublishedError {
     NoCloseDelta(WorkspaceId),
 }
 
-impl std::fmt::Display for DiscardUnpublishedError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for DiscardUnpublishedError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoCloseDelta(workspace) => {
                 write!(formatter, "workspace {workspace:?} has no close delta")
