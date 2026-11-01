@@ -2750,6 +2750,10 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        // Closing a workspace that is not selected posts none of the topology
+        // notifications the socket's read snapshot follows, so `tree --all` kept
+        // serving the closed workspace from it (#22221).
+        TerminalController.shared.externalTopologyDidChange()
     }
 
     /// Finalizes every workspace owned by a closing window without creating a
