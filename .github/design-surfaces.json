@@ -32,12 +32,14 @@
       "paths": [
         "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
         "webviews/src/agent-session/acpmux/environments.ts",
-        "webviews/src/agent-session/acpmux/ComposerContext.tsx"
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx",
+        "webviews/src/agent-session/acpmux/ComposerContext.gallery.tsx",
+        "webviews/test/environment-picker.test.tsx"
       ]
     },
     "composer": {
       "spec": "leo-workspace design/composer.md",
-      "aliases": ["composer", "prompt box"],
+      "aliases": ["composer", "prompt box", "bottom stack"],
       "paths": [
         "webviews/src/agent-session/acpmux/Composer.tsx",
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
@@ -52,7 +54,16 @@
         "webviews/src/agent-session/acpmux/composerStates.css",
         "webviews/src/agent-session/acpmux/HostError.tsx",
         "webviews/src/agent-session/acpmux/hostLine.ts",
-        "webviews/src/agent-session/acpmux/hostRetry.ts"
+        "webviews/src/agent-session/acpmux/hostRetry.ts",
+        "webviews/src/agent-session/acpmux/bottomStack.css"
+      ]
+    },
+    "running-tray": {
+      "spec": "leo-workspace design/running-tray.md",
+      "aliases": ["running tray", "subagent tray", "running in background"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/subagents/SubagentTray.tsx",
+        "webviews/src/agent-session/acpmux/subagents/subagents.css"
       ]
     },
     "session-rail": {
@@ -99,7 +110,15 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
       ]
     },
     "settings": {
@@ -113,6 +132,15 @@
         "webviews/src/pages/settings/refined.css",
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
       ]
     },
     "session-info": {

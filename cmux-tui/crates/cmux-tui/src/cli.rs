@@ -47,6 +47,8 @@ mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
+mod cloud_repo;
+#[cfg(unix)]
 mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
@@ -91,7 +93,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
+    platform_origin, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -498,6 +501,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
@@ -876,6 +880,20 @@ fn scan_globals(
         if value == "--" {
             after_separator = true;
             command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        // Cloud repo actions name a chat, not a daemon, with --session.
+        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+            && (value == "--session" || value.starts_with("--session="))
+        {
+            command.push(value.clone());
+            if value == "--session"
+                && let Some(next) = args.get(index + 1)
+            {
+                command.push(next.clone());
+                index += 1;
+            }
             index += 1;
             continue;
         }

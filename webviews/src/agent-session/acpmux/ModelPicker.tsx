@@ -121,7 +121,7 @@ function quickSections(
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry, lang);
   const all = groupChoices([...latest, ...older], model).filter(usable);
-  return relevantModelSections(all, entry?.top);
+  return relevantModelSections(all, entry?.top, model);
 }
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
