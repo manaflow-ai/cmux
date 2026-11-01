@@ -178,9 +178,9 @@ test("each refusal reason has its own failure", () => {
   expect(loginFailure(Object.assign(new Error("Refused"), { code: "transport.method_refused" }))).toBe("unsupported");
   expect(loginFailure(Object.assign(new Error("Refused"), { code: "remote.unsupported" }))).toBe("unsupported");
   // A Cloud chat's daemon without the relay, or a machine's acpmux without the method.
-  expect(loginFailure(Object.assign(new Error("refused"), { code: "agent_login.refused", reason: "unsupported" }))).toBe(
-    "unsupported",
-  );
+  expect(
+    loginFailure(Object.assign(new Error("refused"), { code: "agent_login.refused", reason: "unsupported" })),
+  ).toBe("unsupported");
   expect(loginFailure(new Error("socket closed"))).toBe("failed");
 });
 

@@ -105,7 +105,7 @@ export function CloudSignIn({
   const start = () => {
     const mine = ++generation.current;
     setStage({ at: "starting" });
-    signIn.start().then(
+    void signIn.start().then(
       (login) => {
         if (mine !== generation.current) {
           signIn.cancel(login.loginId);
@@ -118,7 +118,7 @@ export function CloudSignIn({
           return;
         }
         setStage({ at: "device", login });
-        signIn.finish(login.loginId).then(
+        void signIn.finish(login.loginId).then(
           (done) => {
             if (mine !== generation.current) return;
             if (done) signedIn();
@@ -144,7 +144,7 @@ export function CloudSignIn({
     // The Continue click is the resend's gesture: reserved now, spent once the agent is signed in.
     const ticket = resendable ? signIn.reserve() : undefined;
     setStage({ at: "code", login, busy: true });
-    signIn.finish(login.loginId, pasted).then(
+    void signIn.finish(login.loginId, pasted).then(
       (done) => {
         if (mine !== generation.current) return;
         if (!done) {
@@ -172,7 +172,7 @@ export function CloudSignIn({
     // The key leaves the page's state as soon as it is sent.
     setKey("");
     setStage({ at: "key", busy: true });
-    signIn.apiKey(typed).then(
+    void signIn.apiKey(typed).then(
       (saved) => {
         if (mine !== generation.current) return;
         if (saved) signedIn();

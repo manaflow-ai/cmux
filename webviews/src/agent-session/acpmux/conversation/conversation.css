@@ -3651,9 +3651,9 @@ a.cv-sha:focus-visible {
   font: inherit;
   font-size: calc(var(--cv-font-size) * 12 / 14);
 }
-.cv-turn-signin__input:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
+.cv-turn-signin__input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--agent-accent) 55%, var(--agent-border));
 }
 .cv-turn-signin__code {
   font-family: var(--cv-mono);
