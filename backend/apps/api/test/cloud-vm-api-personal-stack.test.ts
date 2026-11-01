@@ -55,6 +55,7 @@ it("ignores client-selected metadata and follows all discovery and membership pa
       expect(url.searchParams.get("user_id")).toBe(stackUser)
       return Response.json(url.searchParams.has("cursor") ? { items: [team], pagination: { next_cursor: null } } : { items: [{ id: tenant, client_metadata: { cmuxVmPersonalTenant: marker }, client_read_only_metadata: { cmuxVmPersonalTenant: marker } }], pagination: { next_cursor: "next" } })
     }
+    expect(url.pathname).toBe("/api/v1/team-member-profiles")
     expect(url.searchParams.get("team_id")).toBe(tenant)
     return Response.json(url.searchParams.has("cursor") ? { items: [{ user_id: "another-user" }], pagination: { next_cursor: null } } : { items: [{ user_id: stackUser }], pagination: { next_cursor: "members-next" } })
   })!
@@ -86,4 +87,16 @@ it("classifies only definitive rejections as safe to retry and never leaks answe
   }
   const broken = personalTenantStack(e, async () => new Response("private malformed response", { headers: { "content-type": "application/json" } }))!
   await expect(broken.create(marker)).rejects.toThrow("identity service unavailable")
+})
+
+it("names the failed call, its status and Stack's known-error code, and nothing from the body", async () => {
+  const stack = personalTenantStack(e, async () => Response.json({ secret: e.STACK_SECRET_SERVER_KEY }, { status: 403, headers: { "x-stack-known-error": "INSUFFICIENT_ACCESS_TYPE" } }))!
+  const error: unknown = await stack.create(marker).catch((value: unknown) => value)
+  expect(error).toBeInstanceOf(PersonalTenantIdentityError)
+  expect((error as PersonalTenantIdentityError).failure).toEqual({ call: "create", status: 403, code: "INSUFFICIENT_ACCESS_TYPE" })
+  expect(JSON.stringify((error as PersonalTenantIdentityError).failure)).not.toContain(e.STACK_SECRET_SERVER_KEY)
+  const joined = personalTenantStack(e, async (r) => r.method === "POST" && new URL(r.url).pathname.endsWith("/teams") ? Response.json(team) : r.method === "POST" ? Response.json({}, { status: 400, headers: { "x-stack-known-error": "not a code; " + e.STACK_SECRET_SERVER_KEY } }) : Response.json({}))!
+  expect(((await joined.create(marker).catch((value: unknown) => value)) as PersonalTenantIdentityError).failure).toEqual({ call: "join", status: 400 })
+  const unreachable = personalTenantStack(e, async () => { throw new TypeError("network") })!
+  expect(((await unreachable.find(marker).catch((value: unknown) => value)) as PersonalTenantIdentityError).failure).toEqual({ call: "find", cause: "network" })
 })

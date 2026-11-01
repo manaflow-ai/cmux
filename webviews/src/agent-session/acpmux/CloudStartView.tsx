@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
+import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook } from "./cloudStart.experiment";
 import {
   CLOUD_START_STEPS,
@@ -224,12 +225,7 @@ export function CloudStartView({
   const arm = experimentArm(cloudStartLook);
   const failed = start.state === "failed";
   const [expanded, setExpanded] = useState(!start.initialized);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (start.initialized || start.state === "failed") return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [start.initialized, start.state]);
+  const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     setExpanded(start.initialized !== true);
   }, [start.initialized]);
