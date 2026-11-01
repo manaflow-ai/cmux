@@ -1411,7 +1411,10 @@ def main():
         else:
             seeds = None
         i = 0
-        while time.time() < deadline - 60 and (not opts.iterations or i < opts.iterations):
+        # An iteration may need: actions, a settle (SETTLE_BOUND), and under diskfull a recovery wait and a Restart
+        # wait (2 more SETTLE_BOUNDs) plus the evidence re-read (30 s). Start one only if it can end inside the lease.
+        need = 60 + (3 * SETTLE_BOUND + 40 if opts.chaos == "diskfull" else 0)
+        while time.time() < deadline - need and (not opts.iterations or i < opts.iterations):
             dead = [proc.pid for proc in CHAOS_PROCS if proc.poll() is not None]
             if dead:
                 chaos_lost[0] = 1
