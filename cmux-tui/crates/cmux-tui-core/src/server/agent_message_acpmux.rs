@@ -111,7 +111,9 @@ impl crate::mux::Mux {
                 Handover::Unreachable
             }
             Ok(Heard::Answered(Err(
-                LinkError::Rpc(message, _) | LinkError::MethodNotFound(message),
+                LinkError::Rpc(message, _)
+                | LinkError::MethodNotFound(message)
+                | LinkError::BadList(message),
             ))) => Handover::Failed(message),
             // The prompt went out and no answer came: acpmux may run it, and
             // a resend under the same id runs it once.
@@ -167,7 +169,8 @@ impl crate::mux::Mux {
                         | LinkError::MethodNotFound(_)
                         | LinkError::Closed
                         | LinkError::Timeout
-                        | LinkError::Busy,
+                        | LinkError::Busy
+                        | LinkError::BadList(_),
                     ) => Err(WithdrawError::Unavailable),
                 }
             }
@@ -189,9 +192,9 @@ impl crate::mux::Mux {
             Err(LinkError::Rpc(message, data)) => withdraw_refusal(&message, &data),
             // An acpmux from before the method refuses it as any other error.
             Err(LinkError::MethodNotFound(message)) => withdraw_refusal(&message, &Value::Null),
-            Err(LinkError::Closed | LinkError::Timeout | LinkError::Busy) => {
-                Err(WithdrawError::Unavailable)
-            }
+            Err(
+                LinkError::Closed | LinkError::Timeout | LinkError::Busy | LinkError::BadList(_),
+            ) => Err(WithdrawError::Unavailable),
         }
     }
 }
