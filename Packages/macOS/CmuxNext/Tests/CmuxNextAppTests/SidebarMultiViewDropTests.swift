@@ -38,7 +38,7 @@ extension SidebarMultiViewWindowTests {
                 #expect(f.state.workspaceID == "k0", "the held drag focused k2 at \(dy) pt")
                 #expect(f.model.activeWorkspaceID?.rawValue == "k0")
                 #expect(f.onScreen == ["k0", "k1"])
-                #expect(SidebarPointerGestureTests.filledRows(f.list) == ["k0", "k1"],
+                #expect(f.litRows == ["k0", "k1"],
                         "visible rows lost their fills at \(dy) pt")
             }
 
@@ -54,7 +54,7 @@ extension SidebarMultiViewWindowTests {
             #expect(drag.workspaceOutcome == .window(id: f.state.id, target: .beside(.bottom)))
             #expect(f.state.workspaceID == "k0", "the split preview changed focus")
             #expect(f.onScreen == ["k0", "k1"])
-            #expect(SidebarPointerGestureTests.filledRows(f.list) == ["k0", "k1"])
+            #expect(f.litRows == ["k0", "k1"])
             #expect(k1.layoutView.dropHighlightShowing, "the pane drop overlay did not show the split indicator")
             #expect(k1.layoutView.dropHighlightFrameInWindow != nil)
 
@@ -64,7 +64,7 @@ extension SidebarMultiViewWindowTests {
             #expect(f.state.workspaceID == "k0", "the split drop moved focus")
             #expect(f.onScreen == f.shown)
             #expect(f.shown.contains("k2"), "the dropped workspace did not join the current view")
-            #expect(SidebarPointerGestureTests.filledRows(f.list) == f.shown,
+            #expect(f.litRows == f.shown,
                     "the sidebar did not light every workspace in the view")
         }
     }
@@ -178,6 +178,16 @@ extension SidebarMultiViewWindowTests {
 }
 
 extension SidebarMultiViewWindowTests.Fixture {
+    /// The realized workspace rows that draw a fill in multi-view: the selection-colored ones
+    /// (`SidebarPointerGestureTests.filledRows`) plus the soft fill of a row whose workspace is on screen beside
+    /// the focused one (`WorkspaceRowView.isOnScreen`).
+    var litRows: Set<String> {
+        SidebarPointerGestureTests.filledRows(list).union(list.rowViews.compactMap { key, view -> String? in
+            guard case let .workspace(id) = key, let row = view as? WorkspaceRowView, row.isOnScreen else { return nil }
+            return id.rawValue
+        })
+    }
+
     /// The `index`th pane of `id`'s screen, and a point in the middle of its body on screen.
     func paneCenter(of id: String, index: Int) throws -> (PaneController, CGPoint) {
         let content = try #require(visible.first { $0.workspace.id == id }, "\(id) is not on screen")
