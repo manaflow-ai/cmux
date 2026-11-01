@@ -388,8 +388,8 @@ extension AgentTabStore {
             host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
-            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            host.cloudTeamMachine = services.machines.session(daemon.machineID)?.harnessLogin?.skippedTeamMachine == true
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil

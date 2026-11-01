@@ -40,7 +40,7 @@ extension CloudStartChat {
         var decision = CloudHarnessLoginDecision(gate: Self.passesHarnessLoginHere, provider: provider, signedIn: userID != nil)
         // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
         defer {
-            machine.harnessLogin = decision.summary
+            machine.harnessLogin = decision
             cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)")
         }
         do {

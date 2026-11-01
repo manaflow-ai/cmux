@@ -234606,6 +234606,270 @@
         }
       }
     },
+    "sessionInfo.outputs.showLess": {
+      "comment": "Agent pane Session Info, Outputs: whole-row button under the opened outputs list that folds it back to five",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض أقل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži manje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mindre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar menos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher moins"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra meno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示を減らす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញតិចជាងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간략히 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mindre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż mniej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar menos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать меньше"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงน้อยลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha az göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати менше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện ít hơn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示更少"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示較少"
+          }
+        }
+      }
+    },
+    "sessionInfo.outputs.showMore": {
+      "comment": "Agent pane Session Info, Outputs: whole-row button under the first five outputs that shows the rest",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المزيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži više"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra altro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もっと見る"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញច្រើនទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż więcej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать больше"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha fazla göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати більше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thêm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示更多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示更多"
+          }
+        }
+      }
+    },
     "sessionInfo.subagents.more": {
       "comment": "Agent pane Inspector, Subagents: under the first running subagents and chats, opens the {n} more that run",
       "extractionState": "manual",
@@ -243731,6 +243995,33 @@
         "vi": { "stringUnit": { "state": "translated", "value": "Nhà cung cấp đã từ chối thông tin xác thực của {harness} trên máy Cloud này{status}. Hãy thiết lập lại." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "提供商在这台 Cloud 机器上拒绝了 {harness} 的凭据{status}。请重新设置。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "提供者在這台 Cloud 機器上拒絕了 {harness} 的憑證{status}。請重新設定。" } }
+      }
+    },
+    "turn.failure.cloudTeamMachineNoLogin": {
+      "comment": "Agent pane: a Claude sign-in failure on a team Cloud machine, where cmux passes no personal login. harness is the agent name. Never include raw output or host.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "{harness} on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يملك {harness} على جهاز Cloud الخاص بالفريق هذا أي تسجيل دخول يمكنه استخدامه. لا ينقل cmux تسجيلات الدخول الشخصية إلى أجهزة الفريق المشتركة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "{harness} na ovom timskom Cloud računaru nema prijavu koju može koristiti. cmux ne prenosi lične prijave na dijeljene timske računare." } },
+        "da": { "stringUnit": { "state": "translated", "value": "{harness} på denne team-Cloud-maskine har intet login, den kan bruge. cmux overfører ikke personlige logins til delte team-maskiner." } },
+        "de": { "stringUnit": { "state": "translated", "value": "{harness} auf diesem Team-Cloud-Computer hat keine nutzbare Anmeldung. cmux überträgt keine persönlichen Anmeldungen auf gemeinsam genutzte Team-Computer." } },
+        "es": { "stringUnit": { "state": "translated", "value": "{harness} en esta máquina de Cloud del equipo no tiene un inicio de sesión que pueda usar. cmux no pasa inicios de sesión personales a máquinas compartidas del equipo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "{harness} sur cette machine Cloud d’équipe n’a aucune connexion utilisable. cmux ne transmet pas les connexions personnelles aux machines d’équipe partagées." } },
+        "it": { "stringUnit": { "state": "translated", "value": "{harness} su questa macchina Cloud del team non ha un accesso utilizzabile. cmux non trasferisce gli accessi personali alle macchine condivise del team." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチームの Cloud マシンの {harness} には使えるサインインがありません。cmux は個人のログインを共有チームマシンに渡しません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "{harness} នៅលើម៉ាស៊ីន Cloud របស់ក្រុមនេះ មិនមានការចូលគណនីដែលវាអាចប្រើបានទេ។ cmux មិនបញ្ជូនការចូលគណនីផ្ទាល់ខ្លួនទៅម៉ាស៊ីនក្រុមដែលចែករំលែកទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 팀 Cloud 머신의 {harness}에는 사용할 수 있는 로그인이 없습니다. cmux는 개인 로그인을 공유 팀 머신에 전달하지 않습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "{harness} på denne team-Cloud-maskinen har ingen innlogging den kan bruke. cmux overfører ikke personlige innlogginger til delte team-maskiner." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "{harness} na tej zespołowej maszynie Cloud nie ma logowania, którego mógłby użyć. cmux nie przekazuje osobistych logowań na współdzielone maszyny zespołu." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "{harness} nesta máquina Cloud da equipe não tem um login que possa usar. O cmux não passa logins pessoais para máquinas compartilhadas da equipe." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "У {harness} на этой командной машине Cloud нет входа, который можно использовать. cmux не передаёт личные входы на общие машины команды." } },
+        "th": { "stringUnit": { "state": "translated", "value": "{harness} บนเครื่อง Cloud ของทีมนี้ไม่มีการลงชื่อเข้าใช้ที่ใช้ได้ cmux ไม่ส่งการเข้าสู่ระบบส่วนตัวไปยังเครื่องที่ทีมใช้ร่วมกัน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu ekip Cloud makinesindeki {harness} için kullanılabilir bir oturum yok. cmux kişisel oturumları paylaşılan ekip makinelerine aktarmaz." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "У {harness} на цій командній хмарній машині немає входу, який можна використати. cmux не передає особисті входи на спільні машини команди." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "{harness} trên máy Cloud của nhóm này không có thông tin đăng nhập nào dùng được. cmux không chuyển thông tin đăng nhập cá nhân sang máy dùng chung của nhóm." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "这台团队 Cloud 机器上的 {harness} 没有可用的登录。cmux 不会把个人登录传给共享的团队机器。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這台團隊 Cloud 機器上的 {harness} 沒有可用的登入。cmux 不會把個人登入傳給共用的團隊機器。" } }
       }
     },
     "turn.signIn.claude": {

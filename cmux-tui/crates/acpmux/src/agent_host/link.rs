@@ -18,36 +18,22 @@ pub struct HostLauncher {
 }
 
 impl HostLauncher {
-    /// This process's own binary, with the prefix it starts its daemon with.
-    /// On Linux `exe` is the path without the ` (deleted)` that `current_exe`
-    /// adds once an update replaced the file ([`Self::program`] still starts
-    /// this build).
+    /// This process's own binary, with the prefix it starts its daemon with
+    /// (`exe` without Linux's ` (deleted)`: [`SelfCommand::current`]).
+    ///
+    /// [`SelfCommand::current`]: crate::self_command::SelfCommand::current
     pub fn current() -> Result<Self> {
         let this = crate::self_command::SelfCommand::current()?;
-        Ok(Self { exe: undeleted(this.exe), prefix: this.prefix })
+        Ok(Self { exe: this.exe, prefix: this.prefix })
     }
 
-    /// The program [`spawn`] execs; `exe` stays the host's argv0. On Linux,
-    /// for this process's own binary, the open inode `/proc/self/exe`: once an
-    /// update replaces the file a long-lived daemon runs from (a Cloud VM's
-    /// `~/.cmux/bin/cmux-tui`), the path is gone or holds another build, and
+    /// The program [`spawn`] execs; `exe` stays the host's argv0. For this
+    /// process's own binary on Linux, the open inode
+    /// ([`crate::self_command::program`]): once an update replaced the file,
     /// every new chat failed with "start PATH (deleted): No such file or
-    /// directory" (the app's `agent_session.refused`). The host then runs the
-    /// daemon's own build, as cmux-tui's terminal hosts do
-    /// (`self_exe_for_spawn`). argv0 stays the path: a cmux-tui copy named
-    /// `acpmux` (a peer's `~/.local/bin/acpmux`) runs as acpmux by that name.
+    /// directory" (the app's `agent_session.refused`).
     fn program(&self) -> PathBuf {
-        let own = cfg!(target_os = "linux")
-            && std::env::current_exe().is_ok_and(|exe| undeleted(exe) == self.exe);
-        if own { PathBuf::from("/proc/self/exe") } else { self.exe.clone() }
-    }
-}
-
-/// `path` without the ` (deleted)` Linux appends to a replaced executable.
-fn undeleted(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(|p| p.strip_suffix(" (deleted)")) {
-        Some(p) => PathBuf::from(p),
-        None => path,
+        crate::self_command::program(&self.exe)
     }
 }
 
@@ -740,7 +726,7 @@ impl Link {
 
 #[cfg(test)]
 mod launcher_tests {
-    use super::{HostLauncher, undeleted};
+    use super::HostLauncher;
     use std::path::PathBuf;
 
     /// A daemon whose binary an update replaced still starts agent hosts: on
@@ -759,12 +745,5 @@ mod launcher_tests {
         }
         let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
         assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-
-    #[test]
-    fn a_replaced_file_reads_as_its_path() {
-        let path = "/home/cmux/.cmux/bin/cmux-tui";
-        assert_eq!(undeleted(format!("{path} (deleted)").into()), PathBuf::from(path));
-        assert_eq!(undeleted(path.into()), PathBuf::from(path));
     }
 }
