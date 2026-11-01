@@ -98,9 +98,6 @@ struct CloudStartChat {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
-        guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
-            throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
-        }
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
@@ -112,12 +109,14 @@ struct CloudStartChat {
         // copy finished opens its chat without copying again, which would overwrite what it changed.
         let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
         do {
-            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
-            // Its progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
-            copy = try await SeedProgress.feed({ [cli, services, id = machine.machineID, roots = services.cloud.move.workRoots, owner = Self.accountText(account)] line in
-                try await CloudOutdatedMachine.copy({ try await cli.startChatCopy(key: start.key, account: owner, machine: id, socket: socket, local: folder.root, subpath: folder.subpath, workRoots: roots, stderrLine: line) },
-                                                    answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(id, services: services) }
-            }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
+            // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
+            // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
+            copy = try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
+                                                       link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
+                                                       notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, key = start.key, owner = Self.accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots] line in
+                    try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, stderrLine: line)
+                }) { report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size)) }
+            } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
