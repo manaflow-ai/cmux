@@ -200,6 +200,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
 };
 
@@ -238,6 +241,11 @@ type Props = NewTabScreenActions & {
   /// folder; no target for a saved environment, no project or a shell command). The pane warms
   /// that agent while the person types (newChatPrewarm.ts).
   onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
+  /// A project on this Mac was picked on the page (its folder chip, a widget card, Choose Folder, a
+  /// new worktree): the click that picked it. The page hands it to the host on that click, so Cloud
+  /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
+  /// Return that sends keeps its own gesture for the start.
+  onProjectPicked?(cwd: string): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -327,18 +335,19 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
+  const [carried] = useState(() => props.takeDraft?.());
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
-  // subsequent values are the editor's serialized Markdown, including attachment tokens.
-  const [text, setText] = useState(() =>
+  // a carried composer draft is already serialized Markdown, including attachment tokens.
+  const untouchedText = useRef(
     (location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"),
   );
-  const untouchedText = useRef(text);
+  const [text, setText] = useState(carried?.text || untouchedText.current);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
   // index: new tabs or pages from the host can reorder the rows under a highlight.
   const [selected, setSelected] = useState<string | undefined>(undefined);
@@ -466,6 +475,9 @@ export function NewTabScreen(props: Props) {
     field,
     (file) => void attach([file], true, "paste"),
   );
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
@@ -485,7 +497,7 @@ export function NewTabScreen(props: Props) {
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== untouchedText.current
+    text !== untouchedText.current || Boolean(carried?.text && text.trim())
       ? "newtab.draft"
       : attachments.length || reading.length
         ? "newtab.attachments"
@@ -496,7 +508,7 @@ export function NewTabScreen(props: Props) {
   leaving.current = {
     text,
     attachments,
-    typed: text !== untouchedText.current,
+    typed: Boolean(carried?.text) || text !== untouchedText.current,
     onLeaveDraft: props.onLeaveDraft,
   };
   useEffect(
@@ -1286,6 +1298,7 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
+    if (cwd) props.onProjectPicked?.(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
