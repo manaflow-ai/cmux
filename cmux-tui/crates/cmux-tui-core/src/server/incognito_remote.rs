@@ -49,7 +49,7 @@ const REMOTE_RESOURCE_OPERATIONS: [&str; 7] = [
 /// target: reads of the whole session, the connection's own settings, and
 /// creating a new workspace or group. Any other command that names no target
 /// is refused while the current workspace is incognito (fail closed).
-const NO_CURRENT_TARGET: [&str; 34] = [
+const NO_CURRENT_TARGET: [&str; 36] = [
     "identify",
     "ping",
     "server-stats",
@@ -84,6 +84,8 @@ const NO_CURRENT_TARGET: [&str; 34] = [
     "client-focus",
     "report-focus",
     "set-personal-workspace",
+    "set-window-title",
+    "clear-window-title",
 ];
 
 /// The object families a field can name (`workspace`, `destination_pane`,
@@ -108,6 +110,14 @@ const SUFFIXES: [&str; 6] = ["", "s", "_id", "_ids", "_key", "_keys"];
 /// `after_column`. Never widened by suffix or prefix: `rows` and `cols` are
 /// terminal sizes.
 const SPLIT_KEYS: [&str; 3] = ["column", "row", "after_column"];
+
+/// Reply lists of bare surface ids under a key no family names
+/// (`list-clients`' `attached`): their hidden ids are left out.
+const SURFACE_LIST_KEYS: [&str; 1] = ["attached"];
+
+/// The kinds an object names by its `value` (a sidebar item's `ref`) or,
+/// in an `ids` row, its `id` and `short_id`.
+const REF_KINDS: [&str; 6] = ["workspace", "screen", "pane", "surface", "tab", "terminal"];
 
 /// The family field `key` names an object of: a family, with an optional
 /// suffix and an optional `<anything>_` prefix. `workspace_revision`,
@@ -158,6 +168,10 @@ pub(super) struct Hidden {
     /// group (`store::incognito_saved`): their records keep its members'
     /// titles, directories and URLs, and reopening one recreates them.
     saved: HashSet<String>,
+    /// Notifications of a hidden workspace or terminal, by public id (random,
+    /// so matched in any field): a terminal-less one names its workspace
+    /// only in state a reply row leaves out.
+    notifications: HashSet<String>,
     /// The Mac's current workspace is incognito.
     current_hidden: bool,
     /// The registry could not say which workspaces are ephemeral: hide
@@ -278,6 +292,13 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
         }
     }
     hidden.saved.extend(saved);
+    for notification in mux.resource_notifications(256) {
+        let workspace = notification.workspace_id.as_ref().map(|id| id.as_str());
+        let terminal = notification.terminal_id.as_ref().map(|id| id.as_str());
+        if workspace.into_iter().chain(terminal).any(|id| hidden.names.contains(id)) {
+            hidden.notifications.insert(notification.id.as_str().to_string());
+        }
+    }
     Some(hidden)
 }
 
@@ -296,10 +317,11 @@ impl Hidden {
         }
     }
 
-    /// Whether `text` is the id of a hidden saved group. Failing closed, any
-    /// saved group's id (`saved_...`, `ssaved_...`) is.
+    /// Whether `text` is the id of a hidden saved group or notification.
+    /// Failing closed, any saved group's id (`saved_...`, `ssaved_...`) is.
     fn is_saved(&self, text: &str) -> bool {
         self.saved.contains(text)
+            || self.notifications.contains(text)
             || (self.all && (text.starts_with("saved_") || text.starts_with("ssaved_")))
     }
 
@@ -341,13 +363,15 @@ impl Hidden {
     /// pruned row by row). An `ids` row names its object by `kind`, `id` and
     /// `short_id`; a sidebar item's `ref` by `kind` and `value`.
     fn row_named(&self, object: &serde_json::Map<String, Value>) -> bool {
-        let id_row = object.get("kind").and_then(Value::as_str).is_some_and(|kind| {
-            matches!(kind, "workspace" | "screen" | "pane" | "surface" | "tab" | "terminal")
-        });
+        let id_row = object
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| REF_KINDS.contains(&kind));
         object.iter().any(|(key, value)| {
-            ((is_target_key(key)
-                || (id_row && matches!(key.as_str(), "id" | "short_id" | "value")))
-                && self.names(key, value))
+            ((is_target_key(key) && self.names(key, value))
+                || (id_row
+                    && matches!(key.as_str(), "id" | "short_id" | "value")
+                    && (self.names(key, value) || self.names(key, &unqualified(value)))))
                 || self.mentions_saved(value)
                 || value.as_object().is_some_and(|inner| self.row_named(inner))
         })
@@ -357,15 +381,32 @@ impl Hidden {
     /// `params` included) that name a hidden object.
     fn named_in_request<'a>(&self, request: &'a Value) -> Option<(&'a str, &'a Value)> {
         match request {
-            Value::Object(object) => object.iter().find_map(|(key, value)| {
-                if is_target_key(key) && self.names_in_request(key, value) {
-                    return Some((key.as_str(), value));
+            Value::Object(object) => {
+                // A sidebar item's `ref` (`sidebar_layout.update`'s op).
+                let kind = object.get("kind").and_then(Value::as_str);
+                if let (Some(kind), Some(value)) = (kind, object.get("value"))
+                    && REF_KINDS.contains(&kind)
+                    && (self.names_in_request(kind, value) || self.names(kind, &unqualified(value)))
+                {
+                    return Some((kind, value));
                 }
-                self.named_in_request(value)
-            }),
+                self.named_in_object(object)
+            }
             Value::Array(values) => values.iter().find_map(|value| self.named_in_request(value)),
             _ => None,
         }
+    }
+
+    fn named_in_object<'a>(
+        &self,
+        object: &'a serde_json::Map<String, Value>,
+    ) -> Option<(&'a str, &'a Value)> {
+        object.iter().find_map(|(key, value)| {
+            if is_target_key(key) && self.names_in_request(key, value) {
+                return Some((key.as_str(), value));
+            }
+            self.named_in_request(value)
+        })
     }
 
     /// Whether a command names any target (an id or a selector in a target
@@ -409,7 +450,7 @@ impl Hidden {
                 for (key, value) in object.iter_mut() {
                     let key = key.as_str();
                     if let Value::Array(rows) = value {
-                        let ids = is_target_key(key);
+                        let ids = is_target_key(key) || SURFACE_LIST_KEYS.contains(&key);
                         rows.retain(|row| match row {
                             Value::Object(row) => !self.row_named(row),
                             scalar => !(ids && self.names(key, scalar)),
@@ -438,6 +479,14 @@ impl Hidden {
         self.labels = other.labels;
         self.current_hidden = other.current_hidden;
         self.all = other.all;
+    }
+}
+
+/// A sidebar ref's value without its session (`<session>:ws_...`).
+fn unqualified(value: &Value) -> Value {
+    match value.as_str().and_then(|text| text.rsplit_once(':')) {
+        Some((_, id)) => Value::String(id.to_string()),
+        None => value.clone(),
     }
 }
 
@@ -781,7 +830,7 @@ mod tests {
             Hidden { names: HashSet::from(["ws_hidden".to_string()]), ..Hidden::default() };
         let mut reply = json!({"ok": true, "result": {"value": {
             "sections": [{"id": "sec_pinned", "items": [
-                {"id": "i1", "ref": {"kind": "workspace", "value": "ws_hidden"}},
+                {"id": "i1", "ref": {"kind": "workspace", "value": "main:ws_hidden"}},
                 {"id": "i2", "ref": {"kind": "workspace", "value": "ws_shown"}},
             ]}],
             "ungrouped": [{"workspace": {"workspace_id": "ws_hidden"}},
@@ -791,6 +840,33 @@ mod tests {
         let text = reply.to_string();
         assert!(!text.contains("ws_hidden"), "{text}");
         assert_eq!(text.matches("ws_shown").count(), 2, "{text}");
+    }
+
+    #[test]
+    fn a_clients_attached_surfaces_of_a_hidden_workspace_are_left_out() {
+        let hidden = Hidden { numbers: HashSet::from([7]), ..Hidden::default() };
+        let mut reply = json!({"clients": [{"client": 3, "attached": [7, 9], "sizes": []}]});
+        hidden.prune_reply(&mut reply);
+        assert_eq!(reply, json!({"clients": [{"client": 3, "attached": [9], "sizes": []}]}));
+    }
+
+    #[test]
+    fn a_sidebar_ref_to_a_hidden_workspace_is_refused() {
+        let hidden =
+            Hidden { names: HashSet::from(["ws_hidden".to_string()]), ..Hidden::default() };
+        let request = json!({"protocol": "cmux.protocol/2", "params": {"op": {"kind": "item.add",
+            "item": {"id": "it_1", "ref": {"kind": "workspace", "value": "main:ws_hidden"}}}}});
+        assert_eq!(hidden.named_in_request(&request).map(|(kind, _)| kind), Some("workspace"));
+        let shown =
+            json!({"params": {"op": {"item": {"ref": {"kind": "workspace", "value": "ws_x"}}}}});
+        assert!(hidden.named_in_request(&shown).is_none());
+    }
+
+    #[test]
+    fn window_title_commands_never_act_on_the_current_workspace() {
+        for command in ["set-window-title", "clear-window-title"] {
+            assert!(NO_CURRENT_TARGET.contains(&command), "{command}");
+        }
     }
 
     #[test]
