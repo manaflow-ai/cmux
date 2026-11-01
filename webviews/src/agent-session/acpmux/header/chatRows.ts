@@ -1,4 +1,4 @@
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
 import type { Translate } from "../i18n";
 
 type Row = Exclude<ChatMenuItem, "separator">;
@@ -15,7 +15,7 @@ export function moveMachineRow(
   run: { moveTo: (id: string) => void; bringBack: () => void },
   t: Translate,
 ): Row | undefined {
-  const children: Row[] = [
+  const children: ChatMenuChild[] = [
     ...(move
       ? targets.map((target) => ({
           key: `machine:${target.id}`,
