@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
@@ -7,13 +8,15 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileVoice
 import CmuxMobileWorkspaces
-import Observation
 import OSLog
+import Observation
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 private let shellLog = Logger(subsystem: "dev.cmux.mobile", category: "shell")
@@ -84,6 +87,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
+    private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
     /// The team an email invite is being written for (live mode).
@@ -200,6 +205,7 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        attachScreenSharing(signedIn: live != nil)
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -599,5 +605,33 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+extension ShellModel {
+    /// Signed in: one Screen Sharing service for the account (it opens the
+    /// device hub when its page first shows). Signed out: it ends and forgets the hub.
+    func attachScreenSharing(signedIn: Bool) {
+        guard signedIn else {
+            screenSharing?.stop()
+            screenSharing = nil
+            ScreenSharingService.current = nil
+            return
+        }
+        guard screenSharing == nil else { return }
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        let auth = auth
+        let configuration = ScreenSharingService.Configuration(
+            baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
+            deviceName: UIDevice.current.name,
+            tokens: DeviceHubAccountToken { try await auth.accessToken() }
+        )
+        let service = ScreenSharingService(configuration: configuration)
+        screenSharing = service
+        ScreenSharingService.current = service
+    }
 }
 #endif

@@ -7,6 +7,8 @@ use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 const RESOURCE_PROJECTION: &str = "resource_projection";
 /// The optional section that reports which thread commits durable writes.
 const WRITE_PATH: &str = "write_path";
+/// The optional section that reports the registry and state locks by site.
+const LOCKS: &str = "locks";
 /// The optional section that counts the session's queued agent hook events
 /// and those `reset-state` dropped (`diagnostics::HookQueueSnapshot`).
 const HOOK_QUEUE: &str = "hook_queue";
@@ -23,6 +25,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
         resource_projection: wants(RESOURCE_PROJECTION).then(|| mux.resource_projection_stats()),
         write_path: wants(WRITE_PATH).then(|| mux.write_path_stats()),
+        locks: wants(LOCKS).then(|| mux.lock_detail_stats()),
         hook_queue: wants(HOOK_QUEUE)
             .then(|| {
                 mux.connection_stats().socket().map(crate::diagnostics::HookQueueSnapshot::beside)

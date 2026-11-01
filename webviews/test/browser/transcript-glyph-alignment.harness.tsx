@@ -181,10 +181,10 @@ function App() {
           <span data-read-label>Sent and read</span>
         </div>
         <div className="fixture-received" data-received-row="nonretryable">
-          <ReceivedActions row={row} text="Earlier peer message" />
+          <ReceivedActions row={row} />
         </div>
         <div className="acpmux-row fixture-received" data-retryable data-received-row="retryable">
-          <ReceivedActions row={row} text="Latest peer message" />
+          <ReceivedActions row={row} />
         </div>
       </TurnActionsContext.Provider>
     </main>
