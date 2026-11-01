@@ -67,6 +67,17 @@ struct IncognitoFeedHandoffTests {
         #expect(policy.content(for: Self.item(workspace: nil, terminal: "term_secret")) == nil)
     }
 
+    /// An item whose workspace the app has not classified (not in the tree yet, or left by a crashed run while it
+    /// was handing off) may be an incognito window's: it waits, and a frozen one sends no text.
+    @Test func anUnclassifiedWorkspacesItemWaits() throws {
+        let policy = try policy()
+        #expect(policy.content(for: Self.item(workspace: "ws_unknown", terminal: "term_unknown")) == nil)
+        let frozen = policy.frozenContent(for: Self.item(workspace: "ws_unknown", terminal: nil))
+        #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an unclassified item handing off sent its text: \(frozen)")
+        #expect(policy.content(for: Self.item(workspace: nil, terminal: nil))?.title == "Claude finished",
+                "an item that names no workspace or terminal stopped handing off")
+    }
+
     @Test func aNormalWorkspacesItemStillHandsOff() throws {
         let policy = try policy()
         let content = policy.content(for: Self.item(workspace: "ws_normal", terminal: "term_normal"))

@@ -117,24 +117,17 @@ extension NotificationCenterService {
 
     /// The handoff rules under the current settings. Muted workspaces are
     /// matched by durable key and by public id (`ws_…`, an item's context).
-    /// Incognito windows' workspaces (`WindowManager.isIncognito`) are matched
-    /// by every id they had this launch (`incognitoFeedIDs`), so none of their
-    /// items leaves the Mac, even one still handing off after its window closed.
+    /// Only the workspaces in normal windows now (not `WindowManager.isIncognito`)
+    /// hand off, matched by key, public id or terminal (#31210).
     func feedHandoffPolicy() -> FeedHandoffPolicy {
-        var muted = preferences.mutedWorkspaces
+        var muted = preferences.mutedWorkspaces, normal = Set<String>()
         for workspace in services?.daemon.store.workspaces ?? [] {
             if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
-            rememberIfIncognito(workspace)
+            guard services?.windows.isIncognito(workspace: workspace.id) == false else { continue }
+            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
+            normal.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, incognito: incognitoFeedIDs)
-    }
-
-    /// Keeps `workspace`'s durable key, public id and terminals' public ids in
-    /// `incognitoFeedIDs` when it is an incognito window's (#31210).
-    func rememberIfIncognito(_ workspace: WorkspaceModel) {
-        guard services?.windows.isIncognito(workspace: workspace.id) == true else { return }
-        let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
-        incognitoFeedIDs.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, normalWindows: services == nil ? nil : normal)
     }
 
     static func seconds(_ duration: Duration) -> Double {

@@ -13,23 +13,28 @@ public import Foundation
 /// own title and body, scrubbed of known secret shapes; title mode drops the
 /// body. An incognito window's item never leaves (leo-workspace
 /// design/spaces.md "Incognito"; #31210): handing it off is what puts it in
-/// the Feed and pushes it to the iPhone.
+/// the Feed and pushes it to the iPhone. So an item that names a workspace or
+/// terminal leaves only once that workspace is known to be a normal window's
+/// (`normalWindows`).
 public nonisolated struct FeedHandoffPolicy: Sendable {
     public var preferences: NotificationPreferences
     /// Public workspace ids (`ws_…`, an item's `context.workspace`) and
     /// durable keys whose notifications are muted.
     public var mutedWorkspaces: Set<String>
     /// Public workspace and terminal ids (`ws_…`, `term_…`, an item's
-    /// `context.workspace` and `context.terminal`) and durable keys of
-    /// incognito windows' workspaces: their items stay local.
-    public var incognito: Set<String>
+    /// `context.workspace` and `context.terminal`) and durable keys of the
+    /// workspaces in normal windows now. An item naming none of them stays
+    /// local: an incognito window's, and one whose workspace is not classified
+    /// yet or is gone (it may have been incognito; a crash may have left it
+    /// handing off). nil: no item is held back for this.
+    public var normalWindows: Set<String>?
     public var calendar: Calendar
 
-    public init(preferences: NotificationPreferences, mutedWorkspaces: Set<String>, incognito: Set<String> = [],
+    public init(preferences: NotificationPreferences, mutedWorkspaces: Set<String>, normalWindows: Set<String>? = nil,
                 calendar: Calendar = .current) {
         self.preferences = preferences
         self.mutedWorkspaces = mutedWorkspaces
-        self.incognito = incognito
+        self.normalWindows = normalWindows
         self.calendar = calendar
     }
 
@@ -37,21 +42,23 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     public func content(for item: FeedLocalItem) -> (title: String, body: String)? {
         let source = NotificationSource(wire: item.source)
         if let workspace = item.context.workspace, mutedWorkspaces.contains(workspace) { return nil }
-        guard !isIncognito(item), preferences.desktop != .never, preferences.postsDesktop(for: source),
+        guard isInNormalWindow(item), preferences.desktop != .never, preferences.postsDesktop(for: source),
               !arrivedInQuietHours(item) else { return nil }
         return mirrored(item)
     }
 
     /// The text for an item that is already handing off: it must reach its
     /// new owner (a send that may have committed never unfreezes), but only
-    /// what the mirror setting allows now leaves the Mac, and nothing of an
-    /// incognito window's item (one whose window turned incognito after it froze).
+    /// what the mirror setting allows now leaves the Mac, and no text of an item
+    /// not known to be a normal window's (`normalWindows`).
     public func frozenContent(for item: FeedLocalItem) -> (title: String, body: String) {
-        isIncognito(item) ? ("", "") : mirrored(item) ?? ("", "")
+        isInNormalWindow(item) ? mirrored(item) ?? ("", "") : ("", "")
     }
 
-    private func isIncognito(_ item: FeedLocalItem) -> Bool {
-        [item.context.workspace, item.context.terminal].contains { $0.map(incognito.contains) ?? false }
+    private func isInNormalWindow(_ item: FeedLocalItem) -> Bool {
+        let ids = [item.context.workspace, item.context.terminal].compactMap { $0 }
+        guard let normalWindows, !ids.isEmpty else { return true }
+        return ids.contains(where: normalWindows.contains)
     }
 
     private func mirrored(_ item: FeedLocalItem) -> (title: String, body: String)? {
