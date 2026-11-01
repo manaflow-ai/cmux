@@ -457,6 +457,7 @@ export type AcpmuxRow = {
     count: number;
     promptIds: readonly string[];
     fromSession?: string;
+    fromHarness?: string;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -1673,11 +1674,11 @@ function measuredRowHeight(
   if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // A task notification from another agent is a tool row's line under `.cv-tools`' 2px margin
   // (conversation/IncomingMessageCard.tsx), with the row's message gap.
-  // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its 26px head in
+  // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its 22px head in
   // 2px margins and the message gap; opened, each sender's 22px head, then each of its messages as
   // its own row draws it, 24px in, less the gap the row frame gives a row, which the group has once.
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
-    const head = finish(2 + 26 + 2 + MESSAGE_GAP);
+    const head = finish(2 + (row.laneNoticeBatch.kind === "inbox" ? 22 : 26) + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     return (
       head +
@@ -1689,7 +1690,7 @@ function measuredRowHeight(
     );
   }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
-    const head = finish(2 + 26 + 2 + MESSAGE_GAP);
+    const head = finish(2 + 22 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;

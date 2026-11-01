@@ -36,80 +36,12 @@
   border: 1px solid var(--cv-card-ring);
   border-radius: var(--ds-radius-card, 12px);
 }
-/* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): one row that is a sibling of
-   the tool rows (Leo, 2026-11-01, on the old head, a bare chevron indented past the icon column on
-   a taller line: "let's just make this look better"). The head is a tool row (conversation.css
-   .cv-tool: its 22px height, gap and type, its glyph in the one icon column): the sender's harness
-   mark (several senders: the messages glyph), the count as the summary, the senders muted and cut
-   after it, then the chevron, shown and lit only while the row is hovered, focused or open, as an
-   opened group's steps do. Opened, the threads' lines start at the tool rows' words. Never a
-   bordered box; the group opens on the click, with no fade. design/chat-transcript.md "One icon column". */
+/* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): a tool-row head
+   (MessageGroupHead.css), and opened, the threads' lines start at the tool rows' words. */
 .cv-inbox--group {
   margin: 2px 0;
   container-type: inline-size;
-  font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
-  -webkit-font-smoothing: antialiased;
-}
-.cv-inbox__head {
-  cursor: default;
-  user-select: none;
-}
-.cv-inbox__head > .cv-tool__icon {
-  color: var(--cv-text-muted);
-}
-.cv-inbox__head > .cv-tool__text {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-2);
-}
-.cv-inbox__count {
-  flex: none;
-}
-.cv-inbox__senders {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--cv-text-dim);
-}
-.cv-inbox__head > .cv-tool__chevron {
-  opacity: 0;
-  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
-}
-.cv-inbox__head:hover,
-.cv-inbox__head:has([data-popup-open]),
-.cv-inbox__head:is(:focus-visible, [aria-expanded="true"]),
-.cv-inbox__head:hover > :is(.cv-tool__icon, .cv-tool__chevron),
-.cv-inbox__head:has([data-popup-open]) > :is(.cv-tool__icon, .cv-tool__chevron),
-.cv-inbox__head:is(:focus-visible, [aria-expanded="true"]) > :is(.cv-tool__icon, .cv-tool__chevron) {
-  color: var(--cv-text);
-}
-.cv-inbox__head:hover > .cv-tool__chevron,
-.cv-inbox__head:has([data-popup-open]) > .cv-tool__chevron,
-.cv-inbox__head:is(:focus-visible, [aria-expanded="true"]) > .cv-tool__chevron {
-  opacity: 1;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
-}
-.cv-inbox__head:focus-visible {
-  outline: none;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-inbox__body {
   margin-inline-start: var(--cv-tool-text-inset);
-}
-/* Gallery versions (inboxNoticeLook.ts): the chevron always shown; the count alone. */
-.cv-inbox--group[data-look="group-chevron"] .cv-inbox__head > .cv-tool__chevron {
-  opacity: 1;
-}
-.cv-inbox--group[data-look="group-count"] .cv-inbox__senders {
-  display: none;
-}
-/* A narrow pane keeps the count whole: the names, cut to a letter or two, would say nothing. */
-@container (max-width: 480px) {
-  .cv-inbox__senders {
-    display: none;
-  }
 }

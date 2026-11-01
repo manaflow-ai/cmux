@@ -166,10 +166,22 @@ const UNLISTED: Thread = {
   messages: [{ from: "claude-mesh-lane", text: "HQ#5805 at b070cf5 opened its verification issue." }],
 };
 
+/// Two messages from one session that wait for the agent's turn to end (PendingMessagesCard.tsx):
+/// "2 messages from 1 session", the case Leo named.
+const WAITING = [
+  "Review passed at e34ce27; landing #2210 now.",
+  "Landed #2210; the nightly picks it up in its next run.",
+].map((text, index) => ({
+  id: `w${index + 1}`,
+  prompt: text,
+  message: { name: "grid-lane", sessionId: "s-grid", harness: "claude", text, raw: text },
+}));
+
 /// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
-/// line, a group of one sender's threads and a group of several senders' (Leo, 2026-11-01: "i
-/// wanted this to be left aligned with the other tool calls" and "let's just make this look
-/// better"). inbox-row-icon-column.test.ts measures it.
+/// line, a delivered group of one sender's threads, one of several senders', and the messages that
+/// wait (Leo, 2026-11-01: "i wanted this to be left aligned with the other tool calls" and "let's
+/// just make this look better"). Every group's head is a tool row (MessageGroupHead.tsx).
+/// inbox-row-icon-column.test.ts measures it.
 function amongTools() {
   const run = (minutes: number) =>
     activity(
@@ -193,9 +205,13 @@ function amongTools() {
       notice([GRID, FYI], 7),
       run(6),
       notice([PLAN, REVIEW, RAIL], 5),
+      run(4),
+      assistant("Landing #2210 once its review comes back…", 3, { streaming: true }),
     ],
     {
       title: "polish-coordinator",
+      isWorking: true,
+      queue: WAITING,
       sessions: [
         session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
         session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
@@ -245,12 +261,16 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/InboxNoticeCard.tsx",
     "agent-session/acpmux/conversation/InboxNoticeCard.css",
+    "agent-session/acpmux/conversation/MessageGroupHead.tsx",
+    "agent-session/acpmux/conversation/MessageGroupHead.css",
+    "agent-session/acpmux/conversation/LaneNoticeBatch.tsx",
+    "agent-session/acpmux/conversation/PendingMessagesCard.tsx",
     "agent-session/acpmux/conversation/inboxNotice.ts",
     "agent-session/acpmux/conversation/incomingMessage.ts",
   ],
   variants: {
     "icon-column": {
-      note: "Inbox rows among tool rows: one thread's line, a group of one sender (\"3 messages from 1 session\", its harness mark) and a group of several (the messages glyph). Every row's glyph sits in the tool rows' icon column, its words start where theirs do, and a group's row has their height and gap, its chevron shown on hover. A sender no chat lists draws the neutral agent glyph.",
+      note: "Inbox rows among tool rows: one thread's line, a delivered group of one sender (its harness mark), one of several (the messages glyph), and the messages that wait (\"2 messages from 1 session\"). Every row's glyph sits in the tool rows' icon column, its words start where theirs do, and a group's head is a tool row, their height, gap and type, its chevron shown on hover. A sender no chat lists draws the neutral agent glyph.",
       snapshot: amongTools(),
     },
     "icon-column-look-chevron": {
@@ -267,8 +287,9 @@ export default agentPaneEntry({
       note: "The same, the group of several opened: its threads' lines under it.",
       snapshot: amongTools(),
       play: async (ctx) => {
-        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-inbox__head")[1]?.click();
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__thread").length >= 5);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-message-group__head").length >= 2);
+        ctx.document.querySelectorAll<HTMLButtonElement>(".cv-message-group__head")[1]?.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
       },
     },
     "before-six": {

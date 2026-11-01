@@ -70,16 +70,19 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
         const box = element.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== "hidden";
       };
-      // A group's head: this change's tool-row head, else the old waiting-group line.
-      const GROUP = ".cv-inbox__head, .cv-inbox .cv-pending__line";
-      const LINE = ".cv-inbox__thread > .cv-disclosure__line";
+      // A group's head (MessageGroupHead.tsx; before it, the waiting group's and the delivered batch's
+      // chevron lines).
+      const GROUP = ".cv-message-group__head, .cv-pending__line, .cv-lane-batch__toggle";
+      const LINE = ".cv-received > .cv-disclosure__line";
       const TOOL = ".cv-tools .cv-tool";
       const rows = [...document.querySelectorAll<HTMLElement>(`${TOOL}, ${LINE}, ${GROUP}`)].filter(
         (row) =>
           visible(row) &&
           // Top level only: not a step of an opened tool group or a line inside an opened inbox group.
-          !row.closest(".cv-steps, .cv-inbox__body, .cv-pending__body, .cv-disclosure__panel") &&
-          !(row.matches(TOOL) && row.closest(".cv-inbox")),
+          !row.closest(".cv-steps, .cv-inbox__body, .cv-pending__body, .cv-lane-batch__body, .cv-disclosure__panel") &&
+          !(row.matches(TOOL) && !row.matches(GROUP) && row.closest(".cv-inbox")) &&
+          // A head inside a waiting group's line is that group's row; measure the head.
+          !(row.matches(".cv-pending__line") && row.querySelector(".cv-message-group__head")),
       );
       return rows.map((row) => {
         const kind = row.matches(GROUP) ? "group" : row.matches(LINE) ? "line" : "tool";
@@ -154,7 +157,8 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
           timeout: 120_000,
         });
         await page.evaluate(() => document.fonts.ready);
-        await page.locator(".cv-inbox").first().waitFor();
+        await page.locator(".cv-received").first().waitFor();
+        await page.locator(".cv-pending").first().waitFor();
         await page.mouse.move(0, 0);
         const rows = await measure(page);
         console.log(
@@ -168,7 +172,7 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
         const found = problems(rows);
 
         // The group's chevron: hidden at rest, shown on hover.
-        const head = page.locator(".cv-inbox__head").first();
+        const head = page.locator(".cv-message-group__head").first();
         const chevron = head.locator(".cv-tool__chevron");
         const shown = async () =>
           chevron.evaluate((element) => {
@@ -184,7 +188,7 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
           hovered = await page
             .waitForFunction(
               () => {
-                const element = document.querySelector(".cv-inbox__head .cv-tool__chevron");
+                const element = document.querySelector(".cv-message-group__head .cv-tool__chevron");
                 return !!element && Number(getComputedStyle(element).opacity) > 0.5;
               },
               undefined,
@@ -205,7 +209,8 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
           await page.screenshot({ path: path.join(artifacts, `inbox-row-${theme.file}.png`), fullPage: true });
         }
         expect(rows.filter((row) => row.kind === "line").length).toBeGreaterThanOrEqual(2);
-        expect(rows.filter((row) => row.kind === "group").length).toBe(2);
+        // A delivered group of one sender, one of several, and the waiting group.
+        expect(rows.filter((row) => row.kind === "group").length).toBe(3);
         expect(found).toEqual([]);
         expect(hasHead).toBe(true);
         expect({ atRest, hovered }).toEqual({ atRest: false, hovered: true });

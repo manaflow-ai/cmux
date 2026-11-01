@@ -15,23 +15,19 @@
 // with no fade in.
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
-import { ChevronRight } from "./icons";
-import { rowIconSize } from "../icons/iconSize";
 import { DisclosureRow } from "../subagents/DisclosureRow";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
-import { SenderMark, SenderName } from "./IncomingMessageCard";
+import { SenderName } from "./IncomingMessageCard";
+import { MessageGroupHead } from "./MessageGroupHead";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
 import "./InboxNoticeCard.css";
-
-const ROW_ICON = rowIconSize(12);
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
 export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
@@ -227,42 +223,26 @@ export function InboxNoticeCard({
   const lead = [...notice.threads].reverse().find((thread) => newestSender(thread) === senders[0]);
   return (
     <div className="cv-inbox cv-inbox--group" data-look={look} data-open={open || undefined}>
-      {/* A sibling of the tool rows (Leo, 2026-11-01, on this line: "let's just make this look
-          better"): the tool row's own box (conversation.css .cv-tool), its glyph in their icon column,
-          the count as the summary and the senders muted after it, the chevron after them, shown on
-          hover. Find counts the messages' words, not the head's names. */}
-      <button
-        type="button"
-        className="cv-tool cv-inbox__head"
-        data-find-skip=""
-        aria-expanded={open}
-        aria-controls={open ? bodyId : undefined}
-        title={senders.join(", ")}
-        onClick={() => show(!open)}
-      >
-        <span className="cv-tool__icon" aria-hidden="true">
-          {senders.length === 1 && lead ? (
-            <SenderMark
-              message={{
+      {/* Find counts the messages' words, not the head's names. */}
+      <MessageGroupHead
+        sender={
+          senders.length === 1 && lead
+            ? {
                 name: senders[0]!,
                 text: "",
                 raw: "",
                 ...(lead.fromSession && { sessionId: lead.fromSession }),
                 ...(lead.fromHarness && { harness: lead.fromHarness }),
-              }}
-            />
-          ) : (
-            <Icon name="agent.chat" size={ROW_ICON} row />
-          )}
-        </span>
-        <span className="cv-tool__text">
-          <span className="cv-inbox__count">{count}</span>
-          <span className="cv-inbox__senders">{senders.join(", ")}</span>
-        </span>
-        <span className="cv-tool__chevron" aria-hidden="true">
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-        </span>
-      </button>
+              }
+            : undefined
+        }
+        count={count}
+        senders={senders.join(", ")}
+        open={open}
+        bodyId={bodyId}
+        onToggle={() => show(!open)}
+        className="cv-inbox__head"
+      />
       {open && (
         <div id={bodyId} className="cv-inbox__body">
           {lines}
