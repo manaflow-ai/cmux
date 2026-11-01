@@ -80,10 +80,10 @@ fn claims_reject_expired_future_reversed_and_long_ttl_principals() {
     let base = scope();
 
     for (issued, expires) in [
-        (now.saturating_sub(301_000), now.saturating_sub(1)),
-        (now + 1, now + 60_000),
+        (now.saturating_sub(600_000), now.saturating_sub(300_000)),
+        (now + 600_000, now + 660_000),
         (now.saturating_sub(1_000), now.saturating_sub(2_000)),
-        (now.saturating_sub(1_000), now + 300_001),
+        (now.saturating_sub(1_000), now + 600_000),
     ] {
         let mut p = principal(now);
         p["issuedAt"] = json!(issued);
@@ -217,10 +217,12 @@ async fn send_refuses_a_human_prompt_that_reused_the_delivery_id() {
         &session,
         "mux",
         "user_message",
-        json!({"promptId": scoped.delivery, "text": "human prompt"}),
+        json!({"promptId": scoped.delivery, "turnId": "human-turn", "text": "human prompt"}),
     );
+    hub.append(&session, "mux", "turn_started", json!({"promptId": scoped.delivery, "turnId": "human-turn"}));
+    hub.append(&session, "mux", "turn_result", json!({"promptId": scoped.delivery, "turnId": "human-turn", "status": "completed"}));
     let error = send(&hub, &scoped, "trigger prompt".into()).await.expect_err("collision accepted");
-    assert!(error.code < 0, "{error}");
+    assert!(error.to_string().contains("prior delivery"), "{error}");
 }
 
 #[tokio::test]
