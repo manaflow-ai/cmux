@@ -347,6 +347,10 @@ impl Hidden {
     /// selector).
     fn names_in_request(&self, key: &str, value: &Value) -> bool {
         match value {
+            // A `key`/`keys` field is a workspace key (matched exactly) or
+            // keyboard input (`send-key`), never a name selector: an
+            // incognito workspace named `enter` must not stop typing.
+            Value::String(_) if key_family(key) == Some("key") => self.names(key, value),
             Value::String(text) => {
                 self.names(key, value)
                     || text == "current"
@@ -790,6 +794,19 @@ mod tests {
             assert!(hidden.named_in_request(&request).is_some(), "{request}");
         }
         assert!(hidden.named_in_request(&json!({"cmd": "x", "workspace": 3})).is_none());
+    }
+
+    #[test]
+    fn keyboard_input_is_never_a_workspace_name() {
+        let hidden = Hidden { labels: HashSet::from(["enter".to_string()]), ..Hidden::default() };
+        for request in [
+            json!({"cmd": "send-key", "surface": 3, "keys": ["enter"]}),
+            json!({"cmd": "send-key", "surface": 3, "key": "enter"}),
+            json!({"cmd": "send-key", "surface": 3, "keys": ["current"]}),
+        ] {
+            assert!(hidden.named_in_request(&request).is_none(), "{request}");
+        }
+        assert!(hidden.named_in_request(&json!({"cmd": "x", "workspace": "enter"})).is_some());
     }
 
     #[test]
