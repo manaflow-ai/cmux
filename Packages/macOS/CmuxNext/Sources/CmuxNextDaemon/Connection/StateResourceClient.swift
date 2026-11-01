@@ -33,12 +33,13 @@ extension StateResourceClient {
 
     /// Sends one state mutation and returns its `value`.
     @discardableResult
-    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self, requiring capability: String? = nil) async throws -> R {
+    /// `awaitingReply`: no client deadline; it ends on the daemon's reply or refusal, or the connection's end.
+    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue], as type: R.Type = JSONValue.self,
+                                                 awaitingReply: Bool = false, requiring capability: String? = nil) async throws -> R {
         let key = Self.stateKey()
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self, requiring: capability).value
+        }, as: ResourceMutationResult<R>.self, awaitingReply: awaitingReply, requiring: capability).value
     }
 
     static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
