@@ -102,6 +102,9 @@ fn cloud_repo_typed_seed_failures_have_next_action() {
         "seed.disk_full",
         "seed.clone_failed",
         "seed.bad_request",
+        "seed.checkout_failed",
+        "seed.unknown_job",
+        "seed.unavailable",
         "seed.needs_github",
     ] {
         let fake = Fake {

@@ -279,6 +279,11 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
         "seed.bad_request" => {
             "Choose a valid GitHub repository and branch, then retry Add repository."
         }
+        "seed.checkout_failed" => {
+            "Choose an existing branch, tag or full commit SHA, then retry Add repository."
+        }
+        "seed.unknown_job" => "Retry Add repository to start a new clone job.",
+        "seed.unavailable" => "Open a chat on a Cloud machine, then retry Add repository.",
         _ => {
             "Retry Add repository. If cloning still fails, check repository access and the machine's network."
         }
