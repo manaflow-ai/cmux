@@ -1782,12 +1782,30 @@ pre.cv-math-source {
   height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
 }
-/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
+/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
+   Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
+   back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
+   command is too long, hide it under the run in background? ... hide it when hovering in that
+   area"). Hidden, it waits at the same spot, so the fade out does not move it. */
+.cv-activity {
+  position: relative;
+}
 :is(.cv-worked, .cv-activity) .cv-command__bg {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
   animation: none;
   opacity: 0;
+  pointer-events: none;
+}
+/* The bottom line's words sit under its top padding (.cv-worked.is-below). */
+.cv-worked.is-below .cv-command__bg {
+  top: calc(var(--cv-live-gap) + 2px);
 }
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+  position: static;
   opacity: 1;
 }
 /* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
