@@ -1150,11 +1150,23 @@ export const QUEUED_MESSAGE = "queuedMessage";
 /// The row kind of the one group of messages that wait for the agent (conversation/pendingMessages.ts).
 export const PENDING_MESSAGES = "pendingMessages";
 export const LANE_NOTICE_BATCH = "laneNoticeBatch";
-/// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
-const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
+/// Text with nothing to read: empty, whitespace, or only invisible format characters (a zero-width
+/// space or joiner, a byte order mark).
+export const isBlankText = (text: string | undefined) => !text || !/[^\s\p{Cf}]/u.test(text);
+/// An assistant message with nothing to read draws nothing: no message block and no gap under it,
+/// so it adds no blank band between the rows around it (Leo, 2026-11-01: "wtf are these spacesr").
+export const isBlankReply = (row: AcpmuxRow) => row.kind === "assistant" && isBlankText(row.text);
+/// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts, or a blank reply).
+export const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden" || isBlankReply(row);
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
+  return undefined;
+}
+/// The row before `index` that draws something.
+export function previousDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
+  for (let previous = index - 1; previous >= 0; previous -= 1)
+    if (!drawsNothing(rows[previous]!)) return rows[previous];
   return undefined;
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
@@ -1585,8 +1597,8 @@ function measuredRowHeight(
     }
     return finish(height + MESSAGE_GAP);
   }
-  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
-  if (row.incoming?.kind === "hidden") return finish(0);
+  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts), or a blank reply.
+  if (drawsNothing(row)) return 0;
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
   // A preview row's text is its address, not prose: the card's height is fixed.
