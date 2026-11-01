@@ -125,6 +125,7 @@ import Testing
 
     final class Clock {
         var now = Date(timeIntervalSince1970: 1_800_000_000)
+        func advance(seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
     }
 
     @Test func aHiddenSpacesIdleWorkspaceHibernatesOnTheHiddenClock() {
@@ -164,6 +165,49 @@ import Testing
         deadline.delays = []
         host.shown = []
         hibernation.noteShown([]) // the window switched to another space: a is hidden, and its space with it
+        #expect(deadline.delays == [.seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))])
+    }
+
+    /// Switching back and forth keeps hiding workspaces: an armed deadline that is already due sooner is never
+    /// pushed out, so the pass still comes (the review's starvation case).
+    @Test func repeatedSwitchesNeverPostponeAnArmedPass() {
+        let clock = Clock()
+        let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
+        let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deadline = Deadline()
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
+                                               now: { clock.now })
+        host.shown = ["a"]
+        hibernation.noteShown(["a"])
+        host.shown = ["b"]
+        hibernation.noteShown(["b"]) // a hidden: a pass a minute out
+        #expect(deadline.delays.count == 1)
+        clock.advance(seconds: 30)
+        host.shown = ["a"]
+        hibernation.noteShown(["a"])
+        host.shown = ["b"]
+        hibernation.noteShown(["b"]) // hidden again 30 s later: the pass due in 30 s stays
+        #expect(deadline.delays.count == 1)
+    }
+
+    /// A window switching to a space that shows the same workspace changes no shown workspace but hides a
+    /// space: that alone plans a pass within a minute.
+    @Test func aSpaceThatGoesHiddenPlansAPassEvenWithTheSameShownWorkspaces() {
+        let clock = Clock()
+        let host = Host([WorkspaceHibernationResident(workspace: "a")])
+        let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let deadline = Deadline()
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
+                                               now: { clock.now })
+        hibernation.noteShownSpaces(["work"])
+        #expect(deadline.delays.isEmpty)
+        hibernation.noteShownSpaces(["work", "play"])
+        #expect(deadline.delays.isEmpty) // a space shown in one more window hides nothing
+        hibernation.noteShownSpaces(["play"])
         #expect(deadline.delays == [.seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))])
     }
 }
