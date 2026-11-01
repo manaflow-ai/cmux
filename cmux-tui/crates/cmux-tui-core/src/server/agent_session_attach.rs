@@ -44,6 +44,11 @@ pub use agent_session_trust::{
 };
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// A Cloud mobile carrier connection may use the native agent-session JSON
+/// verbs over an authenticated remote link. The carrier is still constrained
+/// to tab-scoped attach/events/prompt/cancel/detach; it never receives a raw
+/// acpmux socket.
+pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -208,6 +213,10 @@ struct Attachment {
     /// ends when the record changes or the tab closes.
     record_session: String,
     read_only: AtomicBool,
+    /// This attachment was opened by the authenticated Cloud mobile carrier.
+    /// Prompt dispatch carries the Web asking policy under the same native
+    /// attachment/session lock; ordinary local clients never inherit it.
+    cloud_mobile: bool,
     mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
@@ -225,6 +234,15 @@ struct Attachment {
 }
 
 impl Attachment {
+    /// A later mobile hello also narrows attachments opened before that hello.
+    /// Keep the captured marker so a disconnect cannot relax an in-flight call.
+    fn is_cloud_mobile(&self) -> bool {
+        self.cloud_mobile
+            || self.mux.upgrade().is_some_and(|mux| {
+                mux.control_clients.supports_capability(self.client, CLOUD_MOBILE_CHAT_CAPABILITY)
+            })
+    }
+
     /// The connection echoed `agent-session-presence-v1` in `set-client-info`.
     fn wants_presence(&self) -> bool {
         self.mux.upgrade().is_some_and(|mux| {
@@ -866,6 +884,8 @@ fn attach(
     pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
+    let cloud_mobile =
+        mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
         if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {
@@ -925,6 +945,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                cloud_mobile,
                 author,
                 worker_writer,
             );
@@ -1265,6 +1286,22 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     if !valid_id || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
         return Err(Refusal::BadRequest);
     }
+    let cloud_mobile = attachment.is_cloud_mobile();
+    if cloud_mobile {
+        // An older acpmux silently ignores unknown prompt metadata. Confirm
+        // strict admission AND queued-dispatch enforcement on this very link
+        // before sending content; a mode preflight alone is not race-safe.
+        let policy = attachment
+            .link
+            .call("_acpmux/web_modes", json!({"sessionId": attachment.session}), CALL_TIMEOUT)
+            .map_err(Refusal::of)?;
+        if policy.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
+            return Err(Refusal::Unavailable);
+        }
+        if policy.pointer("/session/cloudMobileAsks").and_then(Value::as_bool) != Some(true) {
+            return Err(Refusal::NotAsking);
+        }
+    }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
@@ -1275,11 +1312,18 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     }
     // Only a text content block: the client sends content, never a command,
     // a path or an MCP server.
-    let params = json!({
+    let mut params = json!({
         "sessionId": attachment.session,
         "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
+    // The native daemon connection is Local, but the authenticated Cloud
+    // mobile carrier must retain the Web asking policy for this prompt. This
+    // marker is inserted by the typed agent-session path, never accepted from
+    // the phone or forwarded as arbitrary ACP metadata.
+    if cloud_mobile {
+        params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+    }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).

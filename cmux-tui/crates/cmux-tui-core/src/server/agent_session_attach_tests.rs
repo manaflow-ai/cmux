@@ -148,6 +148,8 @@ impl Drop for FakeAcpmux {
 pub(super) struct Fixture {
     /// Enable the first-chat catalog/new-session fixture, with this trust decision.
     pub(super) start_folder_trusted: Option<bool>,
+    /// Override the mode response to model strict mobile support and old hubs.
+    pub(super) cloud_mobile_modes: Option<Value>,
     pub(super) page: Vec<Value>,
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
@@ -188,6 +190,9 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.cloud_mobile_modes.is_some() => {
+                fixture.cloud_mobile_modes.clone()
+            }
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},

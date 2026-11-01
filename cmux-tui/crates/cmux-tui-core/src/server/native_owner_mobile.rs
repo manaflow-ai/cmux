@@ -4,7 +4,7 @@
 
 use super::*;
 
-pub(super) const CAPABILITY: &str = "cloud-mobile-chat-v1";
+pub(super) const CAPABILITY: &str = agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY;
 
 pub(super) fn supported(mux: &Mux) -> bool {
     mux.serves_agent_session_attach()

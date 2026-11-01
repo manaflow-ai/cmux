@@ -254,9 +254,24 @@ fn native_owner_mobile_handshake_keeps_phone_policy_for_the_connection() {
 
 #[test]
 fn native_owner_mobile_prompt_uses_the_phone_floor_before_broad_owner_dispatch() {
+    assert_native_mobile_prompt(false);
+}
+
+#[test]
+fn native_owner_mobile_hello_also_restricts_an_existing_attachment() {
+    assert_native_mobile_prompt(true);
+}
+
+fn assert_native_mobile_prompt(attach_before_hello: bool) {
     let fake = FakeAcpmux::start_with(
         "native-mobile-prompt",
-        Fixture { start_folder_trusted: Some(true), ..Default::default() },
+        Fixture {
+            cloud_mobile_modes: Some(json!({
+                "cloudMobileStrictFloor": 1,
+                "session": {"cloudMobileAsks": true}
+            })),
+            ..Default::default()
+        },
     );
     let entry = entry_with(true, Arc::new(FsGate), Some(true));
     entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
@@ -264,14 +279,20 @@ fn native_owner_mobile_prompt_uses_the_phone_floor_before_broad_owner_dispatch()
     let surface = crate::server::agent_session_attach_tests::agent_tab(&entry.mux, Some(SESSION));
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    if attach_before_hello {
+        ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+        assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    }
     ok(
         &mut stream,
         &mut reader,
         json!({"cmd":"set-client-info", "kind":"frontend", "device_kind":"ios",
             "capabilities":["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]}),
     );
-    ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
-    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    if !attach_before_hello {
+        ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+        assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    }
     let accepted = ok(
         &mut stream,
         &mut reader,
@@ -279,6 +300,9 @@ fn native_owner_mobile_prompt_uses_the_phone_floor_before_broad_owner_dispatch()
             "prompt_id":"mobile-1", "text":"A phone prompt"}),
     );
     assert_eq!(accepted["turn_id"], json!("turn_1"));
+    let preflight = fake.frame();
+    assert_eq!(preflight["method"], json!("_acpmux/web_modes"));
+    assert_eq!(preflight["params"]["sessionId"], json!(SESSION));
     let prompt = fake.frame();
     assert_eq!(prompt["method"], json!("session/prompt"));
     assert_eq!(prompt["params"]["sessionId"], json!(SESSION));
@@ -295,6 +319,51 @@ fn native_owner_mobile_prompt_uses_the_phone_floor_before_broad_owner_dispatch()
         assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
     }
     fake.no_frame();
+}
+
+#[test]
+fn native_owner_mobile_refuses_old_or_nonasking_hubs_without_sending_content() {
+    for (policy, code) in [
+        (json!({"session": {"mode": "default"}}), "agent_session.unavailable"),
+        (
+            json!({"cloudMobileStrictFloor": 2, "session": {"cloudMobileAsks": true}}),
+            "agent_session.unavailable",
+        ),
+        (
+            json!({"cloudMobileStrictFloor": 1, "session": {"cloudMobileAsks": false}}),
+            "agent_session.not_asking",
+        ),
+        (json!({"cloudMobileStrictFloor": 1}), "agent_session.not_asking"),
+    ] {
+        let fake = FakeAcpmux::start_with(
+            "native-mobile-unsupported",
+            Fixture { cloud_mobile_modes: Some(policy), ..Default::default() },
+        );
+        let entry = entry_with(true, Arc::new(FsGate), Some(true));
+        entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+        let surface =
+            crate::server::agent_session_attach_tests::agent_tab(&entry.mux, Some(SESSION));
+        let (mut stream, mut reader) = connect_as_link(&entry);
+        send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+        ok(
+            &mut stream,
+            &mut reader,
+            json!({"cmd":"set-client-info",
+            "capabilities":["cloud-mobile-chat-v1"]}),
+        );
+        ok(&mut stream, &mut reader, json!({"cmd":"agent-session-attach", "surface":surface}));
+        assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+        let response = call(
+            &mut stream,
+            &mut reader,
+            json!({"cmd":"agent-session-prompt",
+            "surface":surface, "prompt_id":"unsupported", "text":"Must never reach the agent"}),
+        );
+        assert_eq!(response["error_code"], json!(code));
+        assert_eq!(fake.frame()["method"], json!("_acpmux/web_modes"));
+        fake.no_frame();
+    }
 }
 
 #[test]
