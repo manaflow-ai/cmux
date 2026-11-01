@@ -162,8 +162,9 @@ struct BackgroundAccessoryPolicyTests {
             await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
             try #require(windows.restored, "the restore never finished")
             #expect(!windows.controllers.isEmpty, "the restore tore down the window whose close was refused")
-            #expect(windows.registry.value.windows.contains(where: \.isOpen),
-                    "the restore registered no open window: \(windows.registry.value.windows.map { ($0.id, $0.isOpen) })")
+            let records = windows.registry.value.windows
+            let anyOpen = records.contains { $0.isOpen }
+            #expect(anyOpen, "the restore registered no open window: \(records.map { ($0.id, $0.isOpen) })")
         }
     }
 
