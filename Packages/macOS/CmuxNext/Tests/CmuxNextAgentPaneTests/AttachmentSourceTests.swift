@@ -197,11 +197,12 @@ struct AttachmentSourceTests {
         #expect(AgentPageOps.methods["attachment.sourceIcon"] == "attachment.sourceIcon")
         #expect(AgentPaneRequest(body: ["method": "attachment.sourceIcon", "params": ["bundleId": "com.apple.finder"]])
             == .attachmentSourceIcon("com.apple.finder"))
-        // The file input's pick asks for its source; it never asks where its files are.
+        // The file input's pick asks for its source, and where its files are (a chat on this Mac
+        // links them in place instead of streaming a copy).
         #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": ["kind": "choose", "names": ["a.png"]]])
             == .attachSource(.choose, names: ["a.png"]))
         #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "choose", "names": ["a.png"]]])
-            == .unsupported("chat.attach.dropped"))
+            == .attachDropped(.choose, names: ["a.png"]))
         for params: [String: Any] in [["kind": "pick", "names": ["a"]], ["kind": "drop", "names": [String]()], ["kind": "drop"]] {
             #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": params]) == .unsupported("chat.attach.source"))
         }
