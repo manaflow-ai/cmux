@@ -487,7 +487,7 @@ final class CloudService {
             guard let self else { return false }
             return await self.performRefresh()
         }
-        return refreshed && account == listAccount && hasLoadedCurrentMachines
+        return refreshed && auth.isSignedIn && unavailableReason == nil && account == listAccount && hasLoadedCurrentMachines
     }
 
     /// The gate starts each batch in current auth/policy state, including follow-ups.
