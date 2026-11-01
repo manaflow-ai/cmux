@@ -16,6 +16,8 @@ struct ChiefSubagentLinkTests {
         var opened: [(session: String, host: String)] = []
         /// The open's work; nil: it ends at once.
         var work: ActionWork?
+        /// False: the open's tab is listed only when its work ends (a grouped, remote or refused-host open).
+        var showsAtOnce = true
 
         func host(chief: String = "chief:6b68ac4a") -> ChiefSidebar.Host {
             .init(conversation: { nil }, chiefHost: { chief },
@@ -23,6 +25,7 @@ struct ChiefSubagentLinkTests {
                   reveal: { [unowned self] tab in revealed.append(tab); return true },
                   openWorkspace: { [unowned self] session, host in
                       opened.append((session, host))
+                      guard showsAtOnce else { return Task { @MainActor [unowned self] in shown[session] = "tab-" + session; return nil } }
                       shown[session] = "tab-" + session
                       return work ?? Task { nil }
                   })
@@ -37,9 +40,21 @@ struct ChiefSubagentLinkTests {
         #expect(opened, "a live subagent's link read as gone")
         #expect(app.opened.map(\.session) == ["optchat-sub-6b68ac4a-a919"])
         #expect(app.opened.map(\.host) == ["chief:6b68ac4a"])
-        // The new workspace's chat tab comes forward once its work ends.
+        // The new workspace's chat tab comes forward (at once: the app shows it before the daemon answers).
         for _ in 0..<50 where app.revealed.isEmpty { await Task.yield() }
         #expect(app.revealed == ["tab-optchat-sub-6b68ac4a-a919"])
+    }
+
+    /// An open the app cannot show before the daemon answers (into a group, another host): its tab comes forward
+    /// once its work ends and lists it.
+    @Test func aSubagentWhoseWorkspaceWaitsForTheDaemonComesForwardWhenItsWorkEnds() async {
+        let app = FakeApp()
+        app.showsAtOnce = false
+        let sidebar = ChiefSidebar(lanes: AgentLaneStore(), host: app.host())
+        #expect(sidebar.openSubagentLink(session: "s-3", chiefHost: "chief:6b68ac4a", registry: ActionRegistry()))
+        #expect(app.revealed.isEmpty, "nothing is listed yet to come forward")
+        for _ in 0..<50 where app.revealed.isEmpty { await Task.yield() }
+        #expect(app.revealed == ["tab-s-3"])
     }
 
     /// The app shows a session's new workspace and chat tab in the open's turn (P4, `AgentTabStore.showWorkspace`),
