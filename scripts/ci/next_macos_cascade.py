@@ -896,8 +896,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
-    retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
+    retry_live = {**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}}
+    retry = retry_label(retry_live, waiting, (*stall, *reserved, *(fresh_stall if fresh else ())))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
@@ -907,7 +907,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # Export the exact jobs allowed to consume it; workflow jobs outside this set stay on the owned route.
     retry_jobs = ()
     if retry:
-        available = max(0, CAPACITY[retry] - live.get(retry, 0) - waiting.get(retry, 0))
+        available = max(0, CAPACITY[retry] - retry_live.get(retry, 0) - waiting.get(retry, 0))
         retry_jobs = tuple(jobs[:min(MAX_PER_RUN, available)])
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (" (dead: nothing running, no job started in an hour)" if label in gone
