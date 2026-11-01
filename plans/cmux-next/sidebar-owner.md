@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: a workspace row's machine mark sits in the trailing status column, a status mark's size, one neutral
+  colour (#29833, fixing #22763's placement). Leo: "WHY ARE THE CLOUD ICONS LIKE THIS ON THE
+  LEFT WHO DID THIS" / "I HATE HOW SMALL THEY ARE, I HATE THAT THEY'RE ON THE LEFT, I HATE THAT THEY'RE ON THE
+  BOTTOM". The mark (Cloud, ssh and local alike) no longer sits before the title: it takes a
+  `statusGlyphSize` box (`statusGlyphFrame`) on the row's centre line, right to left after the muted bell and before
+  the warning triangle, or the column itself on a row with no status (`layoutColumnMark`). Tint is
+  `Palette.textTertiary`, never `MachineColor`. It gives way to the hover controls as the other marks do. The machine's
+  name in the row label and the show/hide rules are unchanged. Regression: `SidebarMachineMarkTests`.
 - 2026-10-31: the update status card's download is cancellable; text left, a bigger cancel on the right, vertically
   centred (#29653). Leo, verbatim: "AND WHY CAN'T I CANCEL THE DOWNLOAD OPTIONALLY AND WHY IS THE SYMBOL SO FUCKING
   SMALL THIS IS SHIT ASS SPACING WHY NOT JUST LEFT ALIGN THE TEXT PUT A BIGGER SYMBOL ON THE RIGHT" / "ALSO CENTER THE

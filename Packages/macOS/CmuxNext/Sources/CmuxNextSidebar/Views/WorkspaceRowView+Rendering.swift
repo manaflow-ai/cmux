@@ -78,7 +78,8 @@ extension WorkspaceRowView {
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
-            if let machine { machineMark.setTint(machine.color) }
+            // One neutral colour for every machine (Leo 2026-11-01): no per-machine tint on the row's mark.
+            machineMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -208,6 +209,14 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !machineMark.isHidden, columnMark?.view !== machineMark {
+            // The computer the row runs on: a status mark's box on the trailing column's line, centered on the row
+            // (Leo 2026-11-01, on the small tinted cloud before the name: "I HATE HOW SMALL THEY ARE I HATE THAT
+            // THEY'RE ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM"). It gives way to the hover controls as the
+            // other marks do.
+            machineMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+            trailing = machineMark.frame.minX - Metrics.space2
+        }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
             // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
@@ -234,10 +243,6 @@ extension WorkspaceRowView {
         var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = SidebarStyle.titleXAfterLeadingMark(textX)
-        }
-        if !machineMark.isHidden {
-            machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)
