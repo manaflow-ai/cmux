@@ -6332,7 +6332,8 @@ jobs:
       - *checkout-publication-tooling-a
 
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
-      - name: Hold the whole Mac before any credential
+      - &hold-the-whole-mac
+        name: Hold the whole Mac before any credential
         id: claim-gate
         shell: bash
         run: |
@@ -6360,7 +6361,8 @@ jobs:
       # This run's build when Apple accepted it, else an earlier nightly-next
       # build that recover-nightly-next-notarization continued; every later
       # step takes the build number and commit from here.
-      - name: Claim the whole Mac for signing
+      - &claim-publication-mac
+        name: Claim the whole Mac for signing
         run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
@@ -6787,33 +6789,8 @@ jobs:
       - *checkout-publication-tooling-a
 
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
-      - name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Claim the whole Mac for signing
-        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - *hold-the-whole-mac
+      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -6928,33 +6905,8 @@ jobs:
       - *checkout-publication-tooling-a
 
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
-      - name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Claim the whole Mac for signing
-        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - *hold-the-whole-mac
+      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -7237,32 +7189,7 @@ jobs:
     steps: &sign-nightly-identity-legacy-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
-      - &hold-the-whole-mac
-        name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
+      - *hold-the-whole-mac
 
       - *checkout-default
 
@@ -7905,8 +7832,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
-      - name: Claim the whole Mac for signing
-        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
+      - *claim-publication-mac
 
       - *gh-app-token-read
 
