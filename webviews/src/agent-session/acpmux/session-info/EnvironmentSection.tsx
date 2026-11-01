@@ -283,7 +283,7 @@ export function EnvironmentSection({
               onAttached={(repo) => setAttachedRepos((current) => [...current, repo])}
             />
           </li>
-          {attachedRepos.map((attached) => (
+          {attachedRepos.filter((attached) => attached.repo !== repository).map((attached) => (
             <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
               <span className="acpmux-session-info-row__name">{attached.repo}</span>
             </Row>
