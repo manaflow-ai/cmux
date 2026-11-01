@@ -381,6 +381,7 @@ test("Session Info derives Cloud from the host handshake when the summary has no
   const summaryWithoutMachineKind = { ...chat([]).summary! };
   delete summaryWithoutMachineKind.hostKind;
   delete summaryWithoutMachineKind.peer;
+  delete summaryWithoutMachineKind.host;
   const realCloudShape: AcpmuxSnapshot = {
     ...chat([]),
     summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session" },
