@@ -46,12 +46,12 @@ def main():
 
     groups = [
         _group("internal-1", "cmux beta", True),
-        _group("external-1", "Founders Edition", False),
+        _group("external-1", "External beta", False),
     ]
     chosen = module._select_group(groups, "", "")
     _check(chosen["id"] == "external-1", "auto-select picks the single external group")
 
-    chosen = module._select_group(groups, "", "Founders Edition")
+    chosen = module._select_group(groups, "", "External beta")
     _check(chosen["id"] == "external-1", "explicit external group name resolves correctly")
 
     chosen = module._select_group(groups, "external-1", "")

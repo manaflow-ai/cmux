@@ -180,6 +180,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
+    /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
+    /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
+    public var archiveSection = true
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
@@ -238,7 +241,9 @@ nonisolated extension SidebarLayoutOptions {
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
+        if !minimal, content.detail != nil, let step = ws.agentStep {
+            (content.now, content.detail) = (step, step)
+        }
         return content
     }
 

@@ -1,3 +1,5 @@
+import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -29,6 +31,7 @@ final class FeedHandoffDriver {
         var list: @MainActor (_ state: FeedLocalItem.State, _ unreadOnly: Bool) async throws -> [FeedLocalItem]
         var begin: @MainActor (_ item: String) async throws -> FeedLocalItem
         var done: @MainActor (_ item: String, _ home: String) async throws -> FeedLocalItem
+        var abort: @MainActor (_ item: String) async throws -> FeedLocalItem
     }
 
     /// One FeedDO call (`v1/ops` or `v1/read`) as this Mac's install.
@@ -146,6 +149,7 @@ final class FeedHandoffDriver {
 
     private func handOffAll() async {
         guard let install = installID() else { return }
+        guard policy().classified else { return note("pass waits: incognito workspaces not classified yet") }
         do {
             for item in try await daemon.list(.handingOff, false) where !refused.contains(item.id) {
                 guard await adopt(item, install: install) else { return }
@@ -176,7 +180,8 @@ final class FeedHandoffDriver {
     /// Sends `feed.adopt` for a frozen item, then records the move. Returns
     /// false when the pass should stop (owner or daemon unreachable, a limit).
     private func adopt(_ item: FeedLocalItem, install: String) async -> Bool {
-        let body = Self.adoptBody(item, install: install, content: policy().frozenContent(for: item))
+        guard let content = policy().frozenContent(for: item) else { return await withdraw(item) }
+        let body = Self.adoptBody(item, install: install, content: content)
         do {
             _ = try await owner("v1/ops", body)
         } catch FeedServiceError.owner(let code, _) where code == "idempotency.conflict" {
@@ -201,6 +206,34 @@ final class FeedHandoffDriver {
         if recentlyMoved.count >= Self.maxTracked { recentlyMoved.removeAll() }
         recentlyMoved.insert(item.id)
         if readAfterMove.remove(item.id) != nil { readInCloud([item.id]) }
+        return true
+    }
+
+    /// A frozen item that may not leave now (an incognito window's, #31210): `feed.adopt.cancel`, then the
+    /// daemon takes it back (`cancelled: true`) or records the earlier adopt that committed (`cancelled: false`).
+    /// Returns false when the pass should stop, as `adopt` does.
+    private func withdraw(_ item: FeedLocalItem) async -> Bool {
+        let body: [String: Any] = ["op": "feed.adopt.cancel", "params": ["key": "adopt:\(item.id)"],
+                                   "idempotency_key": "adopt.cancel:\(item.id)", "origin": "script"]
+        let cancelled: Bool
+        do {
+            cancelled = (try await owner("v1/ops", body)["value"] as? [String: Any])?["cancelled"] as? Bool == true
+        } catch FeedServiceError.owner(let code, _) {
+            note("withdraw \(item.id) refused: \(code)")
+            if Self.stopCodes.contains(code) || code.hasPrefix("auth.") { return false }
+            if refused.count < Self.maxTracked { refused.insert(item.id) }
+            return true
+        } catch {
+            note("withdraw \(item.id) failed: \(Self.describe(error))")
+            return false
+        }
+        do {
+            _ = try await cancelled ? daemon.abort(item.id) : daemon.done(item.id, Self.home)
+        } catch {
+            note("withdraw \(item.id): daemon step failed: \(Self.describe(error))")
+            return Self.isItemRefusal(error)
+        }
+        note(cancelled ? "withdrew \(item.id): kept local" : "withdrew \(item.id): already moved")
         return true
     }
 

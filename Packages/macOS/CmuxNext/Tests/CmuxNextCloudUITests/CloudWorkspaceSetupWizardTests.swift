@@ -42,6 +42,14 @@ struct CloudWorkspaceSetupWizardTests {
         #expect(CloudWorkspaceSetupWizard.CredentialAvailability.resolve(teamID: teamID, supportsFileRoute: supportsFileRoute) == expected)
     }
 
+    /// A build that does not copy the Mac's login points a personal VM at its own sign-in, not at
+    /// the connection; a team VM keeps its own note.
+    @Test func aBuildThatDoesNotPassTheLoginSaysToSignInOnTheMachine() {
+        typealias A = CloudWorkspaceSetupWizard.CredentialAvailability
+        #expect(A.resolve(teamID: nil, supportsFileRoute: true, passesLogin: false) == .signInOnMachine)
+        #expect(A.resolve(teamID: "team-1", supportsFileRoute: true, passesLogin: false) == .teamMachine)
+    }
+
     @MainActor
     @Test(arguments: [true, false])
     func accountOrTeamChangeDuringSetupRefusesTheCreationPlan(changesTeam: Bool) async throws {

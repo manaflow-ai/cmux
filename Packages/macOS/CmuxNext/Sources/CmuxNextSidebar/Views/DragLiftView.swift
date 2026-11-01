@@ -3,10 +3,13 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The row or group being dragged: a live row view on the one overlay glass
-/// (`OverlaySurfaceView`: Liquid Glass on macOS 26+, the frosted material
-/// before, opaque under Reduce Transparency) with a shadow. It keeps its
-/// size and place: no lift scale (Lawrence 2026-10-20, u5506).
-/// Multi-item drags show stacked cards behind it and a count badge.
+/// (`OverlaySurfaceView`: clear, untinted Liquid Glass on macOS 26+, the
+/// frosted material before, opaque under Reduce Transparency) with a shadow.
+/// The glass is clear so a picked-up row stays as see-through as it was in
+/// the list (Leo 2026-10-23: "they don't need to be solid when you pick them
+/// up"). It keeps its size and place: no lift scale (Lawrence 2026-10-20, u5506).
+/// Multi-item drags show stacked cards behind it, peeking out below it only,
+/// and a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
     /// The card's background: the shared overlay material, never taking the pointer.
@@ -27,6 +30,7 @@ final class DragLiftView: NSView {
     init(content: NSView, count: Int, material: OverlayMaterial? = nil) {
         self.content = content
         background = OverlaySurfaceView(material: material, interactive: false, cornerRadius: SidebarStyle.rowCornerRadius)
+        background.isClear = true
         super.init(frame: .zero)
         card.wantsLayer = true
         card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -83,6 +87,7 @@ final class DragLiftView: NSView {
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
             back.frame = bounds.insetBy(dx: Metrics.space2 * depth, dy: 0).offsetBy(dx: 0, dy: Metrics.space2 * depth)
+            back.layer?.mask = Self.peekMask(back: back.bounds, card: convert(bounds, to: back))
         }
         let size = countBadge.intrinsicContentSize
         let h = SidebarStyle.badgeHeight + Metrics.space1
@@ -94,6 +99,20 @@ final class DragLiftView: NSView {
         // The shadow keeps the card's shape: `morph` springs it with the size.
         // The model always holds the current shape; a running spring (morph) keeps showing its own path until it ends there.
         Motion.sidebar.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
+    }
+
+    /// A stacked card's mask: all of it but the part under the front card, which the clear glass
+    /// would show through.
+    static func peekMask(back: CGRect, card: CGRect) -> CAShapeLayer {
+        let radius = SidebarStyle.rowCornerRadius
+        let path = CGMutablePath()
+        path.addRect(back)
+        path.addRoundedRect(in: card, cornerWidth: radius, cornerHeight: radius)
+        let mask = CAShapeLayer()
+        mask.frame = back
+        mask.path = path
+        mask.fillRule = .evenOdd
+        return mask
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {

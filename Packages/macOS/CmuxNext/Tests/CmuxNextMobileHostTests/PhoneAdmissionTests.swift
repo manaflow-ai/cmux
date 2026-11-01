@@ -1,6 +1,6 @@
 import AppKit
-import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Foundation
@@ -130,6 +130,8 @@ import Testing
         #expect(spec.buttons.first { $0.id == "allow" }?.key == nil)
         #expect(spec.lines.contains { $0.contains("one") })
         #expect(spec.lines.contains { $0.contains(Self.phone.identityKey) })
+        #expect(Self.phone.shortFingerprint.count == 8)
+        #expect(spec.title.contains("“Phone” (\(Self.phone.shortFingerprint))"))
         #expect(spec.identifier == IPhoneHostService.phoneAccessDialogIdentifier)
     }
 
@@ -303,7 +305,7 @@ import Testing
         var rekeyed = Self.phone
         rekeyed.identityKey = String(repeating: "c", count: 64)
 
-        let host = IPhoneHostService(pairedStore: store)
+        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: store)
         let gate = PhoneAccessGate()
         gate.setServing(true)
         host.followPhoneAccess(gate, disconnect: { _ in })
@@ -340,7 +342,7 @@ import Testing
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = await Self.store(at: directory)
-        let host = IPhoneHostService(pairedStore: store)
+        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: store)
         let gate = PhoneAccessGate()
         gate.setServing(true)
         host.followPhoneAccess(gate, disconnect: { _ in })
@@ -452,7 +454,7 @@ import Testing
     @Test func localRowsRemainRemovableWhenIPhoneHostIsOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let host = IPhoneHostService(pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
+        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
         host.pairedStore.select(userID: "one")
         await host.pairedStore.attach(directory: directory)
         try await host.pairedStore.change(for: "one") { $0.approve(Self.phone, at: Date()) }

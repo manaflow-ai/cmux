@@ -184,6 +184,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
+    /// `cloud resize-machine --disk GIB`: the disk's new size in whole GiB (4 GiB steps up to 256, grow-only).
+    static var diskGiBInt: ActionArgument {
+        ActionArgument(name: "disk", title: String(localized: "argument.diskGiB", defaultValue: "Disk (GiB)", bundle: .module),
+                       kind: .int(4...256), isRequired: false)
+    }
+
     /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
     static var sshKeyString: ActionArgument {
         ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
@@ -306,7 +312,7 @@ nonisolated enum CatalogArgument {
     }
 
     static var channelChoice: ActionArgument {
-        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly")]))
+        ActionArgument(name: "channel", title: String(localized: "argument.channel", defaultValue: "Channel", bundle: .module), kind: .enumeration([choice("stable"), choice("nightly"), choice("dev")]))
     }
 
     static var topicString: ActionArgument {
@@ -393,6 +399,7 @@ nonisolated enum CatalogArgument {
         case "xlarge": String(localized: "argument.value.xlarge", defaultValue: "Extra Large", bundle: .module)
         case "stable": String(localized: "argument.value.stable", defaultValue: "Stable", bundle: .module)
         case "nightly": String(localized: "argument.value.nightly", defaultValue: "Nightly", bundle: .module)
+        case "dev": String(localized: "argument.value.dev", defaultValue: "DEV", bundle: .module)
         case "right": String(localized: "argument.value.right", defaultValue: "Right", bundle: .module)
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)

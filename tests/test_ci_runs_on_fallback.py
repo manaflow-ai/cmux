@@ -87,6 +87,12 @@ OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]
 # A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
 ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
 RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
+# A session label (glaeda-session-<class>-xcode-<v>, pr_runner_pool.session_label()) and a variable naming one
+# (vars.CI_SESSION_LANE_RUNNER; a switch like vars.CI_SESSION_LABEL names no label). A runs-on takes one only
+# from a placement output that role_room() judged.
+SESSION_LITERAL = re.compile(r"'(glaeda-(?:[a-z]+-)*?session-[a-z0-9.-]+)'")
+SESSION_VARIABLE = re.compile(r"\bvars\.([A-Z0-9_]*SESSION[A-Z0-9_]*RUNNER[A-Z0-9_]*)\b")
+SESSION_LANE_GUARD = re.compile(r"needs\.[\w-]+\.outputs\.session_lane_runner\s*!=\s*''")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -462,6 +468,36 @@ def flat_alternatives(expression: str) -> list[str]:
     return found
 
 
+def separate_pr_cascade(alternative: str) -> bool:
+    """A complete non-display PR picker route, separate from the later push GUI route.
+
+    Require allocated overflow legs and fresh owned/retry outputs; an event-gated
+    fixed label alone is still a pin, not a separate picker route.
+    """
+    terms = conjuncts(alternative)
+    if len(terms) != 2 or terms[0] != "github.event_name == 'pull_request'":
+        return False
+    route = terms[1]
+    if "outputs.gui_overflow" in route or not unconditional(route):
+        return False
+    legs = flat_alternatives(route)
+    freshness = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)"
+    for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "owned_jobs"):
+        matches = [leg for leg in legs if f"outputs.{output}" in leg]
+        if len(matches) != 1 or freshness not in conjuncts(matches[0]):
+            return False
+    if not any(freshness in conjuncts(leg) and conjuncts(leg)[-1] ==
+               "needs.macos-placement.outputs.retry_runner" for leg in legs):
+        return False
+    # Every literal before the terminal fallback must come from an allocation.
+    for leg in legs[:-1]:
+        if BLACKSMITH_MAC_LITERAL.search(leg) and not any(
+            f"outputs.blacksmith_{size}_jobs" in leg for size in (12, 6)
+        ):
+            return False
+    return True
+
+
 def overflow_preempted(text: str) -> list[str]:
     """The alternatives that send a GUI job to a fixed Blacksmith macOS label before its placement's gui_overflow.
 
@@ -470,7 +506,8 @@ def overflow_preempted(text: str) -> list[str]:
     on the rescue's re-run. An alternative before it that names a Blacksmith literal decides the size instead:
     run 41123927916 (cmux#28497, 2026-10-30) ran swift-test on 6 vCPU on both attempts through such legs
     (`runner != '' && 'blacksmith-6vcpu-macos-26'`, `github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26'`).
-    Only a fork's clause may come first; a literal after the gui_overflow read is the last resort.
+    A fork clause or complete non-display PR picker route may come first; a literal after
+    the gui_overflow read is the last resort.
     """
     found = []
     for expression in EXPRESSION.findall(text) or [text]:
@@ -479,8 +516,52 @@ def overflow_preempted(text: str) -> list[str]:
         for alternative in flat_alternatives(expression):
             if "outputs.gui_overflow" in alternative:
                 break
-            if BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative:
+            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+                    and not separate_pr_cascade(alternative)):
                 found.append(alternative)
+    return found
+
+
+def leaves(expression: str) -> list[str]:
+    """`expression`'s `||` alternatives, with each parenthesized alternation opened up in place."""
+    found = []
+    for alternative in split_top(unwrap(expression), "||"):
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += leaves(inner)
+            continue
+        terms = conjuncts(inner)
+        last = unwrap(terms[-1]) if terms else inner
+        if len(split_top(last, "||")) > 1:
+            # `a && (b || c)`: each of b and c is taken under a's conjuncts.
+            found += [" && ".join([*terms[:-1], leaf]) for leaf in leaves(last)]
+        else:
+            found.append(inner)
+    return found
+
+
+def session_label_problems(text: str) -> list[str]:
+    """Why a runs-on can send a job to a session label without a placement having judged that label's queue.
+
+    The session label's runners are often online and busy on gui jobs while it starts nothing: on 2026-10-29
+    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-26.6, twice, with five session
+    runners online (36 offline) and the gui label beside it starting jobs within a minute, and the janitor
+    opened "Runner label starved" issues for it twice that day. The gui-or-session rule above passed those
+    jobs, because it counts ci-owned-pool-rescue.yml's watch as the way off; but the rescue watches a cmux-next
+    run "refusals-only" while Blacksmith has no free slot, as it had none that day, so it never moved them,
+    and GitHub never moves a queued job. So a session label reaches a job only from a placement output
+    (side_lane_placement.py's session_runner, session_lane_runner, free_session_runner), whose role_room()
+    declines a label the janitor found unserved:
+    - no runs-on names a session label literally;
+    - an alternative that reads a session variable (vars.CI_SESSION_LANE_RUNNER) also requires the
+      placement's session_lane_runner to be set, so the variable is taken only while role_room() held for it.
+    """
+    found = [f"names {label} literally" for label in dict.fromkeys(SESSION_LITERAL.findall(text))]
+    for expression in EXPRESSION.findall(text) or [text]:
+        for leaf in leaves(expression):
+            variables = SESSION_VARIABLE.findall(leaf)
+            if variables and not any(SESSION_LANE_GUARD.fullmatch(unwrap(term)) for term in conjuncts(leaf)):
+                found.append(f"reads vars.{variables[0]} without the placement's session_lane_runner")
     return found
 
 
@@ -612,6 +693,15 @@ class RunsOnFallbackTests(unittest.TestCase):
                 if match:
                     failures.append(f"{path.name} {job_id}: {match.group(0)}")
         self.assertEqual(failures, [], "a runs-on must name a pool, never one machine")
+
+    def test_the_nightly_only_builder_is_reached_only_through_its_idle_pick(self) -> None:
+        # One runner per dedicated Mac carries it, so a queue on it could wait a whole build. Only
+        # nightly_build_runner.nightly_only_builder_route() names it, and only while one is idle now;
+        # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
+        failures = [f"{path.name} {job_id}" for path in workflows()
+                    for job_id, job in (load(path).get("jobs") or {}).items()
+                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+        self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
 
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
         failures = []
@@ -801,6 +891,51 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
         # No gui_overflow read: another rule's business.
         self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_a_session_label_comes_only_from_a_placement_that_judged_it(self) -> None:
+        failures, placed = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                placed += "outputs.session_runner" in text
+                failures += [f"{path.name} {job_id}: {why}" for why in session_label_problems(text)]
+        self.assertEqual(failures, [], "a session label starts nothing for hours while its runners look online")
+        self.assertGreaterEqual(placed, 1, "cmux-next's daemon tests read the placement's session_runner")
+
+    def test_the_session_label_rule_catches_what_it_is_for(self) -> None:
+        session = "'glaeda-session-std-xcode-26.6'"
+        gui = "'glaeda-gui-std-xcode-26.6'"
+        # cmux#24295's route: the literal session label behind a variable switch, gated and with a Blacksmith end.
+        self.assertTrue(session_label_problems(
+            f"${{{{ github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && {session} || {gui}) "
+            "|| 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(f"${{{{ {session} }}}}"))
+        self.assertTrue(session_label_problems("glaeda-session-light-xcode-26.6".join("''")))
+        # A session variable taken without the placement's verdict, or behind another `||` branch.
+        self.assertTrue(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(session_label_problems(
+            "${{ a && (needs.p.outputs.session_lane_runner != '' || b) && vars.CI_SESSION_LANE_RUNNER || 'x' }}"))
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.session_lane_runner != '' && (b || vars.CI_SESSION_LANE_RUNNER) || 'x' }}"), [])
+        # The placement's outputs, and the variable under the placement's verdict, pass.
+        self.assertEqual(session_label_problems(
+            "${{ needs.p.outputs.free_session_runner || needs.p.outputs.session_runner || needs.p.outputs.gui_runner "
+            f"|| github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"), [])
+        self.assertEqual(session_label_problems(
+            "${{ vars.CI_SESSION_LANE_RUNNER != '' && needs.p.outputs.session_lane_runner != '' && "
+            "(github.run_attempt == 1 || x) && vars.CI_SESSION_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"), [])
+
+    def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
+        jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]
+        route = runs_on_text(jobs["swift-test"])
+        self.assertEqual(overflow_preempted(route), [])
+        # Losing the allocation or its attempt freshness must not create an exemption.
+        self.assertTrue(overflow_preempted(route.replace("outputs.owned_jobs", "outputs.missing_jobs")))
+        self.assertTrue(overflow_preempted(route.replace("outputs.placed_attempt", "outputs.stale_attempt")))
+        for prefix in ("github.event_name == 'pull_request' && ", ""):
+            self.assertTrue(overflow_preempted(
+                "${{ " + prefix + "'blacksmith-6vcpu-macos-26' || needs.p.outputs.gui_overflow }}"))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []

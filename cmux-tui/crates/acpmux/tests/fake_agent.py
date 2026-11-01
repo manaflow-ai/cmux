@@ -13,6 +13,7 @@ Behaviour per prompt text:
   "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
+  "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -92,6 +93,7 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
 # schema strips the draft `subagents` field, so that one does not count).
@@ -919,8 +921,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
         time.sleep(0.05)
         os._exit(0)
+    # "limit:": a usage limit (a sign-in failure with FAKE_AUTH_FAIL=1, which fails over where a
+    # usage limit waits for its reset, #27924).
     if text.startswith("limit:"):
-        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
     if text.startswith("big-output:"):
@@ -1112,7 +1117,12 @@ def handle_prompt(rid, params):
     # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
     # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
     # its number and this process's pid, until it ends its turn by itself 60 s later.
-    if text == "works-through-cancel":
+    # "works-through-cancel-beside-background" does the same after starting background subagent
+    # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
+    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
+        if text == "works-through-cancel-beside-background":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
         for n in range(600):
             update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
                          "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
@@ -1394,6 +1404,26 @@ def main():
                 effort["currentValue"] = params.get("value")
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             continue
+        # FAKE_RUN_MCP=<path>: on session/new, run each stdio MCP server the daemon gave, as a
+        # harness does (its stdin held open, so it serves until the harness ends), and write
+        # their pids to <path>.<this harness pid>.
+        if m == "session/new" and os.environ.get("FAKE_RUN_MCP"):
+            import subprocess
+            pids = []
+            for srv in params.get("mcpServers") or []:
+                if not srv.get("command"):
+                    continue
+                env = dict(os.environ)
+                env.update({e["name"]: e["value"] for e in srv.get("env") or []})
+                proc = subprocess.Popen([srv["command"], *srv.get("args", [])], env=env,
+                                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+                RUNNING_MCP.append(proc)
+                pids.append(str(proc.pid))
+            out = f"{os.environ['FAKE_RUN_MCP']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
+                f.write("\n".join(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
         # process group (setsid), as a harness that daemonizes a helper does, and
         # write its pid to <path>.<this harness pid>. Every harness with the env

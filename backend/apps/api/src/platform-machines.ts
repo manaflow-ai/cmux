@@ -14,10 +14,11 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  * platform verified the person's cmux access token for its derive); CloudDO still checks, on every
  * call, that the user may use the team's machines now, and runs boot, snapshot and delete as that
  * person's own ops, so the team's plan, quotas and per-team limit decide as for a machine the person
- * creates. Exec, snapshot and delete reach only machines a platform boot made. It answers only where
- * PLATFORM_MACHINES is "on" in development/test; after disabling it only ownership-checked find
- * and destroy remain for cleanup; create/fork only recover existing intent IDs and providerInfo
- * reports unavailable. Staging and production refuse every call before any lookup.
+ * creates. Exec, snapshot, resize and delete reach only machines a platform boot made. It answers in every
+ * environment where PLATFORM_MACHINES is "on"; the team's plan (cloud-plan.ts teamPlan) decides who
+ * may create, so production creates only for a team with a paid plan or grant. With the flag off
+ * only ownership-checked find and destroy remain for cleanup; create/fork only recover existing
+ * intent IDs and providerInfo reports unavailable.
  */
 export class PlatformMachines extends WorkerEntrypoint<Env> {
   boot(caller: PlatformCaller, name: string, snapshot?: string | null): Promise<PlatformReply<{ id: string }>> {
@@ -56,6 +57,17 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
     return this.call(caller, { op: "resume", machine }) as Promise<PlatformReply<PlatformMachine>>
   }
 
+  /**
+   * Grow the machine in place to `shape` (Freestyle grows only; the disk only while running), as the
+   * person's own cloud.machine.resize, so the team's plan limits apply. Already at `shape`: its
+   * metadata, with no provider call. A shrink on any axis is cloud.size.grow_only; a change still
+   * running on the machine is a retryable mutation.indeterminate. Done: the provider-confirmed shape.
+   */
+  resize(caller: PlatformCaller, machine: string, shape: PlatformShape): Promise<PlatformReply<PlatformMachine>> {
+    if (!validShape(shape)) return invalid("shape")
+    return this.call(caller, { op: "resize", machine, shape: { vcpu: shape.vcpu, memGiB: shape.memGiB, diskGiB: shape.diskGiB } }) as Promise<PlatformReply<PlatformMachine>>
+  }
+
   fork(caller: PlatformCaller, machine: string, name: string): Promise<PlatformReply<PlatformMachine>> {
     return this.call(caller, { op: "fork", machine, name }) as Promise<PlatformReply<PlatformMachine>>
   }
@@ -81,9 +93,8 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
   }
 
   private async call(caller: PlatformCaller, call: PlatformCall): Promise<PlatformReply> {
-    const development = this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test"
     const cleanup = call.op === "find" || call.op === "destroy" || call.op === "create" || call.op === "fork" || call.op === "providerInfo"
-    if (!development || (this.env.PLATFORM_MACHINES !== "on" && !cleanup)) return refused("platform.machines_off", "platform machines are not enabled on this deployment", false)
+    if (this.env.PLATFORM_MACHINES !== "on" && !cleanup) return refused("platform.machines_off", "platform machines are not enabled on this deployment", false)
     const team = caller?.team, user = caller?.user
     if (typeof team !== "string" || !TEAM.test(team) || typeof user !== "string" || !USER.test(user)) return refused("validation.invalid", "invalid caller", false)
     if ("name" in call && !matches(NAME, call.name)) return refused("validation.invalid", "invalid name", false)

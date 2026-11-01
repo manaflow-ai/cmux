@@ -215,11 +215,17 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
-                return SidebarTab(id: TabID(tab.id), title: title,
+                var listed = SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
                                   brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
                                   folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
-                                  state: isNewTabPage ? .idle : state)
+                                  state: isNewTabPage ? .idle : state,
+                                  host: isNewTabPage || tab.kind != .browser ? nil : Self.pageHost(tab.url),
+                                  branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
+                                  lastActivity: lastActivity([tab]))
+                // Its chat's running subagents and commands, which the tab row counts.
+                (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                return listed
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`); a
@@ -244,6 +250,35 @@ public struct SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// Automatic agent names prefer the chat title, then its task gist. Explicit workspace
+    /// and chat names retain their original text; the rendered row label is not naming provenance.
+    public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
+                                    workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
+                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
+                                    explicitChatTitle: String? = nil, taskSummary: String?) -> String {
+        if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
+        let originalName = workspaceName ?? workspaceTitle
+        // A rename remains authoritative even when the user chose a default-looking name or
+        // the session name. Revision zero also supports launcher-named workspaces.
+        if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
+        let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
+            || originalName == sessionName || originalName == shortSessionName(sessionName)
+        guard machineNamed else { return workspaceTitle }
+        if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
+        for candidate in [chatTitle, taskSummary] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
+            return value
+        }
+        return workspaceTitle
+    }
+
+    /// Peers qualify session names for routing; the sidebar already shows the host separately.
+    public static func shortSessionName(_ name: String?) -> String? {
+        name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
     }
 
     /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
@@ -455,6 +490,12 @@ public struct SidebarMapping {
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title
+    }
+
+    /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.
+    static func pageHost(_ url: String?) -> String? {
+        guard let url, let host = URL(string: url)?.host(), !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     /// The newest agent update or notification of the tabs; nil without one.

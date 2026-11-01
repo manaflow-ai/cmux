@@ -175,9 +175,10 @@ nonisolated extension SidebarLayout {
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21), and a Cloud machine, whose rows otherwise
     /// floated under this Mac's last group with no machine over them (Leo 2026-10-29: "why is there
-    /// all this weird stuff at the bottom of the sidebar"). The one rule for every header kind.
+    /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
+    /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup || section.machine?.kind == .cloud
+        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar

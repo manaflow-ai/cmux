@@ -17,7 +17,7 @@ import type { PlatformOperations } from "./cloud-platform-operations.ts"
  * The principal is the named user in the named team, with its own identity (`platform:<user>`) so
  * its idempotency keys never meet the person's. Boot, exec and snapshot first check that the user may
  * use the team's machines (personal team, or a member with team.resources now); find and delete do
- * not, so cleanup outlives a departure. Exec, snapshot and delete reach only machines a platform boot
+ * not, so cleanup outlives a departure. Exec, snapshot, resize and delete reach only machines a platform boot
  * of the same user made (the row's `platform` flag), never a person's own machine. Exec runs as the
  * image's work user, never root.
  */
@@ -36,6 +36,7 @@ export type PlatformCall =
   | { readonly op: "shape"; readonly machine: string }
   | { readonly op: "pause"; readonly machine: string }
   | { readonly op: "resume"; readonly machine: string }
+  | { readonly op: "resize"; readonly machine: string; readonly shape: PlatformShape }
   | { readonly op: "fork"; readonly machine: string; readonly name: string }
   | { readonly op: "exec"; readonly machine: string; readonly command: string; readonly stdin: string | null; readonly timeoutMs: number }
   | { readonly op: "snapshot"; readonly machine: string; readonly name: string }
@@ -57,6 +58,8 @@ export interface PlatformHost {
   mayUse(user: string): Promise<boolean>
   submit(principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<SubmitResult>
   machine(id: string): MachineRow | undefined
+  /** A provider call for this machine (any op) is still pending in the team's ledger. */
+  changing(id: string): boolean
   /** Authoritative provider resources; null/error never confirms a requested reservation. */
   resources(row: MachineRow): Promise<PlatformShape | null>
   ledger(key: string): LedgerRow | undefined
@@ -74,6 +77,7 @@ export interface PlatformHost {
 export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
 const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
 const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
+const sameShape = (a: PlatformShape, b: PlatformShape) => a.vcpu === b.vcpu && a.memGiB === b.memGiB && a.diskGiB === b.diskGiB
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
 type Reply = { t: "result"; value?: any } | { t: "reject"; code: string; message: string; retryable?: boolean }
@@ -169,6 +173,35 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (now?.status === (wantPause ? "paused" : "running")) return host.operations.metadata(host, m.id)
       if (now?.status === (wantPause ? "pausing" : "starting")) return refused("mutation.indeterminate", "the machine power change is still running; retry", true)
       return r?.t === "reject" ? fromReject(r) : refused("cloud.provider.unavailable", "the machine power change did not settle", true)
+    }
+    case "resize": {
+      const m = own(call.machine)
+      if ("ok" in m) return m
+      if (host.operations.busy(host, m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      if (m.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
+      // A boot's machine has no journal: it is provisioning, with nothing pending, until its VM binds.
+      if (m.status === "provisioning") return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      // The provider's own answer decides "already there": the row takes the target size as soon as a
+      // resize is accepted, so it cannot tell a finished grow from one still running.
+      const actual = await host.resources(m).catch(() => null)
+      if (actual && sameShape(actual, call.shape)) return host.operations.metadata(host, m.id)
+      // A change still running answers here, before any intent: CloudDO runs one change per machine.
+      const indeterminate = refused("mutation.indeterminate", "the machine change is still running; retry", true)
+      if (host.changing(m.id)) return indeterminate
+      // A fresh key per call, never one per revision: a refusal (grow_only, size.locked, not_running) is
+      // recorded under its key, and a later call for another size or after a plan change must be decided
+      // again. A duplicate grow cannot follow: the provider's shape and the one-change-per-machine rule
+      // above answer every retry of an accepted resize.
+      const k = `platform-env:resize:${m.id}:${crypto.randomUUID()}`
+      const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } }, k)
+      // The ledger first: submit answers a failed provider call with a generic cloud.provider.unavailable,
+      // while the ledger keeps the provider's own code (cloud.provider.refused, say).
+      const l = host.ledger(ledgerKey(p.identity, k))
+      if (l?.state === "pending") return indeterminate
+      if (l?.state === "done") return host.operations.metadata(host, m.id)
+      if (l) return refused(l.error?.code ?? "cloud.provider.unavailable", l.error?.message ?? "the machine resize failed", false)
+      if (r?.t === "reject") return r.code === "cloud.machine.busy" ? indeterminate : fromReject(r)
+      return r?.t === "result" ? indeterminate : fromReject(r)
     }
     case "find": {
       const l = host.ledger(ledgerKey(p.identity, key("boot", call.name)))
