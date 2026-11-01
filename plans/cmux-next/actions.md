@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 21
 - `settings`: 135
 
-## Counts (1322 actions)
+## Counts (1323 actions)
 
-Palette 1266, CLI verbs 791, right-click 574, MCP tools 707.
+Palette 1267, CLI verbs 791, right-click 574, MCP tools 707.
 
 ## Menus
 
