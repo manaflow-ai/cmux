@@ -1117,6 +1117,44 @@ class CmuxNextWiring(unittest.TestCase):
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], overflow), FALLBACK, name)
 
+    def test_pr_routes_ignore_missing_stale_or_gui_only_placement(self):
+        jobs = self.workflow()["jobs"]
+        for name in GUI_JOBS:
+            for placed in (None, "0", "1"):
+                context = self.context(runner="")
+                outputs = context["needs"][self.PLACEMENT]["outputs"]
+                outputs.update(placed_attempt=placed or "", gui_runner=GUI, session_runner=GUI,
+                               free_gui_runner=GUI, free_session_runner=GUI, gui_overflow="")
+                if placed is None:
+                    outputs.clear()
+                for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+                    expression = jobs[name][key] if key == "runs-on" else jobs[name]["env"][key]
+                    with self.subTest(job=name, placement=placed, key=key):
+                        self.assertEqual(evaluate(expression, context), SIDE)
+            fork = self.context(runner=STD, fork=True)
+            fork["needs"][self.PLACEMENT]["outputs"].update(owned_jobs=f" {name} ")
+            self.assertEqual(evaluate(jobs[name]["runs-on"], fork), FALLBACK)
+            outside = self.context(runner=STD)
+            outside["github"]["repository_owner"] = "outside"
+            self.assertEqual(evaluate(jobs[name]["runs-on"], outside), "macos-26")
+
+    def test_pr_tests_take_only_their_allocated_overflow_or_retry_route(self):
+        jobs = self.workflow()["jobs"]
+        for name in GUI_JOBS:
+            for output, expected in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26"),
+                                     ("blacksmith_6_jobs", FALLBACK)):
+                context = self.context(runner=STD)
+                context["needs"][self.PLACEMENT]["outputs"].update(
+                    {output: f" {name} ", "owned_jobs": "", "gui_runner": GUI})
+                self.assertEqual(evaluate(jobs[name]["runs-on"], context), expected)
+                # A reading from another attempt never authorizes paid overflow.
+                context["needs"][self.PLACEMENT]["outputs"]["placed_attempt"] = "0"
+                self.assertEqual(evaluate(jobs[name]["runs-on"], context), SIDE)
+            for output, expected in (("retry_runner", FALLBACK), ("deferred_runner", SIDE)):
+                retry = self.context("2", triggering_actor="cmux-bot[bot]")
+                retry["needs"][self.PLACEMENT]["outputs"].update({output: expected})
+                self.assertEqual(evaluate(jobs[name]["runs-on"], retry), expected)
+
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
         jobs = self.workflow()["jobs"]
         context = self.push_context(runner=STD)
