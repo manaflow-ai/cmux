@@ -86,8 +86,9 @@ public final class AgentLaneStore {
         var ended: [String] = []
         for (session, cell) in cells {
             let lane = storage[session]
+            let wasLive = cell.hasLiveSession
             cell.update(lane)
-            if lane == nil { ended.append(session) }
+            if wasLive, lane == nil { ended.append(session) }
         }
         for session in ended { cells[session] = nil }
     }

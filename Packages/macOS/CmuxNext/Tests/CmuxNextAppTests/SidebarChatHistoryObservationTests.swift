@@ -15,13 +15,13 @@ struct SidebarChatHistoryObservationTests {
         var all: [String: AgentActivityLane] = [:]
         var tabs: [TabModel] = []
         for index in 0..<count {
-            let session = "chat-history-(index)"
-            all[session] = AgentActivityLane(id: session, name: session, title: "Chat (index)", peer: nil,
+            let session = "chat-history-\(index)"
+            all[session] = AgentActivityLane(id: session, name: session, title: "Chat \(index)", peer: nil,
                                              parent: nil, state: .idle, since: nil, error: nil,
-                                             harness: "claude", chat: "claude-code:(session)")
+                                             harness: "claude", chat: "claude-code:\(session)")
             var snapshot = TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)),
-                                       tabResourceID: ResourceID(rawValue: "tab_chat_history_(index)"),
-                                       kind: .conversation, title: "Chat (index)")
+                                       tabResourceID: ResourceID(rawValue: "tab_chat_history_\(index)"),
+                                       kind: .conversation, title: "Chat \(index)")
             snapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host,
                                                                                        session: session,
                                                                                        harness: "claude"))
@@ -43,7 +43,14 @@ struct SidebarChatHistoryObservationTests {
         defer { lanes.lanes = [:] }
 
         let before = invalidations({
-            _ = SidebarChatHistoryFeed.liveChats(tabs, lanes: lanes.lanes, localHost: Self.host)
+            let all = lanes.lanes
+            var live: Set<String> = []
+            for tab in tabs {
+                guard let ref = tab.agentSession, ref.host == Self.host, let session = ref.session,
+                      let chat = all[session]?.chat else { continue }
+                live.insert(chat)
+            }
+            _ = live
         }) {
             lanes.set("chat-history-0", AgentActivityLane(id: "chat-history-0", name: "chat-history-0",
                                                             title: "Chat 0", peer: nil, parent: nil,
@@ -78,5 +85,32 @@ struct SidebarChatHistoryObservationTests {
         }
 
         #expect(invalidation == 1)
+    }
+
+    @Test func aTabSeenBeforeItsLaneStillUpdatesWhenThatLaneAppears() {
+        let lanes = AgentLaneStore()
+        let session = "chat-history-late"
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 1),
+                                       tabResourceID: ResourceID(rawValue: "tab_chat_history_late"),
+                                       kind: .conversation, title: "Late"))
+        var snapshot = tab.snapshot
+        snapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host,
+                                                                                   session: session,
+                                                                                   harness: "claude"))
+        let observedTab = TabModel(snapshot)
+        var invalidated = false
+        withObservationTracking({
+            _ = SidebarChatHistoryFeed.liveChats([observedTab], lanes: lanes, localHost: Self.host)
+        }) {
+            invalidated = true
+        }
+
+        lanes.set("other", AgentActivityLane(id: "other", name: "other", title: "Other", peer: nil,
+                                               parent: nil, state: .idle, since: nil, error: nil))
+        lanes.set(session, AgentActivityLane(id: session, name: session, title: "Late", peer: nil,
+                                             parent: nil, state: .idle, since: nil, error: nil,
+                                             harness: "claude", chat: "claude-code:(session)"))
+
+        #expect(invalidated)
     }
 }

@@ -30,23 +30,20 @@ public final class SidebarChatHistoryFeed {
 
     /// Follows the setting, acpmux's windows, the lanes, every machine's live tabs and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
-    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
-                      liveTabs: (@escaping @MainActor @Sendable () -> [TabModel])? = nil, localHost: String?,
+    public func start(liveTabs: @escaping @MainActor @Sendable () -> [TabModel], localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
         guard task == nil else { return }
         history.onOpen = open
         let earlier = windows.window(Self.earlierWindow)
         let pinned = windows.window(Self.pinnedWindow)
-        let liveTabs = liveTabs
         // task-owner: the app (one feed for the app's life); event-driven (Observation). One value
         // per change of what the history shows besides the index (the windows' specs for acpmux)
         // or of a window's rows (the state, O(visible rows)).
         task = Task {
             for await shown in ObservationStream({ () -> Shown? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let inputs = Inputs(live: liveTabs.map { Self.liveChats($0(), lanes: lanes, localHost: localHost) }
-                                       ?? Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost),
+                let inputs = Inputs(live: Self.liveChats(liveTabs(), lanes: lanes, localHost: localHost),
                                     pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: inputs))
             }) {
@@ -94,19 +91,6 @@ public final class SidebarChatHistoryFeed {
         let pinnedByID = Dictionary(pinned.map { ($0.id, historyChat($0)) }, uniquingKeysWith: { first, _ in first })
         return SidebarChatHistoryState.make(newest: earlier.lazy.map(historyChat), chat: { pinnedByID[$0] }, live: inputs.live,
                                             pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded)
-    }
-
-    /// The chats an open workspace shows: those its agent tabs' acpmux sessions on this Mac continue.
-    static func liveChats(_ workspaces: [WorkspaceModel], lanes: [String: AgentActivityLane], localHost: String?) -> Set<String> {
-        var live: Set<String> = []
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session,
-                      let chat = lanes[session]?.chat else { continue }
-                live.insert(chat)
-            }
-        }
-        return live
     }
 
     /// The live-tab projection used by the app. It observes each session's chat binding only;
