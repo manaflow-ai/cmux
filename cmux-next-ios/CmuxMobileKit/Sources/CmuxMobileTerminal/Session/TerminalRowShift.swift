@@ -16,6 +16,8 @@ import Foundation
 /// - a reset (`ESC c`) is followed by `offset` line feeds, so the remote
 ///   screen starts at the mirror's row `offset + 1`;
 /// - `CUP`/`HVP` (`H`, `f`) and `VPA` (`d`) rows gain `offset`;
+/// - `ED 3` (`ESC[3J`, erase saved lines) also erases the `offset` rows above the
+///   remote screen, which are history on the Mac but screen rows here;
 /// - `DECSTBM` (`r`) with explicit margins gains `offset`, except the full
 ///   remote screen, which stays a full-screen region so lines that scroll off
 ///   the top still reach the scrollback.
@@ -172,6 +174,12 @@ public struct TerminalRowShift: Sendable {
             return Self.csi("\(row(0) + offset);\(max(1, column))", final)
         case UInt8(ascii: "d"):
             return Self.csi("\(row(0) + offset)", final)
+        case UInt8(ascii: "J") where text == "3":
+            // Erase Saved Lines (the Mac's Clear Screen and Scrollback sends it, as does
+            // `clear`): on the Mac every row above its screen is history and goes. Here
+            // the `offset` rows above the Mac's screen are the mirror's own screen rows,
+            // which `3J` keeps; erase them too, cursor kept, so the phone clears as the Mac does.
+            return sequence + Self.saved(Self.csi("\(offset);9999", UInt8(ascii: "H")) + Self.csi("1", UInt8(ascii: "J")))
         case UInt8(ascii: "r"):
             guard !text.isEmpty else { return sequence }
             let top = row(0)

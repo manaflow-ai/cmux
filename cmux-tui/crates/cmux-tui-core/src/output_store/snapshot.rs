@@ -44,6 +44,10 @@ const MAX_SNAPSHOT_FILE_BYTES: u64 = 16 * 1024 * 1024;
 struct WriterState {
     /// When the pending changes are due; `None` while nothing changed.
     due: Option<Instant>,
+    /// A terminal's history grew by a step: its measurement (and a budget
+    /// pass when the total is over the trigger) is due now
+    /// (`memory_budget.rs`), apart from `due`.
+    memory_due: bool,
     stop: bool,
 }
 
@@ -77,6 +81,18 @@ impl Writer {
         }
     }
 
+    /// A terminal's history grew by a step: measure it at once. Requests
+    /// coalesce until the writer wakes, so a flood asks for one pass at a
+    /// time.
+    pub(super) fn request_memory_pass(&self) {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.memory_due {
+            state.memory_due = true;
+            changed.notify_all();
+        }
+    }
+
     pub(super) fn stop(&self) {
         {
             let (lock, changed) = &*self.state;
@@ -96,11 +112,21 @@ impl Writer {
 fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
     let (lock, changed) = state;
     loop {
-        {
+        let memory_only = {
             let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if guard.stop {
                     return;
+                }
+                // A due snapshot pass goes first (it measures too), so a
+                // stream of measurement requests never starves snapshots.
+                if guard.due.is_some_and(|due| Instant::now() >= due) {
+                    guard.due = None;
+                    guard.memory_due = false;
+                    break false;
+                }
+                if std::mem::take(&mut guard.memory_due) {
+                    break true;
                 }
                 match guard.due {
                     None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
@@ -108,7 +134,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                         let now = Instant::now();
                         if now >= due {
                             guard.due = None;
-                            break;
+                            break false;
                         }
                         guard = changed
                             .wait_timeout(guard, due - now)
@@ -117,10 +143,23 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                     }
                 }
             }
-        }
+        };
         let Some(mux) = mux.upgrade() else { return };
-        write_pass(&mux, &mux.output_store);
+        if memory_only {
+            memory_pass(&mux, &mux.output_store);
+        } else {
+            write_pass(&mux, &mux.output_store);
+        }
     }
+}
+
+/// Between write passes: measure the terminals whose history grew, and run
+/// the budget pass when the total is over its trigger; the snapshots keep
+/// their own interval.
+fn memory_pass(mux: &Arc<Mux>, store: &OutputStore) {
+    let policy = store.cached_policy().unwrap_or_else(|| PersistencePolicy::current(mux));
+    let _pass = store.lock_pass();
+    super::memory_budget::measure_due(mux, store, policy.memory_total_bytes);
 }
 
 /// Write the snapshot of every terminal that printed since the last pass and

@@ -16,6 +16,19 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
         self.status = status
     }
 
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    public nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (the App's `CloudService.hasLoadedCurrentMachines`).
+    public nonisolated static func offered(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
+    }
+
     var reply: [String: Any] {
         var value: [String: Any] = ["id": id, "label": label]
         if !status.isEmpty { value["status"] = status }
@@ -46,6 +59,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
+    /// This chat's tab, a pane opened on a subagent, now shows a subagent named `title`, or (nil) its
+    /// chat again: the tab's name follows (``SubagentTabTitles/show(_:inTab:)``).
+    public var showsSubagent: @MainActor (_ title: String?) -> Void
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -90,6 +106,7 @@ public struct AgentPaneHeaderHooks {
                 openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
+                showsSubagent: @escaping @MainActor (String?) -> Void = { _ in },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -109,6 +126,7 @@ public struct AgentPaneHeaderHooks {
         self.openRight = openRight
         self.openTab = openTab
         self.openSubagent = openSubagent
+        self.showsSubagent = showsSubagent
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -222,13 +240,22 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
-        case .subagentPane(let agent, let focus):
+        case .subagentPane(let agent, let focus, let title):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
+            // Its tab is named after the subagent, not the chat (SubagentTabTitles).
+            SubagentTabTitles.shared.name(agent, of: sessionId, title: title)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
+        case .subagentShown(let agent, let title):
+            // A subagent pane's own page: its tab's name follows what it shows. Not from a New Tab page.
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentShown")
+            }
+            header.showsSubagent(agent == nil ? nil : title)
+            return AgentPaneReply.success()
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):

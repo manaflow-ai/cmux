@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// The Chief's status line ("Telling a31 · 4s"): it heads the typing dots, and a
+/// The Chief's status line ("Telling a31 · 4s"): one shimmering line in place of the typing dots, and a
 /// click lists the turn's steps so far with their durations.
 @MainActor @Suite struct HomeTurnStatusTests {
     static let t0 = Date(timeIntervalSince1970: 1_800_000_000)
@@ -18,11 +18,16 @@ import Testing
         return s
     }
 
-    @Test func theStatusLineSitsAboveTheTypingIndicator() throws {
+    /// User 2026-10-30 5:03 PM ("i don't like this ui… make it just one line with shimmer text", over
+    /// "›" / "Running · 4s" / the typing dots): while the status line shows, it is the only row; the
+    /// typing bubble under it is gone.
+    @Test func theStatusLineReplacesTheTypingIndicator() throws {
         let keys = RowBuilder.rows(Self.state(typing: true, notice: "Telling a31 · 1s"), messages: [], now: Self.t0).map { $0.key }
-        let line = try #require(keys.firstIndex(of: "notice"))
-        let dots = try #require(keys.firstIndex(of: "typing"))
-        #expect(line < dots, "rows: \(keys)")
+        #expect(keys.contains("notice"), "rows: \(keys)")
+        #expect(!keys.contains("typing"), "rows: \(keys)")
+        // No status line: the typing dots show as before.
+        let dots = RowBuilder.rows(Self.state(typing: true, notice: nil), messages: [], now: Self.t0).map { $0.key }
+        #expect(dots.contains("typing"))
     }
 
     @Test func theStatusLineShowsWithoutTypingToo() {

@@ -230,7 +230,7 @@ const trustRefusal = (folder: string): Refusal => ({
 });
 
 test("classic Return with no agent named: a start refused for the folder's trust sends its prompt once Trust is answered, once", async () => {
-  const folder = "/tmp/untrusted-project";
+  const folder = "/Users/sample/untrusted-project";
   let trusted = false;
   const { prompts, started } = await mountClassic(folder, async () => (trusted ? undefined : trustRefusal(folder)));
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
@@ -260,7 +260,7 @@ test("classic Return with no agent named: a start refused for the folder's trust
 // hero), so nothing can be typed in the chat composer while the start is out: the page holds the
 // prompt until then, and a refusal after a while gives it back as a quick one does.
 test("a start refused after a while keeps the New Tab page until then, and gives the prompt back with the trust question", async () => {
-  const folder = "/tmp/slow-untrusted-project";
+  const folder = "/Users/sample/slow-untrusted-project";
   let answer: (() => void) | undefined;
   const { prompts, started } = await mountClassic(folder, async (attempt) => {
     if (attempt > 1) return undefined;
@@ -289,7 +289,7 @@ test("a start refused after a while keeps the New Tab page until then, and gives
 }, 60_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
-  const folder = "/tmp/busy-project";
+  const folder = "/Users/sample/busy-project";
   const { prompts, started } = await mountClassic(
     folder,
     async (attempt) => (attempt === 1 ? { message: "acpmux could not start the agent" } : undefined),
@@ -316,7 +316,7 @@ test("a start refused for another reason leaves the prompt in the composer, and 
 }, 60_000);
 
 test("App failed-row Retry cannot bypass a pending folder choice or duplicate the Trust retry", async () => {
-  const folder = "/tmp/retry-pending-folder";
+  const folder = "/Users/sample/retry-pending-folder";
   const { prompts } = await mountClassic(folder, async () => undefined, { trusted: true });
   await askIn(folder, "Start this chat");
   await quiet("the initial turn ends");

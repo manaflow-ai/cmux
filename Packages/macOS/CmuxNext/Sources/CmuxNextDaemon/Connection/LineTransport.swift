@@ -98,7 +98,8 @@ final class LineTransport: Sendable {
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
+    init(path: String, bridge: DaemonBridge? = nil, writerLimit: Int = 64 << 20) throws(DaemonError) {
         self.path = path
         let fd: Int32
         if let bridge {
@@ -110,7 +111,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", limit: writerLimit)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -170,6 +171,23 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// Whether the process at the other end of the socket still exists: the kernel's peer pid
+    /// (`LOCAL_PEERPID`, fixed at connect) answers `kill(pid, 0)`. False for a bridged connection, whose
+    /// peer is the bridge child, not the daemon, and once the transport closed (``isClosed``: a close, a failed
+    /// write, the reader's end), even while its descriptor is still open. A stopped (SIGSTOP) or
+    /// busy daemon is alive: only its exit, or EOF on the socket, says it is gone.
+    var peerProcessIsAlive: Bool {
+        guard child == nil, !isClosed else { return false }
+        let pid = socket.withLock { socket -> pid_t? in
+            guard socket.fd >= 0 else { return nil }
+            var pid: pid_t = 0
+            var size = socklen_t(MemoryLayout<pid_t>.size)
+            return getsockopt(socket.fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 0 ? pid : nil
+        }
+        guard let pid else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
@@ -277,7 +295,10 @@ final class LineTransport: Sendable {
             return .failure(early)
         }
         if let writeFailure {
-            failAll(.lost(writeFailure))
+            // The socket shuts down too, so the reader reads EOF, the connection ends and its owner reconnects. Failing
+            // only the pending requests left the reader in `read` on an open socket: no `onClose`, a dead transport kept
+            // as ready, and a live peer the heartbeat never closes (follow-up of #28654).
+            end(.lost(writeFailure))
             return .failure(DaemonError.connectionClosed(reason: writeFailure))
         }
         return .success(submittedID)
@@ -285,7 +306,13 @@ final class LineTransport: Sendable {
 
     /// Closes the socket; pending requests fail with `.connectionClosed`.
     func close() {
-        failAll(.closedByClient)
+        end(.closedByClient)
+    }
+
+    /// Ends the connection for `reason`: pending requests fail, and the socket shuts down, so the reader reads EOF
+    /// and posts `onClose` (the owner reconnects unless it closed the connection itself).
+    private func end(_ reason: TransportCloseReason) {
+        failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }

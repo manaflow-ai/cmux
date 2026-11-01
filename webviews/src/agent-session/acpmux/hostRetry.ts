@@ -18,6 +18,14 @@ export function hostIsReconnecting(error: unknown): boolean {
   return fields?.code === undefined;
 }
 
+/// A handshake refused because a reply would pass one message (`message.too_large`: a chat
+/// whose records together were too large to open, on an acpmux before #28754). Asking again gets
+/// the same reply, so the pane never asks on its own; the line's Retry still asks (Leo,
+/// 2026-10-31: "this is completely hardlocked bc of message size").
+export function hostRefusedTooLarge(error: unknown): boolean {
+  return (error as { reason?: unknown } | null)?.reason === "message.too_large";
+}
+
 /// How long a pane's handshakes may keep failing while the host is still recovering (an update's
 /// handoff, a daemon starting or restarting, a start that lost the lock race) before the pane says
 /// so. Until then the pane shows nothing: no card, no header status, no button (Leo, 2026-10-29:

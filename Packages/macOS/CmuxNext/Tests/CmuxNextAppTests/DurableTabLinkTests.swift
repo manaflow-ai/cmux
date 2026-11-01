@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+import CmuxNextDaemonService
 import Testing
 
 /// A `cmux://tab/tab_…` link to a closed tab reopens it by its id
@@ -12,7 +12,7 @@ struct DurableTabLinkTests {
 
     @Test func theFirstDaemonThatHoldsTheClosedTabReopensIt() async {
         var asked: [String] = []
-        let outcome = await DurableTabLink.reopen(on: ["local", "mini", "cloud"]) { daemon in
+        let outcome = await ClosedLinkSearch(daemons: ["local", "mini", "cloud"]).reopen { daemon in
             asked.append(daemon)
             return daemon == "mini" ? .reopened : .notInHistory
         }
@@ -21,18 +21,18 @@ struct DurableTabLinkTests {
     }
 
     @Test func aTabNoDaemonHoldsIsGone() async {
-        let outcome = await DurableTabLink.reopen(on: ["local", "mini"]) { _ in .notInHistory }
+        let outcome = await ClosedLinkSearch(daemons: ["local", "mini"]).reopen { _ in .notInHistory }
         #expect(outcome == .gone)
     }
 
     @Test func noConnectedDaemonIsGone() async {
-        let outcome = await DurableTabLink.reopen(on: [String]()) { _ in .reopened }
+        let outcome = await ClosedLinkSearch(daemons: [String]()).reopen { _ in .reopened }
         #expect(outcome == .gone)
     }
 
     @Test func aFailureStopsTheWalkAndIsReported() async {
         var asked: [String] = []
-        let outcome = await DurableTabLink.reopen(on: ["local", "mini"]) { daemon in
+        let outcome = await ClosedLinkSearch(daemons: ["local", "mini"]).reopen { daemon in
             asked.append(daemon)
             throw Failure()
         }
