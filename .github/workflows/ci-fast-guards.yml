@@ -63,7 +63,10 @@ jobs:
       - name: Checkout feat runner-pool workflow boundary
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: feat-cmux-next
+          # On this PR, use the exact head so the checked-out helper exists
+          # before the feat branch receives the merge. Once merged, the normal
+          # feat branch ref remains the source for later main wiring.
+          ref: ${{ github.event.pull_request.head.sha || 'feat-cmux-next' }}
           path: .runner-pool-feat
           sparse-checkout: |
             .github/workflows/ci.yml
