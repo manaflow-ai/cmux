@@ -1028,7 +1028,14 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         (True, False, "table", []),
         (False, True, "table", []),
     ]
-    for index, (recorded_network, explicit_network, override_form, permission_args) in enumerate(cases):
+    cases = [(*case, case[0]) for case in cases]
+    cases += [
+        (True, None, "split", ["-s", "read-only", "-c", 'sandbox_mode="workspace-write"'], None),
+        (True, None, "split", ["-c", 'sandbox_mode="workspace-write"', "-s", "read-only"], None),
+        (True, None, "split", ["-s", "workspace-write", "-c", 'sandbox_mode="read-only"'], True),
+        (True, None, "split", ["-c", 'sandbox_mode="read-only"', "-s", "workspace-write"], True),
+    ]
+    for index, (recorded_network, explicit_network, override_form, permission_args, inferred_network) in enumerate(cases):
         case = root / f"codex-network-policy-{index}"
         home, state, codex_home = case / "home", case / "state", case / "codex"
         for directory in (home, state, codex_home):
@@ -1100,7 +1107,7 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             arg.removeprefix("-c") for arg in actual
             if arg.removeprefix("-c").startswith(("sandbox_workspace_write.network_access=", "sandbox_workspace_write="))
         ]
-        effective = explicit_network if explicit_network is not None else recorded_network
+        effective = explicit_network if explicit_network is not None else inferred_network
         expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
         if explicit_network is not None:
             expected = [override]
