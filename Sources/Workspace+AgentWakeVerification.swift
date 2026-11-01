@@ -114,7 +114,9 @@ extension Workspace {
     }
 
     /// What Retry types and where, or `nil` when the pane cannot retry: no failed check, a
-    /// hibernated pane, a command already running, or no resume command.
+    /// hibernated pane, a command already running, or no resume command. The input is the wake's
+    /// own (``TerminalPanel/agentHibernationResumeStartupInput(_:)``), so a pane switched to
+    /// another Claude account retries with the keys it cleared unset.
     func agentWakeRetry(
         panelId: UUID
     ) -> (panel: TerminalPanel, agent: SessionRestorableAgentSnapshot, startupInput: String)? {
@@ -123,7 +125,7 @@ extension Workspace {
               let terminalPanel = terminalPanel(for: panelId),
               !terminalPanel.isAgentHibernated,
               panelShellActivityStates[panelId] != .commandRunning,
-              let startupInput = verification.agent.resumeStartupInput() else {
+              let startupInput = terminalPanel.agentHibernationResumeStartupInput(verification.agent) else {
             return nil
         }
         return (terminalPanel, verification.agent, startupInput)
