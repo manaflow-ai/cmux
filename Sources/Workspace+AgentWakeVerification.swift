@@ -103,21 +103,30 @@ extension Workspace {
 
     /// Types the resume command again and restarts the check.
     func retryAgentWake(panelId: UUID) {
+        guard let retry = agentWakeRetry(panelId: panelId) else { return }
+        if restoredAgentSnapshotsByPanelId[panelId] != nil {
+            // Same state a wake leaves behind, so the shell callbacks can
+            // tell when this retry's command starts and ends.
+            restoredAgentLifecycle.setResumeState(.awaitingAutoResumeCommand, panelId: panelId)
+        }
+        beginAgentWakeVerification(panelId: panelId, agent: retry.agent)
+        sendInputWhenReady(retry.startupInput, to: retry.panel)
+    }
+
+    /// What Retry types and where, or `nil` when the pane cannot retry: no failed check, a
+    /// hibernated pane, a command already running, or no resume command.
+    func agentWakeRetry(
+        panelId: UUID
+    ) -> (panel: TerminalPanel, agent: SessionRestorableAgentSnapshot, startupInput: String)? {
         guard let verification = agentWakeVerificationsByPanelId[panelId],
               verification.state.failureReason != nil,
               let terminalPanel = terminalPanel(for: panelId),
               !terminalPanel.isAgentHibernated,
               panelShellActivityStates[panelId] != .commandRunning,
               let startupInput = verification.agent.resumeStartupInput() else {
-            return
+            return nil
         }
-        if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            // Same state a wake leaves behind, so the shell callbacks can
-            // tell when this retry's command starts and ends.
-            restoredAgentLifecycle.setResumeState(.awaitingAutoResumeCommand, panelId: panelId)
-        }
-        beginAgentWakeVerification(panelId: panelId, agent: verification.agent)
-        sendInputWhenReady(startupInput, to: terminalPanel)
+        return (terminalPanel, verification.agent, startupInput)
     }
 
     /// Drops any check and failure for the pane, for example when it closes
