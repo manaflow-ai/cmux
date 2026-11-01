@@ -136,6 +136,10 @@ struct CloudStartChat {
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes
     /// this Mac's tab: the chat is the machine's now. A copy of a folder this Mac trusts (`trusted`) is trusted there first.
     private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?, trusted: Bool = false, tabKey: String) async throws -> String {
+        await CloudOutdatedMachine.updateBeforeUsingCapability(
+            holds: { services.agentTabs.holdsTabs(machine.daemon) },
+            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
+            update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),

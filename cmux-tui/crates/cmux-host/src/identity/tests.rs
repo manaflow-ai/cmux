@@ -1,6 +1,7 @@
 use super::*;
 use crate::cloud::client::{MemoryStore, ensure_install_key};
-use crate::cloud::wire::{BIND_FILE, BOUND_FILE};
+use crate::cloud::wire::{BIND_FILE, BOUND_FILE, INSTALL_KEY_FILE};
+use crate::config::Paths;
 use serde_json::json;
 
 fn enrolled_store() -> (MemoryStore, InstallKey) {
@@ -71,4 +72,16 @@ fn identity_requires_receipt_current_binding_and_key() {
         )
         .unwrap();
     assert!(enrolled(&store, "provider-a").is_err());
+}
+
+#[test]
+fn scoped_identity_refuses_bound_machine_without_rotating_legacy_key() {
+    let (mut store, _) = enrolled_store();
+    let before_key = store.read(INSTALL_KEY_FILE).unwrap();
+    let before_receipt = store.read(RECEIPT).unwrap();
+
+    let result = scoped(&mut store, &Paths::new(tempfile::tempdir().unwrap().path()));
+    assert!(result.is_err());
+    assert_eq!(store.read(INSTALL_KEY_FILE).as_deref(), Some(before_key.as_str()));
+    assert_eq!(store.read(RECEIPT).as_deref(), Some(before_receipt.as_str()));
 }

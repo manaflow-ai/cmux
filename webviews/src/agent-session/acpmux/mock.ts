@@ -406,6 +406,7 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
+              features: ["queueApproval", "queueGet"],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -557,6 +558,27 @@ export class MockAcpmuxSocket {
         const image = named ? this.promptImages.get(id) : undefined;
         if (!image) throw Object.assign(new Error(`no image ${id} in this chat`), { code: -32001 });
         return image;
+      }
+      // A guest's held prompt: acpmux records the owner's answer (design/chat-multiplayer.md 4.1).
+      case "_acpmux/queue_approve":
+      case "_acpmux/queue_decline":
+        this.emit(target, {
+          mux: method === "_acpmux/queue_approve" ? "queue_approved" : "queue_declined",
+          msg: { promptId: params.promptId, revision: params.revision ?? 0 },
+        });
+        if (method === "_acpmux/queue_decline")
+          this.emit(target, { mux: "queue_removed", msg: { promptId: params.promptId, reason: "declined" } });
+        return {};
+      // A queued prompt read whole for the owner (acpmux hub/queue_get.rs): its newest record.
+      case "_acpmux/queue_get": {
+        for (let index = this.events.length - 1; index >= 0; index -= 1) {
+          const event = this.events[index]!;
+          if (event.sessionId !== target || (event.kind !== "queued" && event.kind !== "queue_updated")) continue;
+          const msg = event.msg as Record<string, unknown>;
+          if (msg.promptId !== params.promptId) continue;
+          return { sessionId: target, promptId: params.promptId, revision: 0, ...msg };
+        }
+        throw Object.assign(new Error("no prompt waits under that id"), { data: { reason: "queue.not_found" } });
       }
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
