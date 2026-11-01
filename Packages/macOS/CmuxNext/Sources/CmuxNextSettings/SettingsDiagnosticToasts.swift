@@ -94,7 +94,7 @@ final class SettingsDiagnosticToasts {
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { [weak registry = self.registry] in
+        handle.onAction = { [weak registry = self.registry] in // toast-target-allow: the toast names a refused setting; its button opens that row
             guard let registry else { return }
             switch destination {
             case .row:
