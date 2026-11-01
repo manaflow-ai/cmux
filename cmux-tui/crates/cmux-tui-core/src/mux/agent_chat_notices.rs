@@ -267,11 +267,10 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             return;
         }
     };
-    // The first hint comes when the watch is armed. A hint can also be an
-    // unrelated change in the nearest existing ancestor of a missing socket
-    // directory (macOS watches that ancestor's entries): with no socket there
-    // is nothing to connect to, and its creation hints again. The wait ends
-    // when the mux is dropped or shuts down (`AgentChatNoticesWake`).
+    // The first hint comes when the watch is armed. A hint can also be the
+    // socket's folder appearing, or the socket going away: with no socket
+    // there is nothing to connect to, and its creation hints again. The wait
+    // ends when the mux is dropped or shuts down (`AgentChatNoticesWake`).
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}

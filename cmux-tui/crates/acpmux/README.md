@@ -426,6 +426,13 @@ session stays open, and the log gets `agent_start_timed_out`.
 into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
 tool step; it is never a turn or a steer of its own. false puts plain sends back on the queue.
 
+`queueMaxPrompts` (default 1000) and `queueMaxBytes` (default 268435456, 256 MiB; 0 is no limit
+for either): the most prompts one chat's queue holds, and the most bytes of prompt content they
+hold. A prompt that would wait past either is refused with `queue.full` or `queue.bytes`
+(`retryable`, with the limit and what waits), before anything is written. An uploaded image
+small enough to go inline for the model counts with its bytes; any other uploaded file goes by
+its path and counts only that.
+
 `silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
 (no message, thought, tool call, plan, compaction or request, and no harness line only a
 responding model produces, such as Claude's stream and thinking or Codex's moderation
@@ -1075,7 +1082,8 @@ acpmux new --host HOST -m codex --group "Remote demo" -d "say hi"
 ```
 
 The local `cmux agent open` receives the session ID mirrored by the local
-daemon; the agent stays on HOST. The group is joined or created, and opening
+daemon; the agent stays on HOST. The group is joined (its name matched
+ignoring case and outer spaces) or created, and opening
 the workspace may move focus. Add
 `--name demo --reuse` when rerunning should reuse the same
 session and row; an unnamed launch creates a new session each time. The
