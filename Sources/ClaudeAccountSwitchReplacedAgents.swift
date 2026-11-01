@@ -8,8 +8,10 @@ import Darwin
 /// whose controlling terminal is that terminal. A Claude inside tmux or screen, or one detached
 /// from any terminal, outlives the switch and keeps writing the session the resumed Claude
 /// continues, so the switch refuses it up front (``ownership(paneTTYDevice:)``). A Claude that
-/// is still running after the exit wait gets no resume typed (``stillRunning``), and a Claude
-/// that started in the pane while the switch awaited is caught by ``startedProcesses(since:)``.
+/// is still running after the exit wait gets no resume typed (``stillRunning``). A pane whose
+/// record names no running process is checked against the session's live owner instead
+/// (``fallingBack(toLiveSessionOwner:)``), and a Claude that started in the pane while the switch
+/// awaited is caught by ``startedProcesses(since:)``.
 struct ClaudeAccountSwitchReplacedAgents {
     /// Whether the switch can stop the replaced agents by closing the pane's terminal.
     enum Ownership: Equatable {
@@ -46,6 +48,15 @@ struct ClaudeAccountSwitchReplacedAgents {
     /// The recorded processes still running as the same process generation.
     var stillRunning: [AgentPIDProcessIdentity] {
         processes.filter { currentIdentity($0.pid) == $0 }
+    }
+
+    /// These agents, or when none of them is still running, the process the agent index names as
+    /// the session's live owner. A Claude whose pid never reached the pane's record (hooks that
+    /// never reported it, or a record lost with a relaunch) is then checked like a recorded one
+    /// instead of passing as "nothing to stop". The owner is looked up only when it is needed.
+    func fallingBack(toLiveSessionOwner owner: @autoclosure () -> AgentPIDProcessIdentity?) -> Self {
+        guard stillRunning.isEmpty, let owner = owner() else { return self }
+        return Self(processes: [owner], currentIdentity: currentIdentity, controllingTTYDevice: controllingTTYDevice)
     }
 
     /// The processes running now that `earlier` did not name: a Claude that started in the pane
