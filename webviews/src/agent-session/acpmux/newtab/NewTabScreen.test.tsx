@@ -501,6 +501,76 @@ test("a Codex skill typed without its `$` goes to the agent as `/$name`, other t
   expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
 });
 
+test("mid-prompt a Codex skill named like a command goes with its `$`, picked or not", async () => {
+  // New Tab opens a leading `/word` as a path, so its prompts name a skill further on, where only a
+  // skill is read (slashCommands.ts withSkillDollars).
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], {
+          commands: [
+            { name: "$emil-color", description: "", source: "skill" },
+            { name: "emil-color", description: "", source: "agent" },
+          ],
+        })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /$emil-color now");
+});
+
+test("Return sends a path or short word at the end; Shift and Cmd Return never pick; a full name sends", async () => {
+  const asks: unknown[][] = [];
+  const skill = { name: "design-vocabulary", description: "Design words", source: "skill" as const };
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [skill] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  const key = async (field: MarkdownFieldElement, init: KeyboardEventInit) => {
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  for (const typed of ["look in /dev", "great job /s"]) {
+    const field = await typePrompt(typed);
+    await press(field, "Enter");
+    expect(promptValue()).not.toContain("/design-vocabulary");
+  }
+  expect(asks.map((ask) => ask[1])).toEqual(["look in /dev", "great job /s"]);
+  // The menu is open on `/des`: Shift-Return and Cmd-Return keep their meaning, no pick.
+  let field = await typePrompt("use /des");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await key(field, { key: "Enter", shiftKey: true });
+  expect(promptValue()).toBe("use /des");
+  field = await typePrompt("use /des");
+  await key(field, { key: "Enter", metaKey: true });
+  expect(promptValue()).not.toContain("/design-vocabulary");
+  // The whole name typed: Return sends it, as in chat.
+  field = await typePrompt("use /design-vocabulary");
+  await press(field, "Enter");
+  expect(asks.at(-1)?.[1]).toBe("use /design-vocabulary");
+});
+
+test("a /word anywhere in the text loads the agent's command list, not only one at the caret", async () => {
+  const asked: string[] = [];
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} onCommands={(harness) => asked.push(harness)} />);
+  });
+  await typePrompt("use /emil-color now");
+  expect(asked.length).toBe(1);
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
