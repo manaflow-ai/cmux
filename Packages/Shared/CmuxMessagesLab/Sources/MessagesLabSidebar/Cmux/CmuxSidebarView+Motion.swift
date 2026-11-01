@@ -78,8 +78,10 @@ extension CmuxSidebarView {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
             if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
-            if let row = layer as? SidebarRowLayer { controller.avatarMotion.refresh(row, window: window) }
             layers += layer.sublayers ?? []
         }
+        // From the controller's own rows and tiles: this view's `layer` is nil until an ancestor
+        // makes it layer-backed, so the walk above may not reach them.
+        controller.refreshAvatarMotion()
     }
 }
