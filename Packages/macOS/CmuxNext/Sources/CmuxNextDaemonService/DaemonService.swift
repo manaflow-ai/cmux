@@ -131,6 +131,9 @@ public final class DaemonService {
     /// Times the wait for a reopened workspace to reach the mirror
     /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
+    /// How long a workspace close waits for this daemon's answer before the store decides it: the safety net for a
+    /// daemon that keeps its socket open and never answers (`WorkspaceClose`). Tests shorten it.
+    @ObservationIgnored public var closeReplyBound: Duration = .seconds(60)
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored private(set) var lastStartupError: DaemonError?

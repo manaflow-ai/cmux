@@ -169,4 +169,124 @@ struct WorkspaceCloseSlowDaemonTests {
             #expect(services.workspace(id: kept) != nil, "the kept workspace closed")
         }
     }
+
+    // MARK: - A daemon that never answers: the bound
+
+    /// A short bound (`DaemonService.closeReplyBound`, 60 s in the product), so the daemon stays stopped past it in seconds.
+    private static let shortBound: Duration = .seconds(3)
+    /// How long the daemon stays stopped in a bound test: the bound, plus a 1 s process-info lookup and margin.
+    private static let pastBound: Duration = .seconds(9)
+    /// What the person reads when a close's machine did not answer within the bound.
+    private static let unanswered = "The workspace was not closed: its machine did not answer."
+
+    /// Each failure of `work`, once it all ended.
+    @MainActor private final class Ended {
+        var failures: [String]?
+    }
+
+    /// Awaits `work` in the background; `ended.failures` is set once every task ended.
+    private static func awaiting(_ work: [ActionWork], into ended: Ended) -> Task<Void, Never> {
+        // task-owner: test-only, awaited by the test before it returns
+        Task { @MainActor in
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            ended.failures = failures
+        }
+    }
+
+    /// Runs `body` with the short bound, the daemon stopped from the start; the daemon goes on after `body`.
+    private static func withStoppedDaemon(_ services: AppServices, _ body: @MainActor () async throws -> Void) async throws {
+        let pid = try #require(services.daemon.identity?.pid)
+        let bound = services.daemon.closeReplyBound
+        services.daemon.closeReplyBound = shortBound
+        defer {
+            services.daemon.closeReplyBound = bound
+            kill(pid, SIGCONT)
+        }
+        #expect(kill(pid, SIGSTOP) == 0)
+        try await body()
+    }
+
+    /// The sidebar's batch close, with the daemon stopped past the bound: the store still lists every workspace, so every
+    /// row is listed again and the person reads that the machine did not answer. Before, the rows stayed hidden for as
+    /// long as the daemon did not answer.
+    @Test func aBatchCloseThatTheDaemonNeverAnswersListsItsRowsAgainWithTheReason() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let ids = try await Self.make(10, prefix: "hung", services, in: controller)
+            let sidebar = controller.sidebar.model
+            sidebar.selection = Set(ids.map { CmuxNextSidebar.WorkspaceID($0) })
+            var back: [String] = [], toasts: [String] = []
+            try await Self.withStoppedDaemon(services) {
+                sidebar.send(.close(sidebar.orderedSelection))
+                try? await PinnedPageTests.until({ Self.shown(ids, in: sidebar).count == ids.count
+                    && CmuxToastCenter.shared.toasts(in: window).contains { $0.message == Self.unanswered } }, within: Self.pastBound)
+                back = Self.shown(ids, in: sidebar)
+                toasts = CmuxToastCenter.shared.toasts(in: window).map(\.message)
+            }
+            print("WorkspaceCloseSlowDaemon: hung batch of 10, back past the bound \(back.count), toasts \(toasts)")
+
+            #expect(back.count == ids.count, "rows listed again past the bound: \(back.count) of \(ids.count)")
+            #expect(toasts.contains(Self.unanswered), "toasts: \(toasts)")
+            #expect(!toasts.contains("The workspace could not be closed."), "toasts: \(toasts)")
+        }
+    }
+
+    /// Close Workspace as the CLI and MCP run it, with the daemon stopped past the bound: the close ends at the bound with
+    /// the reason, and its row is listed again.
+    @Test func aScriptedCloseThatTheDaemonNeverAnswersEndsAtTheBoundWithTheReason() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let id = try #require(try await Self.make(2, prefix: "hung-one", services, in: controller).last)
+            let sidebar = controller.sidebar.model
+            let ended = Ended()
+            var back: [String] = []
+            var waiter: Task<Void, Never>?
+            try await Self.withStoppedDaemon(services) {
+                let work = services.registry.capturingWork {
+                    _ = services.registry.perform("closeWorkspace",
+                                                  invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id), origin: .cli))
+                }
+                waiter = Self.awaiting(work, into: ended)
+                try? await PinnedPageTests.until({ ended.failures != nil }, within: Self.pastBound)
+                back = Self.shown([id], in: sidebar)
+            }
+            let atBound = ended.failures
+            await waiter?.value
+            print("WorkspaceCloseSlowDaemon: hung scripted close, ended at the bound \(atBound != nil), failures \(String(describing: atBound)), back \(back)")
+
+            #expect(atBound == [Self.unanswered], "failures before the daemon went on: \(String(describing: atBound))")
+            #expect(back == [id], "the row was not listed again")
+        }
+    }
+
+    /// Close Other Workspaces (one bulk `close-workspaces`) with the daemon stopped past the bound: it ends at the bound
+    /// with the reason, as the store still lists the workspaces.
+    @Test func closeOtherWorkspacesThatTheDaemonNeverAnswersEndsAtTheBoundWithTheReason() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let ids = try await Self.make(5, prefix: "hung-others", services, in: controller)
+            let kept = try #require(ids.first), others = Array(ids.dropFirst())
+            let ended = Ended()
+            var listed: [String] = []
+            var waiter: Task<Void, Never>?
+            try await Self.withStoppedDaemon(services) {
+                let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: kept), origin: .cli).confirmed()
+                let work = services.registry.capturingWork { _ = services.registry.perform("palette.closeOtherWorkspaces", invocation: invocation) }
+                waiter = Self.awaiting(work, into: ended)
+                try? await PinnedPageTests.until({ ended.failures != nil }, within: Self.pastBound)
+                listed = Self.listed(others, services)
+            }
+            let atBound = ended.failures
+            await waiter?.value
+            print("WorkspaceCloseSlowDaemon: hung close other, ended at the bound \(atBound != nil), failures \(String(describing: atBound)), listed \(listed.count)")
+
+            #expect(atBound == [Self.unanswered], "failures before the daemon went on: \(String(describing: atBound))")
+            #expect(listed.count == others.count, "the store lost workspaces the daemon did not close")
+        }
+    }
 }
