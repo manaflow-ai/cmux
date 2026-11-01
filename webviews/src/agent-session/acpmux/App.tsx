@@ -683,6 +683,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import { withCloudMachineSummary } from "./cloudSummary";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -6920,6 +6921,11 @@ function AcpmuxPane() {
     () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
     [snapshot, cardRows],
   );
+  const sessionInfoSnapshot = useMemo(() => {
+    const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
+    return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
+  }, [cardSnapshot, cloudMachineID]);
+  const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],
@@ -7568,7 +7574,7 @@ function AcpmuxPane() {
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
-        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
+        hostKind: cloudRouteHostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -7590,6 +7596,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
+      cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
@@ -8214,7 +8221,7 @@ function AcpmuxPane() {
   }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
-  const sessionInfoSummary = snapshot.summary;
+  const sessionInfoSummary = sessionInfoSnapshot.summary;
   const sessionInfoLocal =
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
@@ -8319,7 +8326,7 @@ function AcpmuxPane() {
     [restartChat, compactOffered],
   );
   const sessionInfo = useSessionInfo({
-    snapshot: cardSnapshot,
+    snapshot: sessionInfoSnapshot,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
