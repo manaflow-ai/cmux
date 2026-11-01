@@ -306,7 +306,10 @@ struct Daemon {
 impl Daemon {
     fn new(tag: &str) -> Self {
         // Short, under /tmp: the socket path must stay under the macOS limit.
-        let home = PathBuf::from("/tmp").join(format!("amx-fg-{tag}-{}", std::process::id()));
+        // A counter too: tests of one process (plain `cargo test`) may use one seed or tag.
+        static HOMES: AtomicU64 = AtomicU64::new(0);
+        let n = HOMES.fetch_add(1, Ordering::SeqCst);
+        let home = PathBuf::from("/tmp").join(format!("amx-fg-{tag}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join("p")).expect("home");
         // The daemon refuses a state folder others may write to.
@@ -476,6 +479,8 @@ struct RegWrite {
     value: Option<String>,
     sent: Instant,
     acked: Option<Instant>,
+    /// The write's own number (`Model::next_seq`): its answer finds it by this, never by time.
+    seq: u64,
 }
 
 /// The values a register may hold after a crash: any write that no acknowledged write followed
@@ -516,6 +521,120 @@ struct ChatModel {
     answered: BTreeSet<String>,
 }
 
+impl ChatModel {
+    /// A `queue_remove` answered: the request is settled either way.
+    fn remove_answered(&mut self, pid: &str, removed: bool) {
+        self.remove_sent.remove(pid);
+        if removed {
+            self.accepted.remove(pid);
+            self.removed.insert(pid.to_owned());
+        }
+    }
+}
+
+/// What a restart check finds for one chat's prompts, from its queue (JSON) and its
+/// `user_message` records (`ran`).
+#[derive(Debug, Default, PartialEq)]
+struct PromptVerdict {
+    /// Accepted, no removal sent, neither queued nor run: lost.
+    lost: Vec<String>,
+    /// Removed (`removed: true`, or a cut removal seen to land), yet queued or run: the
+    /// removal was lost.
+    back: Vec<String>,
+    /// A removal was sent and its answer cut, and the prompt is gone: the removal landed.
+    cut: Vec<String>,
+    /// A removal was sent and its answer cut, and the prompt is still there: it did not.
+    kept: Vec<String>,
+}
+
+fn classify_prompts(c: &ChatModel, queue: &str, ran: &str) -> PromptVerdict {
+    let key = |p: &str| format!("\"promptId\":\"{p}\"");
+    let present = |p: &str| queue.contains(&key(p)) || ran.contains(&key(p));
+    let mut v = PromptVerdict::default();
+    for p in &c.accepted {
+        match (present(p), c.remove_sent.contains(p)) {
+            (true, true) => v.kept.push(p.clone()),
+            (true, false) => {}
+            (false, true) => v.cut.push(p.clone()),
+            (false, false) => v.lost.push(p.clone()),
+        }
+    }
+    v.back = c.removed.iter().filter(|p| present(p)).cloned().collect();
+    v
+}
+
+/// What a restart check read for one chat, to settle the model with ([`settle`]).
+#[derive(Debug, Default)]
+struct Seen {
+    label: u32,
+    draft: Option<Option<String>>,
+    name: Option<Option<String>>,
+    mode: Option<Option<String>>,
+    prompts: PromptVerdict,
+}
+
+/// After a restart check: each register holds what the check read, as one acknowledged write
+/// at `at` (an unanswered older write can no longer come back); a removal whose answer the
+/// kill cut is settled by what the check found.
+fn settle(m: &mut Model, seen: &[Seen], at: Instant) {
+    m.next_seq += 1;
+    let seq = m.next_seq;
+    for s in seen {
+        let Some(c) = m.chats.get_mut(&s.label) else { continue };
+        let rebase = |writes: &mut Vec<RegWrite>, v: &Option<Option<String>>| {
+            if let Some(v) = v {
+                *writes = vec![RegWrite { value: v.clone(), sent: at, acked: Some(at), seq }];
+            }
+        };
+        rebase(&mut c.drafts, &s.draft);
+        rebase(&mut c.names, &s.name);
+        rebase(&mut c.modes, &s.mode);
+        for p in &s.prompts.cut {
+            c.remove_sent.remove(p);
+            c.accepted.remove(p);
+            c.removed.insert(p.clone());
+        }
+        for p in &s.prompts.kept {
+            c.remove_sent.remove(p);
+        }
+    }
+}
+
+/// Every request (answered, failed, timed out or cut by a kill) that waited over `STALL_MS`.
+fn stall_findings(issued: &[Issued]) -> Vec<Finding> {
+    issued
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| !matches!(i.op, Op::Kill))
+        .filter_map(|(step, i)| {
+            let ms = i.latency_ms?;
+            (ms > STALL_MS).then(|| Finding {
+                step,
+                op: i.op.name().into(),
+                kind: "stall",
+                what: format!("{ms} ms ({})", i.outcome),
+            })
+        })
+        .collect()
+}
+
+/// Why a run proves nothing: it did no operation, no kill, or checked no prompt or draft.
+fn work_findings(ops: u64, kills: u64, checked: &BTreeMap<&'static str, u64>) -> Vec<String> {
+    let mut out = Vec::new();
+    if ops == 0 {
+        out.push("no operation ran".to_owned());
+    }
+    if kills == 0 {
+        out.push("no kill happened".to_owned());
+    }
+    for kind in ["prompts", "drafts"] {
+        if checked.get(kind).copied().unwrap_or(0) == 0 {
+            out.push(format!("no {kind} were checked after a restart"));
+        }
+    }
+    out
+}
+
 #[derive(Default)]
 struct WatchModel {
     id: Option<String>,
@@ -542,6 +661,10 @@ struct Model {
     next_label: u32,
     next_tag: u32,
     next_pid: u64,
+    /// The last number a register write took (`RegWrite::seq`).
+    next_seq: u64,
+    /// When the test last killed the daemon: a request cut by that kill waited until then.
+    killed_at: Option<Instant>,
 }
 
 impl Model {
@@ -655,23 +778,25 @@ fn arm(client: &mut Client, id: &str, role: Role, n: u64) {
 fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> bool {
     let sent = Instant::now();
     // Register writes are noted before they go, so a write the daemon may have taken counts.
-    let step = {
+    let (step, seq) = {
         let mut m = model.lock().unwrap();
+        m.next_seq += 1;
+        let seq = m.next_seq;
         match &op {
             Op::DraftSet { chat, text } => {
                 let value = (!text.trim().is_empty()).then(|| text.clone());
                 if let Some(c) = m.chats.get_mut(chat) {
-                    c.drafts.push(RegWrite { value, sent, acked: None });
+                    c.drafts.push(RegWrite { value, sent, acked: None, seq });
                 }
             }
             Op::Rename { chat, name } => {
                 if let Some(c) = m.chats.get_mut(chat) {
-                    c.names.push(RegWrite { value: Some(name.clone()), sent, acked: None });
+                    c.names.push(RegWrite { value: Some(name.clone()), sent, acked: None, seq });
                 }
             }
             Op::SetMode { chat, mode } => {
                 if let Some(c) = m.chats.get_mut(chat) {
-                    c.modes.push(RegWrite { value: Some(mode.clone()), sent, acked: None });
+                    c.modes.push(RegWrite { value: Some(mode.clone()), sent, acked: None, seq });
                 }
             }
             Op::NewChat { label, role } => {
@@ -701,7 +826,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             _ => {}
         }
         m.issued.push(Issued { op: op.clone(), outcome: "sent", latency_ms: None });
-        m.issued.len() - 1
+        (m.issued.len() - 1, seq)
     };
     let id_of = |label: &u32| model.lock().unwrap().id(*label);
     let (reply, after): (Reply, After) = match &op {
@@ -721,6 +846,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
                         value: Some(format!("c{label}")),
                         sent,
                         acked: Some(sent),
+                        seq,
                     });
                 }),
             )
@@ -730,7 +856,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             let chat = *chat;
             (
                 client.call("_acpmux/draft_set", json!({"sessionId": id, "text": text})),
-                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Draft, sent)),
+                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Draft, seq)),
             )
         }
         Op::Rename { chat, name } => {
@@ -738,7 +864,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             let chat = *chat;
             (
                 client.call("_acpmux/rename", json!({"sessionId": id, "newName": name})),
-                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Name, sent)),
+                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Name, seq)),
             )
         }
         Op::MarkUnread { chat } => {
@@ -758,7 +884,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             let chat = *chat;
             (
                 client.call("session/set_mode", json!({"sessionId": id, "modeId": mode})),
-                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Mode, sent)),
+                then(move |m: &mut Model, _v: &Value| ack_last(m, chat, Reg::Mode, seq)),
             )
         }
         Op::Prompt { chat, pid } => {
@@ -779,11 +905,8 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             (
                 client.call("_acpmux/queue_remove", json!({"sessionId": id, "promptId": pid})),
                 then(move |m: &mut Model, v: &Value| {
-                    if v["removed"] == true
-                        && let Some(c) = m.chats.get_mut(&chat)
-                    {
-                        c.accepted.remove(&p);
-                        c.removed.insert(p);
+                    if let Some(c) = m.chats.get_mut(&chat) {
+                        c.remove_answered(&p, v["removed"] == true);
                     }
                 }),
             )
@@ -839,8 +962,10 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             let Some(id) = id_of(chat) else { return true };
             let info = match client.call("_acpmux/info", json!({"sessionId": id})) {
                 Reply::Ok(v) => v,
-                Reply::Dead => return finish(model, step, "dead", None),
-                Reply::Timeout => return finish(model, step, "timeout", None),
+                Reply::Dead => return finish(model, step, "dead", Some(cut_ms(model, sent))),
+                Reply::Timeout => {
+                    return finish(model, step, "timeout", Some(sent.elapsed().as_millis() as u64));
+                }
                 Reply::Err(_) => return finish(model, step, "error", None) | true,
             };
             let Some(pid) = info["pending"]
@@ -884,9 +1009,15 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
             finish(model, step, "ok", Some(latency))
         }
         Reply::Err(_) => finish(model, step, "error", Some(latency)),
-        Reply::Dead => finish(model, step, "dead", None),
+        Reply::Dead => finish(model, step, "dead", Some(cut_ms(model, sent))),
         Reply::Timeout => finish(model, step, "timeout", Some(latency)),
     }
+}
+
+/// How long a request the kill cut waited while the daemon was up: from `sent` to the kill.
+fn cut_ms(model: &Mutex<Model>, sent: Instant) -> u64 {
+    let killed = model.lock().unwrap().killed_at;
+    killed.map_or_else(|| sent.elapsed(), |k| k.saturating_duration_since(sent)).as_millis() as u64
 }
 
 #[derive(Clone, Copy)]
@@ -896,14 +1027,14 @@ enum Reg {
     Mode,
 }
 
-fn ack_last(m: &mut Model, chat: u32, reg: Reg, sent: Instant) {
+fn ack_last(m: &mut Model, chat: u32, reg: Reg, seq: u64) {
     let Some(c) = m.chats.get_mut(&chat) else { return };
     let writes = match reg {
         Reg::Draft => &mut c.drafts,
         Reg::Name => &mut c.names,
         Reg::Mode => &mut c.modes,
     };
-    if let Some(w) = writes.iter_mut().rev().find(|w| w.sent == sent) {
+    if let Some(w) = writes.iter_mut().rev().find(|w| w.seq == seq) {
         w.acked = Some(Instant::now());
     }
 }
@@ -956,15 +1087,16 @@ fn checked(kind: &'static str, n: usize) {
 }
 
 /// Checks the restarted daemon against the model.
-fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
+fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
     let mut out = Vec::new();
+    let mut seen_all: Vec<Seen> = Vec::new();
     let mut bad = |step: usize, op: &str, kind: &'static str, what: String| {
         out.push(Finding { step, op: op.to_owned(), kind, what });
     };
     let last = model.issued.len().saturating_sub(1);
     let Some(mut client) = Client::connect(&daemon.socket) else {
         bad(last, "restart", "restart", "the restarted daemon does not answer".into());
-        return out;
+        return (out, seen_all);
     };
     // (3) Every listed session once, and only sessions this test created.
     match client.get("session/list", json!({})) {
@@ -1019,12 +1151,22 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
             }
         };
         checked("chats", 1);
+        let mut seen = Seen {
+            label: *label,
+            name: Some(info["name"].as_str().map(str::to_owned)),
+            mode: Some(info["currentModeId"].as_str().map(str::to_owned)),
+            ..Seen::default()
+        };
+        let draft = client
+            .get("_acpmux/draft_get", json!({"sessionId": id}))
+            .map(|v| v["draft"].as_str().map(str::to_owned));
+        if let Ok(d) = &draft {
+            seen.draft = Some(d.clone());
+        }
         // Drafts: promised durable.
         if let Some(ok) = allowed(&c.drafts) {
             checked("drafts", 1);
-            let now = client
-                .get("_acpmux/draft_get", json!({"sessionId": id}))
-                .map(|v| v["draft"].as_str().map(str::to_owned));
+            let now = draft;
             match now {
                 Ok(now) if !ok.contains(&now) => {
                     let (step, op) =
@@ -1064,8 +1206,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
         }
         // Accepted prompts: still queued, or ran. Removed ones: neither queued nor run since.
         // A prompt may move from the queue to its turn between the two reads: read again.
-        let mut missing: Vec<String> = Vec::new();
-        let mut back: Vec<String> = Vec::new();
+        let mut verdict = PromptVerdict::default();
         for attempt in 0..6 {
             let queue = match client.get("_acpmux/info", json!({"sessionId": id})) {
                 Ok(v) => v["queue"].to_string(),
@@ -1081,30 +1222,15 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
                     break;
                 }
             };
-            let found = |p: &String| {
-                let key = format!("\"promptId\":\"{p}\"");
-                queue.contains(&key) || ran.contains(&key)
-            };
-            missing = c
-                .accepted
-                .iter()
-                .filter(|p| !found(p) && !c.remove_sent.contains(*p))
-                .cloned()
-                .collect();
-            back = c
-                .removed
-                .iter()
-                .filter(|p| queue.contains(&format!("\"promptId\":\"{p}\"")))
-                .cloned()
-                .collect();
-            if (missing.is_empty() && back.is_empty()) || attempt == 5 {
+            verdict = classify_prompts(c, &queue, &ran);
+            if (verdict.lost.is_empty() && verdict.back.is_empty()) || attempt == 5 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(300));
         }
         checked("prompts", c.accepted.len());
         checked("removals", c.removed.len());
-        for p in missing {
+        for p in std::mem::take(&mut verdict.lost) {
             let (step, op) = step_of(model, |o| matches!(o, Op::Prompt { pid, .. } if *pid == p));
             bad(
                 step,
@@ -1113,11 +1239,18 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
                 format!("c{label} accepted prompt {p} is neither queued nor run"),
             );
         }
-        for p in back {
+        for p in std::mem::take(&mut verdict.back) {
             let (step, op) =
                 step_of(model, |o| matches!(o, Op::QueueRemove { pid, .. } if *pid == p));
-            bad(step, &op, "removed-back", format!("c{label} removed prompt {p} is queued again"));
+            bad(
+                step,
+                &op,
+                "removed-back",
+                format!("c{label} removed prompt {p} is queued or ran after its removal"),
+            );
         }
+        seen.prompts = verdict;
+        seen_all.push(seen);
         if !c.answered.is_empty() {
             let decisions = log_text(&mut client, id, &["permission_decision"]).unwrap_or_default();
             for p in &c.answered {
@@ -1195,7 +1328,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> Vec<Finding> {
             format!("the restarted daemon exited: {}", daemon.stderr_tail()),
         );
     }
-    out
+    (out, seen_all)
 }
 
 /// After a restart: start the waiting turns again (the agents died with the daemon).
@@ -1300,6 +1433,7 @@ fn fuzz_seed(seed: u64, rounds: u32, budget: Duration, totals: &mut Totals) -> V
                 let _ = t.join();
             }
         }
+        model.lock().unwrap().killed_at = Some(Instant::now());
         daemon.kill9();
         drop(admin.take());
         for t in threads.drain(..) {
@@ -1324,7 +1458,8 @@ fn fuzz_seed(seed: u64, rounds: u32, budget: Duration, totals: &mut Totals) -> V
                 break;
             }
         }
-        let found = check(&mut daemon, &model.lock().unwrap());
+        let (found, seen) = check(&mut daemon, &model.lock().unwrap());
+        settle(&mut model.lock().unwrap(), &seen, Instant::now());
         let had = totals.violations.len();
         sort_findings(found, totals);
         if totals.violations.len() > had {
@@ -1339,26 +1474,16 @@ fn fuzz_seed(seed: u64, rounds: u32, budget: Duration, totals: &mut Totals) -> V
         });
     }
     let m = model.lock().unwrap();
-    for (step, i) in m.issued.iter().enumerate() {
-        if matches!(i.op, Op::Kill) {
-            continue;
-        }
+    for i in m.issued.iter().filter(|i| !matches!(i.op, Op::Kill)) {
         totals.ops += 1;
         if i.outcome == "dead" {
             totals.cut += 1;
         }
         if let Some(ms) = i.latency_ms {
             totals.latencies.push(ms);
-            if ms > STALL_MS {
-                totals.violations.push(Finding {
-                    step,
-                    op: i.op.name().into(),
-                    kind: "stall",
-                    what: format!("{} ms ({})", ms, i.outcome),
-                });
-            }
         }
     }
+    totals.violations.extend(stall_findings(&m.issued));
     log
 }
 
@@ -1377,13 +1502,16 @@ fn replay(ops: &[Op], tag: &str) -> BTreeSet<&'static str> {
     let mut client = Client::connect(&daemon.socket);
     for op in ops {
         if matches!(op, Op::Kill) {
+            model.lock().unwrap().killed_at = Some(Instant::now());
             daemon.kill9();
             drop(client.take());
             if daemon.start().is_err() {
                 kinds.insert("restart");
                 return kinds;
             }
-            for f in check(&mut daemon, &model.lock().unwrap()) {
+            let (found, seen) = check(&mut daemon, &model.lock().unwrap());
+            settle(&mut model.lock().unwrap(), &seen, Instant::now());
+            for f in found {
                 if !f.kind.starts_with("note:") {
                     kinds.insert(f.kind);
                 }
@@ -1529,6 +1657,11 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
         restart.last().copied().unwrap_or(0),
         CHECKED.lock().unwrap(),
     );
+    let idle = work_findings(totals.ops, totals.kills, &CHECKED.lock().unwrap());
+    for why in &idle {
+        println!("FUZZ-G NO-WORK test={name} {why}");
+    }
+    assert!(idle.is_empty(), "FUZZ-G: the run proves nothing: {idle:?}");
     assert!(
         totals.violations.is_empty(),
         "FUZZ-G: {} violations (see the VIOLATION lines)",
@@ -1561,4 +1694,148 @@ fn fuzz_g_crash_durable_seed_c() {
 #[test]
 fn fuzz_g_crash_durable_seed_d() {
     run("seed_d", &[0x6704, 0x6714, 0x6724], 12);
+}
+
+// ------------------------------------------------------------------ the oracle's own tests
+//
+// No daemon: each builds the model state a fault leaves and asserts the oracle reports it.
+// They run in every test run (they are quick), unlike the fuzz above.
+
+fn oracle_chat() -> ChatModel {
+    ChatModel { id: Some("s".into()), ..ChatModel::default() }
+}
+
+fn queued(pids: &[&str]) -> String {
+    json!(pids.iter().map(|p| json!({"promptId": p})).collect::<Vec<_>>()).to_string()
+}
+
+/// Review 1: a `queue_remove` answered `removed: false` settles the request, so a later loss
+/// of that prompt is reported, not excused.
+#[test]
+fn fuzz_g_oracle_a_removal_answered_false_excuses_no_loss() {
+    let mut c = oracle_chat();
+    c.accepted.insert("p1".into());
+    c.remove_sent.insert("p1".into());
+    c.remove_answered("p1", false);
+    let v = classify_prompts(&c, &queued(&[]), "[]");
+    assert_eq!(v.lost, vec!["p1".to_owned()], "a lost prompt passed: {v:?}");
+}
+
+/// Review 1: a removal whose answer the kill cut, and that the check found landed (the prompt
+/// is gone), turns into a removal: from then on the prompt must never come back.
+#[test]
+fn fuzz_g_oracle_a_cut_removal_that_landed_is_held_to_it() {
+    let mut m = Model::default();
+    let mut c = oracle_chat();
+    c.accepted.insert("p1".into());
+    c.remove_sent.insert("p1".into());
+    m.chats.insert(1, c);
+    let v = classify_prompts(&m.chats[&1], &queued(&[]), "[]");
+    assert_eq!(v.cut, vec!["p1".to_owned()]);
+    assert!(v.lost.is_empty(), "{v:?}");
+    settle(&mut m, &[Seen { label: 1, prompts: v, ..Seen::default() }], Instant::now());
+    let c = &m.chats[&1];
+    assert!(c.remove_sent.is_empty() && !c.accepted.contains("p1") && c.removed.contains("p1"));
+    let later = classify_prompts(c, &queued(&["p1"]), "[]");
+    assert_eq!(later.back, vec!["p1".to_owned()], "a prompt came back unreported: {later:?}");
+}
+
+/// Review 1: a cut removal that the check found did not land stops excusing the prompt.
+#[test]
+fn fuzz_g_oracle_a_cut_removal_that_did_not_land_excuses_nothing_later() {
+    let mut m = Model::default();
+    let mut c = oracle_chat();
+    c.accepted.insert("p1".into());
+    c.remove_sent.insert("p1".into());
+    m.chats.insert(1, c);
+    let v = classify_prompts(&m.chats[&1], &queued(&["p1"]), "[]");
+    assert_eq!(v.kept, vec!["p1".to_owned()]);
+    settle(&mut m, &[Seen { label: 1, prompts: v, ..Seen::default() }], Instant::now());
+    let later = classify_prompts(&m.chats[&1], &queued(&[]), "[]");
+    assert_eq!(later.lost, vec!["p1".to_owned()], "a later loss passed: {later:?}");
+}
+
+/// Review 2: a removed prompt that ran (its `user_message` is in the log) is a lost removal.
+#[test]
+fn fuzz_g_oracle_a_removed_prompt_that_ran_is_reported() {
+    let mut c = oracle_chat();
+    c.removed.insert("p1".into());
+    let ran = json!([{"msg": {"promptId": "p1"}}]).to_string();
+    let v = classify_prompts(&c, &queued(&[]), &ran);
+    assert_eq!(v.back, vec!["p1".to_owned()], "a run of a removed prompt passed: {v:?}");
+}
+
+/// Review 3: a request the kill cut, or one that timed out, still counts its wait; over
+/// `STALL_MS` it is a stall.
+#[test]
+fn fuzz_g_oracle_a_cut_or_timed_out_request_can_stall() {
+    let issued =
+        |outcome, ms| Issued { op: Op::MarkUnread { chat: 1 }, outcome, latency_ms: Some(ms) };
+    let found = stall_findings(&[
+        issued("dead", STALL_MS + 1),
+        issued("timeout", 20_000),
+        issued("ok", 10),
+    ]);
+    assert_eq!(found.len(), 2, "{found:?}");
+    let model = Mutex::new(Model::default());
+    let sent = Instant::now() - Duration::from_millis(2_500);
+    model.lock().unwrap().killed_at = Some(sent + Duration::from_millis(2_400));
+    let ms = cut_ms(&model, sent);
+    assert!((2_350..=2_450).contains(&ms), "a cut request waited until the kill, not {ms} ms");
+}
+
+/// Review 4: a run that did no work, killed nothing or checked no prompt or draft fails.
+#[test]
+fn fuzz_g_oracle_a_run_with_no_work_proves_nothing() {
+    let none = BTreeMap::new();
+    assert_eq!(work_findings(0, 0, &none).len(), 4);
+    let mut some = BTreeMap::new();
+    some.insert("prompts", 3);
+    some.insert("drafts", 2);
+    assert!(work_findings(10, 1, &some).is_empty());
+    some.insert("drafts", 0);
+    assert_eq!(work_findings(10, 1, &some), vec!["no drafts were checked after a restart"]);
+}
+
+/// Review 5: an unanswered write from an earlier epoch is no longer an allowed value once a
+/// restart check has seen a newer one: a rollback to it is reported.
+#[test]
+fn fuzz_g_oracle_an_old_unanswered_write_is_not_allowed_after_a_check() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    let mut c = oracle_chat();
+    c.drafts.push(RegWrite { value: Some("old".into()), sent: t0, acked: None, seq: 1 });
+    c.drafts.push(RegWrite {
+        value: Some("new".into()),
+        sent: t0,
+        acked: Some(t0 + Duration::from_millis(1)),
+        seq: 2,
+    });
+    m.chats.insert(1, c);
+    assert!(allowed(&m.chats[&1].drafts).unwrap().contains(&Some("old".into())));
+    let seen = Seen { label: 1, draft: Some(Some("new".into())), ..Seen::default() };
+    settle(&mut m, &[seen], t0 + Duration::from_millis(5));
+    let ok = allowed(&m.chats[&1].drafts).unwrap();
+    assert_eq!(ok, vec![Some("new".to_owned())], "a rollback to the old draft passed");
+}
+
+/// Review 6: an answer finds its own write by number, also when two writes have one `sent`.
+#[test]
+fn fuzz_g_oracle_an_answer_acks_its_own_write() {
+    let t0 = Instant::now();
+    let mut m = Model::default();
+    let mut c = oracle_chat();
+    c.drafts.push(RegWrite { value: Some("a".into()), sent: t0, acked: None, seq: 7 });
+    c.drafts.push(RegWrite { value: Some("b".into()), sent: t0, acked: None, seq: 8 });
+    m.chats.insert(1, c);
+    ack_last(&mut m, 1, Reg::Draft, 7);
+    let d = &m.chats[&1].drafts;
+    assert!(d[0].acked.is_some() && d[1].acked.is_none(), "the answer acked another write");
+}
+
+/// Review 7: two daemons of one process with one tag get two homes.
+#[test]
+fn fuzz_g_oracle_two_daemons_with_one_tag_get_two_homes() {
+    let (a, b) = (Daemon::new("same"), Daemon::new("same"));
+    assert_ne!(a.home, b.home);
 }
