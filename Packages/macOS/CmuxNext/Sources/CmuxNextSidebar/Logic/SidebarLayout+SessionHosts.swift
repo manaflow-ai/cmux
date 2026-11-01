@@ -8,7 +8,7 @@ nonisolated extension SidebarLayout {
         var bundles: [Int: [SidebarRow]] = [:]
         var starts: [Int] = []
         for (i, row) in rows.enumerated() {
-            guard case let .workspace(id) = row.key else { continue }
+            guard case .workspace = row.key else { continue }
             starts.append(i)
             bundles[i] = [row]
         }

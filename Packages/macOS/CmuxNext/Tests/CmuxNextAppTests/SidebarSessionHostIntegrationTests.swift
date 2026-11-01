@@ -45,7 +45,6 @@ struct SidebarSessionHostIntegrationTests {
         let nodes = [workspace(coordinator), workspace(plain)] + workers.map(workspace) + [workspace(dragged)]
         let section = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: nodes)
         let model = SidebarModel(sections: [section], activeWorkspaceID: dragged)
-        model.showWorkspaceTabs = false
         model.groupsByComputer = false
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 1000), styleMask: [.borderless],
