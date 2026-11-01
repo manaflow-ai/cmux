@@ -82,6 +82,6 @@ test("a machine failure stops a clone spinner", () => {
 
 test("a missing setup script is plain text without an environment callback", () => {
   const html = renderToStaticMarkup(<CloudStartView start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }} />);
-  expect(html).toMatch(/Add a setup script|cloudStartup\.setupHint/);
+  expect(html).toContain("Add a setup script to install dependencies and configure your environment.");
   expect(html).not.toContain('class="acpmux-cloud-start__link"');
 });
