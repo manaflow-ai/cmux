@@ -151,7 +151,7 @@ fn token_route(token: &str) -> Result<&str, RpcError> {
 async fn identity() -> Result<HostIdentity, RpcError> {
     #[cfg(not(target_os = "linux"))]
     {
-        return Err(RpcError::new(-32001, "host identity unavailable"));
+        Err(RpcError::new(-32001, "host identity unavailable"))
     }
     #[cfg(target_os = "linux")]
     {
