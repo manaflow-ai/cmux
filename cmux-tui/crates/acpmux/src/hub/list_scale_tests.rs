@@ -54,6 +54,22 @@ async fn reply_reservations_reprice_connection_and_shared_debt() {
     assert_eq!(guard.reserve(&StdMutex::default(), 1.0), Ok(Duration::from_micros(12_500)));
 }
 
+/// Repricing must not treat a refused request's future slot as the current clock.
+#[tokio::test(start_paused = true)]
+async fn a_rejected_reservation_does_not_advance_shared_debt() {
+    let guard = ListGuard::default();
+    let connection = StdMutex::default();
+    guard.window_nanos.store(15_000_000_000, Ordering::Relaxed);
+    for _ in 0..4 {
+        assert!(guard.reserve(&connection, 1.0).is_ok());
+    }
+    guard.window_nanos.store(14_000_000_000, Ordering::Relaxed);
+    assert_eq!(guard.reserve(&connection, 1.0), Err(Duration::from_secs(42)));
+    // Prior admitted shared debt is 31.875 s, repriced to 29.75 s. With the
+    // 14 s shared burst, a new connection waits 15.75 s, not the rejected 28 s.
+    assert_eq!(guard.reserve(&StdMutex::default(), 1.0), Ok(Duration::from_millis(15_750)));
+}
+
 /// A small census-sized hub, with substantial metadata the activity walk copies.
 fn scale_hub() -> Arc<Hub> {
     let store = crate::store::MemoryStore::default();
