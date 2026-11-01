@@ -1643,3 +1643,76 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
 }
+
+/// No auto pause by default (Leo, 2026-10-30: "we're saying no auto pausing
+/// of the freestyle vms for now"): with `cloud.autoPause` unset, a pool VM
+/// with no live subagent, a subagent's own VM at its final report and every
+/// idle VM at host shutdown all keep running. `cloud.autoPause true` opts in.
+#[test]
+fn no_cloud_vm_auto_pauses_by_default() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::chief_settings::ChiefSettings;
+    assert!(!ChiefSettings::default().cloud_auto_pause);
+
+    // A shared pool VM: no live subagent, no idle wait, several ticks.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(FakeVms::default());
+    let sp = pool_spawner(&h, &vms);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms.clone()), Duration::ZERO);
+    set_cloud(&mut h, &sp, "cloud1");
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    // The host stops: nothing pauses either.
+    h.brain.step(Input::Shutdown { signal: 15 });
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        pauses(&vms.calls, "cloud1"),
+        0,
+        "{:?}",
+        vms.calls.lock().unwrap()
+    );
+
+    // A subagent's own VM at its final report.
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let own = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &own);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    h.brain.step(Input::CloudTick);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !calls_of(&own).iter().any(|c| c.starts_with("pause")),
+        "{:?}",
+        calls_of(&own)
+    );
+
+    // Opting in pauses it at the next tick, and the setting is saved.
+    let set = h.brain.set_setting("cloud.autoPause", "true").unwrap();
+    assert!(set.contains("cloud.autoPause = true"), "{set}");
+    assert!(ChiefSettings::load(&h.dir.path().join("settings.json")).cloud_auto_pause);
+    assert!(h.brain.set_setting("cloud.autoPause", "soon").is_err());
+    h.brain.step(Input::CloudTick);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&own).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        calls_of(&own).contains(&"pause chief-sub-a1".to_owned()),
+        "{:?}",
+        calls_of(&own)
+    );
+}
