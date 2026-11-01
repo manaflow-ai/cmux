@@ -73,3 +73,15 @@ test("clone status keeps seed phase and object progress in the row", () => {
   const rows = startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone: { state: "running", phase: "Receiving objects", progress: { objects: 2, totalObjects: 4, receivedBytes: 2048 } } });
   expect(rows[1]?.detail).toBe("Receiving objects · 2/4 objects · 2 KB");
 });
+
+test("a machine failure stops a clone spinner", () => {
+  const rows = startupChecklist({ key: "k", task: "hi", state: "failed", step: "machine", hasRepository: true, clone: { state: "running" } });
+  expect(rows[0]?.status).toBe("error");
+  expect(rows[1]?.status).toBe("pending");
+});
+
+test("a missing setup script is plain text without an environment callback", () => {
+  const html = renderToStaticMarkup(<CloudStartView start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }} />);
+  expect(html).toContain("Add a setup script");
+  expect(html).not.toContain('class="acpmux-cloud-start__link"');
+});
