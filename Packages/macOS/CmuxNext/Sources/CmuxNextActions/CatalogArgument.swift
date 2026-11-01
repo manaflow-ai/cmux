@@ -187,7 +187,7 @@ nonisolated enum CatalogArgument {
     /// `cloud resize-machine --disk GIB`: the disk's new size in whole GiB (4 GiB steps up to 256, grow-only).
     static var diskGiBInt: ActionArgument {
         ActionArgument(name: "disk", title: String(localized: "argument.diskGiB", defaultValue: "Disk (GiB)", bundle: .module),
-                       kind: .int(1...256), isRequired: false)
+                       kind: .int(4...256), isRequired: false)
     }
 
     /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
