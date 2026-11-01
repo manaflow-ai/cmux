@@ -25,8 +25,11 @@
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
-//! Cloud and restored into a replacement machine, #25584) and
-//! `trajectory_thread` (its thread).
+//! Cloud and restored into a replacement machine, #25584),
+//! `trajectory_thread` (its thread), [`harness_login`] (one sign-in per
+//! person: a Claude or Codex login on one of their machines is kept for them
+//! and written on their next machine) and `harness_login_thread` (its
+//! thread).
 
 pub mod client;
 pub mod github;
@@ -34,6 +37,9 @@ pub mod github;
 pub mod github_minter;
 pub mod github_repos;
 pub mod handoff;
+pub mod harness_login;
+#[cfg(unix)]
+pub mod harness_login_thread;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -47,6 +53,8 @@ pub mod wire;
 mod github_tests;
 #[cfg(all(test, unix))]
 mod handoff_tests;
+#[cfg(all(test, unix))]
+mod harness_login_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

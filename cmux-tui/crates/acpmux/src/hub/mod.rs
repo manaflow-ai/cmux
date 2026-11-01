@@ -13,6 +13,8 @@ mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
 mod atomic_json;
+mod build;
+pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
@@ -276,8 +278,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// question waiting, no activity) before it hibernates: it exits and the
 /// session resumes on its next prompt (`idle.rs`).
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
-/// Git hash and date stamped at build time (see build.rs).
-pub const BUILD: &str = env!("ACPMUX_BUILD");
 
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
@@ -353,6 +353,9 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Its prompt is acpmux's own notice of other agents' messages (an inbox notice or a
+    /// digest, `prompt_line::is_notice`), not words anyone typed: the summary's `turn.notice`.
+    pub notice: bool,
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,

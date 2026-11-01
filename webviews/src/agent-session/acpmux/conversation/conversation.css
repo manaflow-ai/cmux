@@ -1782,12 +1782,30 @@ pre.cv-math-source {
   height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
 }
-/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
+/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
+   Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
+   back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
+   command is too long, hide it under the run in background? ... hide it when hovering in that
+   area"). Hidden, it waits at the same spot, so the fade out does not move it. */
+.cv-activity {
+  position: relative;
+}
 :is(.cv-worked, .cv-activity) .cv-command__bg {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
   animation: none;
   opacity: 0;
+  pointer-events: none;
+}
+/* The bottom line's words sit under its top padding (.cv-worked.is-below). */
+.cv-worked.is-below .cv-command__bg {
+  top: calc(var(--cv-live-gap) + 2px);
 }
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+  position: static;
   opacity: 1;
 }
 /* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
@@ -1966,11 +1984,8 @@ pre.cv-math-source {
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
-   static look (the mark stopped). */
-.cv-spinner__dot {
-  display: none;
-  fill: var(--cmux-accent, currentColor);
-}
+   static look (the mark stopped). The mark's own default (dot hidden, the mark turning) lives in
+   spinner.css, which `Spinner` imports, so it holds on every page that draws one. */
 :root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__spokes {
   display: none;
 }
@@ -1978,16 +1993,6 @@ pre.cv-math-source {
   display: inline;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
-    .cv-spinner {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
-  /* Agent work's spokes step round one spoke at a time, like the macOS activity indicator. */
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
-    .cv-spinner[data-working] {
-    animation-timing-function: steps(8, end);
-  }
   :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
@@ -2814,6 +2819,14 @@ pre.cv-math-source {
   align-items: center;
   margin-inline-start: 4px;
   opacity: 0;
+}
+/* On a sent line (SentMessageLine.tsx) Copy's 24px slot (`.cv-message-footer-row`) sits inside the
+   line's 22px tool row (`--cv-tool-row-height`), as a block, so neither the slot nor its text strut
+   makes the line taller than the command rows beside it: model.ts estimates every sent line as one
+   tool row, and a taller line moved the transcript under it when it mounted. */
+.cv-sent .cv-sent-actions {
+  display: flex;
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-footer-control-slot)) / 2);
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-sent-actions {

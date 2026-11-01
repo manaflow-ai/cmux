@@ -23,6 +23,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
+import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
 
@@ -168,7 +169,7 @@ function codexLineage(): Subagent[] {
  *  116 the 118-agent one ("View all 116"). */
 const INFRA_DOING = "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts";
 
-function panel(done: number, running = 2) {
+function panel(done: number, running = 2, lead: AcpmuxRow[] = []) {
   const ended = Array.from({ length: done }, (_, index) =>
     agent(`Lane ${String(index + 1).padStart(3, "0")}`, 130 - index, "completed", {
       kind: "general-purpose",
@@ -178,6 +179,7 @@ function panel(done: number, running = 2) {
   );
   const base = chat(
     [
+      ...lead,
       user("Fan out: one lane per area, and keep me posted", 140),
       group(ended, 130),
       assistant("The lanes are running; the two chats below are still going.", 2),
@@ -267,6 +269,43 @@ const trayLines = (count: number) => async (ctx: PlayContext) => {
 const openFold = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-worked"));
   await ctx.click({ selector: ".cv-worked" });
+};
+
+/** The conversation before the fan-out, so the transcript runs past the pane and the tray opens over
+ *  the latest rows (Leo, 2026-11-01: "there's a layout shift when i expand it"). */
+const EARLIER: AcpmuxRow[] = [
+  user("The webview checks went red on the base again", 190),
+  assistant(
+    "Two files fail: the transcript's fold anchor and the composer's queue. Both broke after the last merge into the base; I'll bisect them.",
+    185,
+  ),
+  user("Bisect both, and look at the tray while you're there", 170),
+  assistant(
+    "The fold anchor goes back to a measurement change; the queue failure is a timing race in its test. I'll fan out a lane for each.",
+    160,
+  ),
+];
+
+/** The latest row's top, in the viewport. */
+function latestTop(ctx: PlayContext): number {
+  const rows = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")];
+  return rows.at(-1)?.getBoundingClientRect().top ?? Number.NaN;
+}
+
+/** Folds the tray (it opens with a short list), then opens it again, and says how far the latest row moved. */
+const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+  const head = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+  if (head().getAttribute("aria-expanded") === "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+    await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__fold"));
+  }
+  const before = latestTop(ctx);
+  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  const moved = latestTop(ctx) - before;
+  if (placement === "composer" && Math.abs(moved) > 0.5)
+    throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
 };
 
 export default agentPaneEntry({
@@ -389,6 +428,33 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "row-menu": {
+      note: "A running subagent's Stop is in its line's context menu, never a button on every line (#28533's review: a control repeated down the rows). A right-click opens the menu on the click, and the line stays lit under it.",
+      play: async (ctx) => {
+        await trayLines(2)(ctx);
+        if (ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__stop-slot > button"))
+          throw new Error("no tray line carries a Stop at rest: it is in the line's menu");
+        await ctx.contextMenu({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll('[role="menu"] [role="menuitem"]')].some((item) =>
+            item.textContent?.startsWith("Stop "),
+          ),
+        );
+      },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          group(
+            [
+              agent("Explain daemon update mechanism", 1.8, "running", { kind: "Explore", action: "Bash" }),
+              agent("Review the fold", 1.6, "running", { kind: "general-purpose", action: "Read fold.ts" }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "duration-columns": {
       note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
       play: async (ctx) => {
@@ -426,6 +492,19 @@ export default agentPaneEntry({
           throw new Error("a command's line says Command first");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "expand-on-composer": {
+      note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",
+      height: 420,
+      snapshot: panel(3, 2, EARLIER),
+      play: expandTray("composer"),
+    },
+    "expand-after-latest": {
+      note: "Alternative, not chosen: the tray attached under the latest message. At the end, opening it pushes the whole transcript up by what opened (as a tool call opened at the bottom does); away from the end it opens below the view. Nothing on the composer, but the tray's columns no longer line up with the composer's Stop and microphone.",
+      height: 420,
+      theme: { subagentTrayPlacement: "after-latest-message" },
+      snapshot: panel(3, 2, EARLIER),
+      play: expandTray("after-latest"),
     },
     "after-latest-message": {
       note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. A click opens the command's row; its live tail needs a connected process source, which the gallery has none of.",

@@ -233,6 +233,15 @@ impl Hub {
             if !interrupt {
                 return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
             }
+            // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
+            // the move waits for the compaction instead of losing them.
+            let child = session.child.lock().await.clone();
+            let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
+                || child.is_some_and(|c| c.translator.as_ref().is_some_and(|t| t.is_compacting()));
+            if compacting {
+                let e = transfer_error("busy", "the chat is compacting; move it once that ends");
+                return Err(unfreeze(e, None));
+            }
             carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);
             // Its place at the head, as a record of its own: a guarded target drops the
             // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
@@ -488,11 +497,14 @@ impl Hub {
 
     /// A move that stopped a turn and then did not happen: the continuation it logged
     /// (`transfer_begin`) joins the queue here, at its head, and runs, as it would have where
-    /// the chat was going. The log is what the queue is rebuilt from, so it goes in once.
+    /// the chat was going. Only that prompt is taken from the log, once: the rest of the live
+    /// queue (an inbox digest's messages included) stays as it is.
     fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
-        self.restore_queue(session);
+        self.restore_queue_only(session, Some(prompt_id));
         let _ = self.move_queued(session, prompt_id, 0, None);
-        self.resume_restored(std::slice::from_ref(session));
+        if !self.hold_in_protected_folder(session) {
+            self.start_restored(session);
+        }
     }
 
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy
