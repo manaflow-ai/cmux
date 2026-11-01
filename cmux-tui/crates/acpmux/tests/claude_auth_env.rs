@@ -834,6 +834,29 @@ async fn literal_machine_env_reaches_local_children_without_a_profile_hook() {
     }
 }
 
+/// Removing a declaration also suppresses a stale copy inherited by the
+/// long-running daemon, rather than revealing the daemon's old value again.
+#[tokio::test]
+async fn revoked_machine_env_does_not_fall_back_to_inherited_values() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = scratch("machine-inherited", "export ANTHROPIC_API_KEY=sk-login\n");
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    let file = conf.join("machine.env");
+    std::fs::write(&file, "export DEMO_KEY='synthetic-current-value'\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let d = start(
+        &dir,
+        json!({"claude": claude(json!({"FAKE_CLAUDE_MACHINE_EXPECTED": "synthetic-current-value"}))}),
+        &[("DEMO_KEY", "synthetic-inherited-old-value")],
+    ).await;
+    let (current, _) = ask_as(&d, "claude", "machine-current-inherited").await;
+    assert_eq!(found(&current)["machineMatches"], true);
+    std::fs::remove_file(file).unwrap();
+    let (revoked, _) = ask_as(&d, "claude", "machine-revoked-inherited").await;
+    assert_eq!(found(&revoked)["loginOnly"], json!([]));
+}
+
 /// A version-manager prefix passes, but never a secret under it: the agent
 /// gets MISE_DATA_DIR, not MISE_GITHUB_TOKEN or NVM_AUTH_HEADER, unless
 /// `loginEnvAllow` names one exactly.

@@ -1223,7 +1223,8 @@ private, owned `~/.config/cmux/machine.env` declarations directly: only literal
 `export NAME='value'` entries (including quoted newlines and escaped single quotes), with no shell
 execution. Process-loader and cmux bootstrap names are refused. These declarations override the
 login/daemon values, while explicit profile, preset and session env still win. Values are read again
-for each local launch, so replacement and deletion rotate/revoke them; they never enter the login
+for each local launch, so replacement and deletion rotate/revoke them. Only previously declared names
+are remembered, so a revoked value inherited by the daemon is also removed from local children. Values never enter the login
 cache, nested-session restoration, remote-origin launches or `${env:VAR}` references. A missing,
 non-private, linked, oversized or malformed file contributes no declarations. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
 `ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the

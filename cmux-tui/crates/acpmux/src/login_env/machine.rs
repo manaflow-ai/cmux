@@ -4,17 +4,28 @@
 //! through the generic login environment, so replacing/removing the file rotates
 //! or revokes them without a daemon restart.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 const MAX_BYTES: u64 = 4 << 20;
 const MAX_VALUE_BYTES: usize = 131_072;
 
+// Names only: a daemon may itself have inherited an older delivered value.
+// Keep clearing those keys on local children after the file revokes them.
+static OBSERVED: RwLock<BTreeSet<String>> = RwLock::new(BTreeSet::new());
+
+pub(super) fn names() -> BTreeSet<String> {
+    OBSERVED.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 pub(super) fn read() -> BTreeMap<String, String> {
     let home =
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
-    read_in(&home)
+    let values = read_in(&home);
+    OBSERVED.write().unwrap_or_else(|e| e.into_inner()).extend(values.keys().cloned());
+    values
 }
 
 #[cfg(not(unix))]
