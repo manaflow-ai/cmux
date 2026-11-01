@@ -587,6 +587,18 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
     }
+    if crate::cloud_repo_mcp::is_cloud_machine() {
+        if let Some(acpmux) = &inputs.acpmux {
+            // Cloud repository tools run on Cloud machines only. They forward
+            // the session caller token to the daemon action bridge.
+            servers.push(McpServer {
+                name: crate::cloud_repo_mcp::SERVER_NAME.into(),
+                command: acpmux.exe.clone(),
+                args: acpmux.args_lossy(&["repo-mcp"]),
+                env: vec![],
+            });
+        }
+    }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
         // session with its caller token, like the sub-session server.
@@ -713,12 +725,16 @@ impl AgentTools {
             let session_env = match server.name.as_str() {
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
                 crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
             };
             if let Some(key) = session_env {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (key.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
@@ -730,10 +746,14 @@ impl AgentTools {
             if server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
+                || server.name == crate::cloud_repo_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (
+                        session_env.unwrap_or(crate::subsession_mcp::SESSION_ENV).to_owned(),
+                        session_id.to_owned(),
+                    ),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                     ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
