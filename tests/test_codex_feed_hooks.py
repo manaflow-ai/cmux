@@ -1055,13 +1055,15 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude", "CMUX_AGENT_LAUNCH_CWD": str(case),
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64.b64encode(b"/usr/local/bin/claude\0--resume\0wrong\0").decode(),
         })
+        # SessionStart publishes the same repaired resume binding without starting
+        # a turn monitor that could recreate the fixture during tempfile cleanup.
         socket_path = case / "c.sock"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         with FakeCmuxSocket(socket_path, None, surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)) as fake:
             result = subprocess.run(
-                [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "session-start"],
                 input=json.dumps({"session_id": session_id, "turn_id": "turn-network-policy", "cwd": str(case),
-                                  "transcript_path": str(transcript), "hook_event_name": "UserPromptSubmit", "prompt": "continue"}),
+                                  "transcript_path": str(transcript), "hook_event_name": "SessionStart"}),
                 env=env, capture_output=True, text=True, timeout=15,
             )
             if list((state / "codex-monitor-leases").glob("*.json")):
