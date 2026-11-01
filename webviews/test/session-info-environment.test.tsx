@@ -205,8 +205,43 @@ test("a scratchpad chat lists only its machine: no folder row and no Save", asyn
     onOpenFolder: () => undefined,
     onSaveEnvironment: () => undefined,
   });
-  expect(environment.textContent).toBe("studio-mac");
+  expect(environment.textContent).toBe(`studio-mac${translate("composer.envLocal")}`);
   expect(environment.querySelector("button")).toBeNull();
+});
+
+// Leo, 2026-10-31: "WHY IS THERE NOTHING THAT TELLS ME IF IT'S LOCAL OR IF". The
+// machine row, at the top of Session Info, says in words where the chat runs, not only a name.
+test("the machine row says where the chat runs: Local, SSH or Cloud beside the machine's name", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const base = { sessionId: "s", cwd: SCRATCHPAD } as Summary;
+  const kindOf = async (summary: Summary, peerKinds?: Record<string, "ssh" | "cloud">) => {
+    await act(async () =>
+      root!.render(<EnvironmentSection summary={summary} machineName="studio-mac" peerKinds={peerKinds} />),
+    );
+    const row = container.querySelector<HTMLElement>("li[data-machine]")!;
+    return [
+      row.dataset.machine,
+      row.querySelector(".acpmux-session-info-row__name")?.textContent,
+      row.querySelector("[data-machine-kind]")?.textContent,
+    ];
+  };
+  expect(await kindOf(base)).toEqual(["local", "studio-mac", translate("composer.envLocal")]);
+  expect(await kindOf({ ...base, peer: "build-box" }, { "build-box": "ssh" })).toEqual([
+    "ssh",
+    "build-box",
+    translate("composer.envSSH"),
+  ]);
+  expect(await kindOf({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toEqual([
+    "cloud",
+    "vm-1",
+    translate("composer.cloud"),
+  ]);
+  expect(await kindOf({ ...base, hostKind: "cloud", host: "build-01" })).toEqual([
+    "cloud",
+    "build-01",
+    translate("composer.cloud"),
+  ]);
 });
 
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
@@ -221,6 +256,21 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   expect(environment.querySelector("li[title]")?.getAttribute("title")).toBe(`${HOME}/Projects`);
   expect(environment.textContent).not.toContain("glaeda");
   expect(environment.textContent).not.toContain("Remote Control");
+});
+
+test("Remote Control's row draws a pointer, not a phone outline", async () => {
+  // Leo, 2026-11-01: "i think we should rethink what symbol we have for remote control at least".
+  // Claude Code desktop marks its Remote Control row with a pointer; ours drew device.phone.
+  const base = chat(projectsRows);
+  const environment = await renderSessionInfo({
+    summary: { ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined },
+    machineName: "studio-mac",
+    rows: projectsRows,
+    remoteControl: { on: true, set: () => undefined },
+  });
+  const row = [...environment.querySelectorAll("li")].find((li) => li.textContent?.includes("Remote Control"));
+  expect(row?.querySelector("svg")?.getAttribute("data-icon")).toBe("computeruse.click");
+  expect(environment.querySelector('svg[data-icon="device.phone"]')).toBeNull();
 });
 
 test("Environment Save blocks duplicates while pending and exposes a retry after rejection", async () => {

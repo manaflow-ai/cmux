@@ -8,6 +8,7 @@ import { installDom } from "./testDom";
 const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, fire, renderPage, settle } = await import("./testing");
+const { CHIEF_PET_MASCOTS } = await import("./components/ChiefPetCard");
 
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const BUBBLE_COLORS = ["sent", "sentText", "received", "receivedText"].map((role) => `home.bubbleColors.${role}`);
@@ -19,7 +20,7 @@ test("Look is one glass card with the pet, the characters and Bubble Style", asy
   expect(card.classList.contains("ui-glass")).toBe(true);
   expect(card.querySelector(".group-title")!.textContent).toBe("Look");
   expect(card.querySelector(".chief-pet-preview")).not.toBeNull();
-  expect(card.querySelectorAll(".chief-pet-choice")).toHaveLength(10);
+  expect(card.querySelectorAll(".chief-pet-choice")).toHaveLength(CHIEF_PET_MASCOTS.length);
   expect(card.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
   const colors = [...card.querySelectorAll('[data-row-key^="home.bubbleColors."]')].map((row) =>
     row.getAttribute("data-row-key"),

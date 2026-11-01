@@ -92,6 +92,10 @@ path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -1432,6 +1436,10 @@ path = "tests/test_nightly_linux_admission.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_admission_receipt.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -1739,10 +1747,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2257,6 +2261,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
 lane = "linux-guard"
 
 [[test]]

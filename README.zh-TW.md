@@ -384,7 +384,7 @@ tmux 是一個在任意終端機內執行的終端機多工器。cmux 是一個�
 
 ### 我如何支援 cmux？
 
-cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並提前體驗接下來的功能，包括 cmux AI、iOS 應用程式和 Cloud VMs，請查看 [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)。
+cmux 免費且開放原始碼，並將一直如此。
 
 ### 我有功能請求或發現了 bug？
 
@@ -423,19 +423,6 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
   <strong>WeChat：</strong>掃描 QR 碼加入社群。<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並提前體驗即將推出的功能：
-
-**[取得 Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **功能請求/Bug 修復優先處理**
-- **搶先體驗：為每個工作區、分頁和面板提供上下文的 cmux AI**
-- **搶先體驗：桌面與手機間終端機同步的 iOS 應用程式**
-- **搶先體驗：雲端虛擬機器**
-- **搶先體驗：語音模式**
-- **我的個人 iMessage/WhatsApp**
 
 ## 授權
 
