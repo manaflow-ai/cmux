@@ -83,24 +83,24 @@ test("a nested working chat's pending permission stays in the Home inbox", () =>
     pendingPermissions: 1,
   });
   const quietChild = session({ sessionId: "quiet", spawnedBy: "parent", indicator: "working" });
-  const { waiting } = homeLists([parent, child, quietChild], "home", [{
-    sessionId: "child",
-    at: minutesAgo(1),
-    permission: {
-      permissionId: "child-permission",
-      title: "Read the requested file",
-      pending: true,
-      options: [
-        { id: "allow", name: "Allow once", kind: "allow_once", allow: true },
-        { id: "deny", name: "Deny", kind: "reject_once", allow: false },
-      ],
+  const { waiting } = homeLists([parent, child, quietChild], "home", [
+    {
+      sessionId: "child",
+      at: minutesAgo(1),
+      permission: {
+        permissionId: "child-permission",
+        title: "Read the requested file",
+        pending: true,
+        options: [
+          { id: "allow", name: "Allow once", kind: "allow_once", allow: true },
+          { id: "deny", name: "Deny", kind: "reject_once", allow: false },
+        ],
+      },
     },
-  }]);
+  ]);
   expect(waiting.map(({ id }) => id)).toEqual(["acpmux:child-permission"]);
   // A quiet agent-started chat still folds under its parent.
-  expect(withoutChildren([parent, child, quietChild]).map(({ sessionId }) => sessionId)).toEqual([
-    "parent", "child",
-  ]);
+  expect(withoutChildren([parent, child, quietChild]).map(({ sessionId }) => sessionId)).toEqual(["parent", "child"]);
 });
 
 test("a nested child waiting for a question remains discoverable before its indicator updates", () => {
@@ -127,6 +127,8 @@ test("a nested child waiting for a question remains discoverable before its indi
   const result = homeLists([parent, question, waiting, lost], "home");
   expect(result.waiting.map(({ sessionId }) => sessionId)).toEqual(["question", "waiting"]);
   expect(withoutChildren([parent, question, waiting, lost]).map(({ sessionId }) => sessionId)).toEqual([
-    "parent", "question", "waiting",
+    "parent",
+    "question",
+    "waiting",
   ]);
 });
