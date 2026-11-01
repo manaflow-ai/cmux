@@ -228,7 +228,10 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     return (await page.locator(CHIP).first().textContent()) ?? null;
   }
   /// Cmd-Ctrl-M and the model button open the same compact picker. Search there for the model,
-  /// then choose its row; this covers both New Tab and a started chat.
+  /// then click its name; this covers both New Tab and a started chat. The row is split: its name
+  /// picks the model and its effort item ("Medium ›", after the name) opens the model's levels. In
+  /// the compact menu (#30194) the effort item sits near the row's middle, so a click on the row's
+  /// centre opens the levels instead of picking the model.
   async function pickModel(page: Page, id: string) {
     await page.locator(".acpmux-model .acpmux-picker-button").first().waitFor();
     await page.keyboard.press("Meta+Control+m");
@@ -237,7 +240,11 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     const name = claudeModels.find((model) => model.id === id)?.shortName;
     if (!name) throw new Error(`unknown test model ${id}`);
     await menu.getByRole("searchbox").fill(name);
-    await menu.getByRole("menuitemradio", { name, exact: false }).first().click();
+    await menu
+      .getByRole("menuitemradio", { name, exact: false })
+      .first()
+      .locator(".acpmux-quick-label")
+      .click();
   }
   /// Checks run once the daemon has taken each message.
   const checks = new Set<() => void>();
