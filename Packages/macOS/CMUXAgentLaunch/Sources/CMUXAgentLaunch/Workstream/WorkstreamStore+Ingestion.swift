@@ -14,7 +14,7 @@ extension WorkstreamStore {
     public func ingestReturningItem(_ event: WorkstreamEvent) -> WorkstreamItem? {
         let item = makeItem(from: event)
         if let requestID = event.requestId, !requestID.isEmpty,
-           let existing = items.last(where: { $0.payload.requestID == requestID }) {
+           let existing = latestItem(forRequestID: requestID) {
             guard existing.workstreamId == item.workstreamId, existing.source == item.source,
                   existing.sourceID == item.sourceID, existing.kind == item.kind,
                   existing.payload == item.payload else { return nil }

@@ -161,21 +161,20 @@ struct CloudWelcomeTests {
         #expect(playback.isPaused)
     }
 
-    @Test("Playback.fraction(at:) reads the cached playhead and never queries the player")
+    @Test("the pager reads a cached playhead and never queries the player")
     @MainActor
-    func playbackFractionDoesNotQueryPlayer() throws {
+    func pagerProgressDoesNotQueryPlayer() throws {
         let playback = CloudWelcomeMediaCarousel.Playback()
         let player = PlayheadCountingPlayer()
         playback.attach(player)
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
+        playback.recordPlayhead(seconds: 2, rate: 1, at: start)
         player.playheadReads = 0
 
-        // One frame's worth of calls, about two seconds at 60 fps. This covers
-        // Playback only, not the carousel's progress wrapper or its TimelineView.
+        // One TimelineView frame per call, about two seconds of animation.
         var fractions: [Double] = []
         for frame in 0..<120 {
-            fractions.append(try #require(playback.fraction(at: start.addingTimeInterval(Double(frame) / 60))))
+            fractions.append(try #require(playback.fraction(at: start.addingTimeInterval(Double(frame) / 60), duration: 8)))
         }
 
         #expect(player.playheadReads == 0)
@@ -189,24 +188,27 @@ struct CloudWelcomeTests {
     func cachedPlayheadLifecycle() {
         let playback = CloudWelcomeMediaCarousel.Playback()
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
-        playback.recordPlayhead(seconds: 2, duration: 8, rate: 1, at: start)
+        playback.recordPlayhead(seconds: 2, rate: 1, at: start)
         // Without a movie the pager falls back to the wall clock.
-        #expect(playback.fraction(at: start) == nil)
+        #expect(playback.fraction(at: start, duration: 8) == nil)
 
         let player = AVPlayer()
         playback.attach(player)
-        #expect(playback.fraction(at: start) == nil)
-        playback.recordPlayhead(seconds: 4, duration: 8, rate: 0, at: start)
-        #expect(playback.fraction(at: start.addingTimeInterval(3)) == 0.5)
-        playback.recordPlayhead(seconds: 7, duration: 8, rate: 1, at: start)
-        #expect(playback.fraction(at: start.addingTimeInterval(5)) == 1)
-        playback.recordPlayhead(seconds: 1, duration: .nan, rate: 1, at: start)
-        #expect(playback.fraction(at: start) == nil)
+        #expect(playback.fraction(at: start, duration: 8) == nil)
+        playback.recordPlayhead(seconds: 4, rate: 0, at: start)
+        #expect(playback.fraction(at: start, duration: nil) == nil)
+        #expect(playback.fraction(at: start, duration: .nan) == nil)
+        #expect(playback.fraction(at: start, duration: 0) == nil)
+        #expect(playback.fraction(at: start.addingTimeInterval(3), duration: 8) == 0.5)
+        playback.recordPlayhead(seconds: 7, rate: 1, at: start)
+        #expect(playback.fraction(at: start.addingTimeInterval(5), duration: 8) == 1)
+        playback.recordPlayhead(seconds: .nan, rate: 1, at: start)
+        #expect(playback.fraction(at: start, duration: 8) == nil)
 
-        playback.recordPlayhead(seconds: 4, duration: 8, rate: 1, at: start)
+        playback.recordPlayhead(seconds: 4, rate: 1, at: start)
         playback.detach(player)
         #expect(playback.playhead == nil)
-        #expect(playback.fraction(at: start) == nil)
+        #expect(playback.fraction(at: start, duration: 8) == nil)
     }
 
     @Test("a cancelled fallback deadline cannot advance the slide")
@@ -349,36 +351,6 @@ struct CloudWelcomeTests {
                 isUITestMode: isUITestMode
             ))
         }
-    }
-
-    @Test("signed out, Upgrade signs the app in before pricing opens")
-    @MainActor
-    func upgradeSignsInBeforePricing() async {
-        var events: [String] = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: false,
-            signIn: { events.append("signIn"); return true },
-            presentPricing: { events.append("pricing") }
-        )
-        #expect(events == ["signIn", "pricing"])
-
-        // A cancelled or failed sign-in opens no pricing page.
-        events = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: false,
-            signIn: { events.append("signIn"); return false },
-            presentPricing: { events.append("pricing") }
-        )
-        #expect(events == ["signIn"])
-
-        // Signed in goes straight to pricing.
-        events = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: true,
-            signIn: { events.append("signIn"); return true },
-            presentPricing: { events.append("pricing") }
-        )
-        #expect(events == ["pricing"])
     }
 
     @Test("the one prominent button is the next step for this account")

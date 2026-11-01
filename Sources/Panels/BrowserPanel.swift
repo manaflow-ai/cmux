@@ -1657,6 +1657,28 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
         guard !importedEntries.isEmpty else { return 0 }
 
+        // Index the existing rows once instead of scanning (and re-parsing every
+        // URL) per imported row, which was O(n * m) URL parses on the main actor
+        // (Sentry CMUXTERM-MACOS-1K5W). Each map keeps a key's first index, so the
+        // lookup picks the same row `firstIndex(where:)` did. Mutating a local
+        // copy publishes `entries` once instead of once per changed field.
+        var merged = entries
+        var indexByURL: [String: Int] = [:]
+        var indexByNormalizedKey: [String: Int] = [:]
+        func indexRow(at index: Int) {
+            let url = merged[index].url
+            if indexByURL[url] == nil {
+                indexByURL[url] = index
+            }
+            if let key = suggestionEngine.normalizedHistoryKey(urlString: url),
+               indexByNormalizedKey[key] == nil {
+                indexByNormalizedKey[key] = index
+            }
+        }
+        for index in merged.indices {
+            indexRow(at: index)
+        }
+
         var mergedCount = 0
         for imported in importedEntries {
             guard let parsedURL = URL(string: imported.url),
@@ -1680,42 +1702,48 @@ final class BrowserHistoryStore: ObservableObject {
             let importedTypedCount = max(0, imported.typedCount)
             let importedLastTypedAt = imported.lastTypedAt
 
-            if let idx = entries.firstIndex(where: {
-                if $0.url == urlString { return true }
-                guard let normalizedKey else { return false }
-                return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
-            }) {
+            let exactIndex = indexByURL[urlString]
+            let normalizedIndex = normalizedKey.flatMap { indexByNormalizedKey[$0] }
+            let matchedIndex: Int?
+            switch (exactIndex, normalizedIndex) {
+            case let (exact?, normalized?): matchedIndex = min(exact, normalized)
+            case let (exact?, nil): matchedIndex = exact
+            case let (nil, normalized?): matchedIndex = normalized
+            case (nil, nil): matchedIndex = nil
+            }
+
+            if let idx = matchedIndex {
                 var didMutate = false
-                if importedLastVisited > entries[idx].lastVisited {
-                    entries[idx].lastVisited = importedLastVisited
+                if importedLastVisited > merged[idx].lastVisited {
+                    merged[idx].lastVisited = importedLastVisited
                     didMutate = true
                 }
-                if importedVisitCount > entries[idx].visitCount {
-                    entries[idx].visitCount = importedVisitCount
+                if importedVisitCount > merged[idx].visitCount {
+                    merged[idx].visitCount = importedVisitCount
                     didMutate = true
                 }
-                if importedTypedCount > entries[idx].typedCount {
-                    entries[idx].typedCount = importedTypedCount
+                if importedTypedCount > merged[idx].typedCount {
+                    merged[idx].typedCount = importedTypedCount
                     didMutate = true
                 }
                 if let importedLastTypedAt {
-                    if let existingLastTypedAt = entries[idx].lastTypedAt {
+                    if let existingLastTypedAt = merged[idx].lastTypedAt {
                         if importedLastTypedAt > existingLastTypedAt {
-                            entries[idx].lastTypedAt = importedLastTypedAt
+                            merged[idx].lastTypedAt = importedLastTypedAt
                             didMutate = true
                         }
                     } else {
-                        entries[idx].lastTypedAt = importedLastTypedAt
+                        merged[idx].lastTypedAt = importedLastTypedAt
                         didMutate = true
                     }
                 }
 
-                let existingTitle = entries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let existingTitle = merged[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let incomingTitle = importedTitle ?? ""
                 if !incomingTitle.isEmpty,
-                   (existingTitle.isEmpty || importedLastVisited >= entries[idx].lastVisited) {
-                    if entries[idx].title != incomingTitle {
-                        entries[idx].title = incomingTitle
+                   (existingTitle.isEmpty || importedLastVisited >= merged[idx].lastVisited) {
+                    if merged[idx].title != incomingTitle {
+                        merged[idx].title = incomingTitle
                         didMutate = true
                     }
                 }
@@ -1724,7 +1752,7 @@ final class BrowserHistoryStore: ObservableObject {
                     mergedCount += 1
                 }
             } else {
-                entries.append(Entry(
+                merged.append(Entry(
                     id: UUID(),
                     url: urlString,
                     title: importedTitle,
@@ -1733,15 +1761,17 @@ final class BrowserHistoryStore: ObservableObject {
                     typedCount: importedTypedCount,
                     lastTypedAt: importedLastTypedAt
                 ))
+                indexRow(at: merged.count - 1)
                 mergedCount += 1
             }
         }
 
         guard mergedCount > 0 else { return 0 }
-        entries.sort(by: { $0.lastVisited > $1.lastVisited })
-        if entries.count > maxEntries {
-            entries.removeLast(entries.count - maxEntries)
+        merged.sort(by: { $0.lastVisited > $1.lastVisited })
+        if merged.count > maxEntries {
+            merged.removeLast(merged.count - maxEntries)
         }
+        entries = merged
         scheduleSave()
         return mergedCount
     }

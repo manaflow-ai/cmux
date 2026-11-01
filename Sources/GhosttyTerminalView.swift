@@ -4673,12 +4673,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             usesBonsplitPaneBackdrop: usesBonsplitPaneBackdrop
         )
         let color = fillPlan.hostLayerColor
-        if let layer {
+        let clearColor = NSColor.clear.cgColor
+        if let layer, layer.isOpaque || layer.backgroundColor != clearColor {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             // GhosttySurfaceScrollView owns the panel background fill. Keeping this layer clear
             // avoids stacking multiple identical translucent backgrounds (which looks opaque).
-            layer.backgroundColor = NSColor.clear.cgColor
+            layer.backgroundColor = clearColor
             layer.isOpaque = false
             CATransaction.commit()
         }
@@ -5767,7 +5768,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         guard let surface else { return }
-        let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        // The appearance match only feeds the debug log. Resolving it walks the
+        // composite appearance chain on every attach (CMUXTERM-MACOS-3PBX).
+        var bestMatch: NSAppearance.Name? {
+            effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        }
         let preferredColorScheme = preferredColorScheme
             ?? GhosttyApp.shared.effectiveTerminalColorSchemePreference
         let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
@@ -10275,14 +10280,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.windowsThatReportedVisible.add(window)
         }
         terminalSurface?.setRendererWindowVisible(
-            TerminalRendererWindowVisibility(
+            TerminalRendererWindowVisibility.isVisible(
                 occlusionVisible: occlusionVisible,
                 windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
                 isWindowVisible: window.isVisible,
                 isMiniaturized: window.isMiniaturized,
-                isOnActiveSpace: window.isOnActiveSpace,
-                isKeyWindow: window.isKeyWindow
-            ).isVisible
+                isKeyWindow: window.isKeyWindow,
+                isOnActiveSpace: { window.isOnActiveSpace }
+            )
         )
     }
 
@@ -10746,7 +10751,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var sharedBackdropCutoutView: NSView?
-    private let backgroundView: TerminalPaneBackgroundView
+    let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     let surfaceView: GhosttyNSView
@@ -10792,7 +10797,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
-    private let keyboardCopyModeBadgeLabel: NSTextField
+    let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: LinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
     private let imageTransferIndicatorContainerView: NSView
@@ -10837,6 +10842,16 @@ final class GhosttySurfaceScrollView: NSView {
     var paneDragDropZone: DropZone?
     var paneDragPreviewIsActive = false
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    /// Inputs of the last full geometry pass. Portal reconciliation re-attaches
+    /// every hosted surface on each flush; an already-attached surface whose
+    /// inputs match needs no second pass (CMUXTERM-MACOS-3JMG).
+    private var lastSynchronizedGeometryInputs: AttachGeometryInputs?
+    /// Last fill committed by `setBackgroundColor`, so an unchanged fill skips
+    /// the Core Animation commit (CMUXTERM-MACOS-3991).
+    private var appliedBackgroundFill: AppliedBackgroundFill?
+    /// Text last applied to the key-state badge; `.some(nil)` means hidden.
+    /// Accessibility attribute writes are synchronous (CMUXTERM-MACOS-3MTT).
+    private var appliedKeyStateIndicatorText: String??
     weak var paneGeometryPortal: WindowTerminalPortal?
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
@@ -11534,6 +11549,7 @@ final class GhosttySurfaceScrollView: NSView {
     ) -> Bool {
         let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId, transition: TerminalGeometryDiagnostics().resizeTransition(in: window))
         defer { work.end() }
+        defer { lastSynchronizedGeometryInputs = currentAttachGeometryInputs() }
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -11873,6 +11889,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
+        let wasAttached = surfaceView.terminalSurface === terminalSurface
+            && terminalSurface.isAttached(to: surfaceView)
         if surfaceView.terminalSurface !== terminalSurface {
             setLinkHoverURL(nil)
             setPasswordInputActive(false)
@@ -11881,8 +11899,42 @@ final class GhosttySurfaceScrollView: NSView {
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
+        // Re-attaching the same live surface to an unchanged host is a no-op.
+        // The geometry pass forces a window-wide constraint update through
+        // layoutSubtreeIfNeeded, which portal reconciliation would otherwise
+        // repeat for every hosted terminal on each flush. Any real geometry
+        // change goes through layout() or its own synchronize call.
+        if wasAttached, lastSynchronizedGeometryInputs == currentAttachGeometryInputs() {
+            return
+        }
         _ = synchronizeGeometryAndContent()
         synchronizeCloudTerminalReconnectOverlay()
+    }
+
+    /// Inputs that decide whether an attach must re-run the geometry pass.
+    private struct AttachGeometryInputs: Equatable {
+        let surface: ObjectIdentifier?
+        let runtimeSurface: UInt?
+        let window: ObjectIdentifier?
+        let bounds: CGRect
+        let contentFrame: CGRect
+    }
+
+    private struct AppliedBackgroundFill: Equatable {
+        let color: CGColor
+        let isOpaque: Bool
+        let clearsSharedWindowBackdrop: Bool
+    }
+
+    private func currentAttachGeometryInputs() -> AttachGeometryInputs {
+        let terminalSurface = surfaceView.terminalSurface
+        return AttachGeometryInputs(
+            surface: terminalSurface.map(ObjectIdentifier.init),
+            runtimeSurface: terminalSurface?.surface.map { UInt(bitPattern: $0) },
+            window: window.map(ObjectIdentifier.init),
+            bounds: bounds,
+            contentFrame: sessionContentFrame
+        )
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -11911,11 +11963,25 @@ final class GhosttySurfaceScrollView: NSView {
     /// Applies the host-layer terminal fill and optionally clears the shared backdrop behind it.
     func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool = false) {
         guard let layer = backgroundView.layer else { return }
+        let fill = AppliedBackgroundFill(
+            color: color.cgColor,
+            isOpaque: color.alphaComponent >= 1.0,
+            clearsSharedWindowBackdrop: clearsSharedWindowBackdrop
+        )
+        // Every attach re-applies the surface background. Skip the explicit
+        // transaction commit when the layer already shows this fill.
+        if fill == appliedBackgroundFill,
+           layer.backgroundColor == fill.color,
+           layer.isOpaque == fill.isOpaque,
+           (sharedBackdropCutoutView != nil) == clearsSharedWindowBackdrop {
+            return
+        }
+        appliedBackgroundFill = fill
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
-        layer.backgroundColor = color.cgColor
-        layer.isOpaque = color.alphaComponent >= 1.0
+        layer.backgroundColor = fill.color
+        layer.isOpaque = fill.isOpaque
         CATransaction.commit()
         // The viewport border strokes the window-chrome separator color, which tracks the
         // terminal background/theme. Repaint it when the background changes (e.g. theme
@@ -12377,9 +12443,17 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        if let text, !text.isEmpty {
-            keyboardCopyModeBadgeLabel.stringValue = text
-            keyboardCopyModeBadgeIconView.setAccessibilityLabel(text)
+        let indicatorText: String? = (text?.isEmpty == false) ? text : nil
+        // Every attach and copy-mode sync lands here. Accessibility attribute
+        // writes are synchronous, so only write when the badge text changes.
+        let textChanged = appliedKeyStateIndicatorText != .some(indicatorText)
+        appliedKeyStateIndicatorText = .some(indicatorText)
+
+        if let text = indicatorText {
+            if textChanged {
+                keyboardCopyModeBadgeLabel.stringValue = text
+                keyboardCopyModeBadgeIconView.setAccessibilityLabel(text)
+            }
             let needsReorder = keyboardCopyModeBadgeContainerView.isHidden
                 || keyboardCopyModeBadgeContainerView.superview !== self
                 || subviews.last !== keyboardCopyModeBadgeContainerView
@@ -12390,8 +12464,12 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
-        keyboardCopyModeBadgeContainerView.isHidden = true
+        if textChanged {
+            keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
+        }
+        if !keyboardCopyModeBadgeContainerView.isHidden {
+            keyboardCopyModeBadgeContainerView.isHidden = true
+        }
     }
 
     func refreshHostBackgroundAfterGhosttyConfigReload() {

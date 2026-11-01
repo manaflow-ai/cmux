@@ -188,6 +188,69 @@ struct MenuBarOnlyActivationPolicyTests {
         }
     }
 
+    @Test func activationPolicySyncSkipsLaunchServicesQueryWhileTargetIsUnchanged() throws {
+        try withTemporaryDefaults { defaults in
+            var currentPolicy: NSApplication.ActivationPolicy = .regular
+            var queryCount = 0
+            var appliedPolicies: [NSApplication.ActivationPolicy] = []
+            let sync = MenuBarOnlyActivationPolicySync(
+                currentPolicy: {
+                    queryCount += 1
+                    return currentPolicy
+                },
+                setPolicy: { policy in
+                    appliedPolicies.append(policy)
+                    currentPolicy = policy
+                    return true
+                }
+            )
+
+            // Unrelated UserDefaults changes re-sync many times; only the
+            // first one may ask the app for its current policy.
+            for _ in 0..<50 {
+                sync.sync(defaults: defaults)
+            }
+            #expect(queryCount == 1)
+            #expect(appliedPolicies.isEmpty)
+
+            MenuBarOnlySettings.setEnabled(true, defaults: defaults)
+            for _ in 0..<50 {
+                sync.sync(defaults: defaults)
+            }
+            #expect(queryCount == 2)
+            #expect(appliedPolicies == [.accessory])
+
+            MenuBarOnlySettings.setEnabled(false, defaults: defaults)
+            sync.sync(defaults: defaults)
+            sync.sync(defaults: defaults)
+            #expect(queryCount == 3)
+            #expect(appliedPolicies == [.accessory, .regular])
+        }
+    }
+
+    @Test func activationPolicySyncRetriesAfterRefusedChange() throws {
+        try withTemporaryDefaults { defaults in
+            var accepts = false
+            var setAttempts = 0
+            let sync = MenuBarOnlyActivationPolicySync(
+                currentPolicy: { .regular },
+                setPolicy: { _ in
+                    setAttempts += 1
+                    return accepts
+                }
+            )
+            MenuBarOnlySettings.setEnabled(true, defaults: defaults)
+
+            sync.sync(defaults: defaults)
+            #expect(setAttempts == 1)
+
+            accepts = true
+            sync.sync(defaults: defaults)
+            sync.sync(defaults: defaults)
+            #expect(setAttempts == 2)
+        }
+    }
+
     private func withTemporaryDefaults(_ body: (UserDefaults) throws -> Void) throws {
         let suiteName = "cmux.menuBarOnlyActivationPolicy.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

@@ -1009,6 +1009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
+    private lazy var activationPolicySync = MenuBarOnlyActivationPolicySync()
     /// App-owned computer-use graph; all runtime dependencies are injected here.
     private(set) lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
         guard let computerUseRuntimeService else {
@@ -1316,10 +1317,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     )
     /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
     var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    var sessionScrollbackCheckpointLoadTask: Task<Void, Never>?
     let sessionScrollbackCheckpointQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
         qos: .utility
     )
+    /// Display geometry read once for one session snapshot; see `withSessionSnapshotDisplayGeometries`.
+    private(set) var sessionSnapshotDisplayGeometries: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)?
     /// Holds back primary snapshot writes from a launch that restored less
     /// than it started from; installed by startup snapshot preparation or the
     /// first save, whichever comes first.
@@ -2571,6 +2575,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
     func applicationWillTerminate(_ notification: Notification) {
+        sessionScrollbackCheckpointLoadTask?.cancel()
+        sessionScrollbackCheckpointLoadTask = nil
         cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         agentChatTranscriptService.shutdown()
@@ -4054,7 +4060,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
-        let available = NSScreen.screens.map { screen in
+        if let sessionSnapshotDisplayGeometries { return sessionSnapshotDisplayGeometries }
+        func geometry(_ screen: NSScreen) -> SessionDisplayGeometry {
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
                 stableID: screen.cmuxStableDisplayKey,
@@ -4062,15 +4069,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 visibleFrame: screen.visibleFrame
             )
         }
-        let fallback = (NSScreen.main ?? NSScreen.screens.first).map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                stableID: screen.cmuxStableDisplayKey,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
+        let screens = NSScreen.screens
+        let available = screens.map(geometry)
+        let fallback = (NSScreen.main ?? screens.first).map { screen in
+            screens.firstIndex(of: screen).map { available[$0] } ?? geometry(screen)
         }
         return (available, fallback)
+    }
+
+    /// Runs `body` with `currentDisplayGeometries()` read once. A session
+    /// snapshot folds every window's frame into its per-display ring, and each
+    /// fold would otherwise query the window server for every screen again.
+    func withSessionSnapshotDisplayGeometries<T>(_ body: () -> T) -> T {
+        guard sessionSnapshotDisplayGeometries == nil else { return body() }
+        sessionSnapshotDisplayGeometries = currentDisplayGeometries()
+        defer { sessionSnapshotDisplayGeometries = nil }
+        return body()
     }
 
     private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
@@ -5226,6 +5240,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
+        withSessionSnapshotDisplayGeometries {
+            buildSessionSnapshotResultReadingDisplaysOnce(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: suppliedRestorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+        }
+    }
+
+    private func buildSessionSnapshotResultReadingDisplaysOnce(
+        includeScrollback: Bool,
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex?,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
         let preflightRoutes = orderedSessionRouteSnapshots(
             restorableAgentIndex: suppliedRestorableAgentIndex,
@@ -11286,7 +11314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
+        activationPolicySync.sync(defaults: defaults)
     }
 
     private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {

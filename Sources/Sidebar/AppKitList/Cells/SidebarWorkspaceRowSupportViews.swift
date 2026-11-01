@@ -80,8 +80,21 @@ struct SidebarRowPalette {
 /// its own.
 @MainActor
 final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
+    /// Everything the rendered text storage is derived from. A configure
+    /// with an equal key keeps the storage: replacing it re-runs NSTextView
+    /// selection fix-up and typesetting, which every sidebar apply and row
+    /// measurement otherwise paid for each metadata line.
+    private struct ContentKey: Equatable {
+        let markdown: String
+        let font: NSFont
+        let color: NSColor
+        let explicitURL: URL?
+    }
+
     private var onOpenURL: ((URL) -> Void)?
     private var lineHeight: CGFloat = 0
+    private var contentKey: ContentKey?
+    private var contentToolTip: String?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -122,9 +135,25 @@ final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
         explicitURL: URL? = nil,
         onOpenURL: @escaping (URL) -> Void
     ) {
-        reset()
+        let key = ContentKey(markdown: markdown, font: font, color: color, explicitURL: explicitURL)
+        if key == contentKey {
+            toolTip = contentToolTip
+        } else {
+            reset()
+            render(markdown: markdown, font: font, color: color, explicitURL: explicitURL)
+            contentKey = key
+            contentToolTip = toolTip
+        }
         self.onOpenURL = onOpenURL
         delegate = self
+    }
+
+    private func render(
+        markdown: String,
+        font: NSFont,
+        color: NSColor,
+        explicitURL: URL?
+    ) {
         lineHeight = ceil(layoutManager?.defaultLineHeight(for: font) ?? font.pointSize)
         linkTextAttributes = [
             .foregroundColor: color,
@@ -179,12 +208,24 @@ final class SidebarRowMarkdownTextView: NSTextView, NSTextViewDelegate {
         return link(at: localPoint) == nil ? nil : self
     }
 
+    /// Drops the click handler while the line shows other content. The
+    /// rendered storage stays so the next configure of the same entry is a
+    /// no-op; a hidden view neither hit-tests nor draws it.
+    func deactivate() {
+        onOpenURL = nil
+        toolTip = nil
+    }
+
     func reset() {
         delegate = nil
         onOpenURL = nil
         lineHeight = 0
         toolTip = nil
-        textStorage?.setAttributedString(NSAttributedString(string: ""))
+        contentKey = nil
+        contentToolTip = nil
+        if let textStorage, textStorage.length > 0 {
+            textStorage.setAttributedString(NSAttributedString(string: ""))
+        }
     }
 
     func measuredHeight(width _: CGFloat) -> CGFloat {
@@ -264,7 +305,11 @@ final class SidebarRowIconTextLine: NSView {
     private let iconLabel = NSTextField(labelWithString: "")
     private let textView = SidebarRowTextView(lines: 1)
     private let metadataButton = SidebarRowLinkButton()
-    private let markdownTextView = SidebarRowMarkdownTextView()
+    /// Created on the first Markdown metadata entry. Branch, log and plain
+    /// metadata lines never need an NSTextView, and each one adds a text
+    /// system to every reset and to every geometry notification the table
+    /// sends through the row tree.
+    private var markdownTextView: SidebarRowMarkdownTextView?
     private let secondTextView = SidebarRowTextView(lines: 1)
     private var iconSize: CGFloat = 0
     private var stacked = false
@@ -280,8 +325,6 @@ final class SidebarRowIconTextLine: NSView {
         metadataButton.alignment = .left
         metadataButton.isHidden = true
         addSubview(metadataButton)
-        markdownTextView.isHidden = true
-        addSubview(markdownTextView)
         secondTextView.isHidden = true
         addSubview(secondTextView)
     }
@@ -296,7 +339,7 @@ final class SidebarRowIconTextLine: NSView {
         color: NSColor,
         onOpenURL: @escaping (URL) -> Void
     ) {
-        resetPrimaryContent()
+        resetPrimaryContent(keepingMarkdown: entry.format == .markdown)
         stacked = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
@@ -328,6 +371,7 @@ final class SidebarRowIconTextLine: NSView {
         }
         let font = NSFont.systemFont(ofSize: model.scaled(10))
         if entry.format == .markdown {
+            let markdownTextView = ensureMarkdownTextView()
             markdownTextView.isHidden = false
             markdownTextView.configure(
                 markdown: entry.sidebarDisplayText,
@@ -458,19 +502,34 @@ final class SidebarRowIconTextLine: NSView {
         return first + second
     }
 
-    private func resetPrimaryContent() {
+    /// `keepingMarkdown` keeps the Markdown view's rendered storage for a
+    /// Markdown entry, so reconfiguring the same entry is a no-op. Any other
+    /// content clears it: a hidden view must not keep stale text or links.
+    private func resetPrimaryContent(keepingMarkdown: Bool = false) {
         textView.isHidden = true
         textView.toolTip = nil
         textView.stringValue = ""
         textView.attributedStringValue = NSAttributedString(string: "")
         metadataButton.isHidden = true
         metadataButton.reset()
-        markdownTextView.isHidden = true
-        markdownTextView.reset()
+        markdownTextView?.isHidden = true
+        if keepingMarkdown {
+            markdownTextView?.deactivate()
+        } else {
+            markdownTextView?.reset()
+        }
+    }
+
+    private func ensureMarkdownTextView() -> SidebarRowMarkdownTextView {
+        if let markdownTextView { return markdownTextView }
+        let view = SidebarRowMarkdownTextView()
+        addSubview(view)
+        markdownTextView = view
+        return view
     }
 
     private func primaryMeasuredHeight(width: CGFloat) -> CGFloat {
-        if !markdownTextView.isHidden {
+        if let markdownTextView, !markdownTextView.isHidden {
             return markdownTextView.measuredHeight(width: width)
         }
         if !metadataButton.isHidden {
@@ -480,7 +539,7 @@ final class SidebarRowIconTextLine: NSView {
     }
 
     private var primaryView: NSView {
-        if !markdownTextView.isHidden {
+        if let markdownTextView, !markdownTextView.isHidden {
             return markdownTextView
         }
         return metadataButton.isHidden ? textView : metadataButton
