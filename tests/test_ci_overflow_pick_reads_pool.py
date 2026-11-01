@@ -15,8 +15,9 @@ stalled 4 vCPU size while the one 8 vCPU job ran. `fromJSON(vars.RUNNER_POOLS).l
 pool reconciler moves off a dead size, so a secretless Linux job reads it after the fork branches (#30385).
 
 PICKS counts, per workflow, the jobs that still use one of those shapes: jobs holding secrets, an
-environment or a write token (RUNNER_POOLS.linux may be the secretless fleet route; those keep the
-ephemeral Blacksmith mirror), compile jobs with a measured size (tests/test_ci_linux_compile_runners.py),
+environment or a write token, and jobs whose outputs or success such a job consumes through `needs`
+(RUNNER_POOLS.linux may be the secretless fleet route; those keep the ephemeral Blacksmith mirror),
+release and publish workflows and the reusable workflows they call, compile jobs with a measured size (tests/test_ci_linux_compile_runners.py),
 measured 2, 8 and 16 vCPU jobs, portable-placement tails, and files other open pull requests change.
 A workflow with more such jobs than its count fails: a new job reads the pool instead. A count may fall
 without an edit here, so a pull request that moves a job never breaks another's base. Nightly and
@@ -58,13 +59,13 @@ PICKS: dict[str, int] = {
     "cloud-devbox-image-rebake.yml": 1,
     "cloud-image-staleness.yml": 1,
     "cloud-vm-canary.yml": 1,
-    "cloud-vm-dogfood.yml": 1,
+    "cloud-vm-dogfood.yml": 3,
     "cloud-vm-env-audit.yml": 1,
-    "cloud-vm-image-bake.yml": 2,
+    "cloud-vm-image-bake.yml": 3,
     "cloud-vm-image-contract.yml": 1,
-    "cloud-vm-image-promote.yml": 1,
+    "cloud-vm-image-promote.yml": 2,
     "cloud-vm-image-reachability.yml": 1,
-    "cloud-vm-migrate.yml": 2,
+    "cloud-vm-migrate.yml": 3,
     "cloud-vm-runtime-promotion.yml": 1,
     "cloud-vm-smoke.yml": 1,
     "cloudflare-relay.yml": 1,
@@ -84,20 +85,20 @@ PICKS: dict[str, int] = {
     "cmux-next-fast-tier-seed.yml": 1,
     "cmux-next-frame-pacing.yml": 1,
     "cmux-next-generated-catch-up.yml": 2,
-    "cmux-next-guards.yml": 5,
-    "cmux-next-media.yml": 2,
+    "cmux-next-guards.yml": 8,
+    "cmux-next-media.yml": 3,
     "cmux-next-motion-golden.yml": 1,
     "cmux-next-package-deps-heal.yml": 1,
-    "cmux-next-perf-budgets.yml": 2,
-    "cmux-next-pr-autofix.yml": 3,
+    "cmux-next-perf-budgets.yml": 3,
+    "cmux-next-pr-autofix.yml": 4,
     "cmux-next-shim-cpp.yml": 1,
     "cmux-next-skew-matrix.yml": 1,
     "cmux-next-source-archive.yml": 2,
-    "cmux-next-tip-test-compile.yml": 1,
+    "cmux-next-tip-test-compile.yml": 2,
     "cmux-next-web-bundle-publish.yml": 3,
     "cmux-next-web-bundles.yml": 2,
     "cmux-next-web.yml": 1,
-    "cmux-next.yml": 19,
+    "cmux-next.yml": 21,
     "cmux-terminal-client-xcframework.yml": 1,
     "cmux-tui-artifacts-retry.yml": 1,
     "cmux-tui-artifacts.yml": 18,
@@ -110,7 +111,7 @@ PICKS: dict[str, int] = {
     "cmux-tui-spec.yml": 4,
     "cmux-tui-tree-request.yml": 1,
     "cmux-tui-windows-check.yml": 1,
-    "cmux-tui.yml": 5,
+    "cmux-tui.yml": 6,
     "cmux-vm-clients.yml": 2,
     "cmux-vm-cloud.yml": 1,
     "cmux-vm-upstream-refresh.yml": 1,
@@ -121,7 +122,7 @@ PICKS: dict[str, int] = {
     "docs-deploy-reusable.yml": 1,
     "dogfood-artifact-publish.yml": 1,
     "feature-flag-review-drift.yml": 1,
-    "fleet-artifact-cdn.yml": 1,
+    "fleet-artifact-cdn.yml": 2,
     "fleet-compile-check.yml": 1,
     "fleet-test-compile.yml": 1,
     "fresh-chief-eval.yml": 1,
@@ -131,7 +132,7 @@ PICKS: dict[str, int] = {
     "herdr-upstream-drift.yml": 1,
     "ios-app-store.yml": 2,
     "ios-appstore-upload.yml": 2,
-    "ios-e2e.yml": 1,
+    "ios-e2e.yml": 2,
     "ios-screenshots.yml": 1,
     "ios-testflight.yml": 2,
     "iroh-relay-minter.yml": 1,
@@ -165,12 +166,13 @@ PICKS: dict[str, int] = {
     "sdk-publish-npm.yml": 2,
     "sdk-publish-python.yml": 3,
     "sdk-release-cut.yml": 9,
+    "seed-derived-data.yml": 1,
     "signing-keychain-macos.yml": 1,
     "stable-next-rollback.yml": 1,
-    "stable-next.yml": 4,
+    "stable-next.yml": 6,
     "swift-linux-packages.yml": 1,
     "swift-packages-linux.yml": 1,
-    "test-ios.yml": 1,
+    "test-ios.yml": 3,
     "tui-publish-npm.yml": 1,
     "tui-publish-pypi.yml": 2,
     "update-homebrew.yml": 2,
@@ -242,7 +244,7 @@ class WorkflowTests(unittest.TestCase):
         grown = {name: (count, PICKS.get(name, 0)) for name, count in counts().items() if count > PICKS.get(name, 0)}
         self.assertEqual(grown, {}, "these workflows pick one Blacksmith Linux size (found, allowed); read "
                                     f"{POOL} after the fork branches instead, or the ephemeral LINUX_RUNNER "
-                                    "mirror for a job that holds secrets")
+                                    "mirror for a job that holds secrets or feeds one through needs")
 
 
 if __name__ == "__main__":

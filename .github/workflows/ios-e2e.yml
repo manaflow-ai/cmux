@@ -61,7 +61,7 @@ jobs:
   route:
     # Cheap Linux layer so every PR gets a routed conclusion once the trigger
     # is promoted. The classifier integration remains intentionally explicit.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
