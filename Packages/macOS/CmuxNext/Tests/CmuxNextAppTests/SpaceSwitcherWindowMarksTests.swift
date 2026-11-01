@@ -61,6 +61,7 @@ import Testing
         let view: ProfileBarView
         let window: NSWindow
         var intents: [SidebarIntent] = []
+        var actions: [SpaceWindowAction] = []
         var menus: [NSMenu] = []
         var opens: [Bool] = []
         /// The mark lit while its menu was open.
@@ -69,8 +70,8 @@ import Testing
         init(style: SpaceSwitcherStyle) {
             model.profiles = SpaceSwitcherWindowMarksTests.keys.enumerated().map { SidebarProfile(id: $1, name: "Space \($0)") }
             model.activeProfileID = SpaceSwitcherWindowMarksTests.keys[0]
-            model.spacesElsewhere = [SpaceSwitcherWindowMarksTests.keys[1]: SpaceElsewhere(windowID: "other", incognito: false)]
             view = ProfileBarView(model: model)
+            view.windowMarks.elsewhere = [SpaceSwitcherWindowMarksTests.keys[1]: SpaceElsewhere(windowID: "other", incognito: false)]
             view.switcherStyleOverride = style
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 28), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -79,6 +80,7 @@ import Testing
             view.layoutSubtreeIfNeeded()
             view.refresh()
             model.onIntent = { [weak self] intent in self?.intents.append(intent) }
+            view.windowMarks.perform = { [weak self] action in self?.actions.append(action) }
             view.onMenuOpenChange = { [weak self] open in self?.opens.append(open) }
             view.presentMenu = { [weak self] menu, _ in
                 guard let self else { return }
@@ -115,7 +117,7 @@ import Testing
         #expect(bar.litWhileOpen == 1, "the mark did not stay lit while its menu was open")
         bar.choose(Strings.moveSpaceHere, in: menu)
         bar.choose(Strings.goToSpaceWindow, in: menu)
-        #expect(bar.intents == [.bringSpaceHere(Self.keys[1]), .goToSpaceWindow(Self.keys[1])])
+        #expect(bar.actions == [.moveHere(Self.keys[1]), .goToWindow(Self.keys[1])])
     }
 
     @Test func optionClickGoesToThatWindow() {
@@ -123,7 +125,7 @@ import Testing
         defer { bar.window.closeAfterTest() }
         bar.click(1, option: true)
         #expect(bar.menus.isEmpty)
-        #expect(bar.intents == [.goToSpaceWindow(Self.keys[1])])
+        #expect(bar.actions == [.goToWindow(Self.keys[1])] && bar.intents.isEmpty)
     }
 
     @Test func aSpaceNoOtherWindowShowsAndThePlainStripStillSwitch() {
@@ -138,7 +140,7 @@ import Testing
     @Test func anIncognitoSpaceOffersOnlyGoToWindow() throws {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }
-        bar.model.spacesElsewhere = [Self.keys[1]: SpaceElsewhere(windowID: "incognito", incognito: true)]
+        bar.view.windowMarks.elsewhere = [Self.keys[1]: SpaceElsewhere(windowID: "incognito", incognito: true)]
         bar.click(1)
         #expect(try #require(bar.menus.first).items.map(\.title) == [Strings.goToSpaceWindow])
     }
@@ -154,7 +156,8 @@ import Testing
         #expect(menu.items[1].submenu?.items.map(\.title) == [Strings.goToSpaceWindow, Strings.moveSpaceHere])
         bar.choose("Space 2", in: menu)
         bar.choose(Strings.newIncognitoSpace, in: menu)
-        #expect(bar.intents == [.switchProfile(Self.keys[2]), .newIncognitoSpace])
+        #expect(bar.intents == [.switchProfile(Self.keys[2])])
+        #expect(bar.actions == [.newIncognitoSpace])
     }
 
     @Test func theMarkSaysAnotherWindowShowsTheSpace() {

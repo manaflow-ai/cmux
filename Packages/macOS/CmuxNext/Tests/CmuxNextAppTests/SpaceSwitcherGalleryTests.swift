@@ -36,7 +36,7 @@ import Testing
             h.sidebar.spacesPosition = .bottom
             h.model.profiles = spaces
             h.model.activeProfileID = spaces[0].id
-            h.model.spacesElsewhere = [spaces[1].id: SpaceElsewhere(windowID: "second", incognito: false),
+            h.sidebar.profileBar.windowMarks.elsewhere = [spaces[1].id: SpaceElsewhere(windowID: "second", incognito: false),
                                        spaces[2].id: SpaceElsewhere(windowID: "third", incognito: false)]
             h.sidebar.renderNow()
             h.sidebar.layoutSubtreeIfNeeded()

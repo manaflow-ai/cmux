@@ -12,15 +12,15 @@ extension ProfileBarView {
 
     /// The window showing `profile`, when another one does and the style marks it.
     func elsewhere(_ profile: SidebarProfile) -> SpaceElsewhere? {
-        switcherStyle.marksOtherWindows ? model.spacesElsewhere[profile.id] : nil
+        switcherStyle.marksOtherWindows ? windowMarks.elsewhere[profile.id] : nil
     }
 
     /// Redraws the marks when another window switches space, a window opens or closes, or the tunable changes.
     /// Stops when the bar leaves its window (`viewDidMoveToWindow` cancels it) or is gone (it holds the bar weakly).
     func observeWindowMarks() -> Task<Void, Never> {
-        let model = model
+        let marks = windowMarks
         return Task { [weak self] in
-            for await _ in ObservationStream({ WindowMarkInputs(model.spacesElsewhere, model.windowIsIncognito, SpaceSwitcherStyle.tunable.value) }) {
+            for await _ in ObservationStream({ WindowMarkInputs(marks.elsewhere, marks.windowIsIncognito, SpaceSwitcherStyle.tunable.value) }) {
                 guard let self else { return }
                 self.refresh()
             }
@@ -64,11 +64,11 @@ extension ProfileBarView {
     func click(_ index: Int, option: Bool) {
         let profile = model.profiles[index]
         let outcome = SpaceSwitcherLogic.click(profile.id, active: model.activeProfileID, elsewhere: elsewhere(profile),
-                                               hereIsIncognito: model.windowIsIncognito, style: switcherStyle, option: option)
+                                               hereIsIncognito: windowMarks.windowIsIncognito, style: switcherStyle, option: option)
         switch outcome {
         case .none: return
         case .switchHere: model.send(.switchProfile(profile.id))
-        case .goToWindow: model.send(.goToSpaceWindow(profile.id))
+        case .goToWindow: windowMarks.perform?(.goToWindow(profile.id))
         case .offer(let choices): showMenu(choiceMenu(profile.id, choices), at: index)
         case .spaceMenu: showMenu(spaceMenu(), at: index)
         }
@@ -97,20 +97,20 @@ extension ProfileBarView {
                 : SwitcherMenuItem(title: title) { [weak self] in self?.model.send(.switchProfile(id)) }
             row.state = current ? NSControl.StateValue.on : NSControl.StateValue.off
             if let elsewhere, opensChoices {
-                row.submenu = choiceMenu(profile.id, SpaceSwitcherLogic.choices(for: elsewhere, hereIsIncognito: model.windowIsIncognito))
+                row.submenu = choiceMenu(profile.id, SpaceSwitcherLogic.choices(for: elsewhere, hereIsIncognito: windowMarks.windowIsIncognito))
             }
             menu.addItem(row)
         }
         menu.addItem(.separator())
         menu.addItem(SwitcherMenuItem(title: Strings.newProfile) { [weak self] in self?.model.send(.newProfile) })
-        menu.addItem(SwitcherMenuItem(title: Strings.newIncognitoSpace) { [weak self] in self?.model.send(.newIncognitoSpace) })
+        menu.addItem(SwitcherMenuItem(title: Strings.newIncognitoSpace) { [weak self] in self?.windowMarks.perform?(.newIncognitoSpace) })
         return menu
     }
 
     private func item(for choice: SpaceWindowChoice, space: ProfileKey) -> SwitcherMenuItem {
         switch choice {
-        case .goToWindow: SwitcherMenuItem(title: Strings.goToSpaceWindow) { [weak self] in self?.model.send(.goToSpaceWindow(space)) }
-        case .moveHere: SwitcherMenuItem(title: Strings.moveSpaceHere) { [weak self] in self?.model.send(.bringSpaceHere(space)) }
+        case .goToWindow: SwitcherMenuItem(title: Strings.goToSpaceWindow) { [weak self] in self?.windowMarks.perform?(.goToWindow(space)) }
+        case .moveHere: SwitcherMenuItem(title: Strings.moveSpaceHere) { [weak self] in self?.windowMarks.perform?(.moveHere(space)) }
         }
     }
 

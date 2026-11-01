@@ -21,6 +21,8 @@ import Observation
     /// Keeps `model.profileAvatar` current and gives `sidebar` its menu.
     func install(model: SidebarModel, sidebar: SidebarView) {
         sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
+        // The footer's spaces strip marks the spaces other windows show (design/spaces.md "The switcher (PR 3)").
+        SpaceWindowMarksWiring(services: services, state: state).install(sidebar.spaceWindowMarks)
         let control = self
         // task-owner: ends with the model (the window's sidebar); event-driven (Observation)
         Task { [weak model] in

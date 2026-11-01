@@ -210,13 +210,6 @@ final class SidebarBridge {
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
         }
-        // The spaces other windows show, for the switcher's window marks (design/spaces.md "The switcher (PR 3)").
-        let windows = services.windows
-        sameTurn.observe({ (SpaceSwitcherLogic.shownElsewhere(windows.spacesShown(), here: state.id), windows.isIncognito(window: state.id)) }) { [weak model] value in
-            guard let model else { return }
-            if model.spacesElsewhere != value.0 { model.spacesElsewhere = value.0 }
-            if model.windowIsIncognito != value.1 { model.windowIsIncognito = value.1 }
-        }
     }
 
     // MARK: Snapshot-first launch

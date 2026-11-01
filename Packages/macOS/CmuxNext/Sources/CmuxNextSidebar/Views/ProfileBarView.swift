@@ -56,6 +56,8 @@ final class ProfileBarView: NSView {
     var onMenuOpenChange: ((Bool) -> Void)?
     /// The mark whose switcher menu is open: it stays lit until the menu closes.
     var menuOpenIndex: Int?
+    /// Which spaces other windows show (the App fills it, `SpaceWindowMarksWiring`) and how its choices run.
+    let windowMarks = SpaceWindowMarks()
     /// Redraws the window marks when another window switches space or the tunable changes.
     var markObservation: Task<Void, Never>?
 

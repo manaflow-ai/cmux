@@ -167,11 +167,6 @@ public final class SidebarModel {
     public var profiles: [SidebarProfile] = []
     /// The profile this window shows.
     public var activeProfileID: ProfileKey?
-    /// The spaces other open windows show, each with the frontmost one (`SpaceSwitcherLogic.shownElsewhere`):
-    /// the strip marks them and offers Go to Window / Move Here (`sidebar.spaceSwitcher`).
-    public var spacesElsewhere: [ProfileKey: SpaceElsewhere] = [:]
-    /// This window is incognito: Move Here is never offered (incognito and normal content never mix).
-    public var windowIsIncognito = false
     /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
     /// the App fills it with the store's document plus pending intents.
     public var layout: SidebarLayoutDocument = .defaults

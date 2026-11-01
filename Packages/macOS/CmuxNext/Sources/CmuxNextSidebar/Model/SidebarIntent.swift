@@ -64,12 +64,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case reorderProfile(ProfileKey, index: Int)
     /// Open a space in a new window (a dot dragged out of the window; spaces-overhaul-DESIGN.md rule 4).
     case openProfileInNewWindow(ProfileKey)
-    /// Bring the window that shows a space to the front (the switcher's Go to Window, Option-click).
-    case goToSpaceWindow(ProfileKey)
-    /// Move a space another window shows into this one (the switcher's Move Here, `space.bringHere`).
-    case bringSpaceHere(ProfileKey)
-    /// Open a new incognito space (the space menu's New Incognito Space, `space.newIncognito`).
-    case newIncognitoSpace
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
