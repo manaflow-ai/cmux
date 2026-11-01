@@ -373,7 +373,9 @@ export default agentPaneEntry({
       native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        // The machines are Machines… on the control's right-click menu; its main list is This Mac and Cloud (#28999).
+        await ctx.contextMenu({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.click({ role: "menuitem", name: "Machines…" });
         await ctx.click({ role: "option", name: /devbox/ });
         await typePrompt(ctx, "Inspect the failed build and suggest a fix.");
         await ctx.press("Enter");
