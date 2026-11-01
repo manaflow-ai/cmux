@@ -52,6 +52,11 @@ const MAX_TIMEOUT_SECONDS: u64 = 604_800;
 const CHUNK_BYTES: usize = 1_000_000;
 /// The largest archive `--sync` uploads.
 const MAX_SYNC_BYTES: u64 = 64 * 1024 * 1024;
+/// The most a `--sync` archive may unpack to on the guest, which extracts it
+/// with no limit of its own: 16 times the upload cap, past what source code
+/// compresses by (text gzips about 4 to 8 times), so only a tree of
+/// near-empty or sparse files (a large file of zeros) is refused.
+const MAX_SYNC_UNPACKED_BYTES: u64 = 16 * MAX_SYNC_BYTES;
 /// The largest archive `--pull` downloads, and the most it may unpack to: the
 /// guest reports both sizes, so neither is trusted past these.
 const MAX_PULL_BYTES: u64 = 256 * 1024 * 1024;
@@ -1266,17 +1271,57 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
 /// A gzip tarball of the sync list, the number of files in it and the
 /// credential-shaped files left out.
 fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
-    archive_within(dir, MAX_SYNC_BYTES)
+    archive_within(dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES)
 }
 
-fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliError> {
+/// The sync archive, refused past `limit` compressed or `unpacked_limit`
+/// unpacked, before any VM exists. The guest's `tar -x` has no limit of its
+/// own and needs none: the files' sizes are summed first (a sparse file
+/// counts at its full length, which the guest writes out), and the tar
+/// stream itself is counted on its way into gzip, so a file that grows
+/// while it is packed is refused too.
+fn archive_within(
+    dir: &Path,
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<(Vec<u8>, SyncList), CliError> {
     let synced = sync_list(dir)?;
+    let sizes = synced
+        .files
+        .iter()
+        .filter_map(|file| std::fs::symlink_metadata(dir.join(file)).ok())
+        .filter(|meta| meta.is_file())
+        .fold(0_u64, |total, meta| total.saturating_add(meta.len()));
+    if sizes > unpacked_limit {
+        return Err(unpacks_past(unpacked_limit));
+    }
+    let archive = pack(dir, &synced.files, limit, unpacked_limit)?;
+    Ok((archive, synced))
+}
+
+fn unpacks_past(unpacked_limit: u64) -> CliError {
+    CliError::usage(format!(
+        "the synced files would unpack to more than {} MiB on the VM; sync a smaller directory with --dir",
+        unpacked_limit / (1024 * 1024)
+    ))
+}
+
+/// `tar -c` of `files` piped through gzip, with the tar stream (what the
+/// guest unpacks) counted against `unpacked_limit` and the gzip stream
+/// against `limit`. Neither is held past one byte over its limit.
+fn pack(
+    dir: &Path,
+    files: &[PathBuf],
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<Vec<u8>, CliError> {
+    use std::io::Read;
     let mut list = Vec::new();
-    for file in &synced.files {
+    for file in files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut child = std::process::Command::new("tar")
+    let mut tar = std::process::Command::new("tar")
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
@@ -1284,7 +1329,7 @@ fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliErro
             "--no-recursion",
             "--no-xattrs",
             "--null",
-            "-czf",
+            "-cf",
             "-",
             "-T",
             "-",
@@ -1294,53 +1339,101 @@ fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliErro
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| CliError::usage(format!("--sync needs tar: {e}")))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stdin"))?;
-    let writer = std::thread::spawn(move || stdin.write_all(&list));
-    let mut errors = child
-        .stderr
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stderr"))?;
+    let mut gzip = match std::process::Command::new("gzip")
+        .args(["-c", "-n"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(gzip) => gzip,
+        Err(e) => {
+            let _ = tar.kill();
+            let _ = tar.wait();
+            return Err(CliError::usage(format!("--sync needs gzip: {e}")));
+        }
+    };
+    let (Some(mut tar_in), Some(mut tar_out), Some(mut errors), Some(mut gzip_in), Some(gzip_out)) = (
+        tar.stdin.take(),
+        tar.stdout.take(),
+        tar.stderr.take(),
+        gzip.stdin.take(),
+        gzip.stdout.take(),
+    ) else {
+        let _ = tar.kill();
+        let _ = gzip.kill();
+        let _ = tar.wait();
+        let _ = gzip.wait();
+        return Err(CliError::unexpected("tar or gzip has no pipes"));
+    };
+    let writer = std::thread::spawn(move || tar_in.write_all(&list));
     let error_reader = std::thread::spawn(move || {
         let mut text = Vec::new();
-        let _ = std::io::Read::read_to_end(&mut errors, &mut text);
+        let _ = errors.read_to_end(&mut text);
         text
     });
-    let mut out = child
-        .stdout
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stdout"))?;
-    // Read at most one byte over the limit: a larger tree is refused without
-    // holding its whole archive in memory.
+    // Counts what tar writes and passes it to gzip; stops one buffer past
+    // the limit, which ends both streams (tar's on a broken pipe).
+    let pump = std::thread::spawn(move || {
+        let mut total = 0_u64;
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = match tar_out.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            };
+            total = total.saturating_add(read as u64);
+            if total > unpacked_limit {
+                return true;
+            }
+            let Some(chunk) = buffer.get(..read) else {
+                break;
+            };
+            if gzip_in.write_all(chunk).is_err() {
+                break;
+            }
+        }
+        false
+    });
     let mut archive = Vec::new();
-    let read =
-        std::io::Read::read_to_end(&mut std::io::Read::take(&mut out, limit + 1), &mut archive);
+    let read = gzip_out.take(limit + 1).read_to_end(&mut archive);
     let oversized = archive.len() as u64 > limit;
     if oversized {
-        let _ = child.kill();
+        let _ = gzip.kill();
     }
-    drop(out);
-    let status = child.wait();
+    let unpacked_over = pump.join().unwrap_or(true);
+    if oversized || unpacked_over {
+        let _ = tar.kill();
+    }
+    let tar_status = tar.wait();
+    let gzip_status = gzip.wait();
     let _ = writer.join();
     let tar_errors = error_reader.join().unwrap_or_default();
+    if unpacked_over {
+        return Err(unpacks_past(unpacked_limit));
+    }
     if oversized {
         return Err(CliError::usage(format!(
             "the sync archive is over the {} MiB limit; sync a smaller directory with --dir",
             limit / (1024 * 1024)
         )));
     }
-    read.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
-    let status = status.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
-    if !status.success() {
+    read.map_err(|e| CliError::unexpected(format!("gzip failed: {e}")))?;
+    let tar_status = tar_status.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
+    if !tar_status.success() {
         return Err(CliError::unexpected(format!(
             "tar could not archive {}: {}",
             dir.display(),
             String::from_utf8_lossy(&tar_errors).trim()
         )));
     }
-    Ok((archive, synced))
+    match gzip_status {
+        Ok(status) if status.success() => Ok(archive),
+        _ => Err(CliError::unexpected(format!(
+            "gzip could not compress the archive of {}",
+            dir.display()
+        ))),
+    }
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
@@ -1681,11 +1774,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("big.bin"), noise(256 * 1024)).unwrap();
-        let error = archive_within(&dir, 16 * 1024).unwrap_err();
+        let error = archive_within(&dir, 16 * 1024, u64::MAX).unwrap_err();
         assert!(error.message().contains("over the"), "{}", error.message());
-        let (bytes, synced) = archive_within(&dir, 1024 * 1024).unwrap();
+        let (bytes, synced) = archive_within(&dir, 1024 * 1024, u64::MAX).unwrap();
         assert!(!bytes.is_empty() && bytes.len() <= 1024 * 1024);
         assert_eq!(synced.files, vec![PathBuf::from("big.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sync_that_unpacks_past_its_limit_is_refused_before_upload() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-unpacked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        // Zeros gzip to almost nothing, so only the unpacked size can refuse them.
+        std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize + 1]).unwrap();
+        let error = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        // Just under, with room for tar's headers and its padding to a whole
+        // 10 KiB record: it syncs.
+        std::fs::write(
+            dir.join("zeros.bin"),
+            vec![0_u8; limit as usize - 16 * 1024],
+        )
+        .unwrap();
+        let (bytes, synced) = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap();
+        assert!(!bytes.is_empty() && (bytes.len() as u64) < limit);
+        assert_eq!(synced.files, vec![PathBuf::from("zeros.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_file_counts_at_its_full_size() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-sparse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A hole takes no disk here, but the guest's tar writes it out in full.
+        let file = std::fs::File::create(dir.join("sparse.img")).unwrap();
+        file.set_len(4 * 1024 * 1024 * 1024).unwrap();
+        drop(file);
+        let error = archive_within(&dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_packed_stream_is_counted_not_only_the_sizes_listed() {
+        // What tar actually writes is counted: a file that grew after its
+        // size was summed is still refused.
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        std::fs::write(dir.join("grown.bin"), vec![0_u8; limit as usize + 1]).unwrap();
+        let files = vec![PathBuf::from("grown.bin")];
+        let error = pack(&dir, &files, MAX_SYNC_BYTES, limit).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        assert!(pack(&dir, &files, MAX_SYNC_BYTES, 2 * limit).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
