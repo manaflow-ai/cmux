@@ -56,8 +56,7 @@ BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
     "(runner.environment != 'github-hosted'"
     " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-')"
-    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')"
-    " && !startsWith(runner.name, 'blacksmith-8vcpu-ubuntu-2404-'))"
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
     " || contains(runner.name, 'glaeda')"
 )
 FORK_BRANCHES = (
@@ -115,7 +114,13 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# CLA's trusted base validator pins its older selector and runner-name guard.
+# Keep that policy valid while other trusted jobs adopt the measured BS8 size.
+CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
+)
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 TRUSTED_RUNNER_JOBS = (
     ("backend-migrations.yml", "plan"),
@@ -267,7 +272,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
     """
-    if runs_on == TRUSTED_RUNNER_EXPRESSION:
+    if runs_on in TRUSTED_RUNNER_EXPRESSIONS:
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
@@ -1328,6 +1333,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+                if workflow in {"cla.yml", "cla-policy-guard.yml"}:
+                    self.assertEqual(runs_on[0].strip(), "runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION)
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1585,14 +1592,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d"): False,
-            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("github-hosted", "GitHub Actions 12"): False,
             # Owned glaeda hosts, even under a Blacksmith-looking name.
             ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-glaeda"): True,
             ("github-hosted", "x-glaeda-1"): True,
             # Labels outside the runs-on allowlist, and the bare label.
-            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404"): True,
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404"): True,
         }
