@@ -86,11 +86,12 @@ extension WorkspaceRowView {
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            paintFill(fill)
+            let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
+            paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
-            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
+            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -99,6 +100,7 @@ extension WorkspaceRowView {
     override func layout() {
         super.layout()
         let full = layoutBounds
+        layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
@@ -117,9 +119,11 @@ extension WorkspaceRowView {
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
+        // A `leftRail` row keeps its dot's slot empty, so its title stays clear of the rail, where the dot style has it.
+        let railSlot = iconKind == nil && rowColor?.style == .leftRail
         let side: CGFloat
         switch iconKind {
-        case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
+        case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
@@ -174,8 +178,9 @@ extension WorkspaceRowView {
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
-            let pad = badge.state == .dot ? Metrics.space2 : 0
+            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            // A dot keeps its center where the 6 pt dot had it, so the bigger dot stays centered in its column.
+            let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
         }
@@ -226,7 +231,7 @@ extension WorkspaceRowView {
         }
 
         // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
-        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth)
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth, reservesColorRail: railSlot)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
