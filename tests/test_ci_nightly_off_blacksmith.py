@@ -44,8 +44,7 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
-    "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
-    "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
+    "signer-dmg", "route-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
     "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
@@ -55,7 +54,7 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
 # same pooled picker. They must not regress to a hosted or literal runner when
 # a new control is added to nightly.yml.
 PUBLICATION_POOL_JOBS = (
-    "route-visual-gate-nightly", "visual-gate-nightly-verdict", "report-visual-gate-nightly",
+    "visual-gate-nightly-verdict", "report-visual-gate-nightly",
     "nightly-identity-legacy-published", "report-nightly-failure",
     "close-nightly-failure-issue",
 )

@@ -20,7 +20,7 @@ DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
 TAIL_CONTROL_JOBS = (
-    'route-visual-gate-nightly', 'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
+    'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
 )
 
@@ -80,26 +80,29 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
-    def test_tail_controls_never_use_the_dedicated_build_runner(self):
-        # The dedicated label is admitted only by build-nightly-app. A picker can
-        # expose it through `owned`, so every bookkeeping control must explicitly
-        # reject that value before taking the owned route.
+    def test_tail_controls_exclude_the_dedicated_builder_and_macos_overflow(self):
+        prefix = 'needs.pick-nightly-build-runner.outputs.'
         context = {
-            'github.repository_owner': 'manaflow-ai',
-            'github.run_attempt': 1,
-            'needs.pick-nightly-build-runner.outputs.attempt': '1',
-            'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
-            'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly',
-            'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-32vcpu-ubuntu-2404',
+            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+            prefix + 'attempt': '1', prefix + 'owned': 'glaeda-trusted-next-nightly',
+            prefix + 'dedicated': 'glaeda-trusted-next-nightly',
+            prefix + 'blacksmith': 'blacksmith-6vcpu-macos-26',
             'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404',
         }
         for name in TAIL_CONTROL_JOBS:
-            with self.subTest(job=name):
-                source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
-                self.assertEqual(evaluate(parse_expression(source), context), 'blacksmith-32vcpu-ubuntu-2404')
-                self.assertIn('outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated', source)
-                fork_context = {**context, 'github.repository_owner': 'someone'}
-                self.assertEqual(evaluate(parse_expression(source), fork_context), 'ubuntu-24.04')
+            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            expr = parse_expression(source)
+            for helper, expected in (
+                ('glaeda-trusted-next-nightly', 'blacksmith-16vcpu-ubuntu-2404'),
+                ('', 'blacksmith-16vcpu-ubuntu-2404'),
+                ('glaeda-side-std-xcode-26.6', 'glaeda-side-std-xcode-26.6'),
+            ):
+                with self.subTest(job=name, helper=helper):
+                    self.assertEqual(evaluate(expr, {**context, prefix + 'helper': helper}), expected)
+            self.assertEqual(evaluate(expr, {**context, 'vars.LINUX_RUNNER': ''}), 'blacksmith-32vcpu-ubuntu-2404')
+            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}), 'ubuntu-24.04')
+            self.assertEqual(evaluate(expr, {**context, prefix + 'helper': 'glaeda-side-std-xcode-26.6',
+                                            'github.run_attempt': 2}), 'blacksmith-16vcpu-ubuntu-2404')
 
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
