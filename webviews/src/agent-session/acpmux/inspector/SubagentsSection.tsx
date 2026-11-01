@@ -180,7 +180,7 @@ export function SubagentsSection({
       identity: agent.id,
       agent,
       name: agent.name,
-      progress: subagentProgress(t, language, agent).join(" · "),
+      progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
       detail: live(status) ? agent.action : undefined,
