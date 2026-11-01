@@ -33,11 +33,9 @@ submodule is initialized at the gitlink), `GHOSTTY-kit` (the gitlink is the Ghos
 
 ### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
 
-- Fork release branch `release/cmux-ef6ce279-e2` (ghostty-next `7f8d846b2`): this dogfood line's pin `ef6ce279a` plus
-  only the commits of feat's `release/cmux-9ce9b7d0-e2` at `84a225487` (fork PRs #66 and #68 part 1 and the release
-  workflow of #67). GhosttyNextKit `xcframework-7f8d846b24cf0f994feaebddfe6376f3ee38c595-apple-v6`. The commit IDs
-  below are those on `release/cmux-9ce9b7d0-e2` (feat's pin); the same changes have other IDs on this line's
-  release branch.
+- Fork release branch `release/cmux-ef6ce279-e2` (ghostty-next `d94ab9a53`): this dogfood line's pin `ef6ce279a` plus
+  only the commits of feat's `release/cmux-9ce9b7d0-e2` at `34e73ba8b` (fork PRs #66 and #68 and the release workflow
+  of #67). GhosttyNextKit `xcframework-d94ab9a530c4104bec04bced642fafe3ce100235-apple-v6`.
 - Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
   `cursorScrollAbove` with a bottom margin, `insertLines` and `deleteLines` with a full-width region move the rows
   inside the region and keep the rows outside it. The row above the region kept `wrap` and the row below it kept
@@ -48,6 +46,8 @@ submodule is initialized at the gitlink), `GHOSTTY-kit` (the gitlink is the Ghos
 - Scroll-path cost (red `bc393a54b`, fix `db6d27f78`): `breakWrapAbove` decides on the resident row first (its
   `wrap_continuation`, or for IL/DL the top row's flag read before the rows move) and reads a row in a compressed
   history page only when the pair was joined, so a region scroll never restores a history page for nothing.
+- Cleared rows (red `221848c29`, fix `353151949`): `clearRows` (ED 0, 1 and 2, DECALN) resets the cleared rows and now
+  breaks the soft wrap across both edges of the range, so a scrollback row no longer wraps into a cleared screen.
 - Commit IDs in this section are those on `release/cmux-9ce9b7d0-e2` (feat's pin); the same changes on the fork PR
   branches and on this line's `release/cmux-ef6ce279-e2` have other IDs.
 - Defense (`19ab1cbcb` red test, `406763ee6` fix): with `unwrap`, `PageFormatter` carried a row's trailing blank
