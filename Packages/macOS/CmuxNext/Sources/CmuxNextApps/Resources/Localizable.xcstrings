@@ -14947,429 +14947,129 @@
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
-          "variations" : {
-            "plural" : {
-              "zero" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "لا تتوفر تحديثات"
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "يتوفر تحديث واحد"
-                }
-              },
-              "two" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "يتوفر تحديثان"
-                }
-              },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "تتوفر %@ تحديثات"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "يتوفر %@ تحديثًا"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "يتوفر %@ تحديث"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتوفر %@ تحديثًا"
           }
         },
         "bs" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostupno je %@ ažuriranje"
-                }
-              },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostupna su %@ ažuriranja"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostupno je %@ ažuriranja"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dostupno ažuriranja: %@"
           }
         },
         "da" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ opdatering tilgængelig"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ opdateringer tilgængelige"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ opdateringer tilgængelige"
           }
         },
         "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ Update verfügbar"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ Updates verfügbar"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ Updates verfügbar"
           }
         },
         "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%@ update available"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%@ updates available"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ updates available"
           }
         },
         "es" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ actualización disponible"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ de actualizaciones disponibles"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ actualizaciones disponibles"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ actualizaciones disponibles"
           }
         },
         "fr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ mise à jour disponible"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ de mises à jour disponibles"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ mises à jour disponibles"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ mises à jour disponibles"
           }
         },
         "it" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ aggiornamento disponibile"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ di aggiornamenti disponibili"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ aggiornamenti disponibili"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ aggiornamenti disponibili"
           }
         },
         "ja" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@件のアップデートがあります"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@件のアップデートがあります"
           }
         },
         "km" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "មានបច្ចុប្បន្នភាព %@"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មានបច្ចុប្បន្នភាព %@"
           }
         },
         "ko" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@개 업데이트 가능"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@개 업데이트 가능"
           }
         },
         "nb" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ oppdatering tilgjengelig"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ oppdateringer tilgjengelig"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ oppdateringer tilgjengelig"
           }
         },
         "pl" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostępna aktualizacja: %@"
-                }
-              },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostępne aktualizacje: %@"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostępnych aktualizacji: %@"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Dostępnych aktualizacji: %@"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dostępnych aktualizacji: %@"
           }
         },
         "pt-BR" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ atualização disponível"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ de atualizações disponíveis"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ atualizações disponíveis"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ atualizações disponíveis"
           }
         },
         "ru" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно обновление: %@"
-                }
-              },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно обновления: %@"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно обновлений: %@"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно обновлений: %@"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Доступно обновлений: %@"
           }
         },
         "th" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "มีการอัปเดต %@ รายการ"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "มีการอัปเดต %@ รายการ"
           }
         },
         "tr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ güncelleme mevcut"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%@ güncelleme mevcut"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ güncelleme mevcut"
           }
         },
         "uk" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступне оновлення: %@"
-                }
-              },
-              "few" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно оновлення: %@"
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно оновлень: %@"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Доступно оновлень: %@"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Доступно оновлень: %@"
           }
         },
         "vi" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "Có %@ bản cập nhật"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Có %@ bản cập nhật"
           }
         },
         "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "有 %@ 项更新"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有 %@ 项更新"
           }
         },
         "zh-Hant" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "有 %@ 項更新"
-                }
-              }
-            }
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "有 %@ 項更新"
           }
         }
       }
