@@ -69,6 +69,20 @@ done
 RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh || exit 3
 PATH="$(tail -n 1 "$work/bun-path"):$PATH"
 export PATH
+# A PR head's cmux-tui tree is never published (only trusted feat-cmux-next pushes publish), and
+# the base can run hours behind: build the client set here instead of waiting 45 min for a tree
+# that will not come, as reload.sh does for nx-remote builds (CMUX_TUI_CLIENT_LOCAL).
+if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
+  echo "FRESH-HOME cmux-tui tree not published: building the client set on this host"
+  # CI=1: this is a fleet step, where the builder may run Cargo (never on a developer Mac).
+  CMUX_TUI_CLIENT_LOCAL="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$out/cmux-tui-build.log")" || {
+    echo "FRESH-HOME cannot run: building cmux-tui failed" >&2
+    tail -n 40 "$out/cmux-tui-build.log" >&2
+    tar -czf "$out/report.tgz" -C "$out" cmux-tui-build.log
+    exit 3
+  }
+  export CMUX_TUI_CLIENT_LOCAL
+fi
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links >"$out/reload.log" 2>&1
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
