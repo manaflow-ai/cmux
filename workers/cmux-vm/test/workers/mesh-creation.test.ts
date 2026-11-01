@@ -39,14 +39,30 @@ it("replays a committed creation even when its network filled the mesh budget", 
   expect(h.upstreamRequests.filter((r) => r.method === "POST" && r.path === "/v5/vpcs")).toHaveLength(1);
 });
 
-it("shares a tenant's intent across rotated credentials without sharing it across tenants", async () => {
-  const first = await h.addKey("team_alpha", ALL_SCOPES), rotated = await h.addKey("team_alpha", ALL_SCOPES), other = await h.addKey("team_bravo", ALL_SCOPES);
+it("never shares a creation key between two API keys of a tenant or across tenants", async () => {
+  const first = await h.addKey("team_alpha", ALL_SCOPES), second = await h.addKey("team_alpha", ALL_SCOPES), other = await h.addKey("team_bravo", ALL_SCOPES);
   const a = await meshBody(await create(first));
-  expect(await meshBody(await create(rotated))).toEqual(a);
+  const own = await meshBody(await create(second));
+  expect(own.id).not.toBe(a.id);
+  expect(own.ipv4Cidr).not.toBe(a.ipv4Cidr);
   const b = await meshBody(await create(other));
   expect(b.id).not.toBe(a.id);
+  expect(await meshBody(await create(first))).toEqual(a);
+  expect(networkSends()).toHaveLength(3);
+  expect(h.resources.filter((r) => r.kind === "mesh")).toHaveLength(3);
+});
+
+it("never replays an API key's mesh creation to a session of the same team, nor the reverse", async () => {
+  h.addMember("team_alpha", "owner");
+  h.addAdmin("team_alpha", "owner");
+  const session = await h.sessionToken("owner"), key = await h.addKey("team_alpha", ALL_SCOPES);
+  const bySession = () => h.request("/v1/meshes", { authorization: `Bearer ${session}`, "x-cmux-team-id": "team_alpha", "idempotency-key": "team-mesh-one" }, { method: "POST", body: { displayName: "Team network" } });
+  const fromKey = await meshBody(await create(key));
+  const fromSession = await meshBody(await bySession());
+  expect(fromSession.id).not.toBe(fromKey.id);
+  expect(await meshBody(await bySession())).toEqual(fromSession);
+  expect(await meshBody(await create(key))).toEqual(fromKey);
   expect(networkSends()).toHaveLength(2);
-  expect(h.resources.filter((r) => r.kind === "mesh")).toHaveLength(2);
 });
 
 it("recovers a lost provider reply using the exact stable slug", async () => {
@@ -177,15 +193,18 @@ it("keeps a deleted creation key terminal and frees the mesh budget for a new ke
   expect(h.mesh.vpcs.size).toBe(1);
 });
 
-it("permits only selected-resource replay and refuses an unknown intent without consuming it", async () => {
+it("never lets a selected-resource key replay another key's creation, and refuses its unknown intents without consuming them", async () => {
   const full = await h.addKey("team_alpha", ALL_SCOPES), body = await meshBody(await create(full));
   const selected = await h.addKey("team_alpha", ALL_SCOPES, { allowlist: [body.id] });
-  expect(await meshBody(await create(selected))).toEqual(body);
   const denied = await h.addKey("team_alpha", ALL_SCOPES, { allowlist: [] });
   const before = h.upstreamRequests.length;
+  const reply = await create(selected);
+  expect(reply.status).toBe(404);
+  expect(await reply.text()).not.toContain(body.id);
   expect((await create(denied)).status).toBe(404);
   expect((await create(selected, "Team network", "unclaimed")).status).toBe(404);
   expect(h.upstreamRequests).toHaveLength(before);
+  expect(await meshBody(await create(full))).toEqual(body);
   expect((await create(full, "Team network", "unclaimed")).status).toBe(201);
 });
 

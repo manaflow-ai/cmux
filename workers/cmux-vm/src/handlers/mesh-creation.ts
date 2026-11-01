@@ -2,7 +2,6 @@
 import { name, type Named } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
 import { Mesh } from "../api/mesh.ts";
-import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import { MeshStore } from "../db/mesh.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
@@ -20,8 +19,9 @@ import { UpstreamMesh, type CreatedNetwork } from "../upstream/mesh.ts";
 
 export const createMeshWithKey = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "mesh:write">, rawKey: string, payload: { readonly displayName?: string | undefined; readonly labels?: Readonly<Record<string, string>> | undefined }) => Effect.gen(function* () {
   const principal = caller.value, limits = yield* TenantLimits, store = yield* MeshStore, ownership = yield* OwnershipStore, upstream = yield* UpstreamMesh;
-  // Scoped like VM creations: another service, or a team credential, reusing this key gets its own creation.
-  const key = yield* scopedCreationKey(principal, `mesh-create:${rawKey}`);
+  // Scoped to the creating actor (service id, API key id or session user): no other credential can replay it.
+  // A service keeps its creations across secret rotation because its id stays the same.
+  const key = yield* sha256Hex(JSON.stringify(["mesh-create-v2", actorRef(principal.actor), rawKey]));
   const requestedLabels = payload.labels ?? {};
   if (Object.hasOwn(requestedLabels, MESH_CREATION_LABEL)) return yield* Effect.fail(new Forbidden({ message: "The mesh creation label is reserved" }));
   const labels = { ...requestedLabels, [MESH_CREATION_LABEL]: key };
