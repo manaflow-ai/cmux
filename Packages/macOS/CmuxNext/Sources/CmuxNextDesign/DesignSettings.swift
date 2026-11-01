@@ -22,6 +22,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
+    /// Tab titles' text size, apart from `chromeFontSize` (which sizes all chrome); unset follows it.
+    case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
 }
@@ -322,6 +324,7 @@ public final class DesignSettings {
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
     }

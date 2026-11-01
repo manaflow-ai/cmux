@@ -151,6 +151,51 @@ test("the four row kinds share one row grammar: icon, sentence, trailing column,
   }
 });
 
+/// The rows' stylesheets, as the pane loads them, so a computed `order` reads what draws.
+const ROW_SHEETS = [
+  "./conversation.css",
+  "./AgentMessageRow.css",
+  "./SubsessionCallCard.css",
+  "./TranscriptActivityRow.css",
+  "../subagents/subagents.css",
+];
+
+/// The row's direct children as flexbox draws them: by CSS `order`, then DOM order.
+const drawn = (row: Element): string[] => {
+  const view = row.ownerDocument.defaultView!;
+  return [...row.children]
+    .map((child, at) => ({ child, at, order: Number(view.getComputedStyle(child).order || 0) }))
+    .sort((a, b) => a.order - b.order || a.at - b.at)
+    .map(({ child }) =>
+      child.classList.contains("cv-tool__trail")
+        ? "trail"
+        : child.classList.contains("cv-tool__chevron")
+          ? "chevron"
+          : "other",
+    );
+};
+
+test("each row draws its trailing status or duration before the chevron, and the chevron last", async () => {
+  const { container, rows } = await fourRows();
+  const doc = container.ownerDocument;
+  for (const sheet of ROW_SHEETS) {
+    const style = doc.createElement("style");
+    style.textContent = readFileSync(new URL(sheet, import.meta.url), "utf8");
+    doc.head.append(style);
+  }
+  for (const [kind, row] of Object.entries(rows)) {
+    const order = drawn(row);
+    // The chevron is drawn last on every row, so it sits on one x at the row's end.
+    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
+    // The trailing column, when a row has one, is drawn right before it, never after.
+    const trail = order.indexOf("trail");
+    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
+  }
+  // The sends and the subagent line carry a trailing column, so the check above bites on them.
+  for (const kind of ["send-message", "acpmux-send", "subagent"])
+    expect({ kind, trail: drawn(rows[kind]!).includes("trail") }).toEqual({ kind, trail: true });
+});
+
 test("a send reads Sent to <recipient>, the recipient one chip, its status in the trailing column", async () => {
   const { rows } = await fourRows();
   for (const kind of ["send-message", "acpmux-send"]) {

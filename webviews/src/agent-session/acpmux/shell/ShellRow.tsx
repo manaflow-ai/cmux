@@ -42,11 +42,15 @@ export function ShellRow({
         <code className="acpmux-shell-block-command">{run.command}</code>
         <span className="acpmux-shell-block-status">
           {run.status === "running" ? (
-            <button type="button" className="acpmux-shell-block-stop" onClick={() => actions?.stop(run.id)}>
+            actions ? (
+              <button type="button" className="acpmux-shell-block-stop" onClick={() => actions.stop(run.id)}>
+                <Spinner size={12} />
+                {t("shell.stop")}
+                <kbd>⌃C</kbd>
+              </button>
+            ) : (
               <Spinner size={12} />
-              {t("shell.stop")}
-              <kbd>⌃C</kbd>
-            </button>
+            )
           ) : (
             <>
               {run.status === "done" ? (
@@ -67,9 +71,12 @@ export function ShellRow({
             </>
           )}
         </span>
-        <button type="button" className="acpmux-shell-block-open" onClick={() => actions?.openInTerminal(run)}>
-          {t("shell.openInTerminal")}
-        </button>
+        {/* No actions (a read-only transcript, conversation/GuestActionsBoundary.tsx): no Stop, no Open. */}
+        {actions && (
+          <button type="button" className="acpmux-shell-block-open" onClick={() => actions.openInTerminal(run)}>
+            {t("shell.openInTerminal")}
+          </button>
+        )}
       </div>
       {(shown.length > 0 || run.error) && (
         <pre className="acpmux-shell-block-output selectable">

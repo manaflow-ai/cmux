@@ -255,8 +255,7 @@ def find_dispatched_run(branch: str, since: str) -> int | None:
 
 
 def job_log(job_id: int) -> str:
-    """A job's own log. gh refuses one holding ANSI colours unless given the escape flag; a gh too old to know
-    the flag (base_red_excuse.escape_flag_unknown) is asked once more without it, and any other failure exits."""
+    """A job's own log; ANSI is normalized by the Python red classifiers."""
     import importlib.util  # noqa: PLC0415
     spec = importlib.util.spec_from_file_location("base_red_excuse", Path(__file__).with_name("base_red_excuse.py"))
     excuse = importlib.util.module_from_spec(spec)
@@ -264,7 +263,7 @@ def job_log(job_id: int) -> str:
     route = f"repos/{REPO}/actions/jobs/{job_id}/logs"
     result = subprocess.run(["gh", "api", excuse.ESCAPE_FLAG, route], text=True, capture_output=True)
     if result.returncode != 0 and excuse.escape_flag_unknown(result.stderr):
-        return run("gh", "api", route)
+        result = subprocess.run(["gh", "api", route], text=True, capture_output=True)
     if result.returncode != 0:
         raise SystemExit(f"gh api {excuse.ESCAPE_FLAG} {route} failed: {result.stderr.strip()}")
     return result.stdout

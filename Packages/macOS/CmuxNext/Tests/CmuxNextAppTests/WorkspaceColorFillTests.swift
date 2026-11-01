@@ -3,13 +3,14 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// https://github.com/manaflow-ai/cmux/issues/25653: a workspace's color showed only as a small
 /// dot, and classic's `workspaceColors.indicatorStyle` did nothing in NEXT. The setting now picks a
 /// dot (the default), a leading rail or a full-row fill, for loose rows and group members alike,
 /// and a color set on a grouped workspace shows at once.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct WorkspaceColorFillTests {
     private static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
@@ -146,7 +147,7 @@ struct WorkspaceColorFillTests {
             #expect(abs(fill.redComponent - swatch.redComponent) < 0.01 && abs(fill.greenComponent - swatch.greenComponent) < 0.01
                 && abs(fill.blueComponent - swatch.blueComponent) < 0.01, "the fill is the workspace's color, not the gray selection")
         }
-        [restWindow, plainWindow, selectedWindow].forEach { $0.close() }
+        [restWindow, plainWindow, selectedWindow].forEach { $0.closeAfterTest() }
     }
 
     @Test func aLeftRailRowDrawsABarDownItsEdge() {
@@ -154,7 +155,7 @@ struct WorkspaceColorFillTests {
         #expect(!view.colorRail.isHidden && view.colorRail.superview === view)
         #expect(view.colorRail.frame.width == WorkspaceRowView.colorRailWidth && view.colorRail.frame.height > 0)
         #expect(!view.debugFill, "the rail style leaves the row unfilled")
-        window.close()
+        window.closeAfterTest()
     }
 
     /// Visual review of https://github.com/manaflow-ai/cmux/pull/25705: the rail ended a point or two before the
@@ -165,7 +166,7 @@ struct WorkspaceColorFillTests {
         let (rail, railWindow) = Self.rowView(ws, style: "leftRail")
         #expect(rail.title.frame.minX == dot.title.frame.minX)
         #expect(rail.title.frame.minX - rail.colorRail.frame.maxX >= Metrics.space3, "clear of the rail")
-        [dotWindow, railWindow].forEach { $0.close() }
+        [dotWindow, railWindow].forEach { $0.closeAfterTest() }
     }
 
     @Test func aStartedWorkspacesRailMovesInWithItsContent() {
@@ -176,7 +177,7 @@ struct WorkspaceColorFillTests {
         nested.needsLayout = true
         nested.layoutSubtreeIfNeeded()
         #expect(nested.colorRail.frame.minX == top.colorRail.frame.minX + SidebarStyle.treeIndent)
-        [topWindow, nestedWindow].forEach { $0.close() }
+        [topWindow, nestedWindow].forEach { $0.closeAfterTest() }
     }
 
     @Test func aSavedSidebarKeepsEachWorkspacesColor() throws {

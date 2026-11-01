@@ -15,7 +15,7 @@
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
@@ -56,7 +56,7 @@ export type TrayItem =
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
-/// it runs (inspector/processes.ts `backgroundCommands` merged it in, `processId`); one only the
+/// it runs (session-info/processes.ts `backgroundCommands` merged it in, `processId`); one only the
 /// transcript knows shows only while a turn runs, since the transcript cannot tell a command that
 /// ended unseen (a peer's chat, whose registry this acpmux cannot list) from one that runs.
 export function trayItems(

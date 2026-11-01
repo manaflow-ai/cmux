@@ -95,7 +95,12 @@ impl<B: Backend> Server<B> {
                 with_place.insert("pane".into(), json!(pane));
             }
             crate::cli::beside::Placement::NewColumn { workspace, chat_pane } => {
-                return Err(self.new_column(&unplaced, &workspace, &chat_pane));
+                let split = crate::cli::beside::split_params(&unplaced, &workspace, &chat_pane);
+                return Err(self.split_for(&unplaced, &workspace, split));
+            }
+            crate::cli::beside::Placement::SplitBelow { workspace, pane } => {
+                let split = crate::cli::beside::split_below_params(&unplaced, &workspace, &pane);
+                return Err(self.split_for(&unplaced, &workspace, split));
             }
         }
         Ok(Cow::Owned(with_place))
@@ -120,16 +125,16 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    /// The terminal a `tab_create_terminal` asked for, opened as a new
-    /// column right of the chat, then given its name.
-    fn new_column(
+    /// The terminal a `tab_create_terminal` asked for, opened by `split` (a
+    /// new column right of the chat, or a pane below the column's lone pane
+    /// of another kind), then given its name.
+    fn split_for(
         &self,
         arguments: &Map<String, Value>,
         workspace: &str,
-        chat_pane: &str,
+        mut split: Map<String, Value>,
     ) -> Value {
         let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut split = crate::cli::beside::split_params(arguments, workspace, chat_pane);
         if let Some(key) = key {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
@@ -171,6 +176,17 @@ impl<B: Backend> Server<B> {
         if call.session.is_some() {
             return Ok(());
         }
+        // A `current` browser is the one nearest the caller (#26648). A bare
+        // `browser: current` that the app cannot place keeps the daemon's chain,
+        // as before; a `current` level still needs the caller.
+        let browser = crate::cli::caller_browser::wants(params);
+        if browser
+            && !caller_scope::wants_caller(params)
+            && let Ok(Some(identity)) = self.backend.identity()
+            && identity.get("caller").is_some_and(caller_scope::is_placed)
+        {
+            crate::cli::caller_browser::apply(params, &identity)?;
+        }
         let caller = if caller_scope::wants_caller(params) {
             match self.backend.identity() {
                 // The app answers an agent session it has no chat for
@@ -179,6 +195,9 @@ impl<B: Backend> Server<B> {
                     let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
                     if !caller_scope::is_placed(&caller) {
                         return Err(caller_scope::unresolved("the app does not know this chat"));
+                    }
+                    if browser {
+                        crate::cli::caller_browser::apply(params, &identity)?;
                     }
                     Some(caller)
                 }

@@ -130,6 +130,16 @@ the views in the window when its live resize starts and ends, so a host view tha
 (`CEFLayerHosting.windowDidChange`) takes the new window's `inLiveResize` (review 3: a view parked during a live
 resize kept the live-resize wait for every later pane resize).
 
+Divider drags (cmux#26037): Debug Settings `browserResize.dragResize` has a fourth mode, `resizeSync`. The page lays
+out live, and from the drag's first move until its release landed (`PaneResizeGestureFollowing`, the same start and
+end `hold` uses) `CEFLayerHosting.paneResizeDrag` gives every page window over the dragged pane (the page's and a
+docked DevTools'), hosted or not, `browserResize.dragResizeDeadline` (16 ms) under the half-frame cap. The cap is the
+answer to review 1's open point for drags: half the shortest display frame keeps each commit inside its display
+link's target time, so a frame the page misses shows its last frame instead of dropping the app's. Only the drag and
+its landing wait; a spring the drag did not start keeps the pane deadline. Below API 27 the mode is `live`. Still
+open: the split_resize numbers for `resizeSync` against `live`, `hold` and `synced` on one host, which need the
+API 27 pin and the harness's variants, before it can be the default.
+
 ## 3. Features, status
 
 | Feature | Expected with hosting | Status |

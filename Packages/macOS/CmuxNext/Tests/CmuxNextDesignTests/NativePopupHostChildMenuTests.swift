@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The bookmark edit bubble (a ``NativePopupHost`` panel) holds a Folder picker whose menu is
 /// AppKit's, a window of its own. Opening it took the keys from the bubble, and the host read
 /// that key loss as a dismiss: a click on the picker closed the bubble. A menu opened from inside
 /// a popup is part of it: a click, Escape or a pick closes only the menu, and the popup stays.
-@MainActor @Suite(.serialized) struct NativePopupHostChildMenuTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupHostChildMenuTests {
     /// The notices this test posts go here only (a fresh center per test).
     private let center = NotificationCenter()
 
@@ -35,7 +36,7 @@ import Testing
 
     private static func close(_ window: NSWindow, _ host: NativePopupHost) {
         host.closePanel()
-        window.close()
+        window.closeAfterTest()
     }
 
     /// Fails before the fix: the picker's menu took the keys and the bubble closed under it.
