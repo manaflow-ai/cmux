@@ -100,8 +100,8 @@ final class NativePopupSliderView: NSView {
         guard descriptor.stops.indices.contains(index) else { return }
         let stop = descriptor.stops[index]
         currentLabel.stringValue = stop.label
-        currentLabel.toolTip = stop.description
-        slider.toolTip = stop.description
+        currentLabel.themedToolTip = stop.description
+        slider.themedToolTip = stop.description
         slider.setAccessibilityValueDescription(stop.accessibilityLabel ?? stop.label)
     }
 

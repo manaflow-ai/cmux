@@ -278,7 +278,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                                                 constant: layout.leading).isActive = true
         }
         view.isEnabled = row.disabled != true
-        view.toolTip = row.disabledReason
+        view.themedToolTip = row.disabledReason
         // Menu selection owns Return/Space. Embedded controls remain focusable, but a row
         // wrapper must not retain the keys after arrows move the menu highlight elsewhere.
         view.takesFocus = false
