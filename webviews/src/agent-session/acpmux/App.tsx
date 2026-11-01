@@ -9991,7 +9991,7 @@ function AcpmuxPane() {
           promptId: string | undefined,
           handedOn: () => void,
           expectedSessionId?: string,
-          seeded: boolean,
+          seeded = false,
         ) => {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
@@ -10044,7 +10044,6 @@ function AcpmuxPane() {
           const held = harnessSwitch.send(
             text,
             attachments,
-            () => promptLanded.current(),
             switchPromptId,
             !seeded && promptId === undefined,
           );

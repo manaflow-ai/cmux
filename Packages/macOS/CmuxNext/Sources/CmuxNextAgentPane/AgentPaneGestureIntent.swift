@@ -128,6 +128,10 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
             var actualParams = pick.params ?? [:]
             expectedParams.removeValue(forKey: "configId")
             actualParams.removeValue(forKey: "configId")
+            if let expectedValue = expectedParams["value"], let actualValue = actualParams["value"],
+               configOptionValuesEquivalent(expected, expectedValue, actualValue) {
+                actualParams["value"] = expectedValue
+            }
             return expectedParams == actualParams
         }
         return pick.params == params
@@ -143,6 +147,22 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         if effort.contains(left), effort.contains(right) { return true }
         let fast = Set(["fast", "fast_mode", "fast-mode"])
         return fast.contains(left) && fast.contains(right)
+    }
+
+    /// Fast-mode adapters use different spellings for enabled. Treat those spellings as the same
+    /// user-facing pick when the option id is one of Fast's aliases.
+    private func configOptionValuesEquivalent(
+        _ configID: AgentPaneJSONScalar,
+        _ lhs: AgentPaneJSONScalar,
+        _ rhs: AgentPaneJSONScalar
+    ) -> Bool {
+        guard case .string(let id) = configID,
+              ["fast", "fast_mode", "fast-mode"].contains(id),
+              case .string(let left) = lhs,
+              case .string(let right) = rhs
+        else { return false }
+        let enabled = Set(["on", "true", "fast", "enabled"])
+        return enabled.contains(left) && enabled.contains(right)
     }
 }
 

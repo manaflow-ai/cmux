@@ -132,8 +132,6 @@ export type SwitchView = {
 
 type Queued = QueuedSwitchPrompt & {
   attachments: ComposerAttachment[];
-  /// The prompt is on the wire (a Quick Composer may close once it is).
-  written?(): void;
   /// The send's gesture, kept as a ticket for this prompt on the port it was taken on: the
   /// harness can take longer to start than the gesture lives (#23031).
   ticket?: { port: SwitchPort; value: Promise<string | undefined> };
@@ -354,7 +352,6 @@ export class HarnessSwitch {
   send(
     text: string,
     attachments: ComposerAttachment[] = [],
-    written?: () => void,
     promptId?: string,
     byPerson = false,
   ): Promise<unknown> | undefined {
@@ -376,7 +373,7 @@ export class HarnessSwitch {
       return { promise, resolve, reject };
     })();
     const id = promptId ?? crypto.randomUUID();
-    const queued: Queued = { id, text, attachments, at: Date.now(), resolve, reject, written };
+    const queued: Queued = { id, text, attachments, at: Date.now(), resolve, reject };
     intent.queued = [...intent.queued, queued];
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).
@@ -706,7 +703,6 @@ export class HarnessSwitch {
       port
         .send(prompt.text, prompt.attachments, prompt.id, prompt === first ? firstTicket : undefined)
         .then(prompt.resolve, prompt.reject);
-      prompt.written?.();
     }
     this.changed();
     intent.done.resolve(opened);
