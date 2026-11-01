@@ -165,7 +165,11 @@ impl Adapter {
             }
             _ => unreachable!("methods checked above"),
         };
-        if !self.attached.contains(&surface) && !matches!(kind, Simple::Detach) {
+        // Always read current mode/policy immediately before prompting. A cached
+        // attachment can outlive a mode change made on the Mac.
+        if matches!(kind, Simple::Prompt)
+            || (!self.attached.contains(&surface) && !matches!(kind, Simple::Detach))
+        {
             return Ok(self.call(
                 json!({"cmd":"agent-session-attach","surface":surface,"limit":1}),
                 id,
@@ -232,6 +236,13 @@ impl Adapter {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
+                if matches!(kind, Simple::Prompt) && !phone_prompt_mode(&data["session"]) {
+                    return Ok(error(
+                        phone,
+                        -32000,
+                        "Cloud phone prompts require an asking agent mode and permission policy",
+                    ));
+                }
                 Ok(self.call(command, phone, Reply::Simple { session, surface, kind }))
             }
             Reply::Simple { session, surface, kind } => {
@@ -355,6 +366,19 @@ fn discover(data: &Value) -> Result<BTreeMap<String, Tab>, String> {
     Ok(out)
 }
 
+// A fail-closed preflight, not the VM's authorization boundary: the VM must
+// enforce the mobile restriction atomically at dispatch and throughout the turn.
+// In particular a Codex mode name cannot establish which bridge profile runs.
+fn phone_prompt_mode(session: &Value) -> bool {
+    let family = session
+        .get("family")
+        .and_then(Value::as_str)
+        .or_else(|| session.get("harness").and_then(Value::as_str));
+    let mode = session.get("currentModeId").and_then(Value::as_str);
+    matches!((family, mode), (Some("claude"), Some("default" | "plan")) | (Some("codex"), Some("ask")))
+        && session.pointer("/enforcement/policy").and_then(Value::as_str) == Some("ask")
+}
+
 fn answer(id: Option<Value>, result: Value) -> Effects {
     Effects {
         to_phone: id.map(|id| json!({"jsonrpc":"2.0","id":id,"result":result})).into_iter().collect(),
@@ -435,8 +459,12 @@ mod tests {
             "_meta":{"acpmux":{"promptId":"phone-unique-1","steer":false}}});
         let asked = phone(&mut a, 2, "session/prompt", params);
         assert_eq!(asked.to_native[0]["cmd"], "agent-session-attach");
-        let ready =
-            respond(&mut a, &asked.to_native[0], json!({"session":{"sessionId":"sess_a"},"events":[]}));
+        let ready = respond(
+            &mut a,
+            &asked.to_native[0],
+            json!({"session":{"sessionId":"sess_a","harness":"claude","currentModeId":"default",
+                "enforcement":{"policy":"ask"}},"events":[]}),
+        );
         assert!(ready.to_phone.is_empty());
         assert_eq!(ready.to_native[0]["cmd"], "agent-session-prompt");
         assert_eq!(ready.to_native[0]["text"], "one two");
@@ -449,6 +477,53 @@ mod tests {
         assert_eq!(accepted.to_phone[0]["method"], "_acpmux/prompt_accepted");
         assert_eq!(accepted.to_phone[1]["id"], 2);
         assert_eq!(accepted.to_phone[1]["result"], json!({}));
+    }
+
+    #[test]
+    fn every_prompt_rechecks_mode_and_refuses_full_access_unknown_or_auto_approved_sessions() {
+        for (family, mode, policy, allowed) in [
+            ("claude", "default", "ask", true),
+            ("claude", "plan", "ask", true),
+            ("codex", "ask", "ask", true),
+            ("claude", "bypassPermissions", "ask", false),
+            ("claude", "acceptEdits", "ask", false),
+            ("codex", "agent-full-access", "ask", false),
+            ("codex", "agent", "ask", false),
+            ("codex", "read-only", "ask", false),
+            ("unknown", "default", "ask", false),
+            ("claude", "default", "allow", false),
+            ("claude", "", "ask", false),
+        ] {
+            let mut a = adapter();
+            directory(&mut a);
+            let attach = phone(&mut a, 2, "_acpmux/attach", json!({"sessionId":"sess_a"}));
+            respond(
+                &mut a,
+                &attach.to_native[0],
+                json!({"session":{"sessionId":"sess_a",
+                "harness":"claude","currentModeId":"default","enforcement":{"policy":"ask"}}}),
+            );
+            let asked = phone(
+                &mut a,
+                3,
+                "session/prompt",
+                json!({"sessionId":"sess_a",
+                "prompt":[{"type":"text","text":"hello"}],"_meta":{"acpmux":{"promptId":"stable"}}}),
+            );
+            assert_eq!(asked.to_native[0]["cmd"], "agent-session-attach");
+            let result = respond(
+                &mut a,
+                &asked.to_native[0],
+                json!({"session":{"sessionId":"sess_a",
+                "family":family,"currentModeId":mode,"enforcement":{"policy":policy}}}),
+            );
+            assert_eq!(!result.to_native.is_empty(), allowed, "{family}/{mode}/{policy}");
+            if !allowed {
+                assert!(result.to_phone[0].get("error").is_some());
+            }
+        }
+        assert!(!phone_prompt_mode(&json!({})));
+        assert!(!phone_prompt_mode(&json!({"harness":"claude","currentModeId":"default"})));
     }
 
     #[test]

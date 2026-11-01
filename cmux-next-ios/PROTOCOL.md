@@ -554,12 +554,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
 - `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
   resolves exactly one current owner link from the app. This socket is already
   the Cloud app server's daemon carrier; no second `link.dial` or service hello
-  is sent. Rust hostd negotiates `cloud-mobile-chat-v1`, discovers the VM's stored
+  is sent. Rust hostd requires `identify.data.capabilities` to advertise
+  `cloud-mobile-chat-v1` before marking its connection with that capability.
+  A successful `set-client-info` reply alone is insufficient. It discovers the VM's stored
   agent tabs, and translates the phone's ACP requests to scoped native
   `agent-session-*` commands. ACP pages and records keep their original sequence
   numbers. Text prompts answer on durable acceptance; cancel and history paging
   are supported. Approval answers, mode changes and arbitrary daemon commands
-  are refused. The VM enforces the authenticated owner and phone prompt policy.
+  are refused. Every prompt first refreshes the session summary and requires
+  Claude `default`/`plan` or Codex `ask`, plus enforcement policy `ask`; missing
+  or unknown fields fail closed. This preflight supplements the required VM
+  implementation: authenticated owner checks and an atomic asking-mode floor
+  through dispatch, queued prompts and the active turn. It cannot replace that
+  enforcement or prove the actual Codex bridge profile from a mode name.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.

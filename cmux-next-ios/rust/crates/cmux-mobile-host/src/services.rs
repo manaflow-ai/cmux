@@ -246,33 +246,10 @@ async fn cloud_acpmux(
         .map_err(|error| Refusal::new("unavailable", format!("Cloud carrier unavailable: {error}")))?;
     let (read, mut write) = socket.into_split();
     let mut read = BufReader::new(read);
-    // The Cloud connect resolver hands us an already accepted daemon carrier.
-    // It has consumed the dial reply before exposing this socket; sending a
-    // second link.dial or ServiceHello would be interpreted as a daemon command
-    // and closes the connection. Identify the authenticated phone directly.
-    let client_info = serde_json::json!({
-        "cmd": "set-client-info",
-        "id": "cloud-mobile-host",
-        "kind": "ios",
-        "device_kind": "iphone",
-        "capabilities": ["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]
-    });
-    write
-        .write_all(client_info.to_string().as_bytes())
-        .await
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    let mut native_line = Vec::new();
-    let client_info_reply = timeout(Duration::from_secs(5), read_cloud_line(&mut read, &mut native_line))
+    timeout(Duration::from_secs(5), cloud_mobile_handshake(&mut read, &mut write))
         .await
         .map_err(|_| Refusal::new("timeout", "Cloud carrier handshake timed out"))??;
-    let client_info_reply: Value = serde_json::from_slice(&client_info_reply)
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid client-info reply"))?;
-    if client_info_reply.get("id") != Some(&serde_json::json!("cloud-mobile-host"))
-        || client_info_reply.get("ok").and_then(Value::as_bool) != Some(true)
-    {
-        return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat capability"));
-    }
+    let mut native_line = Vec::new();
     let mut phone_message = MessageAssembler::default();
     let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
     let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -305,6 +282,48 @@ async fn cloud_acpmux(
 }
 
 const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
+
+// The app already dialed the authenticated native carrier. Identify the VM's
+// supported policy before marking this connection mobile; an old daemon may
+// accept unknown client capabilities without enforcing them.
+async fn cloud_mobile_handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Refusal>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    for request in [
+        serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
+        serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
+            "kind":"ios","device_kind":"iphone",
+            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+    ] {
+        write
+            .write_all(request.to_string().as_bytes())
+            .await
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        let bytes = read_cloud_line(read, &mut Vec::new()).await?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid handshake"))?;
+        if response.get("id") != request.get("id")
+            || response.get("ok").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat handshake"));
+        }
+        if request["cmd"] == "identify"
+            && !response
+                .pointer("/data/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+        {
+            return Err(Refusal::new(
+                "forbidden",
+                "Cloud machine does not support phone prompt restrictions",
+            ));
+        }
+    }
+    Ok(())
+}
 
 async fn read_cloud_line<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
@@ -1820,17 +1839,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cloud_handshake_refuses_old_daemons_before_sending_mobile_commands() {
+        for (caps, allowed) in [
+            (serde_json::json!([]), false),
+            (serde_json::json!(["agent-session-tabs-v1"]), false),
+            (serde_json::json!(["cloud-mobile-chat-v1"]), true),
+        ] {
+            let replies = format!(
+                "{}\n{}\n",
+                serde_json::json!({"id":"cloud-mobile-identify","ok":true,"data":{"capabilities":caps}}),
+                serde_json::json!({"id":"cloud-mobile-host","ok":true})
+            );
+            let mut read = std::io::Cursor::new(replies.into_bytes());
+            let mut write = Vec::new();
+            let result = cloud_mobile_handshake(&mut read, &mut write).await;
+            assert_eq!(result.is_ok(), allowed);
+            let commands: Vec<Value> = String::from_utf8(write)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(commands[0]["cmd"], "identify");
+            assert_eq!(commands.len(), if allowed { 2 } else { 1 });
+            if allowed {
+                assert_eq!(commands[1]["capabilities"][0], "cloud-mobile-chat-v1");
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn cloud_native_line_preserves_partial_data_when_read_is_cancelled() {
         let (mut writer, reader) = tokio::io::duplex(64);
         writer.write_all(b"{\"id\":1").await.unwrap();
         let mut reader = BufReader::new(reader);
         let mut partial = Vec::new();
-        assert!(tokio::time::timeout(
-            Duration::from_millis(5),
-            read_cloud_line(&mut reader, &mut partial),
-        )
-        .await
-        .is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), read_cloud_line(&mut reader, &mut partial),)
+                .await
+                .is_err()
+        );
         assert_eq!(partial, br#"{"id":1"#);
         writer.write_all(b"}\n").await.unwrap();
         assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap(), br#"{"id":1}"#);

@@ -122,10 +122,19 @@ forwarded without synthesizing transcript entries or sequence numbers. Native
 request ids are distinct from phone ids, with a bounded pending map and expiry;
 stream routing is indexed by surface rather than scanning the session list.
 
-The VM remains the authority: every admitted mobile command needs its owner
-principal, and prompts retain the phone's asking-mode restrictions through
-dispatch. No Mac approval signature or Full-access setting is transplanted to
-the VM. Approval answers, mode changes, file operations and other native
+Hostd first requires `identify` to advertise `cloud-mobile-chat-v1`; accepting
+`set-client-info` alone does not establish that an older VM enforces this policy.
+Before every prompt, including on an attached chat, the adapter reads a fresh
+session summary and refuses missing or unknown modes, non-asking modes, and an
+acpmux enforcement policy other than `ask`. Its preflight accepts Claude
+`default`/`plan` and Codex `ask` only. History remains readable in other modes.
+
+This preflight is not atomic VM authorization. Shipping requires the VM's
+mobile-capability implementation to enforce the authenticated owner, actual
+harness profile and asking-mode floor at dispatch, through the queue and for
+the active turn. The adapter cannot establish a Codex bridge profile from its
+mode name, or prevent a concurrent mode change by itself. No Mac approval
+signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
 commands are unsupported on this service. Hostd never opens a phone-supplied
 path, accepts an arbitrary service, or treats the carrier as a local-owner
 connection. Sign-out stops the supervised hostd and its channels; each new
