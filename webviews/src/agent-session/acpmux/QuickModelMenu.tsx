@@ -1,5 +1,5 @@
 import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
-import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
@@ -392,20 +392,30 @@ export function QuickModelMenu({
   }, [open, tab]);
   // A compact width (not `fit`) never narrows while the menu is open: a tab switch keeps the
   // menu's width and the rail's place (#25796), though each tab's rows (Account and Effort show only
-  // on the chat's tab) want their own. The floor is the widest the menu has been since it opened.
-  const widest = useRef(0);
-  useLayoutEffect(() => {
-    const node = rail.current?.closest<HTMLElement>(".ui-popup");
-    if (!open || !node || menu.widthLook === "fit" || menu.widthLook === "wide") {
-      widest.current = 0;
-      return;
-    }
-    // A fresh open measures the rows alone, never the floor the last open left.
-    if (!widest.current) node.style.minWidth = "";
-    const width = node.getBoundingClientRect().width;
-    widest.current = Math.max(widest.current, width);
-    node.style.minWidth = `${widest.current}px`;
-  }, [open, tab, menu.widthLook]);
+  // on the chat's tab) want their own. The floor is the widest the menu has been since it opened;
+  // the observer goes with the rail, so it ends when the menu closes.
+  const railWidth = useRef<ResizeObserver | null>(null);
+  const holdsWidth = menu.widthLook !== "fit" && menu.widthLook !== "wide";
+  const railRef = useCallback(
+    (node: HTMLFieldSetElement | null) => {
+      rail.current = node;
+      railWidth.current?.disconnect();
+      railWidth.current = null;
+      const popupNode = node?.closest<HTMLElement>(".ui-popup");
+      if (!popupNode || !holdsWidth || typeof ResizeObserver === "undefined") return;
+      let widest = 0;
+      popupNode.style.minWidth = "";
+      const observer = new ResizeObserver(() => {
+        const width = popupNode.getBoundingClientRect().width;
+        if (width <= widest) return;
+        widest = width;
+        popupNode.style.minWidth = `${width}px`;
+      });
+      observer.observe(popupNode);
+      railWidth.current = observer;
+    },
+    [holdsWidth],
+  );
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
     setScrolled(false);
@@ -1287,7 +1297,7 @@ export function QuickModelMenu({
         {families ? (
           <div className="acpmux-quick-layout">
             {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-            <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
+            <fieldset ref={railRef} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
               {tabs.map((entry) => {
                 const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
                 const name = entry.name;
