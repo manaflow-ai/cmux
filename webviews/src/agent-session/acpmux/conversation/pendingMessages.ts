@@ -64,8 +64,7 @@ export function searchablePendingRows(
   return all
     .filter(
       (row) =>
-        (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) ||
-        (kept.has(row) && noticeOf(row)?.kind !== "inbox"),
+        (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || (kept.has(row) && noticeOf(row)?.kind !== "inbox"),
     )
     .concat(visible.filter((row) => !kept.has(row)));
 }

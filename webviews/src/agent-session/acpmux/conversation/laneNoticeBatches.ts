@@ -101,17 +101,18 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
   return result;
 }
 
-const bodyKey = (sender: string, text: string): string =>
-  `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
+const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
 const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
   thread.messages?.length
     ? thread.messages
-    : [{
-        sender: thread.sender,
-        text: thread.preview ?? "",
-        ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
-      }];
+    : [
+        {
+          sender: thread.sender,
+          text: thread.preview ?? "",
+          ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+        },
+      ];
 
 /** Parse one immutable notice once. These are display children, never turn/queue anchors. */
 function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[] {
@@ -225,8 +226,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       }
       const message = row.incoming?.kind === "message" ? row.incoming.message : undefined;
       if (!message) continue;
-      for (const id of [row.queuedMessage?.promptId, row.steerPromptId, message.msgId])
-        if (id) deliveredIds.add(id);
+      for (const id of [row.queuedMessage?.promptId, row.steerPromptId, message.msgId]) if (id) deliveredIds.add(id);
       deliveredBodies.add(bodyKey(message.name, message.text));
     }
   };

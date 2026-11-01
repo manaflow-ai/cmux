@@ -1702,10 +1702,7 @@ const PendingMessagesRow = memo(
       ) : message.inboxThread ? (
         <MessageRow {...props} row={message} />
       ) : message.inboxQueue ? (
-        <QueuedMessageRow
-          {...props}
-          row={{ ...message, queuedMessage: message.inboxQueue }}
-        />
+        <QueuedMessageRow {...props} row={{ ...message, queuedMessage: message.inboxQueue }} />
       ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (

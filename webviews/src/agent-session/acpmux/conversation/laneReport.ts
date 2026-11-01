@@ -130,10 +130,16 @@ function inboxNotice(message: LaneNoticePayload): LaneNotice {
   const lines = message.text.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!.trim();
-    const match = /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(line);
+    const match =
+      /^-\s+(?:\[blocker\]\s+)?(\d+)\s+new\s+in\s+(.+?)\s+from\s+(.+?)(?:\s*:\s*(.*?))?\s*\(thread\s+([^\s)]+)\)/i.exec(
+        line,
+      );
     if (!match) continue;
     const [, countText, , fromText, inlinePreview, id] = match;
-    const senderNames = fromText!.split(/,\s*/).map((name) => name.trim()).filter(Boolean);
+    const senderNames = fromText!
+      .split(/,\s*/)
+      .map((name) => name.trim())
+      .filter(Boolean);
     const deliveries: LaneNoticeDelivery[] = [];
     if (inlinePreview?.trim()) {
       const sender = senderNames.at(-1) ?? "inbox";

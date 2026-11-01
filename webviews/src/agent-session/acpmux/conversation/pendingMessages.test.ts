@@ -168,10 +168,9 @@ test("inbox notices become flat sender rows and do not repeat a delivered messag
   const group = pendingMessagesRow([], [notice, delivered])!;
   expect(group.pendingMessages?.flat).toBe(true);
   expect(group.pendingMessages?.displayRows?.map((row) => row.kind)).toEqual(["user", QUEUED_MESSAGE]);
-  expect(group.pendingMessages?.displayRows?.map((row) => row.incoming?.kind === "message" && row.incoming.message.text)).toEqual([
-    "ready",
-    "merged #29626",
-  ]);
+  expect(
+    group.pendingMessages?.displayRows?.map((row) => row.incoming?.kind === "message" && row.incoming.message.text),
+  ).toEqual(["ready", "merged #29626"]);
   expect(group.text).not.toContain("New messages from other agents");
   expect(group.text).not.toContain("(thread from:");
 });
@@ -203,9 +202,9 @@ test("structured inbox notices join the flat waiting run without nesting their c
   };
   const group = pendingMessagesRow([notice], [])!;
   expect(group.pendingMessages?.flat).toBe(true);
-  expect(group.pendingMessages?.displayRows?.map((row) => row.incoming?.kind === "message" && row.incoming.message.name)).toEqual([
-    "origin-assist",
-  ]);
+  expect(
+    group.pendingMessages?.displayRows?.map((row) => row.incoming?.kind === "message" && row.incoming.message.name),
+  ).toEqual(["origin-assist"]);
   expect(group.pendingMessages?.displayRows?.some((row) => row.incoming?.kind === "inbox")).toBe(false);
 });
 
@@ -353,10 +352,9 @@ test("a folded inbox batch projects to flat delivery rows after turn shaping", (
   expect(display[0]?.inboxDeliveryBatch).toBe(true);
   expect(display[0]?.laneNoticeBatch?.rows).toHaveLength(2);
   expect(display[0]?.laneNoticeBatch?.rows.every((row) => row.incoming?.kind === "message")).toBe(true);
-  expect(display[0]?.laneNoticeBatch?.rows.map((row) => row.incoming?.kind === "message" && row.incoming.message.name)).toEqual([
-    "lane-a",
-    "lane-b",
-  ]);
+  expect(
+    display[0]?.laneNoticeBatch?.rows.map((row) => row.incoming?.kind === "message" && row.incoming.message.name),
+  ).toEqual(["lane-a", "lane-b"]);
 });
 
 test("one projection context deduplicates across a batch, standalone notice, and direct delivery", () => {
@@ -390,7 +388,10 @@ test("one projection context deduplicates across a batch, standalone notice, and
   const projected = projectInboxRows([...batch, standalone, direct]);
   expect(projected).toHaveLength(3);
   expect(projected[0]?.laneNoticeBatch?.rows).toHaveLength(1);
-  expect(projected[0]?.laneNoticeBatch?.rows[0]?.incoming?.kind === "message" && projected[0].laneNoticeBatch.rows[0].incoming.message.name).toBe("lane-b");
+  expect(
+    projected[0]?.laneNoticeBatch?.rows[0]?.incoming?.kind === "message" &&
+      projected[0].laneNoticeBatch.rows[0].incoming.message.name,
+  ).toBe("lane-b");
   expect(projected[1]?.incoming?.kind === "message" && projected[1].incoming.message.name).toBe("lane-c");
   expect(projected[2]).toBe(direct);
   expect(projected.some((row) => row.text?.includes("New messages from other agents"))).toBe(false);

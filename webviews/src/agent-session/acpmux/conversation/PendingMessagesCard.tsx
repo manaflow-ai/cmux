@@ -42,7 +42,10 @@ export function PendingMessagesCard({
   const rows = row.pendingMessages?.rows;
   const displayRows = row.pendingMessages?.displayRows ?? rows;
   const flat = row.pendingMessages?.flat === true;
-  const senders = useMemo(() => (flat ? [{ key: "flat", rows: [...(displayRows ?? [])] }] : bySender(displayRows ?? [])), [displayRows, flat]);
+  const senders = useMemo(
+    () => (flat ? [{ key: "flat", rows: [...(displayRows ?? [])] }] : bySender(displayRows ?? [])),
+    [displayRows, flat],
+  );
   const sources = useMemo(() => bySender(rows ?? []), [rows]);
   const reveal = useContext(FindReveal);
   // Find names the group's row for a match in one of its messages: the group opens, and only the
