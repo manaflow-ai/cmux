@@ -1473,8 +1473,8 @@ def app_create_probe():
     """The person's create (action.run newWorkspace) on the full disk, judged by judge_app_create. Runs once per
     diskfull run, before the iterations. Returns a record for iterations.jsonl-style evidence."""
     before = app_view()
-    # The person's New Workspace (the toolbar button's action, BuiltInButtonActions "cmux.newWorkspace").
-    answer = rpc("action.run", {"action": "cmux.newWorkspace"}, timeout=20)
+    # The person's New Workspace: action id "newTab", titled "New Workspace" (CmuxNextActions WorkspaceActionCatalog).
+    answer = rpc("action.run", {"action": "newTab"}, timeout=20)
     if isinstance(answer, dict) and (answer.get("error") or {}).get("code") == "not_found":
         rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action is unknown: {json.dumps(answer)[:200]}"]}
         say(f"  app create probe: not run (unknown action) {json.dumps(answer)[:200]}")
