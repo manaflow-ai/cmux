@@ -2,10 +2,12 @@
 // 2026-10-11), in the same tokens and type steps as the changelog page:
 //  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
 //    sidebar card (Leo 2026-10-13), a quiet eyebrow with the version and when it was built, in the
-//    person's time zone ("Updated to Nightly · Oct 26, 7:38 PM", the full build in its tooltip;
-//    Lawrence 2026-10-20), then the build by its commit and how far it is from the newest ("Build
-//    a9d1434 · 2 builds behind newest"; Leo 2026-10-26: "it just says updated to nightly, but that
-//    doesn't mean anything"), then what changed since
+//    person's time zone ("Updated to Nightly · Oct 26, 7:38 PM", Lawrence 2026-10-20), then the
+//    build by its commit and how far it is from the newest ("Build a9d1434 · 2 builds behind
+//    newest"; Leo 2026-10-26: "it just says updated to nightly, but that doesn't mean anything").
+//    No tooltip (Lawrence 2026-10-31: the full build's hover box covered the build line, "seems
+//    excessive"): a click on the commit copies the full version and the line says "Copied". Then
+//    what changed since
 //    the previous version, one line per area ("Sidebar: …; …", updateSummary.ts; it was the newest
 //    commit's subject alone, 2026-10-20), the count of the changes not listed and one button on one
 //    row. An update with nothing a person would notice says "Maintenance and fixes"; "What's new in
@@ -21,7 +23,7 @@
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
@@ -59,11 +61,23 @@ export function cardLabel(
 /** The build's second line: "Build a9d1434" (its commit, else its build number) and, once the notes
  * index has loaded, "Newest" or "2 builds behind newest" in its channel; null without either. */
 export function cardBuild(data: UpdateHighlights, builds: IndexEntry[] | undefined, strings: Strings): string | null {
+  const parts = cardBuildParts(data, builds, strings);
+  if (!parts) return null;
+  const line = strings.format("updates.card.build", parts.id);
+  return parts.where ? `${line} · ${parts.where}` : line;
+}
+
+/** The build line's pieces: the short id the card shows (and a click copies the full version from)
+ * and where it stands in its channel, null until the notes index loads. */
+function cardBuildParts(
+  data: UpdateHighlights,
+  builds: IndexEntry[] | undefined,
+  strings: Strings,
+): { id: string; where: string | null } | null {
   const listed = builds?.find((b) => b.build === data.build);
   const id = (data.head || listed?.head || data.build).slice(0, 7);
   if (!id) return null;
-  const line = strings.format("updates.card.build", id);
-  if (!listed || !builds) return line;
+  if (!listed || !builds) return { id, where: null };
   // Newer by version, as the updater picks the newest item: a rerun that republished an older
   // build moves it up the index without making it newer. A pulled build is offered to no Mac.
   const pulled = new Set(data.pulled ?? []);
@@ -76,7 +90,99 @@ export function cardBuild(data: UpdateHighlights, builds: IndexEntry[] | undefin
       : newer === 1
         ? strings.t("updates.card.behindOne")
         : strings.format("updates.card.behind", String(newer));
-  return `${line} · ${where}`;
+  return { id, where };
+}
+
+/** Writes `text` to the clipboard: the Clipboard API, else a hidden textarea and Copy (a page whose
+ * origin the API refuses). Rejects when neither copies. */
+async function copyVersion(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Fall through to the textarea.
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  if (!ok) throw new Error("Clipboard copy failed");
+}
+
+/** How long the build line says "Copied" after a click on the commit. */
+const COPIED_MS = 1500;
+
+/** "Build a9d1434 · Newest": plain selectable text, no tooltip (2026-10-31, Lawrence on the hover
+ * that covered this line with "1.0.0-nightly.4124615690001": "seems excessive"). A click (or Return
+ * or Space) on the commit copies the full version for a bug report and the line's last part says
+ * "Copied" for a moment, in place: nothing pops over the card. A drag still selects the words; a
+ * click that ends a selection copies nothing. */
+function BuildLine({
+  data,
+  builds,
+  strings,
+}: {
+  data: UpdateHighlights;
+  builds: IndexEntry[] | undefined;
+  strings: Strings;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const parts = cardBuildParts(data, builds, strings);
+  if (!parts) return null;
+  const copy = () => {
+    if (globalThis.getSelection?.()?.isCollapsed === false) return;
+    void copyVersion(data.version).then(
+      () => {
+        setCopied(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+      },
+      () => undefined,
+    );
+  };
+  const [before, after] = strings.format("updates.card.build", "\u0000").split("\u0000");
+  const where = copied ? strings.t("updates.card.copied") : parts.where;
+  return (
+    <div className="wn-card-build">
+      <span className="wn-card-part">
+        {before}
+        {/* A span, not a button: WebKit selects no text inside a button, and the commit is text to
+            select and quote (u4466). */}
+        <span
+          className="wn-card-build-id"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="button"
+          tabIndex={0}
+          aria-label={strings.format("updates.card.copyVersion", data.version)}
+          onClick={copy}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            copy();
+          }}
+        >
+          {parts.id}
+        </span>
+        {after}
+        {where && " ·"}
+      </span>
+      {where && (
+        <>
+          {" "}
+          <span className="wn-card-part" aria-live="polite">
+            {where}
+          </span>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** An ISO instant as "Oct 26, 7:38 PM" (en-US) or "26 Oct, 19:38" (en-GB): the system locale when it
@@ -132,20 +238,14 @@ export function UpdatedCard({
   const titleId = useId();
   const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
-  const build = cardBuild(data, builds, strings);
   return (
     <section className={glass ? "ui-glass wn-card" : "wn-card"} aria-labelledby={titleId}>
-      {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
-      <div className="wn-card-eyebrow" id={titleId} title={data.version}>
+      <div className="wn-card-eyebrow" id={titleId}>
         <Parts
           text={strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings, data.builtAt))}
         />
       </div>
-      {build && (
-        <div className="wn-card-build">
-          <Parts text={build} />
-        </div>
-      )}
+      <BuildLine data={data} builds={builds} strings={strings} />
       {closeButton && actions.dismiss && (
         <button
           type="button"
