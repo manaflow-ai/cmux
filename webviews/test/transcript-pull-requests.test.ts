@@ -375,9 +375,9 @@ test("OrderedRows adopts an echoed prompt's event order while keeping its row id
   rows.set("local-prompt", { id: "local-prompt", kind: "user", text: "prompt", at: 1 });
   rows.current = 10;
   rows.set("local-prompt", { id: "local-prompt", kind: "user", text: "prompt", at: 10 });
-  rows.current = 11;
-  rows.set("reply", assistant("reply", 10));
   rows.adoptEventOrder("local-prompt");
+  rows.current = 11;
+  rows.set("reply", { ...assistant("reply", 10), id: "reply", at: 11 });
   rows.current = undefined;
   rows.placeLocalLast();
   expect(rows.sorted().map((row) => row.id)).toEqual(["reply", "local-prompt"]);
