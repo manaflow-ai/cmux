@@ -1,6 +1,6 @@
 // The context ring's hover card keeps the shared glass material compact: one left-aligned
 // "used / window · percent" line, a thin usage bar, short category rows when reported, and a
-// Details row when the Inspector can open.
+// Details row when Session Info can open.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -171,7 +171,7 @@ test("the card shows no plan-limits section when the harness reports none", asyn
   expect(card()!.querySelector(".acpmux-context-card-limits")).toBeNull();
 });
 
-test("Details › opens the Inspector's Context section", async () => {
+test("Details › opens Session Info's Context section", async () => {
   let opened = 0;
   const ring = await mount({ used: 60_000, size: 200_000, onOpenDetails: () => opened++ });
   await act(async () => ring.focus());
@@ -277,7 +277,7 @@ test("Tab from the ring reaches Details ›, and Tab past it leaves the card", a
   await tab(ring);
   const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
   expect(document.activeElement).toBe(details);
-  // Return on the focused link opens the Inspector, as a click does.
+  // Return on the focused link opens Session Info, as a click does.
   await act(async () => details.click());
   expect(opened).toBe(1);
   await act(async () => ring.focus());
