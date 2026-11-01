@@ -277,8 +277,11 @@ impl Mux {
                 // report success: a workspace it staged does not stay behind,
                 // and neither does its terminal with no view.
                 if recovery.intent.get("workspace_reservation").is_some()
-                    && let Some(terminal_id) =
-                        recovery.intent["terminal_reservation"]["terminal_id"].as_str()
+                    && let Some(terminal_id) = recovery
+                        .intent
+                        .get("terminal_reservation")
+                        .and_then(|reservation| reservation.get("terminal_id"))
+                        .and_then(Value::as_str)
                     && let Err(error) = self.close_unpublished_terminal(terminal_id)
                 {
                     eprintln!(

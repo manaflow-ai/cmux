@@ -32,8 +32,11 @@ impl Mux {
             // memory first and subscribers get their removal: the store
             // never published them, and the mark below is a write that a
             // full disk refuses too (fuzz restore h1).
-            if let Some(terminal_id) =
-                recovery.intent["terminal_reservation"]["terminal_id"].as_str()
+            if let Some(terminal_id) = recovery
+                .intent
+                .get("terminal_reservation")
+                .and_then(|reservation| reservation.get("terminal_id"))
+                .and_then(Value::as_str)
                 && let Err(error) = self.close_unpublished_terminal(terminal_id)
             {
                 eprintln!("cmux-tui: a failed creation's terminal could not be closed: {error:#}");
@@ -48,7 +51,11 @@ impl Mux {
         // workspace or a tab the store never published (fuzz restore h1). A
         // rollback whose write fails leaves the effect indeterminate, as
         // before.
-        let terminal_closed = match recovery.intent["terminal_reservation"]["terminal_id"].as_str()
+        let terminal_closed = match recovery
+            .intent
+            .get("terminal_reservation")
+            .and_then(|reservation| reservation.get("terminal_id"))
+            .and_then(Value::as_str)
         {
             Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
             None => Ok(()),
