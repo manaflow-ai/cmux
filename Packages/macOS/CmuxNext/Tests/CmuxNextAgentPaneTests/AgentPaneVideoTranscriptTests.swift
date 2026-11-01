@@ -60,33 +60,37 @@ struct AgentPaneVideoTranscriptTests {
         #expect(writer.status == .completed)
     }
 
+    /// The synthesizer's buffers, written to a file as they come (on the synthesizer's own queue, one at a time).
+    private final class SpeechSink: @unchecked Sendable {
+        let url: URL
+        var file: AVAudioFile?
+        init(url: URL) { self.url = url }
+    }
+
     /// `text` spoken by the system voice into a file at `url`; false when this Mac has no voice to speak it.
     nonisolated private static func speech(_ text: String, at url: URL) async -> Bool {
         guard let voice = AVSpeechSynthesisVoice(language: "en-US") else { return false }
         let synthesizer = AVSpeechSynthesizer()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
-        let written = AsyncStream<AVAudioPCMBuffer?>.makeStream(bufferingPolicy: .bufferingOldest(4096))
-        var file: AVAudioFile?
+        let sink = SpeechSink(url: url)
+        let (done, finished) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        synthesizer.write(utterance) { buffer in
+            guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
+                sink.file = nil
+                finished.finish()
+                return
+            }
+            if sink.file == nil { sink.file = try? AVAudioFile(forWriting: sink.url, settings: pcm.format.settings) }
+            try? sink.file?.write(from: pcm)
+        }
         // A voice that never answers ends the wait.
         let limit = Task {
             try? await Task.sleep(for: .seconds(20))
-            written.continuation.finish()
+            finished.finish()
         }
-        defer { limit.cancel() }
-        synthesizer.write(utterance) { buffer in
-            guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else {
-                written.continuation.yield(nil)
-                return
-            }
-            written.continuation.yield(pcm)
-        }
-        for await buffer in written.stream {
-            guard let buffer else { break }
-            if file == nil { file = try? AVAudioFile(forWriting: url, settings: buffer.format.settings) }
-            try? file?.write(from: buffer)
-        }
-        file = nil
+        for await _ in done {}
+        limit.cancel()
         return FileManager.default.fileExists(atPath: url.path)
     }
 
