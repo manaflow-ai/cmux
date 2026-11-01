@@ -65,7 +65,15 @@ function FileTree({
   const { paths, selected } = snapshot;
   const [expanded, setExpanded] = useState(() => foldersOf(paths));
   const [focused, setFocused] = useState(selected);
-  useEffect(() => setExpanded(foldersOf(paths)), [paths]);
+  // A refresh opens only folders it had not seen, so ones the person closed stay closed.
+  const [seen, setSeen] = useState(() => foldersOf(paths));
+  useEffect(() => {
+    const folders = foldersOf(paths);
+    const fresh = [...folders].filter((folder) => !seen.has(folder));
+    if (fresh.length === 0) return;
+    setSeen(new Set([...seen, ...fresh]));
+    setExpanded((current) => new Set([...current, ...fresh]));
+  }, [paths, seen]);
   // The store may choose another file (a refresh removed this one): the tree follows it.
   useEffect(() => setFocused(selected), [selected]);
   const files = useMemo(() => new Set(paths), [paths]);

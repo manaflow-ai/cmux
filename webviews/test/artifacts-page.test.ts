@@ -235,3 +235,19 @@ test("folders under the root are read several at once", async () => {
   expect(most).toBeGreaterThan(1);
   expect(most).toBeLessThanOrEqual(4);
 });
+
+test("a refresh that fails keeps the tree on screen", async () => {
+  const mock = new MockArtifactsProvider();
+  let failing = false;
+  const host = new Host((op, params) => {
+    if (failing) throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+    return mock.call(op, params);
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  const paths = store.getSnapshot().paths;
+  failing = true;
+  await store.start();
+  expect(store.getSnapshot().status).toBe("ready");
+  expect(store.getSnapshot().paths).toEqual(paths);
+});
