@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::INSTALL_KEY_FILE;
+use crate::cloud::wire::{BIND_FILE, INSTALL_KEY_FILE};
+use crate::config::Paths;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
 /// Written only after a successful enrollment, not when a key is rotated.
@@ -87,6 +88,27 @@ pub(crate) fn enrolled(store: &dyn Store, fresh_instance: &str) -> Result<HostId
         return Err("enrolled key differs from installed key".to_owned());
     }
     Ok(receipt)
+}
+
+/// Establish a host identity for a platform-provisioned Cloud scope that has
+/// no legacy bind record. The scope file is root-owned and was written by the
+/// platform, so it is the authority for the logical machine id; the key is
+/// still generated and retained locally, and bind-in-progress machines refuse
+/// this path until their normal enrollment completes.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn scoped(store: &mut dyn Store, paths: &Paths) -> Result<HostIdentity, String> {
+    if store.present(BIND_FILE)? {
+        return Err("identity enrollment is pending".to_owned());
+    }
+    let values = crate::turn_scope::environment(paths).map_err(|_| "scope is unavailable".to_owned())?;
+    let machine = values
+        .iter()
+        .find_map(|(key, value)| (key == "CMUX_PLATFORM_MACHINE_ID").then_some(value.as_str()))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "scope has no machine id".to_owned())?;
+    let loaded = crate::cloud::client::ensure_install_key(store, machine, &SystemRandom::new())?;
+    record(store, machine, &loaded.key)?;
+    Ok(HostIdentity::from_key(machine, machine, &loaded.key))
 }
 
 #[cfg(target_os = "linux")]
