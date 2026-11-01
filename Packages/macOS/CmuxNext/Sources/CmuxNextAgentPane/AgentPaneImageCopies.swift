@@ -39,16 +39,26 @@ nonisolated enum AgentPaneImageCopies {
     /// no control or format characters; "Image" when nothing readable is left), a short hash of its
     /// bytes, and its type's extension.
     static func fileName(_ name: String, data: Data, type: String) -> String {
+        "\(baseName(name)) \(shortHash(data)).\(extensions[type] ?? "img")"
+    }
+
+    /// `name` as one plain file name without its extension (no folders, no leading dot, no control
+    /// or format characters, at most ``maximumNameBytes``); `fallback` when nothing readable is left.
+    static func baseName(_ name: String, fallback: String = "Image") -> String {
         var base = name.replacingOccurrences(of: "\\.[A-Za-z0-9]{1,5}$", with: "", options: .regularExpression)
         var scalars = String.UnicodeScalarView()
         for scalar in base.unicodeScalars where scalar.properties.generalCategory != .format {
             scalars.append(CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar) ? "-" : scalar)
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
-        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
+        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = fallback }
         while base.utf8.count > maximumNameBytes { base.removeLast() }
-        let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(base) \(hash).\(extensions[type] ?? "img")"
+        return base
+    }
+
+    /// The first 8 hex digits of `data`'s SHA-256.
+    static func shortHash(_ data: Data) -> String {
+        SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Writes `src`'s copy into `folder` (once per image) and returns its file. An SVG is written
@@ -114,6 +124,8 @@ extension AgentPaneImageCopies {
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
+        case .copyComposer(let text, let items):
+            return await copyComposer(text: text, items: items, in: model)
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -165,7 +177,7 @@ extension AgentPaneImageCopies {
     /// folder for its path in `folder`. An agent may write the SVG; outside the pane's `<img>` its
     /// script and links would count (media-safety R7). An `.svgz` goes out as on base: the rebuild
     /// reads plain XML only. The folder is named by 16 bytes of the path's hash, so no two paths share it.
-    static func handedOut(_ file: URL, in folder: URL) -> URL {
+    nonisolated static func handedOut(_ file: URL, in folder: URL) -> URL {
         guard !file.hasDirectoryPath, file.pathExtension.lowercased() == "svg" else { return file }
         let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)

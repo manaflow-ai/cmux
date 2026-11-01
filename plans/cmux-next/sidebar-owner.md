@@ -1,5 +1,33 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: the workspace hover preview counts each agent's running subagents and background commands, names
+  them in its details, and its History lists no inbox notices. Leo, verbatim: "e.g. this hover preview being able to
+  see the # of associated subagents and whatnot would be a lot more useful / like the details aren't even very useful
+  / there's a lot of low hanging fruit". acpmux counts the work on each chat's summary (`subagentsRunning`,
+  `subagentNames`, `commandsRunning`, a `subagents_running` record per change, `turn.notice`); the card only words it.
+  A tab row's second line leads with "3 subagents · 1 command" (tabular digits) before its folder; the expanded card
+  adds a "3 subagents · 1 command" line (the running tray's glyph) and one line per running subagent, named
+  (`WorkspaceHoverCardWork.Style.list`, chosen over `summary` and `inline` in the gallery's "Running work" cards). A
+  turn acpmux's "[inbox] New messages from other agents" notice started is no prompt: the History leaves it out and
+  the stats still count its work. Nothing is removed. Regression: `WorkspaceHoverCardRunningWorkTests`; acpmux
+  `running_subagents_reach_the_summary_and_each_change_is_recorded`.
+
+- 2026-11-01: the opt-in content hold (`sidebar.slideHoldsContent`, Debug Settings) changes the content's frame once, to
+  where it lands, and leaves it still while the sidebar slides. Leo, verbatim: "when i toggle the sidebar on and off I
+  STILL SEE THE ENTIRE OTHER PART OF THE APP SHIFT LAYOUT FOR NO REASON AND SNAP BACK". The hold kept the widest width
+  of the slide and rode the sidebar's moving edge: a show slid the old wide layout across and laid it out narrower at
+  the landing. It now takes the landing width at the start and pins the content to the card's far edge
+  (`ContentHold.pinsTrailingEdge`), still one layout per toggle. The default stays #29894's (the content follows the card
+  every frame). Regression: `SidebarSlideHoldsContentTests`; display-tick trace of both modes
+  `SidebarToggleContentTraceTests`.
+- 2026-11-01: a workspace row's machine mark sits in the trailing status column, a status mark's size, one neutral
+  colour (#29833, fixing #22763's placement). Leo: "WHY ARE THE CLOUD ICONS LIKE THIS ON THE
+  LEFT WHO DID THIS" / "I HATE HOW SMALL THEY ARE, I HATE THAT THEY'RE ON THE LEFT, I HATE THAT THEY'RE ON THE
+  BOTTOM". The mark (Cloud, ssh and local alike) no longer sits before the title: it takes a
+  `statusGlyphSize` box (`statusGlyphFrame`) on the row's centre line, right to left after the muted bell and before
+  the warning triangle, or the column itself on a row with no status (`layoutColumnMark`). Tint is
+  `Palette.textTertiary`, never `MachineColor`. It gives way to the hover controls as the other marks do. The machine's
+  name in the row label and the show/hide rules are unchanged. Regression: `SidebarMachineMarkTests`.
 - 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
   host name for remote, and no location label for local. It stays visible without opening details;
   expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
@@ -231,6 +259,12 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## Last workspace close keeps its group (2026-11-01)
+
+Leo: "also closing the last workspace in a group it's like the group isn't sure if it wants to close too or not but the animation gets weird. just leave it; we don't need to close the group automatically the last workspace in it gets closed too. just don't do a weird jitter indecisive animation"
+
+A workspace close removes only the workspace. The daemon close path and remote-close forwarding use the reducer's existing `item.delete` operation; the immediate sidebar edit also preserves the group. Every ancestor keeps its identity, order and fold, so the existing row close animation leaves its header in place, including with the currently pinned app FFI. Explicit Close Group and move/reorder/unpin cleanup retain their behavior. Regression coverage: `SidebarCloseSelectionTests`, `SidebarDocReshowCloseTests`, and daemon workspace-close tests. The empty-group presentation is a separate change.
 
 ## Group editor opens in one frame (2026-10-29)
 
@@ -898,3 +932,34 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Remote groups draw as groups (2026-10-31, a954)
 
 - User 2026-10-31 (Chief msg 19277), verbatim: "remote groups needs to be better, this is unintuitive to use, and also it needs to look like a group in the sidebar". Before: a remote group was its machine's section header (quiet text, status dot and word) over unindented rows. Now `SidebarDocProjection.arrange` wraps a remote group's section into one sidebar group (`SidebarSection.wrappedAsHostGroup`, id `host:<machine>`): the group bar, chevron, rail and member indent of any group, with a trailing machine mark and status dot left of the chevron (`SidebarHostGroupLook.trailingMarkAndDot`, the default; the gallery `AARemoteGroupGalleryTests` renders all six looks, light and dark, `sectionHeader` being the before). Its loose rows are members and its groups nest one level down. Its intents go to the machine (`SidebarIntent.resolvingHostGroup`: fold folds the section, + makes a workspace on the machine, a drop lands at the section's top level); rename, color, ungroup, pin, icon, close and reorder of the host group are dropped. This Mac never wraps. Tests: `SidebarHostGroupTests`, `AARemoteGroupGalleryTests.everyGroupLookDrawsTheMachineAsAGroupRow`.
+
+## Red warning mark size (2026-11-01, #30236)
+
+- 2026-11-01: Leo: "did we get the \"bigger blue dot\" thing in? i also think we ought to have a bigger red warn symbol";
+  "like look at this in chatgpt". The row badge's error glyph grows from a 10 pt box (~9 pt visible ring)
+  to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
+  other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
+  measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
+
+## Empty groups keep just their header (2026-11-01)
+
+Leo: "what do you feel about this placeholder situation? idk doesn't that plceholder text seem a bit wack?"
+
+An empty group now keeps only its header at rest. The header's existing + appears on hover or keyboard focus, and New Workspace in Group remains available through accessibility and the group menu. A workspace dragged into the empty group highlights its header; no permanent "No workspaces · drag one here" row is projected by either full layout or fast fold. This replaces the placeholder and always-visible row + from 0105692a41d / user 17912; creation and drop capabilities remain. `SidebarEmptyGroupTests` and `SidebarEmptyGroupAddButtonTests` cover layout, folding, drop targeting and creation. `SidebarEmptyGroupGalleryTests` compares the old placeholder, the chosen header-only design, and a permanent header +, each at rest, hover and drop in light/dark at 2x. Chosen: header-only, because it keeps group names easy to scan and reveals the action when needed. Design spec: leo-workspace `design/sidebar.md`.
+## Search-aligned trailing controls and the single-space slot (2026-11-01)
+
+- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
+  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
+  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
+  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
+  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
+  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
+  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
+  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
+  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
+  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
+  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
+  visible and clickable left of the end action, with overflow on the next free shared slot.
+  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
+  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
