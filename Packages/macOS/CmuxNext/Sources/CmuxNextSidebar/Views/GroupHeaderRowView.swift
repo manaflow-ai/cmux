@@ -57,6 +57,10 @@ final class GroupHeaderRowView: SidebarRowView {
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
+    /// SCRATCH mockup (`sidebar.archiveLayout` badge): the group's archived members as a box glyph and a count.
+    private let mockArchiveBox = DecorativeImageView()
+    private let mockArchiveCount = SidebarRowView.label(font: SidebarStyle.headerFont)
+    private var mockArchived = 0
     /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
     private var hasIcon = false
@@ -98,6 +102,9 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activitySlot, badge, addButton, moreButton].forEach(addSubview)
+        [mockArchiveBox, mockArchiveCount].forEach(addSubview)
+        mockArchiveBox.isHidden = true
+        mockArchiveCount.isHidden = true
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -162,6 +169,9 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
+        mockArchived = SidebarTunables.archiveLayout.value == .badge ? group.workspaces.filter(\.isArchived).count : 0
+        mockArchiveCount.stringValue = "\(mockArchived)"
+        mockArchiveBox.image = mockArchived > 0 ? NSImage.icon(symbol: "archivebox", size: Metrics.smallIconSize - Metrics.space2) : nil
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
         chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))
@@ -283,6 +293,8 @@ final class GroupHeaderRowView: SidebarRowView {
             let ink = chip.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
             count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+            mockArchiveCount.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha) // SCRATCH mockup
+            mockArchiveBox.contentTintColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
             pin.contentTintColor = ink
             chevron.contentTintColor = ink
@@ -313,6 +325,8 @@ final class GroupHeaderRowView: SidebarRowView {
             : tokens.textPrimary.nsColor).withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
         count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        mockArchiveCount.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha) // SCRATCH mockup
+        mockArchiveBox.contentTintColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
         let quiet = tokens.textSecondary.nsColor
         pin.contentTintColor = quiet
@@ -412,6 +426,18 @@ final class GroupHeaderRowView: SidebarRowView {
             trailing = badge.frame.minX - Metrics.space2
         } else {
             badge.isHidden = true
+        }
+        // SCRATCH mockup (`sidebar.archiveLayout` badge): box glyph and archived count before the trailing controls.
+        mockArchiveBox.isHidden = mockArchived == 0 || renaming
+        mockArchiveCount.isHidden = mockArchiveBox.isHidden
+        if !mockArchiveBox.isHidden {
+            mockArchiveCount.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
+            let tw = ceil(mockArchiveCount.intrinsicContentSize.width), th = ceil(mockArchiveCount.intrinsicContentSize.height)
+            mockArchiveCount.frame = NSRect(x: trailing - tw, y: (b.height - th) / 2, width: tw, height: th)
+            let ib = mockArchiveBox.image?.size ?? .zero
+            mockArchiveBox.frame = NSRect(x: mockArchiveCount.frame.minX - 3 - ib.width, y: (b.height - ib.height) / 2,
+                                          width: ib.width, height: ib.height)
+            trailing = mockArchiveBox.frame.minX - Metrics.space2
         }
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).

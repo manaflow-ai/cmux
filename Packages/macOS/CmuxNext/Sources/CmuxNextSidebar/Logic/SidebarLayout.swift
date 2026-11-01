@@ -474,6 +474,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         chats.placeEarlier(&y)
+        if let mock = o.archiveMock, !filtering { Self.placeArchiveMock(mock, rows: &rows, y: &y, metrics: m) } // SCRATCH mockup
         y += m.bottomPadding
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,

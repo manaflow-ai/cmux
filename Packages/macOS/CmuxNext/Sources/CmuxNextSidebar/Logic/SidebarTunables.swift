@@ -133,6 +133,12 @@ public nonisolated enum SidebarTunables {
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
 
+    /// SCRATCH mockup (archive-layout gallery round 2): where archived workspaces and groups go (`SidebarArchiveLayout`).
+    public static let archiveLayout = Tunable<SidebarArchiveLayout>.choice(
+        "sidebar.archiveLayout", .sidebar, "Archive layout (mockup)",
+        help: "Design mockups of where archived workspaces and groups go, for the archive fixture only.",
+        default: .today, code: "SidebarTunables.archiveLayout")
+
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
@@ -284,6 +290,7 @@ public nonisolated enum SidebarTunables {
     public static var all: [TunableDescriptor] {
         [
             agentMark.descriptor,
+            archiveLayout.descriptor,
             collapseMotion.descriptor,
             doneFold.descriptor,
             dragThreshold.descriptor,

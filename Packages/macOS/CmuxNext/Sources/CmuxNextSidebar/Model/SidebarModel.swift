@@ -432,7 +432,11 @@ public final class SidebarModel {
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
-        let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
+        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
+        #if DEBUG
+        // SCRATCH mockup: the archive fixture keeps its own archived marks (no document lists its rows).
+        if SidebarArchivedMock.isFixture(new) { shown = new }
+        #endif
         sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
@@ -603,6 +607,14 @@ public final class SidebarModel {
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         o.grouping = settledGrouping()
+        #if DEBUG
+        // SCRATCH mockup (`sidebar.archiveLayout`): the archive fixture's mock rows.
+        if SidebarArchivedMock.isFixture(sections) {
+            let layout = SidebarTunables.archiveLayout.value
+            o.archiveMock = SidebarArchivedMock.info(layout)
+            if layout.drawsArchivedInPlace { o.foldsArchived = false }
+        }
+        #endif
         return o
     }
 

@@ -187,6 +187,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var rowLimit = 0
     /// The lists whose "Show N more" row the person opened.
     public var openShowMore: Set<SidebarDoneFoldID> = []
+    /// SCRATCH mockup (`sidebar.archiveLayout`): the archive fixture's mock rows; nil for every real list.
+    public var archiveMock: SidebarArchiveMockInfo?
 
     public init() {}
 }

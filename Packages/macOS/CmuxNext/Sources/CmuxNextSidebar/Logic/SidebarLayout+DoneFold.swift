@@ -54,6 +54,7 @@ nonisolated extension SidebarLayout {
         for entry in drawn {
             let ws = workspace(entry.index)
             if o.foldsArchived, let ws, ws.isArchived, ws.id != o.activeWorkspaceID {
+                if o.archiveMock?.layout == .badge { continue } // SCRATCH mockup: the header's badge counts them
                 archived.append(entry)
             } else if o.foldsDone, let ws, ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
                 done.append(entry)
@@ -124,6 +125,70 @@ nonisolated extension SidebarLayout {
             parentIndex: parent, isLastInGroup: last, isCollapsed: !open, childCount: count, groupColor: color, content: content
         ))
         y += h + m.rowSpacing
+    }
+
+    /// SCRATCH mockup (`sidebar.archiveLayout`, archive-layout gallery round 2): places the archive fixture's mock rows
+    /// (a switch on top, an Archive row before the archive's rows or at the end, a footer), moving the rows below.
+    static func placeArchiveMock(_ info: SidebarArchiveMockInfo, rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
+        guard let section = rows.first?.section else { return }
+        let full = m.height(for: WorkspaceRowContent())
+        func make(_ kind: SidebarArchiveMockRow.Kind, _ name: String, at top: CGFloat) -> SidebarRow {
+            let h: CGFloat = switch kind {
+            case .footer, .header: max(16, (full * 0.8).rounded())
+            default: full
+            }
+            var row = SidebarRow(
+                key: .doneFold(SidebarDoneFoldID(section: section, group: GroupID("mock.archive.\(name)"))), y: top, height: h,
+                section: section, group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false, isCollapsed: true,
+                childCount: info.total, groupColor: nil, content: WorkspaceRowContent()
+            )
+            row.archiveMock = SidebarArchiveMockRow(kind: kind, count: info.total, colors: info.colors)
+            return row
+        }
+        func append(_ kind: SidebarArchiveMockRow.Kind, _ name: String, gapAbove: CGFloat) {
+            y += gapAbove
+            let row = make(kind, name, at: y)
+            rows.append(row)
+            y += row.height + m.rowSpacing
+        }
+        func insert(_ kind: SidebarArchiveMockRow.Kind, _ name: String, at index: Int, gapAbove: CGFloat) {
+            guard rows.indices.contains(index) else { return append(kind, name, gapAbove: gapAbove) }
+            let row = make(kind, name, at: rows[index].y + gapAbove)
+            let shift = gapAbove + row.height + m.rowSpacing
+            for i in index..<rows.count { rows[i].y += shift }
+            rows.insert(row, at: index)
+            y += shift
+        }
+        func isArchiveArea(_ row: SidebarRow) -> Bool {
+            switch row.key {
+            case let .group(id): id.rawValue.hasPrefix("g-amock-x-")
+            case let .workspace(id): id.rawValue.hasPrefix("w-amock-x-")
+            default: false
+            }
+        }
+        switch info.layout {
+        case .today, .hidden:
+            break
+        case .section, .badge:
+            append(.section(open: false), "section", gapAbove: m.sectionSpacing)
+        case .footer:
+            append(.footer, "footer", gapAbove: m.sectionSpacing)
+        case .chips:
+            append(.chips, "chips", gapAbove: m.sectionSpacing)
+        case .header:
+            append(.header, "header", gapAbove: m.sectionSpacing)
+        case .pageActive, .pageArchive:
+            insert(.switcher(archiveSelected: info.layout == .pageArchive), "switch", at: 0, gapAbove: 0)
+            if let first = rows.indices.dropFirst().first {
+                let shift = m.sectionSpacing
+                for i in first..<rows.count { rows[i].y += shift }
+                y += shift
+            }
+        case .sectionOpen, .peek:
+            let index = rows.firstIndex(where: isArchiveArea) ?? rows.count
+            insert(.section(open: true), "section", at: index, gapAbove: m.sectionSpacing)
+            if info.layout == .peek { append(.showAll, "all", gapAbove: 0) }
+        }
     }
 
     /// The groups a filter keeps for the path to a match (remote-groups-DESIGN.md slice 2): every group above a group

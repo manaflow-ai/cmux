@@ -38,6 +38,9 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
         /// this weird stuff at the bottom of the sidebar").
         case soleMember
+        /// SCRATCH mockup (archive-layout gallery round 2): a sidebar shaped like Lawrence's of 2026-10-31, 45 archived
+        /// workspaces, drawn by `sidebar.archiveLayout` (`SidebarArchivedMock`).
+        case archiveLayout
     }
 
     /// The state this fixture captures.
@@ -103,6 +106,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
         case .soleMember:
             nodes = Self.soleMembers
+        case .archiveLayout:
+            nodes = SidebarArchivedMock.nodes(SidebarTunables.archiveLayout.value)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }

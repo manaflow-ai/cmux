@@ -57,6 +57,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var standsForGroup = false
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
+    /// SCRATCH mockup (`sidebar.archiveLayout`): what a mock row keyed as a Done fold draws; nil for a real one.
+    public var archiveMock: SidebarArchiveMockRow?
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.
