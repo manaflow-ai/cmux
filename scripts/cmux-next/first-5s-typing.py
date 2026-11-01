@@ -268,6 +268,71 @@ def photon_ms(frames, key_ns, next_cap_ns, big_area):
     return None
 
 
+# ---------------------------------------------------------------- FC-1: why the first new tab was refused
+FC1_LOG_KEYS = re.compile(r"new-tab|newSurface|reject|refus|handoff|hand off|connect|daemon|cmux-tui|ensure|restart|error", re.I)
+
+
+def dump_refusal_evidence(app):
+    """FC-1 (fuzz catalog): on the first refused base terminal, keep the app's unified log (the intent log's
+    "new-tab rejected: <error>" line names the real error) and every daemon log of the tag's state folder, in the job
+    output and in the job log (scratch, never lands)."""
+    out = os.path.join(app.out, "fc1-refusal")
+    os.makedirs(out, exist_ok=True)
+    note("FC1: refusal evidence follows")
+    try:
+        ps = subprocess.run(["ps", "-axo", "pid,ppid,lstart,etime,args"], capture_output=True, text=True, timeout=20).stdout
+        for line in ps.splitlines():
+            if "cmux" in line and ("tui" in line or "--headless" in line or "server" in line or "DEV" in line):
+                note(f"FC1 ps: {line[:400]}")
+    except Exception as error:  # noqa: BLE001 (diagnostics only)
+        note(f"FC1 ps failed: {error}")
+    try:
+        text = subprocess.run(["log", "show", "--last", "3m", "--style", "compact", "--info", "--debug",
+                               "--predicate", 'subsystem BEGINSWITH "com.cmuxterm"'],
+                              capture_output=True, text=True, timeout=120).stdout
+        with open(os.path.join(out, "unified.log"), "w") as f:
+            f.write(text)
+        lines = [line for line in text.splitlines() if FC1_LOG_KEYS.search(line)]
+        note(f"FC1 unified log: {len(text.splitlines())} lines, {len(lines)} matching")
+        for line in lines[-400:]:
+            note(f"FC1 ul: {line[:600]}")
+    except Exception as error:  # noqa: BLE001
+        note(f"FC1 log show failed: {error}")
+    roots = [app.bench.state_root(), os.path.join(account_home(), ".local/state/cmux"),
+             os.path.join(app.bench.scratch, "chief")]
+    now = time.time()
+    for root in roots:
+        for folder, _dirs, files in os.walk(root):
+            for name in files:
+                path = os.path.join(folder, name)
+                try:
+                    info = os.stat(path)
+                except OSError:
+                    continue
+                if now - info.st_mtime > 900:
+                    continue
+                note(f"FC1 file: {path} {info.st_size} B, {now - info.st_mtime:.1f} s old")
+                if not (name.endswith(".log") or name.endswith(".jsonl") or "log" in name) or info.st_size > 50_000_000:
+                    continue
+                try:
+                    with open(path, errors="replace") as f:
+                        body = f.read()
+                except OSError:
+                    continue
+                target = os.path.join(out, path.replace("/", "_")[-180:])
+                with open(target, "w") as f:
+                    f.write(body)
+                for line in body.splitlines()[-150:]:
+                    note(f"FC1 {name}: {line[:600]}")
+    try:
+        with open(app.bench.log_path, errors="replace") as f:
+            for line in f.read().splitlines()[-150:]:
+                note(f"FC1 app-log: {line[:600]}")
+    except OSError as error:
+        note(f"FC1 app log: {error}")
+    note("FC1: refusal evidence ends")
+
+
 # ---------------------------------------------------------------- the two app families
 class NextApp:
     family = "next"
@@ -301,6 +366,8 @@ class NextApp:
             note(f"first5s: base terminal (try {attempt + 1}) {json.dumps(reply)[:220]}")
             if not (isinstance(reply, dict) and reply.get("error")):
                 break
+            if attempt == 0:
+                dump_refusal_evidence(self)
             time.sleep(3)
         time.sleep(4)
 
