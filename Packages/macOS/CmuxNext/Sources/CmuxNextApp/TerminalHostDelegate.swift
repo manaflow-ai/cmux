@@ -10,7 +10,12 @@ import CmuxNextTerminal
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
 /// notifications come from the daemon, which parses every terminal's output.
 final class TerminalHostDelegate: TerminalSessionDelegate {
-    weak var services: AppServices? { didSet { if let services { Self.routeLinks(to: services) } } }
+    private let linkRouter: LinkRouter
+    weak var services: AppServices? { didSet { if let services { routeLinks(to: services, router: linkRouter) } } }
+
+    init(linkRouter: LinkRouter = .shared) {
+        self.linkRouter = linkRouter
+    }
 
     /// A Ghostty keybind (`new_split:right`, `goto_split:left`, ...) runs the
     /// registry action every other entrypoint runs, targeted at this
@@ -82,11 +87,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
-            case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
+            case .file(let url, isDirectory: true)?: self?.linkRouter.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 // `src/app.ts:3:5` opens the editor at line 3, column 5.
                 let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
-                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
+                self?.linkRouter.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
                 guard let services = self?.services else { return }
                 services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
             case nil: break
@@ -117,10 +122,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile), Shift-Command (the
-    /// browser the link setting does not pick) and the clicked tab. Read now: the click is the
-    /// current event only during the delegate call.
+    /// browser the link setting does not pick) and the clicked tab. Read the event currently
+    /// being dispatched, rather than `NSApp.currentEvent`, which is the last event AppKit
+    /// dequeued and can be stale by the time Ghostty asks the delegate to open the link.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let flags = services?.inputDispatch.event?.modifierFlags ?? []
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
     }
 
@@ -128,38 +134,34 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// every other link goes through the shared rule (``LinkRouter``).
     private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
         if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
-           LinkRouter.shared.target(for: url, explicit: true) == .cmuxBrowser {
+           linkRouter.target(for: url, explicit: true) == .cmuxBrowser {
             services.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
-    }
-
-    /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
-    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
-    /// itself as the default browser (a loop).
-    private static func routeLinks(to services: AppServices) {
-        let router = LinkRouter.shared
-        router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
-        router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
-        router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
-        router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
-        router.openInCmux = { [weak services] url, background, source in
-            guard let services else { return }
-            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
-            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
-            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
-            services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
-        }
+        linkRouter.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the
     /// cache does not own.
     private func target(of session: TerminalSession, in services: AppServices) -> ActionTargetRef? {
         services.cache.tabKey(for: session).map { ActionTargetRef(kind: .tab, id: $0) }
+    }
+}
+
+/// Wires the shared link router to the app services once the composition root is ready.
+private func routeLinks(to services: AppServices, router: LinkRouter) {
+    router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
+    router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
+    router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
+    // A click in a chat or page view opens beside the pane showing it (not the focused pane).
+    router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
+    router.openInCmux = { [weak services] url, background, source in
+        guard let services else { return }
+        // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
+        guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+        // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
+        let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+        services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
     }
 }
