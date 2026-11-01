@@ -557,21 +557,23 @@
 .acpmux-composer-field-menu {
   display: contents;
 }
-/* A huge paste kept as a chip (pastedText.ts): its first words over "Pasted text · N lines", as in
-   Claude. The chip is a button that puts the text back in the prompt; × removes it. */
+/* A text attachment (a huge paste, pastedText.ts, or a text file) as a small page of its text, as
+   Claude and ChatGPT draw a long paste (composer/TextAttachmentCard.tsx): its first lines in 11 px
+   monospace, left-aligned from the top, fading out over the bottom, with one quiet label under them
+   ("Pasted text · 25 lines"). The strip's card is the thumbnails' 64 px tall; the prompt's inline
+   one (markdownField.css) is 48. A pasted card is a button that puts the text back in the prompt;
+   × removes it. Leo, 2026-11-01: "bro this is a TERRIBLE text preview we need to do better for
+   these text type attachments' previews". Gallery: agent-pane.text-attachment-card. */
 .acpmux-attachment-pasted {
   display: flex;
-  width: min(240px, 70vw);
-  height: 44px;
+  width: 180px;
+  max-width: 70vw;
+  height: var(--acpmux-attach-height);
   overflow: hidden;
 }
 .acpmux-attachment-pasted-open {
   flex: 1;
   min-width: 0;
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  padding: 0 28px 0 10px;
   border: 0;
   border-radius: inherit;
   background: transparent;
@@ -586,19 +588,49 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
-.acpmux-attachment-pasted-name,
-.acpmux-attachment-pasted-lines {
+/* The card's body, in either host: lines from the top, the label pinned to the bottom. */
+.acpmux-text-card .acpmux-attachment-pasted-open,
+.acpmux-text-card .acpmux-text-card__open {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  height: 100%;
+  padding: 8px 12px 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.acpmux-attachment-pasted-lines {
+.acpmux-text-card__lines {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--agent-text) 82%, transparent);
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, ui-monospace, monospace));
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: 13px;
+  white-space: pre;
+  tab-size: 2;
+  text-align: start;
+  text-decoration: none;
+  /* The last line that fits fades out instead of ending on a cut. An alpha mask, never a painted
+     overlay, so the chip's own fill and hover show through. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent);
+}
+.acpmux-text-card__label {
+  flex: none;
+  overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: 14px;
   letter-spacing: var(--text-caption--letter-spacing);
-}
-.acpmux-attachment-pasted .acpmux-attachment-remove {
-  top: 14px;
+  text-align: start;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
    nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */

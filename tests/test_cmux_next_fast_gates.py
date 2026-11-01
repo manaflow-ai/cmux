@@ -79,14 +79,19 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(doc["name"], "cmux-next fast gates")
         self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
-        # Resolve/post are small status jobs and keep the guards' 4-vCPU route.
-        # The code-running fast-gates job uses the sized 16-vCPU fork route.
+        # Fleet Linux is first for every trusted job; fork pull requests retain
+        # their ephemeral Blacksmith branch, and reruns accept bounded overflow.
         guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
-        self.assertEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
-        self.assertEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
+        self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
+        self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
         fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
-        self.assertIn("blacksmith-16vcpu-ubuntu-2404", fast_runner)
+        self.assertIn("cmux-fleet-linux-x64", fast_runner)
+        self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
+        for key, each in doc["jobs"].items():
+            with self.subTest(runner=key):
+                self.assertIn("cmux-fleet-linux-x64", str(each["runs-on"]))
+                self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once.
