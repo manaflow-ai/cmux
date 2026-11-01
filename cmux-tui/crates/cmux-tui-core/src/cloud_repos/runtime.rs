@@ -260,10 +260,10 @@ impl Backend for Runtime<'_> {
                 if completed.get("repo").and_then(Value::as_str) != Some(repo)
                     || completed.get("folder") != Some(&json!(folder))
                     || completed.get("state").and_then(Value::as_str) != Some("done")
-                    || !completed
+                    || completed
                         .get("head")
                         .and_then(Value::as_str)
-                        .is_some_and(|head| !head.is_empty())
+                        .is_none_or(|head| head.is_empty())
                 {
                     return Err(transport_error());
                 }
