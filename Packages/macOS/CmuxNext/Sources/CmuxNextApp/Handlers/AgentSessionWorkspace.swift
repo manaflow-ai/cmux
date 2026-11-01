@@ -101,6 +101,10 @@ enum AgentSessionWorkspace {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
         expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
+        // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves
+        // under it once the tab has opened.
+        AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
+                                             in: SidebarSessionTreeFeed.shared.recordedParents)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
@@ -122,8 +126,6 @@ enum AgentSessionWorkspace {
                         window.state.selection.select(tab, in: pane.id)
                     }
                 }
-                AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
-                                                     in: SidebarSessionTreeFeed.shared.recordedParents)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -135,8 +137,11 @@ enum AgentSessionWorkspace {
         }
     }
 
-    /// Registers the sidebar placement of new workspace `id`: placed like Cmd-N (`workspaces.newPlacement`, cx-caoh),
-    /// then into the named `group`, else below the caller's grouped row; `top` first below Home.
+    /// Registers the sidebar placement of new workspace `id`: into the named `group` alone, else below the caller's
+    /// grouped row, else like Cmd-N (`workspaces.newPlacement`, cx-caoh); `top` first below Home. A named group is the
+    /// row's only place: Cmd-N's slot in the window's current group first, then a move across to `group`, showed every
+    /// agent's session in the wrong group for a moment (Leo, 2026-11-01: "it looks really odd when they pop up into some
+    /// existing group on the sidebar as a workspace and then go to wherever they're supposed to go to").
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
                                            windows: WindowManager) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
@@ -149,7 +154,7 @@ enum AgentSessionWorkspace {
         let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
         let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
         let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
-        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
+        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
     }
 
     /// Records `caller`, the session of the agent that opened `session`'s
