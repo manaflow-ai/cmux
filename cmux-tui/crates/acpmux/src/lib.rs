@@ -142,6 +142,7 @@ pub mod tui;
 pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
+pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;

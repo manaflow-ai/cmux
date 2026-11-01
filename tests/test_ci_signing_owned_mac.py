@@ -81,6 +81,7 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
+    ("nightly.yml", "signer-dmg"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -182,6 +183,12 @@ def keychain_job(job: dict) -> bool:
     text = json.dumps(keychain_guard.inline_step_scripts(job))
     return "APPLE_CERTIFICATE_BASE64" in text or bool(keychain_guard.CREATE.search(text)) or any(
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
+
+
+def release_pool_signer(job: dict) -> bool:
+    """The rcodesign release-pool path keeps its certificate in a temporary directory."""
+    text = json.dumps(keychain_guard.inline_step_scripts(job))
+    return any(script in text for script in keychain_guard.RELEASE_POOL_SIGNERS.values())
 
 
 def signing_job(job: dict) -> bool:
@@ -389,7 +396,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
             # Rule 4 is the keychain's; a job that only holds a Sparkle key makes none.
-            if keychain_job(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
+            if keychain_job(job) and not release_pool_signer(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
                        for step in steps):
                 failures.append(f"{label}: routed to owned Macs without an `if: always()` step that runs "
                                 "scripts/ci/signing-keychain.sh delete")
@@ -1048,6 +1055,69 @@ class SearchListTests(unittest.TestCase):
             (state / "search-list").write_text(f"{tmp}/gone.keychain-db\n")
             self.assertEqual(self.delete(tmp), [f"list-keychains -d user -s {login}"], "nothing it saw is left")
             self.assertEqual(self.delete(tmp), [], "no create in this job: the list is left alone")
+
+
+class TrustAgentRefreshTests(unittest.TestCase):
+    """create restarts the user's trustd agent after the signing keychain joins the search list. An agent running since
+    boot never reads a keychain added later, and codesign then fails with errSecInternalComponent ("unable to build
+    chain to self-signed root"; two owned minis, every sign-nightly-identity-legacy job, 2026-10-31)."""
+
+    def create(self, tmp: Path, launchctl_script: str) -> tuple[subprocess.CompletedProcess, list[str]]:
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        stubs = {
+            # find-certificate -p: the two Developer ID intermediates import-apple-developer-id-intermediates.sh counts
+            "security": '#!/bin/sh\necho "security $*" >> "$CALLS"\n'
+                        'case "$1" in find-certificate) printf "%s\\n%s\\n" "-----END CERTIFICATE-----" '
+                        '"-----END CERTIFICATE-----";; esac\nexit 0\n',
+            "launchctl": launchctl_script,
+            "uuidgen": "#!/bin/sh\necho 00000000-0000-0000-0000-000000000000\n",
+        }
+        for name, body in stubs.items():
+            (bin_dir / name).write_text(body)
+            (bin_dir / name).chmod(0o755)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
+               "CMUX_SECURITY_TOOL": os.fspath(bin_dir / "security"),
+               "CMUX_LAUNCHCTL_TOOL": os.fspath(bin_dir / "launchctl"),
+               "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
+               "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state"), "RUNNER_TEMP": os.fspath(tmp),
+               "APPLE_CERTIFICATE_BASE64": "cDEy", "APPLE_CERTIFICATE_PASSWORD": "pw"}
+        done = subprocess.run(["bash", os.fspath(ROOT / "scripts/ci/signing-keychain.sh"), "create"], env=env,
+                              capture_output=True, text=True, timeout=30, check=False)
+        calls = (tmp / "calls").read_text().splitlines() if (tmp / "calls").exists() else []
+        (tmp / "calls").unlink(missing_ok=True)
+        return done, calls
+
+    def test_the_agent_restarts_after_the_keychain_joins_the_search_list(self) -> None:
+        uid = os.getuid()
+        service = f"user/{uid}/com.apple.trustd.agent"
+        with tempfile.TemporaryDirectory() as raw:
+            done, calls = self.create(Path(raw), '#!/bin/sh\necho "launchctl $*" >> "$CALLS"\nexit 0\n')
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn(f"launchctl kickstart -k {service}", calls)
+            self.assertLess(calls.index("security list-keychains -d user -s build.keychain"),
+                            calls.index(f"launchctl kickstart -k {service}"),
+                            "the agent must start again after the search list names the signing keychain")
+            self.assertIn("Restarted the trustd agent", done.stdout)
+        with tempfile.TemporaryDirectory() as raw:
+            # kickstart refused: the pid launchd reports for the label is stopped, and launchd starts it again
+            sleeper = subprocess.Popen(["sleep", "30"])
+            try:
+                script = ('#!/bin/sh\necho "launchctl $*" >> "$CALLS"\n'
+                          '[ "$1" = kickstart ] && exit 150\n'
+                          f'[ "$1" = print ] && printf "\\tstate = running\\n\\tpid = {sleeper.pid}\\n"\nexit 0\n')
+                done, calls = self.create(Path(raw), script)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(sleeper.wait(timeout=10), -15, "the agent launchd names gets SIGTERM")
+                self.assertIn(f"pid {sleeper.pid}", done.stdout)
+            finally:
+                if sleeper.poll() is None:
+                    sleeper.kill()
+        with tempfile.TemporaryDirectory() as raw:
+            done, calls = self.create(Path(raw), '#!/bin/sh\nexit 1\n')
+            self.assertEqual(done.returncode, 0, "best effort: a refusal never fails the signing step")
+            self.assertIn("could not restart the trustd agent", done.stderr)
+            self.assertIn("Signing keychain build.keychain is ready", done.stdout)
 
 
 class ClaimGateTests(unittest.TestCase):

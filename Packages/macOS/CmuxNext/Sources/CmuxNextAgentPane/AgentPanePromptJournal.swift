@@ -109,6 +109,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// write writes the journal as it is instead. Held for a whole record, so records write one at
     /// a time.
     private let written = Mutex((generation: 0, behind: false))
+    /// The journal on disk could not be read and could not be moved aside yet: nothing is written
+    /// over it until a move works.
+    private let unreadableKept = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs while a record writes, before its file write (tests: a change made meanwhile).
     let whileRecordWrites = Mutex<(@Sendable () -> Void)?>(nil)
@@ -340,23 +343,57 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         return write(entries, pendingTrust: pendingTrust, generation: generation)
     }
 
-    /// Reads the file once; an unreadable one is an empty journal.
+    /// Reads the file once; an unreadable one is set aside (kept beside it) and the journal starts empty.
     private func load(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
-        guard let data = try? Data(contentsOf: url) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            setAsideUnreadableFile()
+            return
+        }
         guard let document = try? Self.decoder.decode(Document.self, from: data) else {
-            Self.logger.error("agent pane prompt journal unreadable; starting empty")
+            setAsideUnreadableFile()
+            Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
             return
         }
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
         state.pendingTrust = document.pendingTrust
     }
 
-    /// Writes the file with `entries` and `pendingTrust`; false when it could not be written.
-    /// Called with `written` held.
+    /// Preserve an existing journal when its bytes cannot be read or decoded; a later write must
+    /// never overwrite the only copy of prompts waiting for acknowledgement. A move that fails leaves
+    /// `unreadableKept` set: every write tries the move again first, and writes nothing until it works.
+    private func setAsideUnreadableFile() {
+        unreadableKept.withLock { kept in kept = !moveUnreadableFileAside() }
+    }
+
+    /// Moves the file beside itself; true when it is gone from `url` (moved, or no longer there).
+    private func moveUnreadableFileAside() -> Bool {
+        let files = FileManager.checked
+        guard files.fileExists(atPath: url.path) else { return true }
+        let aside = url.deletingPathExtension()
+            .appendingPathExtension("unreadable-\(Int(now().timeIntervalSince1970))")
+            .appendingPathExtension(url.pathExtension)
+        do {
+            try files.moveItem(at: url, to: aside)
+            return true
+        } catch {
+            Self.logger.error("agent pane prompt journal unreadable and not set aside; not overwritten: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// Writes the file with `entries` and `pendingTrust`; false when it could not be written, or
+    /// when an unreadable journal is still in place (it is never written over: the move aside is
+    /// tried again first). Called with `written` held; every write of the file goes through here.
     @discardableResult
     private func writeFile(_ entries: [Entry], pendingTrust: [PendingTrust]) -> Bool {
+        let blocked = unreadableKept.withLock { kept in
+            if kept { kept = !moveUnreadableFileAside() }
+            return kept
+        }
+        if blocked { return false }
         do {
             let data = try Self.encoder.encode(Document(entries: entries, pendingTrust: pendingTrust))
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

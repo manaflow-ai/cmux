@@ -371,6 +371,29 @@ struct AgentPaneUnsentPromptTests {
                 "the daemon's close never reached the disk: its prompt would be sent again after a relaunch")
     }
 
+    /// A record over an unreadable journal that cannot be set aside yet (#28204) is refused like any
+    /// record that did not reach the disk: the only copy of the earlier prompts is never written over,
+    /// and the new prompt does not go.
+    @Test func aRecordOverAnUnreadableJournalIsRefusedAndNeverOverwritesIt() throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let corrupt = Data(#"{"entries": [{"promptId": "half a pro"#.utf8)
+        try corrupt.write(to: url)
+        let journal = AgentPanePromptJournal(url: url, now: { Date(timeIntervalSince1970: 1_000) })
+        let aside = url.deletingPathExtension().appendingPathExtension("unreadable-1000")
+            .appendingPathExtension(url.pathExtension)
+        // Something already at the set-aside name: the move fails.
+        try FileManager.default.createDirectory(at: aside.appending(path: "blocker"), withIntermediateDirectories: true)
+        let entry = AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: "p-11", params: "{}", at: journal.now())
+        #expect(throws: AgentPanePromptJournal.NotWritten.self, "a record wrote over the unreadable journal") {
+            try journal.record(entry, owner: UUID())
+        }
+        #expect(try Data(contentsOf: url) == corrupt)
+        #expect(journal.entries().isEmpty, "the refused prompt is kept in memory")
+    }
+
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
     /// be written: the Retry does not go, and the first send's record stays, so a crash after the
     /// disk recovers still sends that prompt again.
