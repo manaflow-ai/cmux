@@ -27,13 +27,14 @@ extension AgentPaneCloudStart {
                     cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
-                    setupError: String? = nil, setupHasScript: Bool? = nil) {
+                    setupError: String? = nil, setupHasScript: Bool? = nil, start: CloudStartInfo? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
             (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
             (self.cloneState, self.clonePhase) = (cloneState, clonePhase)
-            (self.environmentId, self.setupState, self.setupStatus) = (environmentId, setupState, setupStatus)
-            (self.setupStartedAt, self.setupFinishedAt) = (setupStartedAt, setupFinishedAt)
-            (self.setupError, self.setupHasScript) = (setupError, setupHasScript)
+            let setup = start?.setup
+            (self.environmentId, self.setupState, self.setupStatus) = (start?.environmentId ?? environmentId, setup?.state ?? setupState, setup?.status ?? setupStatus)
+            (self.setupStartedAt, self.setupFinishedAt) = (setup?.startedAt ?? setupStartedAt, setup?.finishedAt ?? setupFinishedAt)
+            (self.setupError, self.setupHasScript) = (setup?.error ?? setupError, setup?.hasScript ?? setupHasScript)
         }
     }
 

@@ -25,6 +25,11 @@ public struct CloudStartInfo: Sendable, Equatable {
     public var environmentId: String?
     public var setup: CloudStartSetup?
 
+    public init(environmentId: String? = nil, setup: CloudStartSetup? = nil) {
+        self.environmentId = environmentId
+        self.setup = setup
+    }
+
     public init(object: [String: Any]) {
         let ensured = object["ensured"] as? [String: Any]
         let environment = (ensured?["environment"] as? [String: Any]) ?? (object["environment"] as? [String: Any])

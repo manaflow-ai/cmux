@@ -122,10 +122,7 @@ struct CloudStartChat {
         }
         report(.init(name: "folder", folder: folderName, machine: name, size: size,
                      cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
-                     cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
-                     environmentId: plan.environmentId, setupState: plan.setup?.state, setupStatus: plan.setup?.status,
-                     setupStartedAt: plan.setup?.startedAt, setupFinishedAt: plan.setup?.finishedAt,
-                     setupError: plan.setup?.error, setupHasScript: plan.setup?.hasScript))
+                     cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt, start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
         let remoteChat = copy.1.chat
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
@@ -134,10 +131,7 @@ struct CloudStartChat {
         _ = await loginPassed
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        report(.init(name: "opening", folder: folderName, machine: name, size: size,
-                     environmentId: plan.environmentId, setupState: plan.setup?.state, setupStatus: plan.setup?.status,
-                     setupStartedAt: plan.setup?.startedAt, setupFinishedAt: plan.setup?.finishedAt,
-                     setupError: plan.setup?.error, setupHasScript: plan.setup?.hasScript))
+        report(.init(name: "opening", folder: folderName, machine: name, size: size, start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
     }
 
@@ -173,10 +167,7 @@ struct CloudStartChat {
         // The harness login before the first prompt, as for a chat with a project (+Login).
         _ = await passHarnessLogin(start, machine: machine)
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
-                     environmentId: plan.environmentId, setupState: plan.setup?.state, setupStatus: plan.setup?.status,
-                     setupStartedAt: plan.setup?.startedAt, setupFinishedAt: plan.setup?.finishedAt,
-                     setupError: plan.setup?.error, setupHasScript: plan.setup?.hasScript))
+        report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         return try await open(start, tab: tab, on: machine, cwd: nil, tabKey: plan.tabKey)
     }
 }
