@@ -7,14 +7,15 @@
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
 //!   the one its first try took while that machine exists; for a send from a
-//!   Mac workspace, the machine that workspace picked; else an existing one
-//!   reused (this person's one for chats or a free one), else a new one named
-//!   for chats; and the send's keys ([`Keys`]). Many workspaces share a
-//!   machine and a person has any number of them (Leo, 2026-10-31: "JUST GO
-//!   ARBITRARILY MANY"). A machine that exists is pinned to the send before
-//!   anything runs there, so a retry of the send names it.
+//!   Mac workspace, the machine that workspace already has; else a new one
+//!   named for chats; and the send's keys ([`Keys`]). For now each workspace
+//!   gets a small machine of its own and no machine serves two workspaces
+//!   (leo-workspace `design/cloud.md`, "One workspace per small machine,
+//!   snapshots, and a Cloud button"). A machine that exists is pinned to the
+//!   send before anything runs there, so a retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
-//!   to the machine the App just made for it, and makes it the workspace's.
+//!   to the machine the App just made for it, and makes it the workspace's
+//!   unless another workspace already has it.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT
 //!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
 //!   own on the machine (`cmux link sync push`), trying each work root in
@@ -206,11 +207,12 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         );
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
-            // A retry of an older send keeps its machine, never the workspace's newer one.
+            // A retry of an older send keeps its machine, never the workspace's newer one,
+            // and a machine another workspace has never becomes this one's too.
             if let Some(workspace) = workspace
                 && pins.workspace_machine(workspace, &request.account).is_none()
             {
-                pins.bind(workspace, &request.account, id);
+                pick::claim(pins, workspace, &request.account, id);
             }
         }
         destination
@@ -232,7 +234,8 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
 }
 
 /// `pin`: the send `key` of `account` runs on `machine` (one the App just made
-/// for it), which is the Mac workspace `workspace`'s own from now on.
+/// for it), which is the Mac workspace `workspace`'s own from now on, unless
+/// another workspace already has it.
 pub(super) fn pin(
     ledger: &Path,
     key: &str,
@@ -243,7 +246,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         pins.record(machine, &Send::new(key, account));
         if let Some(workspace) = workspace {
-            pins.bind(workspace, account, machine);
+            pick::claim(pins, workspace, account, machine);
         }
     }) {
         Ok(()) => json!({"ok": true}),
