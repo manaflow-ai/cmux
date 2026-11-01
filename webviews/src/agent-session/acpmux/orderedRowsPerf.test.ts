@@ -49,3 +49,41 @@ test("a long transcript reuses its ordered snapshot between metadata emissions",
   expect(changed).not.toBe(first);
   expect(changed).toHaveLength(EVENT_COUNT + 1);
 });
+
+const placed = (rows: OrderedRows, index: number, kind: "assistant" | "compaction" | "user" = "assistant") => {
+  rows.current = index + 1;
+  rows.set(`row-${index}`, { ...row(index), kind } as never);
+  rows.current = undefined;
+};
+
+test("dropping the newest row keeps the order; dropping any other row sorts again, to the same order", () => {
+  const rows = new OrderedRows();
+  for (let index = 0; index < 6; index += 1) placed(rows, index);
+  const full = () => [...rows.values()].map((item) => item.id).sort((a, b) => rows.orderOf(a) - rows.orderOf(b));
+  expect(rows.sorted().map((item) => item.id)).toEqual(full());
+  rows.delete("row-5");
+  expect(rows.sorted().map((item) => item.id)).toEqual(full());
+  placed(rows, 6);
+  rows.delete("row-2");
+  placed(rows, 7);
+  expect(rows.sorted().map((item) => item.id)).toEqual(full());
+  expect(rows.sorted().map((item) => item.id)).toEqual(["row-0", "row-1", "row-3", "row-4", "row-6", "row-7"]);
+});
+
+test("scanBack reads from the newest row and stops when asked; compactionRows tracks the compactions", () => {
+  const rows = new OrderedRows();
+  for (let index = 0; index < 5; index += 1)
+    placed(rows, index, index === 1 || index === 3 ? "compaction" : "assistant");
+  const seen: string[] = [];
+  rows.scanBack((item) => {
+    seen.push(item.id);
+    return item.id !== "row-2";
+  });
+  expect(seen).toEqual(["row-4", "row-3", "row-2"]);
+  expect(rows.compactionRows().map((item) => item.id)).toEqual(["row-1", "row-3"]);
+  rows.delete("row-1");
+  placed(rows, 3, "assistant");
+  expect(rows.compactionRows()).toEqual([]);
+  rows.clear();
+  expect(rows.compactionRows()).toEqual([]);
+});
