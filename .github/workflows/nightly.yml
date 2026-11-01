@@ -240,11 +240,30 @@ jobs:
       icon_name: ${{ steps.decide.outputs.icon_name }}
     steps:
       - name: Check out the revision under consideration
+        if: github.ref != 'refs/heads/nightly-next'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
+
+      # NEXT's decision reads release metadata, not the app tree. Main's build-input
+      # classifier still needs the full checkout above, including tracked referrers.
+      - name: Check out NEXT decision and placement helpers
+        if: github.ref == 'refs/heads/nightly-next'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout: |
+            /scripts/ci/nightly-publication-marker.py
+            /scripts/ci/portable_job_placement.py
+            /scripts/ci/pr_runner_pool.py
+            /scripts/ci/side_lane_placement.py
+            /scripts/ci/next_macos_cascade.py
+            /scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
 
       - name: Decide whether a nightly build is needed
         id: decide
