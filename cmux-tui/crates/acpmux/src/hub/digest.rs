@@ -332,7 +332,8 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                if q.held {
+                // Held, or waiting for the owner (`queue_approve.rs`): never sent with this turn.
+                if q.aside() {
                     i += 1;
                     continue;
                 }
@@ -688,6 +689,9 @@ mod tests {
             resume: false,
             steer: false,
             held: false,
+            awaiting_owner: false,
+            revision: 0,
+            declined: Default::default(),
             sent_now: false,
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
@@ -724,6 +728,9 @@ mod tests {
             joined: Arc::new(StdMutex::new(None)),
             requeued: false,
             retries: 0,
+            awaiting_owner: false,
+            revision: 0,
+            declined: Default::default(),
         }
     }
 
