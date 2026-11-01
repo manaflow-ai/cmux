@@ -87,11 +87,10 @@ export function PromptText({
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const huge = isHugePrompt(text);
-  const shownParts = useMemo(() => (huge && collapsed ? headParts(parts, HUGE_PROMPT_HEAD_CHARS) : parts), [
-    huge,
-    collapsed,
-    parts,
-  ]);
+  const shownParts = useMemo(
+    () => (huge && collapsed ? headParts(parts, HUGE_PROMPT_HEAD_CHARS) : parts),
+    [huge, collapsed, parts],
+  );
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
   // bottom and you're in the same place"):

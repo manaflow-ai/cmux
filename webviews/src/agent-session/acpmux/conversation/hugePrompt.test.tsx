@@ -19,7 +19,11 @@ import { currentChatMetrics } from "../chatDisplay";
 
 const same = (text: string) => text;
 // Base64-like: no spaces, a `/` every 64 characters, so softBreaks would put a <wbr> after each.
-const blob = (chars: number) => "QUJD/".concat("A".repeat(59)).repeat(Math.ceil(chars / 64)).slice(0, chars);
+const blob = (chars: number) =>
+  "QUJD/"
+    .concat("A".repeat(59))
+    .repeat(Math.ceil(chars / 64))
+    .slice(0, chars);
 // Markdown-shaped, so a small one would go through the Markdown renderer.
 const markdown = (chars: number) => `# Log\n- item **bold** \`code\`\n${"x".repeat(chars)}`;
 
