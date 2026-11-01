@@ -290,6 +290,22 @@ class Decide(unittest.TestCase):
             self.assertEqual(placement.main(environment), 0)
             self.assertIn("mini_runner=\nmini_jobs=\n", output.read_text())
 
+    def test_linux_picker_without_route_token_keeps_measured_overflow(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "out"
+            summary = Path(scratch) / "summary"
+            environment = {
+                **env(JOBS="cmux-next-daemon-tests", LINUX_ONLY="cmux-next-daemon-tests",
+                      FLEET_LINUX="cmux-fleet-linux-x64", REQUIRE_LIVE_CAPACITY="1"),
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+            }
+            self.assertEqual(placement.main(environment), 0)
+            text = output.read_text()
+            self.assertIn("linux_runner=\n", text)
+            self.assertIn("no live runner carries the requested fleet Linux label; take Blacksmith", summary.read_text())
+
 
 def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
