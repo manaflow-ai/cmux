@@ -55,6 +55,20 @@ struct IncognitoPhoneTests {
         #expect(!text.contains("secret"), "the incognito workspace's folder or terminal title reached the phone")
     }
 
+    /// A group whose only workspaces are incognito is left out with them (its name could say what they hold); a
+    /// group with a normal workspace, and an empty saved group, stay.
+    @Test func theListLeavesOutGroupsOfOnlyIncognitoWorkspaces() {
+        let tree = DaemonTree(workspaces: [
+            WorkspaceSnapshot(id: 1, key: Self.normal, name: "api-server", group: "g-work"),
+            WorkspaceSnapshot(id: 2, key: Self.incognito, name: "secret-project", group: "g-private"),
+        ], groups: [WorkspaceGroupSnapshot(id: "g-work", name: "Work"), WorkspaceGroupSnapshot(id: "g-private", name: "private-secret", index: 1),
+                    WorkspaceGroupSnapshot(id: "g-saved", name: "Saved", index: 2, pinned: true)])
+        let result = MobileWorkspaceRows.result(for: tree, selected: nil, hides: { $0 == Self.incognito })
+        let text = String(describing: result)
+        #expect(!text.contains("secret"), "an incognito workspace's group name reached the phone: \(text)")
+        #expect(text.contains("Work") && text.contains("Saved"))
+    }
+
     /// The workspace key is matched however the phone or the app spells it.
     @Test func hidingIgnoresCase() {
         let gate = PhoneAccessGate()

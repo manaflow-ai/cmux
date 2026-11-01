@@ -60,6 +60,14 @@ struct IncognitoSpaceTests {
         #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito workspace while it was created")
     }
 
+    /// A crashed run's incognito workspaces are hidden from phones as the restore marks them, before they close.
+    @Test func phonesHideACrashedRunsIncognitoWorkspacesAtOnce() {
+        let services = Self.services()
+        let leftover = UUID().uuidString.lowercased()
+        IncognitoLeftovers.discard([leftover], services.windows)
+        #expect(services.mobile.access.hidesWorkspace(leftover), "a phone could list a crashed run's incognito workspace")
+    }
+
     /// The ledger keeps the incognito spaces, so a crashed run's are deleted at the next launch.
     @Test func theLedgerKeepsTheIncognitoSpaces() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "incognito-space-\(UUID().uuidString)")
