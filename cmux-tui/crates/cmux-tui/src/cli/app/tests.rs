@@ -278,6 +278,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
 }
 
 #[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
+}
+
+#[test]
 fn unknown_words_run_the_action_with_that_cli_name() {
     let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
     assert_eq!(method, "action.run");
@@ -1524,20 +1544,27 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
-/// The agent cursor's tag says who drives and where, and goes there on a click
-/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
-/// the agent's terminal or chat. Reads and navigation do not need it.
+/// Every page verb sends its caller: the app runs a verb without a tab on the
+/// browser nearest the caller, not the person's focused tab in another window
+/// (#26648), and an input verb's agent cursor tag says who drives and where
+/// (user, 2026-10-20).
 #[test]
-fn page_input_verbs_send_the_caller() {
-    for method in
-        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
-    {
+fn page_verbs_send_the_caller() {
+    for method in [
+        "browser.page.click",
+        "browser.page.fill",
+        "browser.page.press",
+        "browser.page.drag",
+        "browser.page.text",
+        "browser.page.navigate",
+        "browser.page.screenshot",
+        "browser.page.snapshot",
+        "browser.page.tabs",
+    ] {
         assert!(takes_caller(method), "{method}");
     }
-    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
-        assert!(!takes_caller(method), "{method}");
-    }
     assert!(takes_caller("action.run"));
+    assert!(!takes_caller("settings.get"));
 }
 
 #[path = "right_tests.rs"]

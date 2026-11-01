@@ -33,6 +33,8 @@ mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
+#[cfg(unix)]
+mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
@@ -456,6 +458,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Some(machine_server::Mount::Lifecycle(rewritten)) => {
             lifecycle_args = rewritten;
             lifecycle_args.as_slice()
+        }
+        None => args,
+    };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    #[cfg(unix)]
+    let alias_args;
+    #[cfg(unix)]
+    let args = match vm::machine_alias(args) {
+        Some(rewritten) => {
+            alias_args = rewritten;
+            alias_args.as_slice()
         }
         None => args,
     };
@@ -1059,7 +1072,9 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
-        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
+        (Some("machine"), Surface::Cmux) => {
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+        }
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => {
             let root = catalog.local_server.cmux_root_help;
@@ -1096,7 +1111,7 @@ fn scope_help_for(
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -1209,7 +1224,7 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
 
 const MACHINE_HELP: &str = "\
 USAGE
-  cmux machine list
+  cmux machine ls
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
