@@ -7,6 +7,7 @@
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { OrderedRows } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
@@ -170,4 +171,46 @@ test("a log from before background_turn records draws exactly as before", async 
   } finally {
     client.close();
   }
+});
+
+test("work after a background turn ends never joins its rows", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Watch the queue", "Watching.", "t1"),
+      started("bg5"),
+      ran("a"),
+      ended("bg5", true),
+      ran("b"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const after = rows().find((row) => row.items?.some((item) => item.tool?.id === "b"))!;
+    expect(after.inBackground).toBeUndefined();
+    expect(after.items?.some((item) => item.tool?.id === "a")).toBe(false);
+    // It draws below the closed line, never inside it.
+    expect(drawn(rows()).at(-1)?.id).toBe(after.id);
+  } finally {
+    client.close();
+  }
+});
+
+test("an older page's started record takes the rows its turn already made", () => {
+  const rows = new OrderedRows();
+  const make = (seq: number, id: string) => {
+    rows.current = seq;
+    rows.set(id, { id, version: 1, at: seq, kind: "assistant", text: id });
+    rows.current = undefined;
+  };
+  // The newer page was read first: the turn's rows and its ended record, then a later row.
+  make(5, "inside");
+  rows.closeBackground(7, { id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  make(8, "after");
+  // The older page brings the started record.
+  rows.current = 3;
+  expect(rows.openBackground("bg6", 3)).toEqual({ id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  rows.current = undefined;
+  expect(rows.get("inside")?.inBackground).toBe("bg6");
+  expect(rows.get("after")?.inBackground).toBeUndefined();
+  expect(rows.sorted().find((row) => row.id === "inside")?.inBackground).toBe("bg6");
 });
