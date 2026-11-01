@@ -73,32 +73,56 @@ fn one_pass_replays_equal_the_two_pass_bytes_on_the_corpus() {
 }
 
 /// Bench: one replay build of a 120x40 terminal with 10,000 lines of history,
-/// one pass against two. Run with --release --ignored --nocapture.
+/// one pass against two (the reference path), the arms interleaved and their
+/// order alternated so neither arm always runs warm. Run with
+/// --release --ignored --nocapture, or on the fleet with
+/// scripts/measure/replay-build-bench.sh.
 #[test]
 #[ignore = "bench: prints replay build times"]
 fn replay_build_bench_one_pass_against_two() {
+    const BUILDS: usize = 60;
+    const BUDGET: usize = 15 * 1024 * 1024;
     let mut one = terminal_with(120, 40, &history_text(10_000));
     let mut two = terminal_with(120, 40, &history_text(10_000));
-    let mut sample = |term: &mut Terminal, two_pass: bool| {
-        let mut times: Vec<f64> = (0..30)
-            .map(|_| {
-                let started = std::time::Instant::now();
-                let _ = if two_pass {
-                    term.vt_replay_bounded_two_pass_for_test(15 * 1024 * 1024)
-                } else {
-                    term.vt_replay_bounded(15 * 1024 * 1024)
-                }
-                .unwrap();
-                started.elapsed().as_secs_f64() * 1000.0
-            })
-            .collect();
-        times.sort_by(f64::total_cmp);
-        (times[15], times[28])
+    let build = |term: &mut Terminal, two_pass: bool| {
+        let started = std::time::Instant::now();
+        let replay = if two_pass {
+            term.vt_replay_bounded_two_pass_for_test(BUDGET)
+        } else {
+            term.vt_replay_bounded(BUDGET)
+        }
+        .unwrap();
+        (started.elapsed().as_secs_f64() * 1000.0, replay.bytes)
     };
-    let (two_p50, two_p95) = sample(&mut two, true);
-    let (one_p50, one_p95) = sample(&mut one, false);
+    let (_, one_bytes) = build(&mut one, false);
+    let (_, two_bytes) = build(&mut two, true);
+    assert_eq!(one_bytes, two_bytes, "the arms built different replay bytes");
+    let (mut one_ms, mut two_ms) = (Vec::with_capacity(BUILDS), Vec::with_capacity(BUILDS));
+    for round in 0..BUILDS {
+        if round % 2 == 0 {
+            two_ms.push(build(&mut two, true).0);
+            one_ms.push(build(&mut one, false).0);
+        } else {
+            one_ms.push(build(&mut one, false).0);
+            two_ms.push(build(&mut two, true).0);
+        }
+    }
+    let percentiles = |times: &mut Vec<f64>| {
+        times.sort_by(f64::total_cmp);
+        let at = |p: f64| times[((times.len() - 1) as f64 * p).round() as usize];
+        format!(
+            "p50 {:.2} ms p95 {:.2} ms p99 {:.2} ms max {:.2} ms",
+            at(0.5),
+            at(0.95),
+            at(0.99),
+            at(1.0)
+        )
+    };
     eprintln!(
-        "REPLAY-BUILD-BENCH 120x40 10k lines: two-pass p50 {two_p50:.1} ms p95 {two_p95:.1} ms; \
-         one-pass p50 {one_p50:.1} ms p95 {one_p95:.1} ms"
+        "REPLAY-BUILD-BENCH 120x40 10k lines, {BUILDS} interleaved builds per arm, {} replay bytes: \
+         two-pass {}; one-pass {}",
+        one_bytes.len(),
+        percentiles(&mut two_ms),
+        percentiles(&mut one_ms)
     );
 }
