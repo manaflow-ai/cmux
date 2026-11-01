@@ -232,12 +232,32 @@ pub struct Identity {
     pub exe: std::path::PathBuf,
     pub argv: Vec<String>,
     pub cwd: Option<std::path::PathBuf>,
+    /// The path it was exec'd as, on macOS (`KERN_PROCARGS2`'s exec path, which the process keeps
+    /// in its own memory; `exec -a` and `process.title` do not change it). Once an app update
+    /// moved the running file aside, `exe` names where it went and this still names where it was
+    /// started from. `None` elsewhere, or when it cannot be read: Linux keeps it only in memory
+    /// another process may not read, so there a moved (not replaced) program is told by `exe`
+    /// alone.
+    pub started_as: Option<std::path::PathBuf>,
+}
+
+/// [`exe`], [`argv`], [`cwd`] and the exec path of `pid`, one `KERN_PROCARGS2` read for argv and
+/// the exec path; `None` when the executable or argv cannot be read.
+#[cfg(target_os = "macos")]
+pub fn identity(pid: u32) -> Option<Identity> {
+    let args = procargs2(pid)?;
+    Some(Identity {
+        exe: exe(pid)?,
+        argv: procargs2_argv(&args)?,
+        cwd: cwd(pid),
+        started_as: procargs2_exec_path(&args),
+    })
 }
 
 /// [`exe`], [`argv`] and [`cwd`] of `pid`; `None` when the executable or argv cannot be read.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub fn identity(pid: u32) -> Option<Identity> {
-    Some(Identity { exe: exe(pid)?, argv: argv(pid)?, cwd: cwd(pid) })
+    Some(Identity { exe: exe(pid)?, argv: argv(pid)?, cwd: cwd(pid), started_as: None })
 }
 
 /// The exec path in a `KERN_PROCARGS2` answer (the path the process was exec'd as); `None` when

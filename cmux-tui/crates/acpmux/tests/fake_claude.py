@@ -122,6 +122,8 @@ def stored(sid):
 SESSION = "fake-claude-session"
 RESUME = None
 FLAG_SETTINGS = []
+# The MCP servers FAKE_CLAUDE_START_MCP started: held, so their pipes stay open.
+MCP_CHILDREN = []
 if STORE:
     for flag in ("--session-id", "--resume"):
         if flag in sys.argv[:-1]:
@@ -608,6 +610,41 @@ while True:
         if request.get("subtype") == "set_permission_mode" and os.environ.get("FAKE_CLAUDE_MODE_DELAY_MS"):
             import time
             time.sleep(int(os.environ["FAKE_CLAUDE_MODE_DELAY_MS"]) / 1000)
+        # FAKE_CLAUDE_START_MCP=<file>: as Claude Code does at its start, the harness starts each stdio
+        # server of its folder's .mcp.json, and with FAKE_CLAUDE_START_MCP_CONFIG=1 of its --mcp-config
+        # files too (its stdin and stdout piped to it, and held open), and writes their pids there by name.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_START_MCP"):
+            import subprocess
+            configs = [os.path.join(os.getcwd(), ".mcp.json")]
+            if os.environ.get("FAKE_CLAUDE_START_MCP_CONFIG") == "1":
+                configs += [sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--mcp-config"]
+            pids = {}
+            for path in configs:
+                try:
+                    with open(path) as f:
+                        servers = json.load(f).get("mcpServers") or {}
+                except (OSError, ValueError):
+                    continue
+                for name, server in servers.items():
+                    env = dict(os.environ)
+                    env.update(server.get("env") or {})
+                    child = subprocess.Popen([server["command"], *server.get("args", [])], env=env,
+                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                             stderr=subprocess.DEVNULL)
+                    MCP_CHILDREN.append(child)
+                    pids[name] = child.pid
+            # FAKE_CLAUDE_START_ALSO=<JSON {"argv", "exe"}>: one more child, not a server (named "also"):
+            # the program `exe` run with `argv`, whose first word may name another program.
+            if os.environ.get("FAKE_CLAUDE_START_ALSO"):
+                also = json.loads(os.environ["FAKE_CLAUDE_START_ALSO"])
+                child = subprocess.Popen(also["argv"], executable=also["exe"], stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                MCP_CHILDREN.append(child)
+                pids["also"] = child.pid
+            out = os.environ["FAKE_CLAUDE_START_MCP"]
+            with open(f"{out}.tmp", "w") as f:
+                f.write(json.dumps(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_CLAUDE_IDLE_CHILDREN=<file>: the harness starts a worker in its group, one that left
         # it (setsid) and an MCP server (`sleep 3599`), and writes their pids there.
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_IDLE_CHILDREN"):

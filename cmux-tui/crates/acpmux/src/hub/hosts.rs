@@ -536,6 +536,15 @@ impl Hub {
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // A hello that names no MCP servers (an older host's): the ones acpmux's own config of
+        // the session gave the harness (`idle_census.rs`), so they never keep it up for good.
+        #[cfg(unix)]
+        if adopted.servers.is_none()
+            && let Some(servers) =
+                LaunchServers::from_session_config(&session.id, child.pid, meta.cwd.clone()).await
+        {
+            child.record_launch(servers);
+        }
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {

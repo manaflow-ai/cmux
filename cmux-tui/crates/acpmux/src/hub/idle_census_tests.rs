@@ -10,7 +10,7 @@ fn under(pid: u32, ppid: u32, args: &str) -> Under {
 fn identity(argv: Vec<String>) -> Identity {
     let first = argv.first().cloned().unwrap_or_default();
     let exe = if first.contains('/') { first } else { format!("/usr/local/bin/{first}") };
-    Identity { exe: exe.into(), argv, cwd: None }
+    Identity { exe: exe.into(), argv, cwd: None, started_as: None }
 }
 
 /// [`classify`] with harness 10 run as `claude`, each process's argv its `ps` line split on
@@ -193,6 +193,7 @@ fn a_relay_or_helper_is_its_executable_not_its_argv() {
         exe: exe.into(),
         argv: argv.iter().map(|w| w.to_string()).collect(),
         cwd: None,
+        started_as: None,
     };
     let launch = |exe: &str, interp: &str| who(exe, &[interp, &launcher, "app-server"]);
     let relayed = who(&native, &[&native, "app-server"]);
@@ -448,6 +449,7 @@ fn a_rewritten_argv_does_not_make_a_server() {
         exe: exe.into(),
         argv: argv.iter().map(|w| w.to_string()).collect(),
         cwd: None,
+        started_as: None,
     };
     let cases = [
         (who("/opt/cmux/bin/cmux", &["/opt/cmux/bin/cmux", "mcp", "serve"]), true),
@@ -528,6 +530,7 @@ fn a_relative_server_is_the_one_in_the_harnesss_folder() {
         exe: exe.to_path_buf(),
         argv: argv.iter().map(|w| w.to_string()).collect(),
         cwd: cwd.map(Path::to_path_buf),
+        started_as: None,
     };
     let script = ["node", "./server.js", "--port", "0"];
     let cases = [

@@ -56,6 +56,7 @@ async fn a_query_the_host_never_answers_times_out() {
             acked_h: 0,
             max_out_id: 0,
             exited: None,
+            servers: None,
         };
         agent_host::write_frame(&mut wr, &hello).await.unwrap();
         while let Ok(Some(_)) = agent_host::read_frame::<_, ControllerFrame>(&mut rd).await {}

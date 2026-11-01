@@ -212,6 +212,9 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    /// The harness's MCP servers, for the idle census (`HostFrame::HostHello`). Boxed: it is
+    /// most of the size of `agent::Attached::Ready`.
+    pub servers: Option<Box<crate::agent_host::HostServers>>,
 }
 
 pub enum Connect {
@@ -473,6 +476,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            servers,
         }) => Adopted {
             version,
             host_build,
@@ -482,6 +486,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            servers: servers.map(Box::new),
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });

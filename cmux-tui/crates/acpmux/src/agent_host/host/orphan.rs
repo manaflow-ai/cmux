@@ -136,6 +136,19 @@ impl Orphan {
         }
     }
 
+    /// What the host's hello tells the next daemon of its harness's MCP servers
+    /// (`HostServers`): `exit`'s, read before the harness started, and the ACP ones its
+    /// sessions opened with. None when the daemon that started it read none (`exit` is None).
+    pub(super) fn census_servers(&self, exit: Option<&OrphanExit>) -> Option<HostServers> {
+        let exit = exit?;
+        Some(HostServers {
+            servers: exit.servers.clone(),
+            path: exit.path.clone(),
+            cwd: exit.cwd.clone(),
+            given: self.given_servers.as_ref().map(crate::hub::census_servers),
+        })
+    }
+
     /// An entry for the controller: an answer from the harness settles its request.
     pub(super) fn note_entry(&mut self, entry: &Entry) {
         if let Entry::In { msg } = entry

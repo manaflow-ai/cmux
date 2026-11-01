@@ -1105,6 +1105,7 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                servers: self.orphan.census_servers(self.spec.orphan_exit.as_ref()),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);

@@ -615,10 +615,12 @@ pub struct ChildAgent {
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
     /// The `mcpServers` acpmux gave it at its session/new or load (`spawn.rs` `acp_params`), for
-    /// the idle census (`hub/idle_census.rs`). None for an agent adopted from another daemon.
+    /// the idle census (`hub/idle_census.rs`). For an agent adopted from another daemon, the ones
+    /// its host's hello names (`agent_host::HostServers`), if any.
     pub given_servers: std::sync::Mutex<Option<Value>>,
     /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
-    /// it started), for the idle census. None for a harness another daemon started.
+    /// it started), for the idle census. For a harness another daemon started, the ones its
+    /// host's hello names (`agent_host::HostServers`); None when it names none.
     pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
@@ -1898,8 +1900,14 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
-            given_servers: std::sync::Mutex::new(None),
-            launch: std::sync::Mutex::new(None),
+            // What its host's hello says of its MCP servers (`agent_host::HostServers`), so an
+            // agent adopted after a restart can still be told idle (`hub/idle_census.rs`).
+            given_servers: std::sync::Mutex::new(
+                adopted.servers.as_ref().and_then(|s| s.given.clone()),
+            ),
+            launch: std::sync::Mutex::new(
+                adopted.servers.as_deref().map(crate::hub::LaunchServers::from_host),
+            ),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
