@@ -762,5 +762,31 @@ class OmnibarTypingTests(unittest.TestCase):
         self.assertTrue(huge_navigations, "huge URLs must still reach navigate and open")
 
 
+class OmnibarCapStreamTests(unittest.TestCase):
+    """Review of #29925: the cap must change only the typed URL of huge omnibar ops (whole stream compared), and stay
+    above every other typed entry so no op changes meaning; and short enough that typing it in one main-actor call
+    (debug.omnibar_type types per character) stays under the stall limit on a bench build."""
+
+    def test_the_cap_changes_only_huge_typed_urls(self):
+        from unittest import mock
+        for seed in list(range(120)) + [368488420]:
+            capped = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            with mock.patch.object(model, "OMNIBAR_TYPE_MAX", 10 ** 9):
+                uncapped = model.generate(seed, 150, "http://localhost:1", f"fz{seed:x}")
+            self.assertEqual(len(capped), len(uncapped))
+            for a, b in zip(capped, uncapped):
+                if a == b:
+                    continue
+                self.assertEqual((a["op"], a["category"]), ("omnibar", "huge"), (seed, a, b))
+                self.assertEqual({k: v for k, v in a.items() if k != "url"}, {k: v for k, v in b.items() if k != "url"})
+                self.assertTrue(b["url"].startswith(a["url"]))
+
+    def test_the_cap_is_above_every_non_huge_typed_entry_and_at_most_400(self):
+        longest = max(len(op["url"]) for seed in range(300) for op in model.generate(seed, 150)
+                      if op["op"] == "omnibar" and op["category"] != "huge")
+        self.assertLess(longest, model.OMNIBAR_TYPE_MAX)
+        self.assertLessEqual(model.OMNIBAR_TYPE_MAX, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
