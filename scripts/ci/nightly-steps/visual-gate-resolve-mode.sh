@@ -7,7 +7,7 @@
 set -e  # the inline step ran under bash -e
 set -uo pipefail
 if resolved="$(python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
-  --default-enforce-after never --gate "visual gate" \
+  --enforce-after never --default-enforce-after never --gate "visual gate" \
   --issue-title "nightly-next visual gate" --failure-prefix "cmux NEXT visual gate failed " \
   --pass-prefix "cmux NEXT visual gate passed " --min-passes 3)"; then
   echo "$resolved" | tee -a "$GITHUB_OUTPUT"

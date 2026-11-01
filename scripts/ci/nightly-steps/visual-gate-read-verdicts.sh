@@ -7,7 +7,7 @@
 # gates; a visual verdict (or a mode-resolution failure) cannot reject them.
 set -euo pipefail
 if ! resolved="$(python3 scripts/ci/nightly_next_canary_mode.py resolve --variable NIGHTLY_NEXT_VISUAL_GATE \
-  --default-enforce-after never --gate "visual gate" \
+  --enforce-after never --default-enforce-after never --gate "visual gate" \
   --issue-title "nightly-next visual gate" --failure-prefix "cmux NEXT visual gate failed " \
   --pass-prefix "cmux NEXT visual gate passed " --min-passes 3)"; then
   echo "::warning title=nightly-next visual gate::could not resolve the gate's mode; visual coverage remains advisory for recovery"
