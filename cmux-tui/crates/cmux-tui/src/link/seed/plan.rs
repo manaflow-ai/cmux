@@ -613,12 +613,12 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
             .map_err(|error| failed("listing untracked files", error))?;
     let mut skipped = Vec::new();
-    for path in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
-        let path = String::from_utf8_lossy(path).into_owned();
+    for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+        let path = String::from_utf8_lossy(raw).into_owned();
         let why = if path.ends_with('/') {
             Some("a separate git repository inside this folder (not a submodule)")
         } else {
-            secrets::reason(&repo.top, &path)
+            secrets::reason(&repo.top, raw)
         };
         if let Some(why) = why {
             skipped.push(Skipped { path, why: why.to_string() });

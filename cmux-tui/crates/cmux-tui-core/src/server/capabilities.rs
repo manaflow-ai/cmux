@@ -40,7 +40,6 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
-        capabilities.push("cloud-environments-v1");
     }
     if mux.host_replica().is_some_and(|replica| replica.running()) {
         capabilities.push(cloud_host_replica::CAPABILITY);
@@ -194,6 +193,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
     capabilities.retain(|capability| {
         *capability != crate::fs_ops::FS_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
