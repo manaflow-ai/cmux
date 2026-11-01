@@ -47,7 +47,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
 export function startupChecklist(start: CloudStartProgress, t: Translate = (key, values = {}) => (DEFAULT_STARTUP_STRINGS[key] ?? key).replace("{harness}", String(values.harness ?? "Harness")), now = Date.now()): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
   const failedStep = start.state === "failed"
-    ? (oldStep === 0 ? "machine" : oldStep === 1 ? "clone" : oldStep === 2 ? "harness" : start.clone?.state === "running" ? "clone" : start.setup?.state === "running" ? "setup" : "machine")
+    ? (oldStep === 0 ? "machine" : oldStep === 1 ? "clone" : oldStep === 2 ? "harness" : start.clone?.state === "running" || start.clone?.state === "failed" ? "clone" : start.setup?.state === "running" || start.setup?.state === "failed" ? "setup" : "machine")
     : undefined;
   const machine: ChecklistStep = { id: "machine", label: t("cloudStartup.machine"), status: failedStep === "machine" ? "error" : oldStep > 0 || start.initialized ? "done" : oldStep === 0 ? "running" : "pending", duration: elapsed(start.machineStartedAt, start.machineFinishedAt, now) };
   const hasRepository = start.hasRepository ?? (Boolean(start.repository || start.folder || start.clone) && !start.home);
