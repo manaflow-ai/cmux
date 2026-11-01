@@ -106,7 +106,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
-            if let failure = session.daemonFailure { return daemonFailed(failure.error) }
+            if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
             return session.lastError
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
@@ -121,8 +121,35 @@ enum RemoteStrings {
         case .installing:
             return String(localized: "remote.status.installing", defaultValue: "Installing cmux-tui…", table: "Remote", bundle: .module)
         case .installFailed(let message), .failed(let message):
-            return message
+            return plainFailure(message, machine: session.host.label)
         }
+    }
+
+    /// A machine's failure in one sentence for the Cannot Connect sheet and the header: never the
+    /// daemon's raw text (lock and log paths, `try_lock`, `--session NAME`), which Copy Error keeps
+    /// (``sshError(_:)``). User 2026-10-31 (Chief msg 19277).
+    static func plainFailure(_ raw: String, machine: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An older cmux-tui on the machine refuses a session another daemon there (a Chief brain)
+        // owns; this app's build keeps its link's session in a private root instead (remote_cli.rs).
+        if text.contains("in use by another cmux daemon") || text.contains("already owned by another daemon") {
+            return String(format: String(localized: "remote.failure.sessionInUse",
+                                         defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.",
+                                         table: "Remote", bundle: .module), machine)
+        }
+        // The cause is the last `prefix: ` clause before any parenthesis or `; ` hint.
+        var cause = text.components(separatedBy: " (").first ?? text
+        cause = cause.components(separatedBy: "; ").first ?? cause
+        if let last = cause.components(separatedBy: ": ").last(where: { !$0.isEmpty }) { cause = last }
+        cause = cause.trimmingCharacters(in: CharacterSet(charactersIn: " .;:"))
+        if cause.isEmpty || cause.contains("/") || cause.count > 120 {
+            return String(format: String(localized: "remote.failure.unknown",
+                                         defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.",
+                                         table: "Remote", bundle: .module), machine)
+        }
+        return String(format: String(localized: "remote.failure.cause",
+                                     defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.",
+                                     table: "Remote", bundle: .module), machine, cause)
     }
 
     /// The machine's raw failure (ssh's own words, or the install or link
@@ -137,14 +164,6 @@ enum RemoteStrings {
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
-    }
-
-    /// The header detail of a machine whose cmux-tui did not start; `error`
-    /// is the daemon's error and the link's output.
-    static func daemonFailed(_ error: String) -> String {
-        String(format: String(localized: "remote.status.daemonFailed",
-                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
-                              table: "Remote", bundle: .module), error)
     }
 
     /// The one-time notice of a browser tab opened in another machine's
