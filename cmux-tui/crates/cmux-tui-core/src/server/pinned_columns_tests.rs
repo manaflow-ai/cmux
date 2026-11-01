@@ -454,7 +454,12 @@ fn a_terminal_tab_aimed_at_a_pinned_dock_that_takes_no_tabs_opens_in_a_new_colum
     assert_eq!(wire.tabs(panes[0]), vec![home], "the replay made no tab in the dock");
     resource_ok(&wire.column_update(json!({"allow_tabs": false})));
 
-    // `pane.run` and the receipted creation (the TUI, the SDKs) aimed at the dock open beside it too.
+    // `pane.run` and the receipted creation (the TUI, the SDKs) aimed at the dock open beside it too. The test
+    // client negotiates `creation-receipts-v1` first, as the TUI and the SDK clients do.
+    wire.ok(json!({
+        "cmd": "set-client-info", "name": "fc1 receipt test", "kind": "tui",
+        "capabilities": [crate::server::CREATION_RECEIPTS_CAPABILITY],
+    }));
     let run = json!({
         "machine": "current", "session": "current", "pane": wire.pane_id(panes[0]), "shell": "true",
     });
