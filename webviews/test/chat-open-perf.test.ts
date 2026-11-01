@@ -163,6 +163,24 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
+  /// Chats whose `_acpmux/events` answers their page (the hover test's); empty for every other one.
+  const readable = new Set<string>();
+  /// When the newest page connected (its `initialize`), and when each chat's attach was answered.
+  let initializedAt = 0;
+  const attachAnsweredAt = new Map<string, number>();
+  /// The app host's tail store (AgentPaneTailCache.swift): in memory, the 20 most recent chats,
+  /// shared by every page as the app is. The hover test's pages reach it through `cmuxHostTail`.
+  const hostTails = new Map<string, unknown>();
+  const hostWrites = new Map<string, () => void>();
+  const hostTail = (method: string, params: { sessionId?: string; tail?: unknown }) => {
+    const sessionId = String(params.sessionId ?? "");
+    if (method === "chat.tail.get") return hostTails.get(sessionId) ?? null;
+    hostTails.delete(sessionId);
+    if (params.tail) hostTails.set(sessionId, params.tail);
+    while (hostTails.size > 20) hostTails.delete(hostTails.keys().next().value!);
+    if (params.tail) hostWrites.get(sessionId)?.();
+    return null;
+  };
   /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar, and
   /// below the recent chats the pane reads ahead (direct.ts READ_AHEAD_RECENT), so the first visit
   /// to each is the cold open this measures (chat-switch-prefetch.test.ts holds the read-ahead).
@@ -185,8 +203,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         const entry = byId.get(String(params.sessionId))!;
         return { session: entry.attached, lastSeq: entry.events.length, events: entry.events };
       }
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: byId.get(String(params.sessionId))?.events.length ?? 0 };
+      case "_acpmux/events": {
+        const entry = byId.get(String(params.sessionId));
+        // The hover test's chats answer a read ahead with their page; every other chat answers an
+        // empty one, so the recent chats' read-ahead fills nothing the other tests open.
+        if (entry && readable.has(entry.sessionId))
+          return { events: entry.events, hasMore: false, lastSeq: entry.events.length };
+        return { events: [], hasMore: false, lastSeq: entry?.events.length ?? 0 };
+      }
       default:
         return null;
     }
@@ -250,6 +274,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
+          if (message.method === "initialize") initializedAt = Date.now();
           const slow = message.method === "_acpmux/attach" && message.params?.sessionId === slowChat.sessionId;
           // The slow chat's agent says something while its attach is still out, after the switch's
           // hold gave up: a live row the pane draws before it read the chat.
@@ -283,7 +308,11 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
             );
           // Every call costs a round trip, an attach the chat's read on top: the daemon is busy.
           setTimeout(
-            () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result })),
+            () => {
+              if (message.method === "_acpmux/attach")
+                attachAnsweredAt.set(String(message.params?.sessionId), Date.now());
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+            },
             slow ? SLOW_ATTACH_MS : message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
           );
         },
@@ -737,6 +766,123 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       await page.getByText(slowChat.marker).waitFor({ timeout: 5_000 });
     } finally {
       await page.close();
+    }
+  });
+
+  /// Leo, 2026-11-01: "loading into a chat and some of its recent messages ... it's not cached well
+  /// enough nor prerendered/prefetched well enough" (HQ#5914, finding 2). A sidebar click opens a
+  /// chat in a tab of its own, which is a NEW page; the sidebar forwards the row the pointer rests
+  /// on to the agent chat on screen (`chat.prefetch` with `hover`), whose page reads it ahead and
+  /// hands its tail to the app host, so the new page draws it from the host's copy before its
+  /// attach answers. Measured against a new tab on a chat nobody hovered, in one run: both times
+  /// from the page's connect (its `initialize`, so the dev bundle's load is not in them) and from
+  /// its navigation, to the frame its transcript shows the chat.
+  test("a chat the sidebar pointer rested on opens in a new tab before its attach answers", async () => {
+    const hovered = [...Array(VISITS).keys()].map((at) => chats[22 + at * 11]!);
+    const cold = [...Array(VISITS).keys()].map((at) => chats[23 + at * 11]!);
+    for (const entry of [...hovered, ...cold]) readable.add(entry.sessionId);
+    /// The app host for a page, and (with `marker`) when the page first shows that line.
+    const withHost = async (page: import("playwright").Page, marker?: string) => {
+      await page.exposeFunction("cmuxHostTail", hostTail);
+      await page.exposeFunction("cmuxDrawn", () => Date.now());
+      await page.addInitScript((marker: string | null) => {
+        const call = (window as unknown as { cmuxHostTail: (method: string, params: unknown) => Promise<unknown> })
+          .cmuxHostTail;
+        const host = {
+          "chat.tail.get": (params: unknown) => call("chat.tail.get", params),
+          "chat.tail": (params: unknown) => call("chat.tail", params),
+        };
+        // The page installs its own actions over this object; the host's two stay beside them.
+        let actions: Record<string, unknown> = { ...host };
+        Object.defineProperty(window, "cmuxAcpmuxActions", {
+          configurable: true,
+          get: () => actions,
+          set: (value) => {
+            actions = Object.assign(value ?? {}, host);
+          },
+        });
+        if (!marker) return;
+        const look = () => {
+          if (document.body?.textContent?.includes(marker)) {
+            const drawn = (window as unknown as { cmuxDrawn: () => Promise<number> }).cmuxDrawn();
+            (window as unknown as { drawnAt: Promise<number> }).drawnAt = drawn;
+            (window as unknown as { navigatedAt: number }).navigatedAt = performance.now();
+            return;
+          }
+          requestAnimationFrame(look);
+        };
+        requestAnimationFrame(look);
+      }, marker ?? null);
+    };
+    const worker = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    type NewTab = { connect: number; navigation: number; beforeAttach: boolean; hostHeld: boolean };
+    const results: { hovered: NewTab[]; cold: NewTab[] } = { hovered: [], cold: [] };
+    try {
+      await withHost(worker);
+      await worker.goto(url(chats[0].sessionId));
+      await worker.getByText(chats[0].marker).waitFor();
+      const newTab = async (entry: (typeof chats)[number]): Promise<NewTab> => {
+        const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+        try {
+          await withHost(page, entry.marker);
+          await page.goto(url(entry.sessionId));
+          await page.waitForFunction(() => (window as unknown as { drawnAt?: unknown }).drawnAt !== undefined);
+          const drawnAt = (await page.evaluate(
+            () => (window as unknown as { drawnAt: Promise<number> }).drawnAt,
+          )) as number;
+          const navigation = (await page.evaluate(
+            () => (window as unknown as { navigatedAt: number }).navigatedAt,
+          )) as number;
+          const connectedAt = initializedAt;
+          // The attach answers after the draw when the draw came from the host's copy.
+          await page.getByText(entry.marker).waitFor();
+          const attachedAt = attachAnsweredAt.get(entry.sessionId) ?? Number.POSITIVE_INFINITY;
+          return {
+            connect: drawnAt - connectedAt,
+            navigation,
+            beforeAttach: drawnAt < attachedAt,
+            hostHeld: hostTails.has(entry.sessionId),
+          };
+        } finally {
+          await page.close();
+        }
+      };
+      for (let at = 0; at < VISITS; at += 1) {
+        // A new tab on a chat nobody hovered.
+        results.cold.push(await newTab(cold[at]!));
+        // The pointer rests on a chat's row: the sidebar forwards it to the chat on screen.
+        const target = hovered[at]!;
+        const written = new Promise<void>((resolve) => {
+          hostWrites.set(target.sessionId, resolve);
+          // fixed-wait: a page that never hands the chat over (the base) is measured cold after this deadline.
+          setTimeout(resolve, 1_500);
+        });
+        await worker.evaluate(
+          (sessionId) =>
+            (window as unknown as { cmuxAcpmuxActions: Record<string, (params: object) => Promise<unknown>> })
+              .cmuxAcpmuxActions["chat.prefetch"]!({ sessionId, hover: true }),
+          target.sessionId,
+        );
+        await written;
+        hostWrites.delete(target.sessionId);
+        results.hovered.push(await newTab(target));
+      }
+    } finally {
+      await worker.close();
+      readable.clear();
+    }
+    const line = (name: string, tabs: NewTab[]) =>
+      console.log(
+        `chat-open-perf new tab ${name}: from connect ${tabs.map((tab) => tab.connect.toFixed(0)).join("/")} ms, ` +
+          `from navigation ${tabs.map((tab) => tab.navigation.toFixed(0)).join("/")} ms, ` +
+          `drawn before its attach ${tabs.map((tab) => (tab.beforeAttach ? "yes" : "no")).join("/")}`,
+      );
+    line("cold", results.cold);
+    line("hovered", results.hovered);
+    for (const tab of results.cold) expect(tab.beforeAttach).toBe(false);
+    for (const tab of results.hovered) {
+      expect(tab.hostHeld).toBe(true);
+      expect(tab.beforeAttach).toBe(true);
     }
   });
 
