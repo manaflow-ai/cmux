@@ -604,7 +604,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
+      note: 'Preview: where a chat runs, as Codex\'s "Where should this chat run?" (Leo, 2026-10-31: "JUST A LITTLE CLOUD ICON OR FUCKING THE SELECTION"): This Mac and Cloud, then a hairline and the other machines with ⌥⌘1–9. No section headers, no second lines, no search under 8 machines; New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.',
       props: {
         ...baseProps,
         environments: true,
@@ -617,10 +617,72 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-alone": {
+      note: "Preview, Leo's case: a person with no other machine sees two rows, This Mac and Cloud, as Codex's menu.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "studio-mac",
+        sessions: sessions.filter((session) => session.hostKind !== "cloud"),
+        peers: [],
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-face-label": {
+      note: "Variant 1 of 3, picked: the control is its icon and the short name of the current choice (This Mac, Cloud, or a machine's name), as the folder beside it. An icon alone cannot tell this Mac from another Mac, or one Cloud machine from another.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "studio-mac",
+        environmentFace: "label" as const,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-face-icon": {
+      note: "Variant 2 of 3, the control is the icon alone (a computer for this Mac, a cloud for Cloud), its name in the tooltip, as Codex's cloud button beside its composer.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "studio-mac",
+        environmentFace: "icon" as const,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-face-chip": {
+      note: "Variant 3 of 3, the control is a bordered chip in the row above the composer, as Codex's Projects | Cloud row. Its border is a second box the strip's plain text over the box avoids.",
+      props: {
+        ...baseProps,
+        environments: true,
+        localName: "studio-mac",
+        environmentFace: "chip" as const,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "environment-picker-cloud-chat": {
       // The whole list, down to the Cloud section, past the entry's 180px stage.
       height: 420,
-      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac keeps this Mac's own name (office-mac, the host's `localMachineName`) and the Cloud machine is listed under Cloud and VMs, never under This Mac (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
+      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac's row stays This Mac (its own name, office-mac, the host's `localMachineName`, is the row's tooltip) and the Cloud machine is one of the other machines, checked, never This Mac's row (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
       props: {
         ...baseProps,
         environments: true,
@@ -646,7 +708,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-sandboxed-option": {
-      note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
+      note: "Labs (hq#3367): Sandboxed is Cloud's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
       props: {
         ...baseProps,
         environments: true,
@@ -660,9 +722,9 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-sandboxed-search": {
-      note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
+      note: "Labs (hq#3367): in a list long enough for a search field, searching for it shows Sandboxed in Cloud's place.",
       props: {
-        ...baseProps,
+        ...fleetProps,
         environments: true,
         runMode: { mode: "persistent", onMode: () => undefined },
       },
@@ -674,7 +736,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-sandboxed-picked": {
-      note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
+      note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in Cloud's place; any machine goes back to a Persistent chat.",
       props: {
         ...baseProps,
         environments: true,
@@ -723,7 +785,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...baseProps, environments: true, runMode: { mode: "cloud", onMode: () => undefined } },
     },
     "environment-picker-cloud-machines": {
-      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
+      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) among the other machines, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
       props: {
         ...baseProps,
         environments: true,
@@ -745,7 +807,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-fleet": {
       height: 760,
-      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      note: "Preview: every machine acpmux lists (21, from `host ls`): This Mac and Cloud, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
@@ -776,7 +838,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker-no-cloud": {
-      note: "Preview: with no cloud machine yet, New Cloud Machine heads its own Cloud section with what one gives.",
+      note: "Preview: with no cloud machine yet, Cloud is still the second row; a pick opens New Cloud Machine.",
       props: {
         ...baseProps,
         environments: true,
@@ -790,7 +852,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "saved-environments": {
-      note: "Preview, New Tab page: the saved environments in a Saved section over the machines, and Create environment under New environment.",
+      note: "Preview, New Tab page: the saved environments under This Mac and Cloud, before the machines; Create environment is the control's right-click menu.",
       props: savedProps(),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
@@ -817,7 +879,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-move-to-cloud": {
-      note: "Preview, a started chat on this Mac: the picker shows where it runs and Move to Cloud, the tab menu's same action, saying it reuses a Cloud machine or makes one.",
+      note: "Preview, a started chat on this Mac: the picker shows where it runs and Move to Cloud, the tab menu's same action, one line each.",
       props: {
         ...baseProps,
         environments: true,
@@ -838,7 +900,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-bring-back": {
-      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
+      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, one line each.",
       props: {
         ...baseProps,
         environments: true,

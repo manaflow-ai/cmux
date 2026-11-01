@@ -12,7 +12,7 @@ with examples; `--json` on any command prints the raw response.
 | Start one in its own worktree on a brief that reports back | `acpmux new -n fix-27310 --worktree ~/Projects/cmux@origin/main --prompt-file ~/notes/brief.md --report-to coord -d` |
 | Run one prompt and print only the final reply | `acpmux run -m claude "Summarize the open TODOs"` |
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
-| Send a brief to the least-loaded allowed host | `acpmux dispatch ~/notes/brief.md --host auto` |
+| Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
 | Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.

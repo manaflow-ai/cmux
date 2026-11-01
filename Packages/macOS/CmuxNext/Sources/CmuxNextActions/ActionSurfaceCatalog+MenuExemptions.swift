@@ -162,7 +162,9 @@ nonisolated extension ActionSurfaceCatalog {
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
             "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
             "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
-            "workspace.setRemoteLocalhost"],
+            "workspace.setRemoteLocalhost",
+            // The tab menu's Move folder already holds Move Tab to Workspace…; a space list there would bloat it.
+            "tab.moveToSpace"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

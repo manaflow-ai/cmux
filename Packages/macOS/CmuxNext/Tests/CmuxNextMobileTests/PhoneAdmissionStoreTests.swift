@@ -101,7 +101,7 @@ struct PhoneAdmissionStoreTests {
         await store.attach(directory: directory)
         await store.reload() // also drains the queued removal
         #expect(!store.trusts(Self.phone))
-        file.forgetThisRun()
+        // The restored store makes a new list file: it remembers no digest of this run, as a relaunch.
         let restored = MobileHostPairedStore(seal: seal)
         restored.select(userID: "one")
         await restored.attach(directory: directory)
@@ -123,7 +123,7 @@ struct PhoneAdmissionStoreTests {
         await store.reload()
         #expect(!store.trusts(Self.phone))
         try older.write(to: file.file, options: .atomic)
-        file.forgetThisRun() // a relaunch retains only the Keychain seal, not in-process digests
+        // A relaunch retains only the Keychain seal: the restored store's new list file remembers no digest.
         let restored = MobileHostPairedStore(seal: seal)
         restored.select(userID: "one")
         await restored.attach(directory: directory)
