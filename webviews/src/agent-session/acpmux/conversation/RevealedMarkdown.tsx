@@ -169,7 +169,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       const on = query.matches;
       if (reduce.current === on) return;
       reduce.current = on;
-      reveal.current!.setReduceMotion(on);
+      reveal.current!.setReduceMotion(on, latest.current.text);
       if (!on) return;
       const state = loop.current;
       revealFrames.cancel(state.handle);

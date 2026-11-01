@@ -64,11 +64,14 @@ export class StreamReveal {
     this.shown = this.received;
   }
 
-  /// Reduce Motion changed while the row is mounted: on, everything received shows now and later
-  /// text shows as it arrives; off, later text is paced again.
-  setReduceMotion(on: boolean): void {
+  /// Reduce Motion changed while the row is mounted: on, all of `text` (the latest, which may not
+  /// have reached `advance` yet) shows now and later text shows as it arrives; off, only text after
+  /// it is paced.
+  setReduceMotion(on: boolean, text: string): void {
     this.reduceMotion = on;
-    if (on) this.flush();
+    if (!on) return;
+    this.received = Math.max(this.received, text.length);
+    this.flush();
   }
 
   /// The visible length of `text` for the frame at `now` (ms); `done` when the stream ended.
