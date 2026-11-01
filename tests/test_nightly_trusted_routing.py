@@ -98,6 +98,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                 source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
                 self.assertEqual(evaluate(parse_expression(source), context), 'blacksmith-32vcpu-ubuntu-2404')
                 self.assertIn('outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated', source)
+                fork_context = {**context, 'github.repository_owner': 'someone'}
+                self.assertEqual(evaluate(parse_expression(source), fork_context), 'ubuntu-24.04')
 
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
