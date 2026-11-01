@@ -147,6 +147,8 @@ pub enum Input {
         peer: Option<String>,
         /// `spawn(place)`: `cloud`, `local` or None (the saved default).
         place: Option<String>,
+        /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
+        harness: Option<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -1425,6 +1427,7 @@ impl Brain {
                 tasks,
                 peer,
                 place,
+                harness,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1436,6 +1439,12 @@ impl Brain {
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
                         self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                    })
+                    .map(|mut plan| {
+                        if let Some(h) = harness.as_deref() {
+                            plan.engine = Some(self.engine_on(h));
+                        }
+                        plan
                     });
                 let _ = reply.send(plan);
             }

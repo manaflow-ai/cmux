@@ -50,6 +50,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -60,7 +61,16 @@ import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
-import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
+import {
+  forgetTail,
+  keptTail,
+  KEPT_EVENTS,
+  readHostTail,
+  rememberReadAhead,
+  rememberTail,
+  shareReadAhead,
+} from "./tailCache";
+import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
@@ -6330,11 +6340,12 @@ export class AcpmuxDirectClient {
     }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
-    const sendAttachments = supportsAudio
-      ? attachments
-      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const audible = supportsAudio ? attachments : attachments.filter((attachment) => attachment.kind !== "audio");
+    // A video's frames go as images (composer/videoPrompt.ts): an agent that takes none gets its link.
+    const sendAttachments =
+      this.summary?.agentCapabilities?.promptCapabilities?.image === false ? withoutFrames(audible) : audible;
     const dropped = new Set(
-      attachments.filter((attachment) => !sendAttachments.includes(attachment)).map((attachment) => attachment.id),
+      attachments.filter((attachment) => !audible.includes(attachment)).map((attachment) => attachment.id),
     );
     const options = { dropped: (id: string) => dropped.has(id) };
     // The prompt is one acpmux message: past its budget, the largest image previews go as the links
@@ -6351,7 +6362,8 @@ export class AcpmuxDirectClient {
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
-            if (block.type !== "text") return shown;
+            // A video's frames note is the agent's; the bubble draws the video's tile.
+            if (block.type !== "text" || isFramesNote(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
@@ -7748,6 +7760,31 @@ export class AcpmuxDirectClient {
     this.queueReadAhead([sessionId], true);
   }
 
+  /// The sidebar's pointer is on `sessionId`'s row (undefined: on no chat's row), forwarded by the
+  /// host's `chat.prefetch` with `hover`. Once it rests there (hoverPrefetch.ts), the chat is read
+  /// ahead and its tail handed to the app host, so the tab the click opens draws it from the host's
+  /// copy (`chat.tail.get`) instead of after its attach: that tab is another page.
+  hoverPrefetch(sessionId: string | undefined, options: HoverOptions = {}): void {
+    this.hoverReads.hover(sessionId, options);
+  }
+  private hoverReads = new HoverPrefetch((sessionId) => this.prefetchForHost(sessionId));
+  /// Chats whose next read ahead is handed to the host (a rested hover), at most HOVER_RECENT. An
+  /// entry leaves when its read ends, read or not (`pumpReadAhead`), and on close.
+  private shareOnRead = new Set<string>();
+  private prefetchForHost(sessionId: string): void {
+    if (this.closed || sessionId === this.selectedSessionId) return;
+    this.shareOnRead.delete(sessionId);
+    this.shareOnRead.add(sessionId);
+    while (this.shareOnRead.size > HOVER_RECENT) this.shareOnRead.delete(this.shareOnRead.keys().next().value!);
+    this.queueReadAhead([sessionId], true);
+    // Nothing to read: this page holds a tail of the chat it counts as current, so that one goes,
+    // and the host keeps it only over an older one (`shareReadAhead`).
+    if (!this.readingAhead.has(sessionId) && !this.readAheadQueue.includes(sessionId)) {
+      this.shareOnRead.delete(sessionId);
+      shareReadAhead(sessionId);
+    }
+  }
+
   /// Chats read ahead, by when their read went out.
   private readAheadAt = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
@@ -7795,6 +7832,7 @@ export class AcpmuxDirectClient {
         .catch(() => undefined)
         .finally(() => {
           this.readingAhead.delete(sessionId);
+          this.shareOnRead.delete(sessionId);
           this.pumpReadAhead();
         });
       this.readingAhead.set(sessionId, read);
@@ -7833,6 +7871,8 @@ export class AcpmuxDirectClient {
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
+    // A rested hover asked for it: the tab its click opens is another page, which reads the host.
+    if (this.shareOnRead.delete(sessionId)) shareReadAhead(sessionId);
   }
 
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
@@ -8871,6 +8911,8 @@ export class AcpmuxDirectClient {
     clearTimeout(this.readAheadTimer);
     this.readAheadTimer = undefined;
     this.readAheadQueue = [];
+    this.hoverReads.stop();
+    this.shareOnRead.clear();
     clearTimeout(this.sessionReread);
     this.sessionReread = undefined;
     clearTimeout(this.missingRecheck);

@@ -96,7 +96,8 @@ struct SidebarScrollCostTests {
     /// The 8 ms budget is for the hosts it was set on; a slower runner gets it scaled by its own
     /// reference workload, timed before the scrolls and after each (FrameBudgetCalibration), or skips
     /// the timed checks with the reason printed.
-    @Test func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() {
+    @Test(.disabled("Quarantined: the CPU-only calibration misses CI runners' slow commits, so the 8 ms p95 fails unscaled, https://github.com/manaflow-ai/cmux/issues/30973"))
+    func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() {
         var calibration = FrameBudgetCalibration()
         calibration.checkpoint()
         for count in [10, 100] { _ = Self.measure(count) }
