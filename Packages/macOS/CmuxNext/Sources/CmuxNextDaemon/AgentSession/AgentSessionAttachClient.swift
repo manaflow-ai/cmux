@@ -53,6 +53,8 @@ public actor AgentSessionAttachClient {
     /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
     /// (`CloudMachineLink.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
+    /// Whether a Cloud machine's link says it is a teammate's (`CloudMachineLinks.teammate`).
+    public typealias Teammate = @Sendable () async -> Bool
     /// Asked once when a connection fails (its endpoint, its socket or its handshake): true once
     /// the machine's link came back, and the connection is tried once more.
     public typealias Reconnect = @Sendable () async -> Bool
@@ -66,6 +68,8 @@ public actor AgentSessionAttachClient {
     private var transport: LineTransport?
     private var connecting: Task<(LineTransport, Served), any Error>?
     private let handler = HandlerBox()
+    /// The newest ``attach(afterSeq:beforeSeq:limit:kinds:events:)``, which the next one waits for.
+    private var attachTail: Task<Void, Never>?
     private var closed = false
     /// A quiet try (``sharedConnection(quiet:)``) lost its connection in its handshake and told no
     /// one yet.
@@ -122,7 +126,19 @@ public actor AgentSessionAttachClient {
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
         handler.set(events)
-        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
+        // One attach at a time: the daemon refuses a second attach of the tab while the first still
+        // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
+        // the remote wire asks two at once (the page's session list and its attach, sent together
+        // since #27755). The later one waits and is then a page of the live attachment.
+        let previous = attachTail
+        let command = mode.command, params = page(afterSeq, beforeSeq, limit, kinds)
+        // task-owner: this attach; the next attach waits on it, and the caller's cancel cancels it
+        let task = Task {
+            await previous?.value
+            return try await self.call(command, params)
+        }
+        attachTail = Task { _ = await task.result }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -546,6 +562,14 @@ public struct AgentSessionAttachError: Error, Sendable, Equatable {
     }
 
     public static let needsKeyedStart = "agent_session.needs_keyed_start"
+    /// The refusal of a start on a teammate's Cloud machine (the card's New Cloud Machine, startRefusal.ts).
+    public static let teamMachine = "agent_session.team_vm_blocked"
+
+    /// The code the card sees: an owner check's refusal (`host_unverified`) on a machine its link
+    /// says is a teammate's is that teammate refusal; every other code is as it came.
+    public static func classified(_ code: String, teammate: Bool) -> String {
+        code == "agent_session.host_unverified" && teammate ? teamMachine : code
+    }
 }
 
 /// The current push handler, read on the transport's reader thread.

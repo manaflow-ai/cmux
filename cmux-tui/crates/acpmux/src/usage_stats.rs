@@ -166,8 +166,8 @@ struct Tail {
 impl Tail {
     /// Whether what was read covers the day before `now`, with nothing in it lost.
     fn covers_day(&self, now: u64) -> bool {
-        self.covered_from.is_some_and(|from| from == 0 || from + DAY_MS <= now)
-            && self.lost_at.is_none_or(|at| at + DAY_MS <= now)
+        self.covered_from.is_some_and(|from| from == 0 || from.saturating_add(DAY_MS) <= now)
+            && self.lost_at.is_none_or(|at| at.saturating_add(DAY_MS) <= now)
     }
 
     /// A record that should have counted could not be read: `at` is its time, else now.
@@ -228,7 +228,7 @@ impl Tracker {
         if self.main.is_none() && now >= self.look_again_at {
             match locate(source) {
                 Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
-                None => self.look_again_at = now + LOOK_AGAIN_MS,
+                None => self.look_again_at = now.saturating_add(LOOK_AGAIN_MS),
             }
         }
         let codex = source.family == "codex";
@@ -251,7 +251,7 @@ impl Tracker {
             self.main = Some(tail);
         }
         let cutoff = now.saturating_sub(DAY_MS);
-        self.minutes = self.minutes.split_off(&(cutoff - cutoff % MINUTE_MS));
+        self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
         self.main.as_ref()?;
@@ -260,15 +260,15 @@ impl Tracker {
 
     fn stats(&self, source: &Source, now: u64, window: Option<u64>) -> UsageStats {
         let known = |n: u64| self.complete.then_some(n);
-        let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0, false);
+        let (mut day, mut hour_spawns, mut priced) = (Bucket::default(), 0_u64, false);
         for (minute, b) in &self.minutes {
-            day.tokens += b.tokens;
+            day.tokens = day.tokens.saturating_add(b.tokens);
             day.cost_usd += b.cost_usd;
-            day.compactions += b.compactions;
-            day.spawns += b.spawns;
+            day.compactions = day.compactions.saturating_add(b.compactions);
+            day.spawns = day.spawns.saturating_add(b.spawns);
             priced |= b.priced;
-            if minute + MINUTE_MS > now.saturating_sub(HOUR_MS) {
-                hour_spawns += b.spawns;
+            if minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS) {
+                hour_spawns = hour_spawns.saturating_add(b.spawns);
             }
         }
         let (autocompact, autocompact_cap) = autocompact(source, window);
@@ -294,7 +294,8 @@ impl Tracker {
     }
 
     fn bucket(&mut self, at: u64, now: u64) -> Option<&mut Bucket> {
-        (at + DAY_MS > now).then(|| self.minutes.entry(at - at % MINUTE_MS).or_default())
+        (at.saturating_add(DAY_MS) > now)
+            .then(|| self.minutes.entry(at.saturating_sub(at % MINUTE_MS)).or_default())
     }
 
     fn claude_line(&mut self, line: &[u8], tail: &mut Tail, now: u64, main: bool, models: &Models) {
@@ -304,7 +305,7 @@ impl Tracker {
         // A line older than the window counts for nothing but, if it is the newest call, the
         // context: kept unparsed until the read ends (`settle_context`), as most of a long
         // chat's lines are, so its first read parses only the last day.
-        if let Some(at) = quick_timestamp(line).filter(|at| at + DAY_MS <= now) {
+        if let Some(at) = quick_timestamp(line).filter(|at| at.saturating_add(DAY_MS) <= now) {
             // What `parse_claude_line` takes as a call: a main-loop assistant line with usage and
             // a real model (an API error Claude Code makes up names `<synthetic>`).
             let reply = contains(line, b"\"type\":\"assistant\"")
@@ -368,12 +369,12 @@ impl Tracker {
         match counts {
             Counts::Compaction => {
                 if let Some(b) = self.bucket(at, now) {
-                    b.compactions += 1;
+                    b.compactions = b.compactions.saturating_add(1);
                 }
             }
             Counts::Spawn => {
                 if let Some(b) = self.bucket(at, now) {
-                    b.spawns += 1;
+                    b.spawns = b.spawns.saturating_add(1);
                 }
             }
             Counts::Tokens(t) => {
@@ -391,7 +392,7 @@ impl Tracker {
                 let model = t.model.clone().or_else(|| self.model.clone()).unwrap_or_default();
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
-                    b.tokens += t.total;
+                    b.tokens = b.tokens.saturating_add(t.total);
                     if let Some(cost) = cost {
                         b.cost_usd += cost;
                         b.priced = true;
@@ -436,7 +437,7 @@ impl Tracker {
             if agent.tail.path.as_os_str().is_empty() {
                 agent.tail.path = path.clone();
                 // Older than the window: nothing in it counts; never read.
-                if modified + DAY_MS <= now {
+                if modified.saturating_add(DAY_MS) <= now {
                     agent.done = true;
                     self.subagents.insert(path, agent);
                     continue;
@@ -455,12 +456,12 @@ impl Tracker {
             {
                 agent.spawned = true;
                 if let Some(b) = self.bucket(at, now) {
-                    b.spawns += 1;
+                    b.spawns = b.spawns.saturating_add(1);
                 }
             }
             complete &= read && tail.covers_day(now);
             agent.tail = tail;
-            agent.live = !finished && modified + LIVE_QUIET_MS > now;
+            agent.live = !finished && modified.saturating_add(LIVE_QUIET_MS) > now;
             agent.done = finished && read;
             self.subagents.insert(path, agent);
         }
@@ -542,7 +543,7 @@ enum Key {
 
 impl Tokens {
     fn cost(&self, p: &Prices) -> f64 {
-        let write_5m = self.cache_write - self.cache_write_1h;
+        let write_5m = self.cache_write.saturating_sub(self.cache_write_1h);
         (self.input as f64 * p.input
             + self.output as f64 * p.output
             + self.cache_read as f64 * p.cache_read
@@ -617,8 +618,8 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                     cache_read: read,
                     cache_write: write,
                     cache_write_1h: write_1h.and_then(Value::as_u64).unwrap_or(0).min(write),
-                    total: input + output + read + write,
-                    context: own.then_some(input + read + write),
+                    total: input.saturating_add(output).saturating_add(read).saturating_add(write),
+                    context: own.then_some(input.saturating_add(read).saturating_add(write)),
                     window: None,
                     key,
                 }))
@@ -667,7 +668,7 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                         cache_read: cached,
                         cache_write: 0,
                         cache_write_1h: 0,
-                        total: n(last, "total_tokens").unwrap_or(input + output),
+                        total: n(last, "total_tokens").unwrap_or(input.saturating_add(output)),
                         context: Some(input),
                         window: n(info, "model_context_window"),
                         key: Key::Total(total),
@@ -701,7 +702,7 @@ fn read_new(
     if tail.offset == 0 {
         if len > first {
             // One byte early: a cut that falls on a line start drops only that newline.
-            tail.offset = len - first - 1;
+            tail.offset = len.saturating_sub(first).saturating_sub(1);
             skip_to_line = true;
         } else {
             tail.covered_from = Some(0);
@@ -714,15 +715,16 @@ fn read_new(
         return false;
     }
     // This read reaches the end of the file as it is now; else a backlog stays for the next.
-    let to_end = len - tail.offset <= step;
+    let left = len.saturating_sub(tail.offset);
+    let to_end = left <= step;
     let mut buf = Vec::new();
-    if file.take(step.min(len - tail.offset)).read_to_end(&mut buf).is_err() {
+    if file.take(step.min(left)).read_to_end(&mut buf).is_err() {
         return false;
     }
     let Some(end) = memchr::memrchr(b'\n', &buf) else {
         if !to_end {
             // A line longer than a step: it cannot be read, so the day it falls in is unknown.
-            tail.offset += buf.len() as u64;
+            tail.offset = tail.offset.saturating_add(buf.len() as u64);
             tail.in_long_line = true;
             tail.lose(now);
         } else if skip_to_line {
@@ -742,9 +744,9 @@ fn read_new(
         }
         each(line, tail);
     }
-    tail.offset += end as u64 + 1;
+    tail.offset = tail.offset.saturating_add(end as u64).saturating_add(1);
     // Bytes past the last newline: a line still being written, read next time.
-    to_end && end + 1 == buf.len()
+    to_end && buf.len().checked_sub(1) == Some(end)
 }
 
 /// The chat's transcript: Claude's under its project folder (else any project
@@ -771,7 +773,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
             let sessions = home.join("sessions");
             let suffix = format!("-{sid}.jsonl");
             let day = source.created_at / DAY_MS;
-            let near = [day.saturating_sub(1), day, day + 1].map(|d| {
+            let near = [day.saturating_sub(1), day, day.saturating_add(1)].map(|d| {
                 let (y, m, d) = civil_from_days(d);
                 sessions.join(format!("{y:04}")).join(format!("{m:02}")).join(format!("{d:02}"))
             });
@@ -843,7 +845,7 @@ pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option
             if let Some(pct) = env("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
                 return match pct.trim().parse::<f64>().ok().filter(|p| *p > 0.0 && *p < 100.0) {
                     Some(pct) => {
-                        (Autocompact::Capped, window.map(|w| (w as f64 * pct / 100.0) as u64))
+                        (Autocompact::Capped, window.map(|w| whole_tokens(w as f64 * pct / 100.0)))
                     }
                     None => (Autocompact::Unknown, None),
                 };
@@ -891,7 +893,7 @@ fn flag(argv: &[String], name: &str) -> Option<String> {
     let mut found = None;
     for (i, arg) in argv.iter().enumerate() {
         if arg == name {
-            found = argv.get(i + 1).cloned();
+            found = argv.get(i.saturating_add(1)).cloned();
         } else if let Some(v) = arg.strip_prefix(name).and_then(|r| r.strip_prefix('=')) {
             found = Some(v.to_owned());
         }
@@ -908,15 +910,23 @@ fn tokens(text: &str) -> Option<u64> {
         None => t.strip_suffix('m').map_or((t.as_str(), 1.0), |d| (d, 1_000_000.0)),
     };
     let n = digits.trim().parse::<f64>().ok().filter(|n| n.is_finite() && *n > 0.0)?;
-    Some((n * scale) as u64)
+    Some(whole_tokens(n * scale))
+}
+
+/// A token count from a computed one: its whole part, saturating at the ends.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "f64 to u64 `as` drops the fraction and saturates; a token count wants just that"
+)]
+fn whole_tokens(n: f64) -> u64 {
+    n as u64
 }
 
 /// A record's `"timestamp":"…"` found without parsing the line: Claude Code writes it on
 /// every line, after the message, so the last one is the record's own.
 fn quick_timestamp(line: &[u8]) -> Option<u64> {
     const KEY: &[u8] = b"\"timestamp\":\"";
-    let start = memchr::memmem::rfind(line, KEY)? + KEY.len();
-    let rest = line.get(start..)?;
+    let rest = line.get(memchr::memmem::rfind(line, KEY)?..)?.strip_prefix(KEY)?;
     let len = memchr::memchr(b'"', rest)?;
     crate::server::machine_health::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
 }
@@ -925,8 +935,8 @@ fn quick_timestamp(line: &[u8]) -> Option<u64> {
 /// names them); None when the line names none.
 fn quick_message_id(line: &[u8]) -> Option<String> {
     const KEY: &[u8] = b"\"id\":\"msg_";
-    let start = memchr::memmem::find(line, KEY)? + KEY.len() - 4;
-    let rest = line.get(start..)?;
+    // From `msg_`, the id's own start.
+    let rest = line.get(memchr::memmem::find(line, KEY)?..)?.strip_prefix(b"\"id\":\"")?;
     let len = memchr::memchr(b'"', rest)?;
     String::from_utf8(rest.get(..len)?.to_vec()).ok()
 }
@@ -942,7 +952,7 @@ fn field<'a>(record: &'a Value, key: &str) -> &'a Value {
 /// (unknown), never a count of 0. Only a line with an escape, within the day, is parsed.
 fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
     let at = quick_timestamp(line);
-    if !contains(line, b"\\u") || at.is_some_and(|at| at + DAY_MS <= now) {
+    if !contains(line, b"\\u") || at.is_some_and(|at| at.saturating_add(DAY_MS) <= now) {
         return;
     }
     let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
@@ -981,17 +991,10 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
     memchr::memmem::find(hay, needle).is_some()
 }
 
-/// The proleptic Gregorian date of a day count since 1970-01-01 (Howard Hinnant's algorithm).
+/// The proleptic Gregorian date of a day count since 1970-01-01.
 fn civil_from_days(days: u64) -> (i64, u32, u32) {
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
+    // A day of a unix-ms time (at most ~2.1e11) always fits an i64.
+    crate::server::civil_from_days(i64::try_from(days).unwrap_or(i64::MAX))
 }
 
 #[cfg(test)]

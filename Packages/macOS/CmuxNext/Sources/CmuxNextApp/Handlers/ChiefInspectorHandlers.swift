@@ -201,10 +201,9 @@ enum ChiefInspectorHandlers {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }
         let surface = try await browserTabs.open(choice, in: anchor, url: url.absoluteString, profile: nil)
-        let spawn = context.services.newColumnWidth(nextTo: anchor)
+        let width = context.services.newColumnWidth(nextTo: anchor)
         do {
-            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: spawn.width)
-            spawn.commit()
+            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), afterColumn: nil, width: width)
         } catch DaemonError.missingCapabilities {
             try await connection.split(handle, direction: .right, movingTab: surface)
         }

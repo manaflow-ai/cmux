@@ -185,10 +185,12 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     const sent = new Promise<void>((resolve) => (prompted = resolve));
     await page.keyboard.press("Enter");
     await sent;
+    // The picked links went in the prompt at its caret, before the words typed after them, and the
+    // prompt goes in that order.
     expect(prompts[0]).toEqual([
-      { type: "text", text: "Compare these" },
       { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },
       { type: "resource_link", uri: "file:///home/dev/notes/release%20notes.md", name: "release notes.md" },
+      { type: "text", text: "Compare these" },
     ]);
     await context.close();
   });
