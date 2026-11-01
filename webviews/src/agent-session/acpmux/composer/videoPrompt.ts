@@ -68,14 +68,12 @@ export function videoFrameBlocks(attachment: ComposerAttachment): PromptBlock[] 
         video.frames.map((frame) => frame.atMs),
       ),
     },
-    ...video.frames.map(
-      (frame): PromptBlock => ({
-        type: "image",
-        mimeType: "image/jpeg",
-        data: frame.data,
-        name: frameName(attachment.name, frame.atMs),
-      }),
-    ),
+    ...video.frames.map((frame): PromptBlock => ({
+      type: "image",
+      mimeType: "image/jpeg",
+      data: frame.data,
+      name: frameName(attachment.name, frame.atMs),
+    })),
   ];
 }
 
