@@ -348,14 +348,15 @@ def bars_ok(red, blue):
 
 def check_show_again():
     """show.again: hide the page (a new workspace) and show it again; its last frame must show at once."""
+    probe_ws = ((rpc("snapshot.get") or {}).get("topology") or {}).get("focus", {}).get("workspace")
     created = action("workspace.newAtBottom")
     if not wait(lambda: page_rect() is None, 5, 0.05):
         row("show.again", False, {"note": "the page still shows after workspace.newAtBottom", "reply": json.dumps(created)[:200]})
         return
     time.sleep(0.5)  # test harness: the hidden page window's deferred hide and Widget::Hide run
-    # The probe's workspace is the last used one (openBrowser.chromium may open the probe in a workspace of its own,
-    # so selectFirst showed the launch's terminal workspace and every later row read no page).
-    back = action("workspace.selectLastUsed")
+    # Back to the probe's own workspace (openBrowser.chromium may open the probe in a workspace of its own, so
+    # selectFirst showed the launch's terminal workspace and every later row read no page).
+    back = action("goToWorkspace", {"workspace": probe_ws}) if probe_ws else action("workspace.selectFirst")
     # Right after the reply: the screen first (what the display shows), then the app's own window image.
     screen = capture_bars("show-again-screen")
     shot = os.path.join(opts.out, f"verify-{opts.mode}-show-again-window.png")
