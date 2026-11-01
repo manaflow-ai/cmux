@@ -99,6 +99,7 @@ extension ContentView {
     )
     static let commandPaletteLaunchClaudeTeamsCommandID = "palette.launchClaudeTeams"
     static let commandPaletteLaunchCodexTeamsCommandID = "palette.launchCodexTeams"
+    static let commandPaletteLaunchOpenCodeCommandID = "palette.launchOpenCode"
 
     /// Builds launcher commands from availability already resolved away from the main actor.
     static func commandPaletteAgentLauncherContributions(
@@ -138,6 +139,20 @@ extension ContentView {
                 when: canLaunchFromCurrentWorkspace
             ))
         }
+        if availableProviders.contains(.opencode) {
+            contributions.append(CommandPaletteCommandContribution(
+                commandId: commandPaletteLaunchOpenCodeCommandID,
+                title: { _ in
+                    String(
+                        localized: "agentSession.provider.opencode",
+                        defaultValue: "OpenCode"
+                    )
+                },
+                subtitle: { _ in "cmux omo" },
+                keywords: ["opencode", "omo", "agent", "launcher"],
+                when: canLaunchFromCurrentWorkspace
+            ))
+        }
         return contributions
     }
 
@@ -158,6 +173,9 @@ extension ContentView {
         }
         registry.register(commandId: Self.commandPaletteLaunchCodexTeamsCommandID) {
             startCommandPaletteAgentLauncherActivation(provider: .codex, subcommand: "codex-teams")
+        }
+        registry.register(commandId: Self.commandPaletteLaunchOpenCodeCommandID) {
+            startCommandPaletteAgentLauncherActivation(provider: .opencode, subcommand: "omo")
         }
     }
 
