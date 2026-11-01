@@ -80,6 +80,10 @@ struct SidebarCmdNumberTwiceTests {
             services.home.ensureHomeWorkspace(connection)
             try await PinnedPageTests.until({ services.home.homeWorkspace != nil }, within: .seconds(60),
                                             report: { "no home workspace: \(services.home.homeWorkspaceStep)" })
+            // What a parallel run does: another suite binds its own AppServices meanwhile (SidebarMenuLookTests.menu,
+            // and every AppActions.bind), whose first sidebarLayout read sets the process-wide SidebarDocStore.current.
+            let other = AppServices(environment: AppEnvironment.current([:]))
+            AppActions.bind(other)
             try await PinnedPageTests.until({ Self.topItemsSettled(window, services) }, within: .seconds(30), report: {
                 "the sidebar's top items never settled: " + Self.report(window, services, picked: nil, orderAtPick: nil)
             })
