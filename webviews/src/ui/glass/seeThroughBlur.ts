@@ -2,9 +2,9 @@
 // OVER THE WINDOW GLASS"; Leo 2026-10-30: "I don't like the non-glassness"). Chromium draws a
 // backdrop-filter's blurred copy over the page's own pixels, not in their place, so over a clear
 // page the text under the glass stays sharp and reads through its tint. Here the elements under the
-// glass blur themselves instead: each sibling of the surface it covers gets a CSS `filter` (an SVG
-// filter this module writes) that blurs that element's own pixels inside the surface's rounded
-// rect and leaves the rest of it untouched. The text under the glass is then blurred in place, as
+// glass blur themselves instead: each element it covers (its siblings, or a list the caller
+// names) gets a CSS `filter` (an SVG filter this module writes) that blurs that element's own
+// pixels inside the surface's rounded rect and leaves the rest of it untouched. The text under the glass is then blurred in place, as
 // WebKit's backdrop draws it, and the glass needs no underlay to hide it (glass.css drops the
 // underlay of a surface that carries data-glass-over). glass.css applies the filter only in a
 // see-through Chromium page outside the lens and Reduce Transparency; an opaque page's backdrop
