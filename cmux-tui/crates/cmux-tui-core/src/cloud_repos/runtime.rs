@@ -73,19 +73,20 @@ impl<'a> Runtime<'a> {
 
     fn seed_failure(&self, value: &Value, repo: &str) -> Result<Failure, Failure> {
         let mut failure = super::engine::seed_failure(value);
-        if failure.0.get("code").and_then(Value::as_str) == Some("repo.needs_github") {
+        // Read the raw seed code: the engine may reject its unsafe/missing
+        // URL, but the connector and the Mac can still supply a trusted one.
+        let code = value
+            .get("error_code")
+            .and_then(Value::as_str)
+            .or_else(|| value.get("code").and_then(Value::as_str));
+        if matches!(code, Some("seed.needs_github" | "repo.needs_github")) {
             // A linked installation can still exclude this organization or
             // repo. Its recovery is access, not reconnecting the same account.
             let catalog = self.connector(Some(repo))?;
             if let Some(url) = catalog.install_url {
                 failure = Failure::needs_github(&url);
             } else {
-                let url = value
-                    .get("install_url")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_owned)
-                    .or(store::install_url(self.mux)?);
+                let url = self.optional_install_url(value)?;
                 failure = Failure::new(
                     "repo.no_access",
                     "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
@@ -96,6 +97,10 @@ impl<'a> Runtime<'a> {
                 if let Some(url) = url {
                     failure.0.set("install_url", json!(url));
                 }
+            }
+        } else if failure.0["code"] == "repo.no_access" {
+            if let Some(url) = self.optional_install_url(value)? {
+                failure.0.set("install_url", json!(url));
             }
         }
         Ok(failure)
@@ -114,19 +119,20 @@ impl<'a> Runtime<'a> {
         }
     }
 
+    fn optional_install_url(&self, response: &Value) -> Result<Option<String>, Failure> {
+        // The Mac obtained this link as the signed-in user; prefer it to
+        // links carried by a connector or seed error. Both paths are checked.
+        Ok(store::install_url(self.mux)?.or_else(|| {
+            response
+                .get("install_url")
+                .and_then(Value::as_str)
+                .filter(|url| super::engine::valid_install_url(url))
+                .map(str::to_owned)
+        }))
+    }
+
     fn install_url(&self, response: &Value) -> Result<String, Failure> {
-        response
-            .get("install_url")
-            .and_then(Value::as_str)
-            .filter(|url| !url.is_empty())
-            .map(str::to_owned)
-            .or(store::install_url(self.mux)?)
-            .ok_or_else(|| {
-                Failure::new(
-                    "seed.bad_request",
-                    "Open Add repository on your Mac to connect GitHub, then retry.",
-                )
-            })
+        self.optional_install_url(response)?.ok_or_else(super::engine::install_link_required)
     }
 }
 impl Backend for Runtime<'_> {
@@ -173,14 +179,10 @@ impl Backend for Runtime<'_> {
                         "Retry repository discovery. If it still fails, reconnect GitHub from Add repository."
                     },
                 );
-                if code == "repo.no_access"
-                    && let Some(url) = error
-                        .get("install_url")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .or(store::install_url(self.mux)?)
-                {
-                    failure.0.set("install_url", json!(url));
+                if code == "repo.no_access" {
+                    if let Some(url) = self.optional_install_url(error)? {
+                        failure.0.set("install_url", json!(url));
+                    }
                 }
                 return Err(failure);
             }
@@ -320,7 +322,7 @@ impl Backend for Runtime<'_> {
                     return Err(self.seed_failure(&status, repo)?);
                 }
                 Some("running") if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(250));
+                    std::thread::sleep(Duration::from_millis(250))
                 }
                 Some("running") => {
                     return Err(Failure::new(

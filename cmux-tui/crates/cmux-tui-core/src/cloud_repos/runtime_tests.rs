@@ -77,7 +77,10 @@ fn cloud_repo_runtime_connector_auth_error_keeps_connect_and_automatic_retry() {
         store::sync(&fixture.mux, &json!({"repos":[],"install_url":url})).unwrap();
         let mut error = json!({"code":"repo.needs_github"});
         if supplied_url {
-            error.set("install_url", json!(url));
+            error.set(
+                "install_url",
+                json!("https://github.com/apps/cmux/installations/new?state=connector"),
+            );
         }
         let unlinked = json!({"ok":false,"error":error});
         let agent = fixture.server(
@@ -429,4 +432,198 @@ fn cloud_repo_runtime_connector_pages_and_rejects_repeated_cursor() {
     let asks = agent.join().unwrap();
     assert_eq!(asks[1], json!({"github_repos":{"query":"tool","cursor":"page-2"}}));
     assert_eq!(asks[3], json!({"github_repos":{"cursor":"again"}}));
+}
+
+#[test]
+fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
+    let trusted = "https://github.com/apps/cmux/installations/new?state=mac";
+    let response_url = "https://github.com/apps/cmux/installations/new?state=connector";
+    for source in ["connect", "repo.needs_github", "repo.no_access"] {
+        for cached in [false, true] {
+            for url in [response_url, "https://github.com@evil.example/install"] {
+                let fixture = Fixture::new();
+                if cached {
+                    store::sync(&fixture.mux, &json!({"repos":[],"install_url":trusted})).unwrap();
+                }
+                let reply = if source == "connect" {
+                    json!({"ok":true,"repos":[],"connect":{"install_url":url}})
+                } else {
+                    json!({"ok":false,"error":{"code":source,"install_url":url}})
+                };
+                let agent = fixture.server("agent.sock", vec![reply]);
+                let runtime = fixture.runtime();
+                let expected = if cached {
+                    Some(trusted)
+                } else if url == response_url {
+                    Some(response_url)
+                } else {
+                    None
+                };
+                match runtime.connector(None) {
+                    Ok(catalog) => {
+                        assert_ne!(source, "repo.no_access");
+                        assert!(expected.is_some());
+                        assert_eq!(catalog.install_url.as_deref(), expected);
+                    }
+                    Err(failure) => {
+                        if source == "repo.no_access" {
+                            assert_eq!(failure.0["code"], "repo.no_access");
+                            assert_eq!(failure.0["install_url"].as_str(), expected);
+                        } else {
+                            assert!(expected.is_none());
+                            assert_eq!(failure.0["code"], "seed.bad_request");
+                            assert!(failure.0.get("install_url").is_none());
+                            assert!(failure.0["message"].as_str().unwrap().contains("Mac"));
+                        }
+                    }
+                }
+                assert_eq!(agent.join().unwrap().len(), 1);
+                // Connector replies never populate the Mac-owned cache.
+                assert_eq!(
+                    store::install_url(&fixture.mux).unwrap().as_deref(),
+                    cached.then_some(trusted)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cloud_repo_runtime_unsafe_connector_link_never_enters_list_wait_or_retry_card() {
+    let fixture = Fixture::new();
+    let unsafe_url = "https://user:secret@github.com:444/install";
+    let reply = json!({"ok":true,"repos":[],"connect":{"install_url":unsafe_url}});
+    let agent = fixture.server("agent.sock", vec![reply.clone(), reply.clone(), reply]);
+    let runtime = fixture.runtime();
+    for failure in [
+        list(&runtime, None).unwrap_err().0,
+        runtime.wait_github(0).unwrap_err().0,
+        add(&runtime, &json!({"session":fixture.session,"repo":"tool"})).unwrap_err().0,
+    ] {
+        assert_eq!(failure["code"], "seed.bad_request");
+        assert!(!failure.to_string().contains(unsafe_url));
+        assert!(failure.get("retry").is_none());
+    }
+    assert_eq!(agent.join().unwrap().len(), 3);
+}
+
+#[test]
+fn cloud_repo_runtime_seed_links_are_checked_without_losing_connect_recovery() {
+    let mac_url = "https://github.com/apps/cmux/installations/new?state=mac";
+    let seed_url = "https://github.com/apps/cmux/installations/new?state=seed";
+    let connector_url = "https://github.com/apps/cmux/installations/new?state=connector";
+    for details in [false, true] {
+        for cached in [false, true] {
+            for code in
+                ["seed.needs_github", "repo.needs_github", "seed.no_access", "repo.no_access"]
+            {
+                for url in [seed_url, "javascript:alert(1)"] {
+                    let fixture = Fixture::new();
+                    if cached {
+                        store::sync(&fixture.mux, &json!({"repos":[],"install_url":mac_url}))
+                            .unwrap();
+                    }
+                    let needs_github = code.ends_with("needs_github");
+                    let agent = needs_github.then(|| {
+                        fixture.server(
+                            "agent.sock",
+                            vec![json!({
+                                "ok":true,"repos":[],"connect":{"install_url":connector_url}
+                            })],
+                        )
+                    });
+                    let replies = if details {
+                        vec![
+                            json!({"ok":false,"error_code":code,"error_details":{"install_url":url}}),
+                        ]
+                    } else {
+                        vec![
+                            seed_reply(json!({"job":"seed-link"})),
+                            seed_reply(json!({
+                                "state":"failed","error_code":code,"install_url":url
+                            })),
+                        ]
+                    };
+                    let seed = fixture.server("seed.sock", replies);
+                    let args = json!({"session":fixture.session,"repo":"owner/tool"});
+                    let failure = add(&fixture.runtime(), &args).unwrap_err().0;
+                    let expected = if cached {
+                        Some(mac_url)
+                    } else if needs_github {
+                        Some(connector_url)
+                    } else if url == seed_url {
+                        Some(seed_url)
+                    } else {
+                        None
+                    };
+                    assert_eq!(failure["install_url"].as_str(), expected, "{failure}");
+                    assert_eq!(
+                        failure["code"],
+                        if needs_github { "repo.needs_github" } else { "repo.no_access" }
+                    );
+                    if needs_github {
+                        assert_eq!(failure["retry"]["args"], args);
+                        assert_eq!(failure["retry"]["wait_action"], "cloud.repo.wait_github");
+                    }
+                    assert_eq!(seed.join().unwrap().len(), if details { 1 } else { 2 });
+                    if let Some(agent) = agent {
+                        assert_eq!(agent.join().unwrap().len(), 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cloud_repo_runtime_stale_unsafe_cache_falls_back_to_validated_connector_link() {
+    let fixture = Fixture::new();
+    let mutation =
+        crate::WorkspaceMutation::new("old-link", "cloud.repo", crate::Actor::local_user())
+            .unwrap();
+    fixture.mux.put_frontend_projection(&mutation, "cloud-repos", "session", "catalog", 1, Some(0),
+        &json!({"local":[],"recent":[],"chats":{},"jobs":{},"install_url":"https://evil.example/install"})).unwrap();
+    let valid = "https://github.com/apps/cmux/installations/new?state=connector";
+    let agent = fixture
+        .server("agent.sock", vec![json!({"ok":true,"repos":[],"connect":{"install_url":valid}})]);
+    assert_eq!(list(&fixture.runtime(), None).unwrap()["connect"]["install_url"], valid);
+    assert!(store::install_url(&fixture.mux).unwrap().is_none());
+    assert_eq!(agent.join().unwrap().len(), 1);
+}
+
+#[test]
+fn cloud_repo_runtime_linked_seed_failure_uses_only_safe_org_install_link() {
+    let mac_url = "https://github.com/apps/cmux/installations/new?state=mac";
+    let seed_url = "https://github.com/apps/cmux/installations/new?state=seed";
+    for cached in [false, true] {
+        for url in [seed_url, "https://github.com.evil.example/install"] {
+            let fixture = Fixture::new();
+            if cached {
+                store::sync(&fixture.mux, &json!({"repos":[],"install_url":mac_url})).unwrap();
+            }
+            let agent = fixture.server("agent.sock", vec![json!({"ok":true,"repos":[]})]);
+            let seed = fixture.server(
+                "seed.sock",
+                vec![json!({
+                    "ok":false,"error_code":"seed.needs_github","error_details":{"install_url":url}
+                })],
+            );
+            let failure =
+                add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"owner/tool"}))
+                    .unwrap_err()
+                    .0;
+            assert_eq!(failure["code"], "repo.no_access");
+            assert_eq!(failure["org"], "owner");
+            let expected = if cached {
+                Some(mac_url)
+            } else if url == seed_url {
+                Some(seed_url)
+            } else {
+                None
+            };
+            assert_eq!(failure["install_url"].as_str(), expected);
+            assert_eq!(agent.join().unwrap().len(), 1);
+            assert_eq!(seed.join().unwrap().len(), 1);
+        }
+    }
 }

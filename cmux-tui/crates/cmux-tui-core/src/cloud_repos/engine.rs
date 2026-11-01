@@ -24,10 +24,37 @@ impl Failure {
         Self(json!({"code":code,"message":message}))
     }
     pub fn needs_github(url: &str) -> Self {
+        if !valid_install_url(url) {
+            return install_link_required();
+        }
         Self(
             json!({"code":"repo.needs_github", "message":"Connect GitHub in the card. This add will retry automatically when connected; no new message is needed.", "install_url":url}),
         )
     }
+}
+
+/// All installation-link sources share this origin check. URL parsing strips
+/// some controls, so reject them before parsing rather than trusting its output.
+pub(super) fn valid_install_url(value: &str) -> bool {
+    value.trim() == value
+        && !value.chars().any(char::is_control)
+        && value.split_once("://").is_some_and(|(_, rest)| {
+            !rest.split(['/', '?', '#']).next().unwrap_or_default().contains('@')
+        })
+        && url::Url::parse(value).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str() == Some("github.com")
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.port().is_none()
+        })
+}
+
+pub(super) fn install_link_required() -> Failure {
+    Failure::new(
+        "seed.bad_request",
+        "Open Add repository on your Mac to refresh the GitHub installation link, then retry.",
+    )
 }
 
 pub(crate) trait Backend {
@@ -133,6 +160,9 @@ pub(crate) fn list(backend: &impl Backend, query: Option<&str>) -> Result<Value,
     let catalog = backend.connector(query)?;
     let mut result = json!({"repos":merge(sources.into_iter().chain(catalog.repos), query)});
     if let Some(url) = catalog.install_url {
+        if !valid_install_url(&url) {
+            return Err(install_link_required());
+        }
         result.set("connect", json!({"install_url":url}));
     }
     Ok(result)
@@ -264,10 +294,11 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
             "repo.no_access",
             "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
         );
-        for key in ["org", "install_url"] {
-            if let Some(v) = value.get(key) {
-                result.0.set(key, v.clone());
-            }
+        if let Some(org) = value["org"].as_str() {
+            result.0.set("org", json!(org));
+        }
+        if let Some(url) = value["install_url"].as_str().filter(|url| valid_install_url(url)) {
+            result.0.set("install_url", json!(url));
         }
         return result;
     }
