@@ -747,6 +747,14 @@ export type AcpmuxSnapshot = {
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
+  /// Agent ids whose usage/progress changed in this snapshot. This lets rows subscribe without
+  /// rescanning every agent on a token update.
+  subagentProgress?: Record<
+    string,
+    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+  >;
+  /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
+  subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
@@ -1063,9 +1071,13 @@ const LINE_ROW = LINE_FRAME + TOOL_ROW_HEIGHT;
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
+/// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
+/// the plain status gap above and below it.
+const NOTE_LINE = 20;
+const NOTE_GAP = 12;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
-  if (!tool) return 26;
+  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return TOOL_ROW_HEIGHT;
@@ -1165,7 +1177,7 @@ const chromeHeight = (row: AcpmuxRow, actions: boolean) =>
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
-    : // A reply's own action row (MessageActions.tsx ReplyActions): the meta gap, then its line.
+    : // The room a reply keeps under its text (`keepsReplyRoom`): the meta gap, then a meta row's line.
       actions
       ? META_GAP + META_ROW
       : 0;
@@ -1284,6 +1296,22 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
 /// callers' height plumbing stays until ReplyActions goes in a follow-up.
 export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
+/// Whether a reply keeps the room its own action row took on 2026-10-30 (its meta gap and 24px line,
+/// then the message gap: 36px under its text) though it draws no row there now. Leo, 2026-11-01, on a
+/// capture of that build: "i like this spacing kinda i prefer it to what we have now tho it's just
+/// minor differences". Every finished reply with text that something follows (a prompt, a steer,
+/// another agent's message, a tool run), as `hasReplyActions` read it then; never the reply over its
+/// turn's footer (the footer is its row), nor one still streaming. Inside an opened "Worked for"
+/// (`settled`) only a reply to the person (`foldedReply`, which kept its action row) keeps it; a short
+/// note there stays quiet. So a turn's end, which marks its earlier replies settled, moves nothing. App.tsx marks the rows `acpmux-row--reply-room` (conversation.css
+/// `--cv-reply-room`); the estimate counts it as the action row's chrome.
+export const keepsReplyRoom = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  next !== undefined &&
+  !isBeforeFooter(row, next) &&
+  row.streaming !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
+  (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
@@ -1335,7 +1363,8 @@ export const statusEdge = (
   prev: AcpmuxRow | undefined,
 ): StatusEdge | undefined =>
   row.kind === "assistant"
-    ? isStatusRow(next) && !isBeforeFooter(row, next)
+    ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
+      isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
       ? hasReplyActions(row, next)
         ? "before-status"
         : "before-status-plain"
@@ -1415,12 +1444,12 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === WORKING ||
     next.kind === THINKING ||
     next.kind === ACTIVITY_LINE);
-/// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
-/// `hasReplyActions`), as one key.
+/// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
+/// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
   const status = statusEdge(row, next, prev);
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
-  return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
+  return keepsReplyRoom(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
 const STATUS_EDGE = "+";
 const ACTIONS_EDGE = "+actions";
@@ -1744,7 +1773,7 @@ function measuredRowHeight(
   lastTurn = false,
   sessionId?: string,
   continuation = false,
-  /// Whether a reply draws its own action row (`hasReplyActions`).
+  /// Whether a reply keeps its action row's room (`keepsReplyRoom`).
   actions = false,
 ): number {
   const finish = (height: number) =>

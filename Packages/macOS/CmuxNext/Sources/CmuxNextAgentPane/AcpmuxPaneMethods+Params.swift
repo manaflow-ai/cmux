@@ -119,6 +119,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
+        // A Cloud chat's sign-in (cloudAgentLogin.ts): `agent` is `claude` or `codex`; `code` is
+        // Claude's pasted code, `key` an API key, both kept out of every log; `sessionId` the chat.
+        "_acpmux/agent_login/start": (["agent", "sessionId"], []),
+        "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
+        "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
+        "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),

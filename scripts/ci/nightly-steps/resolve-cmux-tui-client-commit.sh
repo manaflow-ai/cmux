@@ -8,7 +8,8 @@
 # commit, so the resolved commit must carry the same file: run
 # 37568319518 called a dSYM script its older build commit lacked.
 # Preserve Chief lockfile repairs too: run 37724899486 selected an
-# older published revision and failed cargo build --locked.
+# older published revision and failed cargo build --locked. The step
+# scripts the workflow calls from that checkout must be the tip's (#30912).
 set -euo pipefail
 # Prints commit=, key=, source_commit=, tip_key=, behind= and
 # behind_hours= lines and writes them to the step summary.
