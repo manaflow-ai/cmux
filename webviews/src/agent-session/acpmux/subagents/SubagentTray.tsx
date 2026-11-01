@@ -85,6 +85,9 @@ const ROW_ICON = rowIconSize(12);
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
+/// A line's menu with nothing to stop.
+const NO_STOP: readonly ContextMenuItem[] = [];
+
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const SubagentTray = memo(function SubagentTray({
   items,
@@ -363,11 +366,12 @@ export const SubagentTray = memo(function SubagentTray({
     </section>
   );
 
-  /// A line with its context menu, when it has something to stop; else the line alone.
+  /// A line in its context menu's host. The host stays when there is nothing to stop (no items, so a
+  /// right-click keeps the default and no menu opens): a line that ends, or whose command's process
+  /// id arrives, is the same node, and keeps its focus (#28533's review).
   function menu(node: ReactElement, item: ContextMenuItem | false | undefined | "" | null) {
-    if (!item) return node;
     return (
-      <ContextMenu className="acpmux-running-tray__menu" items={[item]}>
+      <ContextMenu className="acpmux-running-tray__menu" items={item ? [item] : NO_STOP}>
         {node}
       </ContextMenu>
     );

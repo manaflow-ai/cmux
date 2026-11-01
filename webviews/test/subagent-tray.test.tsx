@@ -687,7 +687,7 @@ describe("a tray line says what it is and what a click does", () => {
 
   // #28533's review: a Stop on every running line is a control repeated down the rows, a block on
   // Leo's visual rule. Each line stops from its own context menu instead (a right-click, or Shift-F10
-  // on the focused line); a line with nothing to stop has no menu.
+  // on the focused line); a line with nothing to stop opens no menu.
   test("no line carries a Stop at rest; each running subagent stops from its own menu", async () => {
     const now = Date.now();
     const stopped: string[] = [];
