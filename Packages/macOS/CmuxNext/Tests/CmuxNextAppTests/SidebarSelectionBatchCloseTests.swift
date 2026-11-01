@@ -408,7 +408,7 @@ struct SidebarSelectionBatchCloseTests {
 }
 
 /// Spinning threads that take the host's cores, as a parallel run of the whole target does (evidence only).
-private final class CPULoad: @unchecked Sendable {
+nonisolated private final class CPULoad: @unchecked Sendable {
     private let lock = NSLock()
     private var running = true
 
@@ -417,7 +417,7 @@ private final class CPULoad: @unchecked Sendable {
         for _ in 0..<(ProcessInfo.processInfo.activeProcessorCount * 3) {
             Thread.detachNewThread { [self] in
                 var x = 0.0
-                while self.isRunning, Date() < end { x += 1 }
+                while isRunning, Date() < end { x += 1 }
                 _ = x
             }
         }
