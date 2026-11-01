@@ -552,4 +552,47 @@ struct SecondCreationKeysTests {
             #expect(inOrder, "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
         }
     }
+
+    /// P0 1193 (re-review of #29693 at bc84781571b, lead 00:2xZ): two typing runs held for one terminal whose view is gone
+    /// (keys for another terminal typed between them) reach that terminal in the order they were typed. Each run is its
+    /// own daemon send; before, a run of more than one request ("ab", then Return) could let the next run ("cd") in
+    /// between its requests, so the shell got "ab", "cd", Return.
+    @Test func twoHeldRunsForAnEvictedTerminalKeepTheirOrder() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 5, on: p.first.surface, in: p)
+            // Two creations with no early view: every key below waits, on any build.
+            let first = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let second = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.second.tab))
+            var held = try Self.type("ab", in: p)
+            held.append(try Self.press("\r", [], keyCode: 36, in: p)) // run 1 for the first terminal: "ab", then Return
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            held += try Self.type("x", in: p) // for the second terminal, between the two runs
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            held += try Self.type("cd", in: p) // run 2 for the first terminal
+            try #require(held.allSatisfy { $0 }, "the test needs every key held: \(held)")
+
+            // Another workspace shows and the first one hibernates: both terminals lose their views, so the daemon types.
+            let store = p.services.machines.local.store
+            let firstWorkspace = try #require(store.workspace(containing: p.first.pane.pane.handle)?.id, "the first terminal's pane is in no workspace")
+            #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
+                                            report: { "waited for another workspace in the window; it still shows the first one" })
+            p.services.hibernateWorkspace(firstWorkspace)
+            try await PinnedPageTests.until({ p.services.cache.existingTerminal(p.first.tab) == nil }, within: .seconds(5), report: {
+                "waited for the first terminal's view to be evicted; it is still in the content cache"
+            })
+            coordinator.resolve(first, landed: true, in: p.window)
+            coordinator.resolve(second, landed: true, in: p.window)
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) }, within: .seconds(5), report: {
+                "waited for the hold to end after the replies; saw end \(String(describing: coordinator.lastHoldEnd(in: p.window)))"
+            })
+            // The reader prints the hex of the 5 bytes it got: a b Return c d, in that order.
+            let inOrder = try await Self.readerGot("K42x\(nonce)61620d6364K", on: p.first.surface, in: p)
+            let screen = await Self.screen(p.first.surface, in: p)
+            #expect(inOrder, "the two runs held for the evicted terminal did not arrive as typed (61 62 0d 63 64): \(screen.suffix(300))")
+        }
+    }
 }
