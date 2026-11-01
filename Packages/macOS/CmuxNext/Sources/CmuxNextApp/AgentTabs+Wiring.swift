@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFloating
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.ChatColumnPlacement
@@ -115,10 +116,7 @@ extension AgentTabStore {
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
-            let value = try await services.daemon.perform("cloud.repo.local") { connection in
-                try await connection.request(AgentPaneCloudRepositoryLocalRequest(), timeout: .seconds(30))
-            }
-            return try JSONEncoder().encode(value)
+            return try await services.daemon.cloudRepositoryLocal()
         }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the

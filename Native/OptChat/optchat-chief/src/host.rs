@@ -1310,6 +1310,22 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Continue => {
+                let (reply, answer) = channel();
+                tx.send(Input::Continue { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Retry(message) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Retry { message, reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;

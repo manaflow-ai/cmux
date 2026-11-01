@@ -24,6 +24,7 @@ struct SidebarSlideHoldsContentTests {
     /// and is sized in `layout()`, so a frame change reaches it only on the next layout pass.
     private final class DeferredLayoutContent: NSView {
         let child = SettleProbe()
+        var resizedWidths: [CGFloat] = []
         override init(frame: NSRect) {
             super.init(frame: frame)
             child.autoresizingMask = []
@@ -34,6 +35,11 @@ struct SidebarSlideHoldsContentTests {
         override func layout() {
             super.layout()
             child.frame = bounds
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            if newSize.width != frame.width { resizedWidths.append(newSize.width) }
+            super.setFrameSize(newSize)
         }
     }
 
@@ -185,6 +191,37 @@ struct SidebarSlideHoldsContentTests {
             root.sidebar.isWidthAnimating = false
             let landed = root.contentHost.bounds.width
             #expect(content.child.settledWidths == [landed], "settled at \(content.child.settledWidths), landed at \(landed)")
+        }
+    }
+
+    /// A completion can arrive before Auto Layout has applied the final sidebar constraint. The
+    /// content hold must be released after that layout, so a terminal sees one final width rather
+    /// than a stale held width followed by a correction on the next pass.
+    @Test func pendingFinalLayoutReleasesContentOnlyAtItsFinalWidth() throws {
+        try withHold(true) {
+            let (window, root, _) = openRoot()
+            defer { window.close() }
+            let content = DeferredLayoutContent()
+            root.show(content)
+            root.layoutSubtreeIfNeeded()
+            content.frame = root.contentHost.bounds
+            let sidebar = root.sidebar.frame.width
+            root.sidebar.isWidthAnimating = true
+            root.sidebar.onWidthMotionStart?(sidebar, 0)
+            frame(root, width: sidebar / 2)
+            root.sidebar.onWidthMotionStart?(sidebar / 2, sidebar)
+            content.resizedWidths = []
+            content.child.settledWidths = []
+            root.sidebar.widthConstraint.constant = sidebar
+            root.sidebar.isWidthAnimating = false
+            let finalWidth = root.contentHost.bounds.width
+            #expect(content.resizedWidths.isEmpty,
+                    "settlement performed an unnecessary width correction: \(content.resizedWidths)")
+            #expect(abs(content.frame.width - finalWidth) < 0.5)
+            #expect(content.child.settledWidths.allSatisfy { abs($0 - finalWidth) < 0.5 })
+            let writes = content.resizedWidths
+            root.layoutSubtreeIfNeeded()
+            #expect(content.resizedWidths == writes, "the next layout must not correct the width")
         }
     }
 

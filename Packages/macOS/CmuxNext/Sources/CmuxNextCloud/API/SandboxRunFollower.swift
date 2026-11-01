@@ -326,7 +326,8 @@ public final class SandboxRunFollower {
     }
 
     private func save() {
-        let saved = Saved(following: following, ended: ended, cancelled: cancelledHere)
+        // Nothing of an incognito chat's tasks outlives this run (leo-workspace design/spaces.md "Incognito").
+        let saved = Saved(following: following.filter { $0.incognito != true }, ended: ended.filter { $0.record.incognito != true }, cancelled: cancelledHere)
         if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: source.defaultsKey) }
     }
 

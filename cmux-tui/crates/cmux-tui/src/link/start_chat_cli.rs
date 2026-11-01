@@ -54,6 +54,7 @@ mod pick;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -159,6 +160,31 @@ pub(super) fn valid_key(key: &str) -> bool {
 
 fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
+}
+
+#[allow(clippy::arithmetic_side_effects, reason = "epoch milliseconds conversion")]
+fn now_millis() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs_f64() * 1_000.0)
+        .unwrap_or_default()
+}
+
+/// Copy timing belongs to the clone row, never machine creation or harness startup.
+fn copy_progress(
+    mut answer: Value,
+    state: &str,
+    phase: &str,
+    started_at: f64,
+    finished_at: f64,
+) -> Value {
+    if let Some(object) = answer.as_object_mut() {
+        object.insert("seed_state".into(), json!(state));
+        object.insert("seed_phase".into(), json!(phase));
+        object.insert("seed_started_at".into(), json!(started_at));
+        object.insert("seed_finished_at".into(), json!(finished_at));
+    }
+    answer
 }
 
 /// The account a send began in, as the App spells it: printable, at most 512 bytes.
@@ -279,7 +305,7 @@ pub(super) fn plan_with(
             let ask = Ensure {
                 // A send from no Mac workspace is a workspace of its own.
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
-                create_key: keys.create.clone(),
+                create_key: keys.create,
                 repo: repo.clone().unwrap_or_default(),
                 git_ref: None,
                 environment: request.environment.clone(),
@@ -749,6 +775,31 @@ impl StartCopy {
     /// over a chat's changes. An abandoned folder (its send never retried
     /// on that machine) stays on the machine; nothing cleans it up.
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
+        let started_at = now_millis();
+        let answer = self.run_copy(ledger, push);
+        let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
+            (
+                "done",
+                if answer.get("copied").and_then(Value::as_bool) == Some(false) {
+                    "cached"
+                } else {
+                    "complete"
+                },
+            )
+        } else {
+            (
+                "failed",
+                if answer.get("error_code").and_then(Value::as_str) == Some("ledger_failed") {
+                    "ledger"
+                } else {
+                    "copy"
+                },
+            )
+        };
+        copy_progress(answer, state, phase, started_at, now_millis())
+    }
+
+    fn run_copy(&self, ledger: &Path, push: &Push<'_>) -> Value {
         if too_broad(&self.local, std::env::var_os("HOME").map(PathBuf::from).as_deref()) {
             return refused(
                 "folder_too_broad",
