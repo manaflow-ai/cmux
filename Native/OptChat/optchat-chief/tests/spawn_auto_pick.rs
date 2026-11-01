@@ -65,7 +65,14 @@ fn each_kind_picks_its_harness() {
     let fam = families();
     // A Claude Chief: code goes to codex, writing stays on claude (no
     // route), review crosses to the other family.
-    let code = pick("fix the failing cargo test", "claude", &fam, &all, &none_offered).unwrap();
+    let code = pick(
+        "fix the failing cargo test",
+        "claude",
+        &fam,
+        &all,
+        &none_offered,
+    )
+    .unwrap();
     assert_eq!(code.harness, "codex");
     assert_eq!(code.kind, TaskKind::Code);
     assert!(pick("write the design doc", "claude", &fam, &all, &none_offered).is_none());
@@ -77,20 +84,61 @@ fn each_kind_picks_its_harness() {
     assert_eq!(doc.harness, "claude");
     let review = pick("review the PR", "codex", &fam, &all, &none_offered).unwrap();
     assert_eq!(review.harness, "claude");
-    assert!(pick("fix the failing cargo test", "codex", &fam, &all, &none_offered).is_none());
+    assert!(
+        pick(
+            "fix the failing cargo test",
+            "codex",
+            &fam,
+            &all,
+            &none_offered
+        )
+        .is_none()
+    );
     // Mechanical: a small model when the harness offers one.
     let haiku = |_: &str| vec!["claude-opus-5-5".to_owned(), "claude-haiku-5-5".to_owned()];
-    let small = pick("wait for the run and relay its status", "claude", &fam, &all, &haiku).unwrap();
+    let small = pick(
+        "wait for the run and relay its status",
+        "claude",
+        &fam,
+        &all,
+        &haiku,
+    )
+    .unwrap();
     assert_eq!(small.harness, "claude");
     assert_eq!(small.model.as_deref(), Some("claude-haiku-5-5"));
     assert!(
-        pick("wait for the run and relay its status", "claude", &fam, &all, &none_offered).is_none()
+        pick(
+            "wait for the run and relay its status",
+            "claude",
+            &fam,
+            &all,
+            &none_offered
+        )
+        .is_none()
     );
     // Only a harness acpmux has and the grant allows.
     let no_codex = |h: &str| h != "codex";
-    assert!(pick("fix the failing cargo test", "claude", &fam, &no_codex, &none_offered).is_none());
+    assert!(
+        pick(
+            "fix the failing cargo test",
+            "claude",
+            &fam,
+            &no_codex,
+            &none_offered
+        )
+        .is_none()
+    );
     let claude_only = BTreeMap::from([("claude".to_owned(), Family::Claude)]);
-    assert!(pick("fix the failing cargo test", "claude", &claude_only, &all, &none_offered).is_none());
+    assert!(
+        pick(
+            "fix the failing cargo test",
+            "claude",
+            &claude_only,
+            &all,
+            &none_offered
+        )
+        .is_none()
+    );
     // Unclear: stay.
     assert!(pick("hello there", "claude", &fam, &all, &none_offered).is_none());
 }
@@ -168,7 +216,10 @@ fn a_spawn_routes_each_task_only_when_routing_is_on() {
     // Off (the default): every task on the Chief's subagent harness.
     let a = sp.clone();
     let t = tasks();
-    let off = run(&mut h, move || a.spawn_with_route(t, None, None, None, None, None)).unwrap();
+    let off = run(&mut h, move || {
+        a.spawn_with_route(t, None, None, None, None, None)
+    })
+    .unwrap();
     assert!(!off.contains("Routed"), "{off}");
     assert_eq!(sub_harnesses(&h), vec!["claude", "claude"]);
 
@@ -184,7 +235,10 @@ fn a_spawn_routes_each_task_only_when_routing_is_on() {
     .unwrap();
     let a = sp.clone();
     let t = tasks();
-    let on = run(&mut h, move || a.spawn_with_route(t, None, None, None, None, None)).unwrap();
+    let on = run(&mut h, move || {
+        a.spawn_with_route(t, None, None, None, None, None)
+    })
+    .unwrap();
     assert!(on.contains("Routed to codex"), "{on}");
     assert!(on.contains("code task"), "{on}");
     let mut routed = sub_harnesses(&h)[2..].to_vec();

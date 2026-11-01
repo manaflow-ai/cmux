@@ -663,10 +663,7 @@ impl Spawner {
     }
 
     /// The harnesses the automatic picker chooses from, with their families.
-    pub fn with_families(
-        mut self,
-        families: BTreeMap<String, crate::acpmux::Family>,
-    ) -> Spawner {
+    pub fn with_families(mut self, families: BTreeMap<String, crate::acpmux::Family>) -> Spawner {
         self.families = families;
         self
     }
@@ -735,11 +732,7 @@ impl Spawner {
             }
         }
         let text = parts.join("\n\n");
-        if any {
-            Ok(text)
-        } else {
-            Err(text)
-        }
+        if any { Ok(text) } else { Err(text) }
     }
 
     fn engine_choice(&self) -> crate::engine::EngineChoice {
