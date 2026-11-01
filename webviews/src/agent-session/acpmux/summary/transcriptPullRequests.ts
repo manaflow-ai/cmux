@@ -410,7 +410,7 @@ export function transcriptPullRequestKey(rows: readonly AcpmuxRow[], replies = f
 export type TranscriptPullRequestOptions = {
   /// The chat folder's GitHub repository (`owner/name`), for a bare number.
   folder?: string;
-  /// Read the agent's replies for mentions too (the Inspector); the composer's pull request bars
+  /// Read the agent's replies for mentions too (Session Info); the composer's pull request bars
   /// and the summary card need only the commands.
   replies?: boolean;
 };

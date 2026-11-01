@@ -22,8 +22,8 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
       kind: "hover",
       // Stop sits in the line, or in its fixed stop column (#27263's `__stop-slot`).
       control:
-        ".acpmux-agent-line > :is(.cv-subagent__stop, .acpmux-chat-inspector-stop), " +
-        ".acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-chat-inspector-stop)",
+        ".acpmux-agent-line > :is(.cv-subagent__stop, .acpmux-session-info-stop), " +
+        ".acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop)",
       reason: "The tray line is one full-width control; its embedded Stop shares its wash, never a second box.",
     },
     {
