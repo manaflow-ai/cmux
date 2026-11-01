@@ -112,10 +112,10 @@ fn token_route_requires_all_four_bounded_segments() {
     assert!(token_route(&valid_token()).is_ok());
     for malformed in [
         token(),
-        "ctg0.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.short",
-        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload!.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.extra",
+        "ctg0.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.short".to_owned(),
+        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload!.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        "ctg1.123e4567-e89b-12d3-a456-426614174000.payload_1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.extra".to_owned(),
     ] {
         assert!(token_route(malformed).is_err(), "accepted malformed token {malformed}");
     }

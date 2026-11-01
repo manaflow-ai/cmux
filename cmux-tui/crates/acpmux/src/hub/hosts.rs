@@ -1207,6 +1207,7 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        persons: false,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

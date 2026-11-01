@@ -410,6 +410,7 @@ impl TurnInfo {
             turn_seq: 0,
             control,
             doing: Default::default(),
+            persons: false,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }

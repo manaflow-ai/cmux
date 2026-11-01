@@ -2,7 +2,7 @@
 //! log_deferral_tests.rs/watch_events.rs. Chunks intentionally have no turnId.
 use super::*;
 use crate::config::{Config, StoreMode};
-use crate::store::{SessionMeta, Store};
+use crate::store::SessionMeta;
 
 fn hub(root: Option<&std::path::Path>) -> Arc<Hub> {
     let mut config = Config::default();
