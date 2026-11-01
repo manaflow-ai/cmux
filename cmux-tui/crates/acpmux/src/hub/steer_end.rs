@@ -263,7 +263,7 @@ impl Hub {
             } else if agent_steer && !digest && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
-            } else if !digest && !family && super::inbox::persons_turn(session) {
+            } else if agent_steer && !digest && !family && super::inbox::persons_turn(session) {
                 // The person's own turn (`inbox.rs`): it goes in after it. A sub-session family
                 // message still goes in (`turns.rs`).
                 true
