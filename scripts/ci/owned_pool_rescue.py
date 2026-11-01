@@ -284,6 +284,17 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
 # one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
 NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
+# workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
+# workflow is already not watched) and only records the acknowledgement while main takes no merges.
+# tests/test_ci_owned_pool_sources.py accepts an entry from either copy.
+UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/backend.yml":
+        "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
+        "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
+        "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
+        "act on",
+}
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
     # and Blacksmith macOS on a re-run (stable-next.yml).

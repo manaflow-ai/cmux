@@ -9,6 +9,8 @@
 // scroll in the page.
 import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
+import type { NativePopupTransport } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
 
 export interface PopupItem {
   id: string;
@@ -51,6 +53,8 @@ export type PopupEvent =
  * finds it taken and stays in the page.
  */
 export interface PopupHost {
+  /** Declarative native rendering. Legacy overflow consumers migrate to this path. */
+  native?: NativePopupTransport;
   /** Resolves `{shown: true}` once the rows show; anything else leaves the surface in the page. */
   show(model: PopupModel, owner: object): Promise<unknown>;
   update(model: PopupModel, owner: object): void;
@@ -79,6 +83,19 @@ export function createPopupHost(
       : { ...model };
   let current: object | null = null;
   return {
+    native: {
+      show: (model) => {
+        current = null;
+        return quiet("show", { ...model });
+      },
+      update: (model) => void quiet("update", { ...model }),
+      hide: (id, revision) => void quiet("hide", { schemaVersion: 1, id, revision }),
+      listen: (listener) =>
+        listen((event) => {
+          const native = event as unknown as NativePopupEvent;
+          if (typeof native.popupId === "string" && Number.isSafeInteger(native.revision)) listener(native);
+        }),
+    },
     show(model, owner) {
       current = owner;
       return quiet("show", request(model));
@@ -92,7 +109,10 @@ export function createPopupHost(
       void quiet("hide");
     },
     owner: () => current,
-    listen,
+    listen: (listener) =>
+      listen((event) => {
+        if (!("popupId" in event)) listener(event);
+      }),
   };
 }
 

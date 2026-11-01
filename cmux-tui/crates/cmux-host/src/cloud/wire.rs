@@ -89,6 +89,17 @@ impl Env {
         }
     }
 
+    /// The platform origin that keeps each person's harness logins
+    /// (`harness_login.rs`), with the machine's install token as bearer.
+    /// Development only until the platform serves the others: `None` keeps
+    /// the feature off.
+    pub fn harness_login_origin(self) -> Option<&'static str> {
+        match self {
+            Env::Dev => Some(self.platform_origin()),
+            Env::Stg | Env::Prod => None,
+        }
+    }
+
     /// The Worker's ENVIRONMENT, named in the auth challenge prefix.
     pub fn auth_environment(self) -> &'static str {
         match self {

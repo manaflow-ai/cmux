@@ -53,41 +53,28 @@ pub const GIT_SEED_EXPORT_COMMANDS: [&str; 1] = ["git.seed.export"];
 
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 
+/// Test seam, debug builds only: `CMUX_TEST_GIT_SEED_GITHUB=<absolute dir>`
+/// makes the daemon's seeds clone `https://github.com/OWNER/NAME.git` from
+/// `file://<dir>/OWNER/NAME.git`, with no GitHub path
+/// ([`GitSeedService::with_test_github`]). Release builds never read it.
+#[cfg(debug_assertions)]
+const TEST_GITHUB_VAR: &str = "CMUX_TEST_GIT_SEED_GITHUB";
+
 /// The seed owner, when this daemon serves `fs-v1` (it seeds under the same
 /// roots).
 #[must_use]
 pub fn installed() -> Option<&'static GitSeedService> {
     let fs = crate::fs_ops::installed()?;
-    Some(SERVICE.get_or_init(|| match test_remote() {
-        Some(config) => GitSeedService::with_config(fs.roots().clone(), config),
-        None => GitSeedService::new(fs.roots().clone()),
+    Some(SERVICE.get_or_init(|| {
+        #[cfg(debug_assertions)]
+        if let Some(dir) = std::env::var_os(TEST_GITHUB_VAR)
+            .map(std::path::PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+        {
+            return GitSeedService::with_test_github(fs.roots().clone(), &dir);
+        }
+        GitSeedService::new(fs.roots().clone())
     }))
-}
-
-/// Test seam, debug builds only: `CMUX_TEST_GIT_SEED_REMOTES=<absolute
-/// folder>` makes `https://github.com/OWNER/NAME.git` read as the bare
-/// repository `<folder>/OWNER/NAME.git` through `file://`, with no GitHub
-/// path, so a journey test seeds a real daemon without the network. Release
-/// builds never read it.
-fn test_remote() -> Option<job::Config> {
-    if !cfg!(debug_assertions) {
-        return None;
-    }
-    let folder = std::env::var_os("CMUX_TEST_GIT_SEED_REMOTES")?;
-    let folder = std::path::PathBuf::from(folder);
-    if !folder.is_absolute() || !folder.is_dir() {
-        return None;
-    }
-    let remote = format!("file://{}/", folder.display());
-    Some(job::Config {
-        git: git::Git {
-            extra_config: vec![
-                format!("url.{remote}.insteadOf=https://github.com/"),
-                "protocol.file.allow=always".into(),
-            ],
-        },
-        credentials: Some(vec![git::Credential::Anonymous]),
-    })
 }
 
 /// The capabilities to advertise in `identify`, when served.

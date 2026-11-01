@@ -203,6 +203,27 @@ impl GitSeedService {
         Self { roots, config, jobs: Mutex::new(Jobs::default()) }
     }
 
+    /// For tests (and the debug-only daemon seam in [`super::installed`]):
+    /// a service whose GitHub is the folder `github`, so
+    /// `https://github.com/OWNER/NAME.git` is cloned from
+    /// `file://<github>/OWNER/NAME.git`, with no credential. Nothing on the
+    /// wire reaches it.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_test_github(roots: Roots, github: &std::path::Path) -> Self {
+        let local = format!("file://{}/", github.display());
+        let config = Config {
+            git: Git {
+                extra_config: vec![
+                    format!("url.{local}.insteadOf=https://github.com/"),
+                    "protocol.file.allow=always".into(),
+                ],
+            },
+            credentials: Some(vec![Credential::Anonymous]),
+        };
+        Self::with_config(roots, config)
+    }
+
     /// Runs `cmd` with the request object `params`.
     pub fn call(&self, cmd: &str, params: &Value) -> Result<Value, SeedRefusal> {
         match cmd {

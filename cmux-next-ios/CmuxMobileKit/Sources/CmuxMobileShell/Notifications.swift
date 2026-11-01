@@ -23,11 +23,15 @@ public struct NotificationRoute: Equatable, Sendable {
     public var workspaceID: String?
     public var tabID: String?
     public var conversationID: String?
+    /// A Cloud notification retains its machine and team; it is never resolved
+    /// as a local acpmux session with a coincidentally equal id.
+    public var cloud: CloudChatAttention?
     /// A cmux link the person opened (kind `link`): resolved by the Mac's public ids, not a push's.
     public var link: CmuxLink?
 
     public init(kind: String, mac: String? = nil, sessionID: String? = nil, workspaceID: String? = nil, tabID: String? = nil,
-                conversationID: String? = nil, link: CmuxLink? = nil) {
+                conversationID: String? = nil, link: CmuxLink? = nil, cloud: CloudChatAttention? = nil) {
+        self.cloud = cloud
         self.link = link
         self.kind = kind
         self.mac = mac
@@ -49,6 +53,10 @@ public struct NotificationRoute: Equatable, Sendable {
 
     /// Reads `userInfo["cmuxMobile"]`; nil for anything else.
     init?(userInfo: [AnyHashable: Any]) {
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            self.init(kind: "cloud", cloud: cloud)
+            return
+        }
         guard let payload = PushPayload(userInfo: userInfo) else { return nil }
         self.init(payload)
     }
@@ -205,6 +213,16 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
+        // Cloud pushes navigate only. Approval/reply buttons keep the existing
+        // signed Mac payload path below; no Cloud payload can authorize one.
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            let opens = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            Task { @MainActor in
+                if opens { NotificationRouter.shared.set(NotificationRoute(kind: "cloud", cloud: cloud)) }
+                completionHandler()
+            }
+            return
+        }
         // The app's own Chief alert (ChiefAlerts): it carries no `cmuxMobile`
         // payload, so the trust gate refused it and the tap opened nothing.
         if let route = ChiefAlerts.route(userInfo: userInfo, actionIdentifier: response.actionIdentifier) {
