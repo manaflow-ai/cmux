@@ -975,25 +975,23 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
     let cloud = params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true));
     let dir = if cloud { cloud_chat_folder(&name)? } else { peer_scratch_root()?.join(name) };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
     // `cloud_chat_folder` creates the stable directory itself and retries
     // must reuse it. The legacy peer scratch path remains fresh per name.
-    let made = if cloud {
-        Ok(Ok(()))
-    } else {
+    if !cloud {
         let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
+        let made = tokio::task::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
             builder.recursive(true);
             #[cfg(unix)]
             std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
             builder.create(&dir)
         })
-        .await
-    };
-    let failed = |why: String| {
-        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
-    };
-    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+        .await;
+        made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    }
     crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
