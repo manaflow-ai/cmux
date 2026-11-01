@@ -244,11 +244,11 @@ final class QuitCoordinator {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 if wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
                 #endif
-                // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's
-                // shutdown watchdog can end the process) and after (a Chromium-hosted agent page that
-                // closes saves its draft in its page-hide flush; only those pages close here).
-                // No limit of their own: the deadline bounds them and records what was still saving.
-                await services.stateFilesDrained()
+                // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's shutdown watchdog can end
+                // the process; held to the time their close does not need) and after (a closing agent page saves its draft): that
+                // wait has no limit of its own; the deadline bounds it and records what was still saving.
+                let spare = deadline.timeLeft(margin: QuitDeadline.replyMargin + QuitDeadline.engineCloseWait) ?? .zero
+                await steps.run("state_files", limit: spare) { await services.stateFilesDrained() }
                 await closeEngines()
                 DebugTimings.markLaunch("quit.engines_stopped")
                 await services.stateFilesDrained()
