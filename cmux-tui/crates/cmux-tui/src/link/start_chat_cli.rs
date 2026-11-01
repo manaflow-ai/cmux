@@ -275,7 +275,7 @@ pub(super) fn valid_repo(repo: &str) -> bool {
 
 /// The GitHub repository of the folder `local`: its `origin` remote, when that is GitHub's.
 fn folder_repo(local: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
+    let output = cmux_process::Command::new("git")
         .args(["-C", local, "remote", "get-url", "origin"])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
