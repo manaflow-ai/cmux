@@ -19,12 +19,15 @@ import {
   type StepReport,
 } from "../play";
 import { createMotionController } from "../motionEvidence";
+import { startBoxTracker } from "../shift";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
-  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press" | "resize";
   x?: number;
   y?: number;
+  /** `resize`: the viewport's new width in CSS px. */
+  width?: number;
   text?: string;
 };
 type InputDriver = (action: GalleryInputAction) => Promise<void>;
@@ -356,6 +359,16 @@ async function measured(
   if (window.top?.cmuxGalleryBeforeStep) await window.top.cmuxGalleryBeforeStep({ step });
   const resolve = () => anchors.map(({ label, target }) => ({ label, element: resolveTarget(document, target) }));
   const before = resolve().map(({ label, element }) => ({ label, element, rect: rectOf(element) }));
+  // A scroll moves every row on purpose; its box shift is not measured.
+  const boxes =
+    action === "scroll"
+      ? undefined
+      : startBoxTracker(document, {
+          target: targeted,
+          extra: () => resolve().flatMap(({ element }) => (element ? [element] : [])),
+          firstMoveFree: action === "resize",
+          restedAtStart: true,
+        });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
@@ -426,6 +439,7 @@ async function measured(
   performance.clearMarks(endMark);
   performance.clearMeasures(mark);
   rafRunning = false;
+  const boxShift = boxes?.stop();
   for (const observer of observers) {
     observer.takeRecords();
     observer.disconnect();
@@ -452,9 +466,10 @@ async function measured(
     anchorMoves,
     layoutShift,
     shifts,
+    ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
     longFrames,
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
-    popupProblems: judgePopups(measurePopups(), { width: innerWidth, height: innerHeight }),
+    popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
   return { ...result, ...judgeStep(result, checks) };
 }
@@ -559,41 +574,64 @@ export async function runPlay(
       move: (target) => input("move", target),
       up: (target) => input("up", target),
     },
-    waitFor: (condition, { capMs = 5000 } = {}) =>
-      new Promise<void>((resolve, reject) => {
-        let frame = 0;
-        const stop = () => {
-          observer.disconnect();
-          cancelAnimationFrame(frame);
-          clearTimeout(cap);
-        };
-        const check = () => {
-          let held: unknown;
-          try {
-            held = condition();
-          } catch {
-            held = false;
-          }
-          if (!held) return false;
-          stop();
-          resolve();
-          return true;
-        };
-        // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
-        // checked every frame too; the observer answers a DOM change right after it, in a microtask.
-        const poll = () => {
-          if (!check()) frame = requestAnimationFrame(poll);
-        };
-        const observer = new MutationObserver(() => void check());
-        // The cap fails a wait that never comes true; it is not how the wait resolves.
-        const cap = window.setTimeout(() => {
-          stop();
-          reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
-        }, capMs);
-        observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        poll();
-      }),
+    resize: async (width) => {
+      await gesture(`resize to ${width}px`, "resize", null, async () => {
+        if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "resize", width });
+        else document.documentElement.style.width = `${width}px`;
+        window.dispatchEvent(new Event("resize"));
+      });
+    },
+    waitFor: async (condition, options) => {
+      // Measured for shift: what loads while the play waits (older history, a reply) must not move
+      // the rows already on screen. A wait that holds at once is no step.
+      let held = false;
+      try {
+        held = !!condition();
+      } catch {
+        held = false;
+      }
+      if (held) return;
+      const describe = String(condition).replace(/\s+/g, " ").slice(0, 60);
+      await gesture(`wait ${describe}`, "wait", null, () => waitUntil(condition, options));
+    },
   };
+  const waitUntil = (
+    condition: () => boolean | Element | null | undefined,
+    { capMs = 5000 }: { capMs?: number } = {},
+  ): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      let frame = 0;
+      const stop = () => {
+        observer.disconnect();
+        cancelAnimationFrame(frame);
+        clearTimeout(cap);
+      };
+      const check = () => {
+        let held: unknown;
+        try {
+          held = condition();
+        } catch {
+          held = false;
+        }
+        if (!held) return false;
+        stop();
+        resolve();
+        return true;
+      };
+      // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
+      // checked every frame too; the observer answers a DOM change right after it, in a microtask.
+      const poll = () => {
+        if (!check()) frame = requestAnimationFrame(poll);
+      };
+      const observer = new MutationObserver(() => void check());
+      // The cap fails a wait that never comes true; it is not how the wait resolves.
+      const cap = window.setTimeout(() => {
+        stop();
+        reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
+      }, capMs);
+      observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+      poll();
+    });
   try {
     await play(ctx);
     const evidence = motion.stop();

@@ -84,8 +84,9 @@ export class RunBook {
 
   /** Runs that work on this message and whose reply the page has not seen: live work, or a run
    * that failed or stopped with no reply (shown where it was asked). A finished run whose reply
-   * went into a thread the page has not loaded stays out (it shows on its reply). */
-  liveFor(message: HomeMessage): RunEntry[] {
+   * went into a thread the page has not loaded stays out (it shows on its reply). Transcript
+   * includes silent summaries too, so their steps can be loaded when they enter the viewport. */
+  liveFor(message: HomeMessage, includeSilent = false): RunEntry[] {
     const keys = this.byAnswer.get(`${message.conversation}\0${message.id}`);
     if (!keys) return [];
     const out: RunEntry[] = [];
@@ -96,7 +97,8 @@ export class RunBook {
       const replied = reply !== undefined && this.replied.has(reply);
       // A silent Chief turn can still contain messages: keep them beside its question.
       const messages = entry.hasMessages ?? false;
-      if (entry.run.status === "running" || ((entry.run.status !== "done" || messages) && !replied)) out.push(entry);
+      if (entry.run.status === "running" || ((includeSilent || entry.run.status !== "done" || messages) && !replied))
+        out.push(entry);
     }
     return out.sort((a, b) => a.run.startedAt - b.run.startedAt);
   }
@@ -277,10 +279,16 @@ export function useRunEntry(book: RunBook | undefined, select: (book: RunBook) =
 }
 
 /** The live runs under a message (stable while nothing changed: compared by entry identity). */
-export function useLiveRuns(book: RunBook | undefined, message: HomeMessage): readonly RunEntry[] {
+export function useLiveRuns(
+  book: RunBook | undefined,
+  message: HomeMessage,
+  includeSilent = false,
+): readonly RunEntry[] {
   const subscribe = useCallback((listener: () => void) => (book ? book.subscribe(listener) : () => {}), [book]);
-  const id = `${message.conversation}\0${message.id}`;
-  return useSyncExternalStore(subscribe, () => liveKey(book, id, () => (book ? book.liveFor(message) : NONE)));
+  const id = `${message.conversation}\0${message.id}\0${includeSilent}`;
+  return useSyncExternalStore(subscribe, () =>
+    liveKey(book, id, () => (book ? book.liveFor(message, includeSilent) : NONE)),
+  );
 }
 
 const NONE: readonly RunEntry[] = [];
