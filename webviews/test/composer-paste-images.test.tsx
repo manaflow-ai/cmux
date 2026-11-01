@@ -400,8 +400,14 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
       { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
     ]);
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+    // Its tile wears the source app's icon at its top-right corner, named for screen readers.
+    await until(() => host.querySelector(".acpmux-attachment .acpmux-source-badge img") !== null, "the chip's badge");
+    expect(host.querySelector(".acpmux-attachment .acpmux-source-badge img")?.getAttribute("alt")).toBe(
+      "From Screenshot",
+    );
   } finally {
     delete actions.cmuxAcpmuxActions;
+    resetSourceIcons();
   }
 });
 
@@ -437,14 +443,8 @@ test("a slow source answer never holds a ready chip; the source is added when it
       "the late source on the staged chip",
     );
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
-    // Its tile wears the source app's icon at its top-right corner, named for screen readers.
-    await until(() => host.querySelector(".acpmux-attachment .acpmux-source-badge img") !== null, "the chip's badge");
-    expect(host.querySelector(".acpmux-attachment .acpmux-source-badge img")?.getAttribute("alt")).toBe(
-      "From Screenshot",
-    );
   } finally {
     delete actions.cmuxAcpmuxActions;
-    resetSourceIcons();
   }
 });
 
