@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextWakeups
 
 // Share with Guest (design chat-multiplayer.md 6): one-line forwards to the App's owners.
 extension AppServices: AgentShareHost {
@@ -33,23 +34,15 @@ enum AgentShareConsentSheet {
     }
 
     static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin) async -> Bool {
-        let timeout = Timeout()
+        let timeout = DemandTimer(owner: "AgentShareConsentSheet.ask")
         return await withCheckedContinuation { continuation in
             // The center calls this once: the owner's press, or the dismissal below.
             let id = center.present(spec(ask), in: .app) { answer in
-                timeout.task?.cancel()
+                timeout.cancel()
                 continuation.resume(returning: answer.button == "allow")
             }
-            // task-owner: one-shot; cancelled by the answer, else ends the dialog at `limit` as a decline.
-            timeout.task = Task { @MainActor in
-                guard (try? await Task.sleep(for: limit)) != nil else { return }
-                center.dismiss(id)
-            }
+            // Cancelled by the answer; else ends the dialog at `limit` as a decline.
+            timeout.schedule(after: limit) { @MainActor in center.dismiss(id) }
         }
-    }
-
-    /// The unanswered sheet's timer, cancelled when the owner answers.
-    @MainActor private final class Timeout {
-        var task: Task<Void, Never>?
     }
 }
