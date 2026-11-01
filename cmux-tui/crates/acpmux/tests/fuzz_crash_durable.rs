@@ -297,6 +297,10 @@ struct Daemon {
     socket: PathBuf,
     child: Option<Child>,
     starts: u32,
+    /// The pid of the daemon killed last, and its child pids just before the kill (Linux).
+    killed: Option<(u32, Vec<u32>)>,
+    /// A start failed on the lock: the home stays for the diagnosis (candidate g3).
+    keep_home: bool,
 }
 
 impl Daemon {
@@ -316,7 +320,7 @@ impl Daemon {
         std::fs::set_permissions(home.join("config.json"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
         let socket = home.join("s.sock");
-        Self { home, socket, child: None, starts: 0 }
+        Self { home, socket, child: None, starts: 0, killed: None, keep_home: false }
     }
 
     /// Starts the daemon and waits until it answers `initialize`; the time it took.
@@ -348,6 +352,11 @@ impl Daemon {
                 && let Ok(Some(status)) = child.try_wait()
             {
                 self.child = None;
+                // 75: another daemon holds daemon.lock (`cli/entry.rs`). Find who (g3).
+                if status.code() == Some(75) {
+                    self.keep_home = true;
+                    self.lock_diagnosis();
+                }
                 return Err(format!("the daemon exited at start: {status}"));
             }
             if Instant::now() > deadline {
@@ -360,6 +369,7 @@ impl Daemon {
     /// `kill -9` of the daemon child this test started.
     fn kill9(&mut self) {
         if let Some(mut child) = self.child.take() {
+            self.killed = Some((child.id(), children_of(child.id())));
             if child.try_wait().ok().flatten().is_none() {
                 // SAFETY: the unreaped daemon child this test started.
                 unsafe { libc::kill(child.id() as i32, libc::SIGKILL) };
@@ -380,10 +390,81 @@ impl Daemon {
     }
 }
 
+impl Daemon {
+    /// Who holds `daemon.lock` now: every process with the file open (`/proc/*/fd`), each with
+    /// `ps -o pid,ppid,lstart,command` and whether it was a child of the daemon killed last;
+    /// the lock file's text (the pid the last holder wrote), its `/proc/locks` lines, and the
+    /// failed daemon's whole stderr. Printed as `FUZZ-G G3-DIAG` lines (candidate g3).
+    fn lock_diagnosis(&self) {
+        let lock = self.home.join("daemon.lock");
+        let say = |line: String| println!("FUZZ-G G3-DIAG {line}");
+        say(format!("killed daemon: {:?}", self.killed));
+        say(format!("daemon.lock text: {:?}", std::fs::read_to_string(&lock).unwrap_or_default()));
+        for pid in fd_holders(&lock) {
+            let child = self.killed.as_ref().is_some_and(|(_, kids)| kids.contains(&pid));
+            let ps = std::process::Command::new("ps")
+                .args(["-o", "pid,ppid,lstart,command", "-p", &pid.to_string()])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).replace('\n', " / "))
+                .unwrap_or_default();
+            say(format!("holder pid={pid} child_of_killed_daemon={child} ps: {ps}"));
+        }
+        say(format!("proc locks: {}", proc_locks(&lock)));
+        let stderr = std::fs::read_to_string(self.home.join(format!("stderr-{}.log", self.starts)))
+            .unwrap_or_default();
+        for line in stderr.lines() {
+            say(format!("stderr: {line}"));
+        }
+        say(format!("home kept at {}", self.home.display()));
+    }
+}
+
+/// The child pids of `pid` (Linux `/proc/<pid>/task/*/children`); empty elsewhere.
+fn children_of(pid: u32) -> Vec<u32> {
+    let mut out = Vec::new();
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return out };
+    for task in tasks.flatten() {
+        let text = std::fs::read_to_string(task.path().join("children")).unwrap_or_default();
+        out.extend(text.split_whitespace().filter_map(|p| p.parse::<u32>().ok()));
+    }
+    out
+}
+
+/// The pids with `path` open (Linux `/proc/*/fd`); empty elsewhere.
+fn fd_holders(path: &Path) -> Vec<u32> {
+    let mut out = Vec::new();
+    let Ok(procs) = std::fs::read_dir("/proc") else { return out };
+    for entry in procs.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(fds) = std::fs::read_dir(entry.path().join("fd")) else { continue };
+        if fds.flatten().any(|fd| std::fs::read_link(fd.path()).is_ok_and(|t| t == path)) {
+            out.push(pid);
+        }
+    }
+    out
+}
+
+/// The `/proc/locks` lines for `path`'s inode (Linux); empty elsewhere.
+fn proc_locks(path: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(ino) = std::fs::metadata(path).map(|m| m.ino()) else { return String::new() };
+    let suffix = format!(":{ino} ");
+    std::fs::read_to_string("/proc/locks")
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains(&suffix))
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         self.kill9();
-        let _ = std::fs::remove_dir_all(&self.home);
+        if !self.keep_home {
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
     }
 }
 
@@ -1284,7 +1365,7 @@ fn replay(ops: &[Op], tag: &str) -> BTreeSet<&'static str> {
     for op in ops {
         if matches!(op, Op::Kill) {
             daemon.kill9();
-            client = None;
+            drop(client.take());
             if daemon.start().is_err() {
                 kinds.insert("restart");
                 return kinds;
@@ -1440,6 +1521,13 @@ fn run(name: &str, seeds: &[u64], rounds: u32) {
         "FUZZ-G: {} violations (see the VIOLATION lines)",
         totals.violations.len()
     );
+}
+
+/// Candidate g3: seed 26401 alone, the seed whose restart once exited 75 (lock held). Its
+/// own name (`fuzz_g3_`), so a run of row g does not run it twice.
+#[test]
+fn fuzz_g3_seed_26401_restart_lock() {
+    run("g3_seed_26401", &[0x6721], 12);
 }
 
 #[test]
