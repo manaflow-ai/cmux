@@ -30,7 +30,7 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
     return undefined;
   const data = payload(tool.output);
   const code = data?.code;
-  if (typeof code !== "string" || !code.startsWith("repo.")) return undefined;
+  if (code !== "repo.needs_github" && code !== "repo.no_access" && code !== "repo.ambiguous") return undefined;
   const retry = data?.retry;
   return {
     code,
