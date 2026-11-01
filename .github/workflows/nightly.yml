@@ -6167,34 +6167,6 @@ jobs:
       # Publication tooling from this workflow's own commit (see the step below).
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
-      - name: Hold the whole Mac before any credential
-        id: claim-gate
-        shell: bash
-        run: |
-          owned=""
-          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
-          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ]; then
-            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
-            echo "claim=owned" >> "$GITHUB_OUTPUT"
-          fi
-      # This run's build when Apple accepted it, else an earlier nightly-next
-      # build that recover-nightly-next-notarization continued; every later
-      # step takes the build number and commit from here.
       - name: Select the build to publish
         id: source
         env:
@@ -6268,6 +6240,34 @@ jobs:
       - *checkout-publication-tooling-a
 
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+      # This run's build when Apple accepted it, else an earlier nightly-next
+      # build that recover-nightly-next-notarization continued; every later
+      # step takes the build number and commit from here.
       - name: Claim the whole Mac for signing
         run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
@@ -6686,6 +6686,15 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
+      - name: Checkout publish ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.publish-nightly.outputs.build_sha }}
+
+      - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
       - name: Hold the whole Mac before any credential
         id: claim-gate
         shell: bash
@@ -6711,15 +6720,6 @@ jobs:
             fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
-      - name: Checkout publish ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.publish-nightly.outputs.build_sha }}
-
-      - *checkout-publication-tooling-a
-
-      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
       - name: Claim the whole Mac for signing
         run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
@@ -6833,6 +6833,9 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
       PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
+      - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
       - name: Hold the whole Mac before any credential
         id: claim-gate
         shell: bash
@@ -6858,9 +6861,6 @@ jobs:
             fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
-      - *checkout-publication-tooling-a
-
-      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
       - name: Claim the whole Mac for signing
         run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 

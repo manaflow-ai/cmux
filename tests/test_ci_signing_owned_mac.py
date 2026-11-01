@@ -373,12 +373,30 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
-            gate = steps[0] if steps else {}
-            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell", "id"}
-                    or str(gate.get("shell", "bash")) != "bash" or gate.get("id") != CLAIM_GATE_ID):
-                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
-                                f"for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error, before the "
-                                "checkout's token")
+            publication = workflow == "nightly.yml" and name in {
+                "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"
+            }
+            gate_index = next((index for index, step in enumerate(steps)
+                               if str(step.get("id", "")) == CLAIM_GATE_ID), None)
+            gate = steps[gate_index] if gate_index is not None else {}
+            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+                       and not (set(gate) - {"name", "run", "shell", "id"})
+                       and str(gate.get("shell", "bash")) == "bash"
+                       and gate.get("id") == CLAIM_GATE_ID)
+            if not gate_ok:
+                if publication:
+                    failures.append(f"{label}: the claim gate ({CLAIM_GATE_NAME}) must copy CLAIM_GATE word for word, "
+                                    f"id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+                else:
+                    failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
+                                    f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+            elif not publication and gate_index != 0:
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
+            elif publication:
+                checkout_index = next((index for index, step in enumerate(steps)
+                                       if "actions/checkout@" in str(step.get("uses", ""))), None)
+                if checkout_index is None or gate_index <= checkout_index:
+                    failures.append(f"{label}: publication claim gate must run after checkout and before release credentials")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
@@ -391,7 +409,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
-                for index, step in enumerate(steps[1:], 1):
+                for index, step in enumerate(steps, 0):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
@@ -493,6 +511,18 @@ class SigningOwnedMacTests(unittest.TestCase):
                          "glaeda-nightly-std-xcode-26.6")
         self.assertEqual(signing_runner.owned_pool_label(""), "")
         self.assertEqual(signing_runner.owned_pool_label("not-json"), "")
+
+    def test_publication_pool_output_fails_closed_without_controller_evidence(self) -> None:
+        runners = [runner("cmux12-glaeda", [SIDE])]
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "OWNED_LABELS": SIDE}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"],
+                                lambda token, repo: runners, lambda path: {"jobs": []},
+                                lambda token, repo: {}, NOW)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["owned_pool"], "")
 
     def test_workflows(self) -> None:
         failures, owned_jobs = check(workflows())
@@ -850,6 +880,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE]  # publication controls use the shared pool label, without a runner pin
+        owned, why = signing_runner.owned_pick(env, read, jobs)
+        self.assertEqual(owned, "", why)
+        self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE, "glaeda-runner-cmux13-glaeda-3"]
         for status in ("waiting", "pending", "requested"):  # every unfinished run status a started run can have
             with self.subTest(run_status=status):
                 run_status[0] = status
@@ -933,7 +968,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool={SIDE}\n')
+            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool=\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)

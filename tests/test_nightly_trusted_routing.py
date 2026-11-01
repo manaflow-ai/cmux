@@ -278,8 +278,8 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_credentialed_publish_controls_use_owned_claim_then_linux_overflow(self):
         # Release App publication jobs may use a drained owned Mac, but only the
-        # picker output is trusted and their claim gate runs before checkout or
-        # any protected environment secret. A rerun keeps the measured Linux
+        # picker output is trusted and their claim gate runs after checkout,
+        # before any protected environment secret. A rerun keeps the measured Linux
         # overflow instead of reusing an older owned label.
         jobs = DOC["jobs"]
         route = (
@@ -306,12 +306,14 @@ class NightlyTrustedRouting(unittest.TestCase):
                                  "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
-                self.assertEqual(steps[0]["name"], "Hold the whole Mac before any credential")
-                self.assertEqual(steps[0]["id"], "claim-gate")
-                self.assertIn("GLAEDA_JOB_CLAIM", steps[0]["run"])
-                self.assertIn("glaeda-signing-hooks.txt", steps[0]["run"])
-                self.assertNotIn("secrets.", steps[0]["run"])
-                self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps))
+                gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
+                self.assertEqual(steps[gate_index]["name"], "Hold the whole Mac before any credential")
+                self.assertIn("GLAEDA_JOB_CLAIM", steps[gate_index]["run"])
+                self.assertIn("glaeda-signing-hooks.txt", steps[gate_index]["run"])
+                self.assertNotIn("secrets.", steps[gate_index]["run"])
+                checkout_index = next(i for i, step in enumerate(steps) if "actions/checkout@" in str(step.get("uses", "")))
+                self.assertGreater(gate_index, checkout_index)
+                self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps[gate_index + 1:]))
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
 
