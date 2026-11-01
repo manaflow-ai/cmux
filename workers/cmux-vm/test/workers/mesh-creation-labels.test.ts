@@ -53,7 +53,7 @@ it("retains labels in the original intent across unknown ownership outcomes and 
     const call = (secret: string) => h.request("/v1/mesh-creations", { ...bearer(secret), "x-cmux-team-id": "team_alpha", "idempotency-key": "retained-label" }, { method: "POST", body: { labels: { role: "cloud" } } });
     h.meshRecordFault.before = 1;
     expect((await call(key)).status).toBe(503);
-    const rotated = await h.addServiceKey({ id: "cloud-rotated", scopes: ["mesh:read", "mesh:write"], labels: { role: "cloud" } });
+    const rotated = await h.addServiceKey({ id: "cloud", scopes: ["mesh:read", "mesh:write"], labels: { role: "cloud" } });
     expect((await call(rotated)).status).toBe(201);
     expect(h.resources.find((r) => r.kind === "mesh")).toMatchObject({ createdBy: "service:cloud", labels: { role: "cloud" } });
     expect(h.upstreamRequests.filter((r) => r.method === "POST" && r.path === "/v5/vpcs")).toHaveLength(1);
@@ -87,5 +87,25 @@ it("keeps meshes hidden from a service whose required labels they do not carry",
     const reply = await h.request("/v1/meshes", { ...bearer(key), "x-cmux-team-id": "team_alpha" });
     expect(reply.status).toBe(200);
     expect(await reply.json()).toEqual({ items: [] });
+  } finally { await h.dispose(); }
+});
+
+it.each(["service", "team"])("never replays one credential's mesh creation to another %s credential reusing its key", async (other) => {
+  const h = await makeHarness();
+  try {
+    const cloud = await h.addServiceKey({ id: "cloud", scopes: ["mesh:read", "mesh:write"], labels: { role: "cloud" } });
+    const second = other === "service"
+      ? await h.addServiceKey({ id: "cloud-other", scopes: ["mesh:read", "mesh:write"], labels: { role: "cloud" } })
+      : await h.addKey("team_alpha", ALL_SCOPES);
+    const call = (secret: string) => h.request("/v1/mesh-creations", { ...bearer(secret), "x-cmux-team-id": "team_alpha", "idempotency-key": "shared-key" }, { method: "POST", body: { displayName: "Cloud network", labels: { role: "cloud" } } });
+    const first = await call(cloud);
+    expect(first.status).toBe(201);
+    const original = Schema.decodeUnknownSync(Mesh)(await first.json());
+    // The reused key is a new creation for this credential, so it meets the one-mesh team budget instead of the first mesh.
+    const reused = await call(second);
+    expect(reused.status).toBe(429);
+    expect(await reused.text()).not.toContain(original.id);
+    expect(await (await call(cloud)).json()).toEqual(original);
+    expect(h.upstreamRequests.filter((r) => r.method === "POST" && r.path === "/v5/vpcs")).toHaveLength(1);
   } finally { await h.dispose(); }
 });
