@@ -8,7 +8,8 @@ extension Motion {
     /// Scale a floating panel closes to, with `fadeOut`: a slight shrink.
     public static var panelCloseScale: CGFloat { CGFloat(MotionTunables.panelCloseScale.value) }
 
-    /// Scale a popup grows from, about the control it opened from, on the `popover` spring.
+    /// Legacy popup entrance scale retained for settings compatibility. Native popup entrances
+    /// are immediate.
     public static var popupOpenScale: CGFloat { CGFloat(MotionTunables.popupOpenScale.value) }
     /// Scale a popup shrinks to, toward its control, on the `popoverClose` spring.
     public static var popupCloseScale: CGFloat { CGFloat(MotionTunables.popupCloseScale.value) }
