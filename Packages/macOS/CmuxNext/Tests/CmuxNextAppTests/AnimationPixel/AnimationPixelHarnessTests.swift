@@ -32,7 +32,7 @@ struct AnimationPixelHarnessTests {
         let fixture = try await LayoutPixelFixture(layout: Self.layout, focused: "p1", scale: scale, dark: dark)
         defer { fixture.close() }
         let run = AnimationPixelRun(fixture: fixture, name: "equalize-\(scale)x-\(dark ? "dark" : "light")")
-        let failures = try await run.judge(.row, spring: .move, animated: true) { fixture.model.equalizeSplit("x") }
+        let failures = try await run.judgeSpring(.row, spring: .move, animated: true) { fixture.model.equalizeSplit("x") }
         Self.record(failures)
     }
 
@@ -45,7 +45,7 @@ struct AnimationPixelHarnessTests {
         let fixture = try await LayoutPixelFixture(layout: Self.layout, focused: "p1", scale: scale, dark: false, animations: false)
         defer { fixture.close() }
         let run = AnimationPixelRun(fixture: fixture, name: "equalize-off-\(scale)x")
-        let failures = try await run.judge(.row, spring: .move, animated: false) { fixture.model.equalizeSplit("x") }
+        let failures = try await run.judgeSpring(.row, spring: .move, animated: false) { fixture.model.equalizeSplit("x") }
         Self.record(failures)
     }
 

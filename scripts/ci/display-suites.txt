@@ -5,6 +5,7 @@ Packages/Shared/CmuxAuthRuntime CmuxAuthRuntimeTests.KeychainStackTokenStoreTest
 Packages/macOS/CmuxNext CmuxNextAppTests.AnimationPixelHarnessTests
 Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
 Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
+Packages/macOS/CmuxNext CmuxNextAppTests.DividerDragPixelTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
