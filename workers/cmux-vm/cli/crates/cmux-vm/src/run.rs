@@ -1335,6 +1335,17 @@ fn archive_within(
     limit: u64,
     unpacked_limit: u64,
 ) -> Result<(Vec<u8>, SyncList), CliError> {
+    archive_within_then(dir, limit, unpacked_limit, || {})
+}
+
+/// [`archive_within`], running `before_pack` between the size sum and
+/// packing (where a test grows a file).
+fn archive_within_then(
+    dir: &Path,
+    limit: u64,
+    unpacked_limit: u64,
+    before_pack: impl FnOnce(),
+) -> Result<(Vec<u8>, SyncList), CliError> {
     let synced = sync_list(dir)?;
     let sizes = synced
         .files
@@ -1345,6 +1356,7 @@ fn archive_within(
     if sizes > unpacked_limit {
         return Err(unpacks_past(unpacked_limit));
     }
+    before_pack();
     let archive = pack(dir, &synced.files, limit, unpacked_limit)?;
     Ok((archive, synced))
 }
@@ -1365,13 +1377,24 @@ fn pack(
     limit: u64,
     unpacked_limit: u64,
 ) -> Result<Vec<u8>, CliError> {
+    pack_with("tar", dir, files, limit, unpacked_limit)
+}
+
+/// [`pack`] with the tar program named (a test packs with bsdtar).
+fn pack_with(
+    program: &str,
+    dir: &Path,
+    files: &[PathBuf],
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<Vec<u8>, CliError> {
     use std::io::Read;
     let mut list = Vec::new();
     for file in files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut tar = std::process::Command::new("tar")
+    let mut tar = std::process::Command::new(program)
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
@@ -1422,36 +1445,14 @@ fn pack(
         let _ = errors.read_to_end(&mut text);
         text
     });
-    // Counts what tar writes and passes it to gzip; stops one buffer past
-    // the limit, which ends both streams (tar's on a broken pipe).
-    let pump = std::thread::spawn(move || {
-        let mut total = 0_u64;
-        let mut buffer = vec![0_u8; 64 * 1024];
-        loop {
-            let read = match tar_out.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => read,
-            };
-            total = total.saturating_add(read as u64);
-            if total > unpacked_limit {
-                return true;
-            }
-            let Some(chunk) = buffer.get(..read) else {
-                break;
-            };
-            if gzip_in.write_all(chunk).is_err() {
-                break;
-            }
-        }
-        false
-    });
+    let pump = std::thread::spawn(move || pump(&mut tar_out, &mut gzip_in, unpacked_limit));
     let mut archive = Vec::new();
     let read = gzip_out.take(limit + 1).read_to_end(&mut archive);
     let oversized = archive.len() as u64 > limit;
     if oversized {
         let _ = gzip.kill();
     }
-    let unpacked_over = pump.join().unwrap_or(true);
+    let unpacked_over = pump.join().unwrap_or(Ok(true)).unwrap_or(false);
     if oversized || unpacked_over {
         let _ = tar.kill();
     }
@@ -1484,6 +1485,30 @@ fn pack(
             dir.display()
         ))),
     }
+}
+
+/// Counts what tar writes and passes it to gzip; `Ok(true)` one buffer past
+/// `limit`, where it stops, which ends both streams (tar's on a broken pipe).
+fn pump(from: &mut impl std::io::Read, to: &mut impl Write, limit: u64) -> std::io::Result<bool> {
+    let mut total = 0_u64;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = match from.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        total = total.saturating_add(read as u64);
+        if total > limit {
+            return Ok(true);
+        }
+        let Some(chunk) = buffer.get(..read) else {
+            break;
+        };
+        if to.write_all(chunk).is_err() {
+            break;
+        }
+    }
+    Ok(false)
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
