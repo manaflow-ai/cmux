@@ -23,7 +23,7 @@
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
@@ -117,11 +117,11 @@ async function copyVersion(text: string): Promise<void> {
 /** How long the build line says "Copied" after a click on the commit. */
 const COPIED_MS = 1500;
 
-/** "Build a9d1434 · Newest": plain selectable text, no tooltip (2026-10-31, Lawrence on the hover
- * that covered this line with "1.0.0-nightly.4124615690001": "seems excessive"). A click (or Return
- * or Space) on the commit copies the full version for a bug report and the line's last part says
- * "Copied" for a moment, in place: nothing pops over the card. A drag still selects the words; a
- * click that ends a selection copies nothing. */
+/** "Build a9d1434 · Newest": selectable text, no tooltip (2026-10-31, Lawrence on the hover that
+ * covered this line with "1.0.0-nightly.4124615690001": "seems excessive"). The commit is a real
+ * <button>: a click, Return or Space on it copies the full version for a bug report and the line's
+ * last part says "Copied" for a moment, in place: nothing pops over the card. A drag across the line
+ * still selects the words, the commit with them; a click that ends a selection copies nothing. */
 function BuildLine({
   data,
   builds,
@@ -136,8 +136,9 @@ function BuildLine({
   useEffect(() => () => clearTimeout(timer.current), []);
   const parts = cardBuildParts(data, builds, strings);
   if (!parts) return null;
-  const copy = () => {
-    if (globalThis.getSelection?.()?.isCollapsed === false) return;
+  const copy = (event: MouseEvent) => {
+    // A pointer click that ends a selection drag selects; Return or Space (detail 0) always copies.
+    if (event.detail !== 0 && globalThis.getSelection?.()?.isCollapsed === false) return;
     void copyVersion(data.version).then(
       () => {
         setCopied(true);
@@ -153,23 +154,17 @@ function BuildLine({
     <div className="wn-card-build">
       <span className="wn-card-part">
         {before}
-        {/* A span, not a button: WebKit selects no text inside a button, and the commit is text to
-            select and quote (u4466). */}
-        <span
+        {/* A native button: focus, Return and Space and the button role come from the platform.
+            Its CSS keeps it plain inline text and lets a drag across the line select the commit
+            (u4466). */}
+        <button
+          type="button"
           className="wn-card-build-id"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="button"
-          tabIndex={0}
           aria-label={strings.format("updates.card.copyVersion", data.version)}
           onClick={copy}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            copy();
-          }}
         >
           {parts.id}
-        </span>
+        </button>
         {after}
         {where && " ·"}
       </span>

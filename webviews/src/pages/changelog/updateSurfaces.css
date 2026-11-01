@@ -72,10 +72,24 @@
 }
 /* The build's commit: plain text a click copies the full version from (UpdateSurfaces BuildLine,
    2026-10-31). No tooltip, no link styling: hover only lifts it to the primary text color, and
-   keyboard focus takes the pages' ring (desktop.css). */
+   keyboard focus takes the pages' ring (desktop.css). It is a <button> that reads as the line's own
+   text: no box, the line's font and color. */
 .wn-card-build-id {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
   cursor: default;
   transition: color 0.12s ease-out;
+}
+/* Outranks the card's `button { user-select: none }` above: the commit is words to quote. */
+.wn-card-build .wn-card-build-id {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .wn-card-build-id:hover { color: var(--page-text); }
 @media (prefers-reduced-motion: reduce) {
