@@ -180,6 +180,11 @@ public final class ChatsFeed {
         if drain.closed { lost(connection) }
     }
 
+    /// The window and spec generation a request opens, kept until its answer (nil for any other request).
+    nonisolated static func windowRequest(method: String, params: [String: any Sendable]) -> (window: String, generation: UInt64?)? {
+        nil
+    }
+
     /// One request on the connection: it is encoded on the connection's own serial queue, so the
     /// main thread does no JSON work and the requests keep their order.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
