@@ -361,6 +361,51 @@ fn a_large_replay_replaces_queued_later_output_instead_of_overflowing() {
     assert!(!attach.lifecycle.is_canceled(), "the mirror was disconnected");
 }
 
+/// A hosted terminal resizes in two transitions: a plain `Resized` commits
+/// the host's geometry, which marks every replay viewer, and then the host's
+/// own `ResizedWithColors` replay is broadcast under the terminal lock
+/// (`hosted_reader/resize.rs`). That replay is the terminal at this cut, so
+/// the waiting mirror takes it as its replay and builds no second one under
+/// the terminal lock.
+#[test]
+fn a_hosted_resize_replay_is_the_replay_the_mirror_waits_for() {
+    let mux = Mux::new_for_test("hosted-resize-replay", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    while attach.stream.try_recv().is_ok() {}
+    pty.vt_replay_builds.store(0, Ordering::Release);
+    {
+        let mut geometry = pty.geometry.lock().unwrap();
+        let next = PtyGeometry { cols: 100, rows: 30, ..*geometry };
+        assert!(pty.commit_hosted_geometry(&mut geometry, next, false).unwrap());
+    }
+    {
+        let term = pty.term.lock().unwrap();
+        pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            cols: 100,
+            rows: 30,
+            replay: Arc::from(&b"host replay"[..]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::default(),
+            colors: Box::new(pty.terminal_colors_locked(&term, DefaultColors::default())),
+            pending_sequence: Arc::from([]),
+        });
+    }
+    let mut replays = 0;
+    while let Ok(frame) = attach.stream.try_recv() {
+        if matches!(frame, AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) {
+            replays += 1;
+        }
+    }
+    assert_eq!(
+        (pty.vt_replay_builds.load(Ordering::Acquire), replays),
+        (0, 1),
+        "the host's replay must satisfy the waiting mirror (replays built, replays received)"
+    );
+}
+
 #[test]
 fn resize_replay_budget_covers_inflight_state_and_transport_limits() {
     assert_eq!(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_480);
