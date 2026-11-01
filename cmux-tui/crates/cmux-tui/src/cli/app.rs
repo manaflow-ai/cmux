@@ -42,6 +42,7 @@ mod right;
 mod run;
 mod settings;
 mod skew;
+mod space;
 mod version;
 pub(super) mod wait;
 
@@ -63,6 +64,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "errors",
     "home",
     "team",
+    // Space aliases keep the intuitive `cmux space …` CLI alongside the
+    // app action catalog's historical `space create|delete` names.
+    "space",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -186,6 +190,15 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return Ok(None);
     }
     let rest = &args[1..];
+    // Spaces have a small noun-first CLI of their own (app/space.rs).
+    if scope == "space" {
+        if let Some(command) = space::parse(rest)? {
+            return Ok(Some(command));
+        }
+        if rest.first().map(String::as_str) == Some("list") {
+            return Ok(None);
+        }
+    }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
     if scope == "history"

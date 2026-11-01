@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm]
+ *       [--expect-capabilities <json>] [--team-vm] [--native-receiver]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -43,7 +43,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI } from "./host-agent";
+import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -317,7 +317,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; nativeReceiver?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -330,9 +330,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       const name = `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`;
       const { clone, row } = await measureClone(fs, ledger, name, options.snapshotId);
       rows.push(row);
+      // Track the clone before the extra probe so a refused/failed exec still cleans it up.
+      kept.push(clone);
+      if (options.nativeReceiver) {
+        const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
+        check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
+      }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
-      if (kept.length < 2) kept.push(clone);
-      else await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+      if (kept.length > 2) {
+        await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+        kept.pop();
+      }
     }
     report.clones = rows;
     report.latency = summarize(rows);
@@ -409,6 +417,7 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
+    nativeReceiver: argv.includes("--native-receiver"),
   });
   return report.passed ? 0 : 1;
 }
