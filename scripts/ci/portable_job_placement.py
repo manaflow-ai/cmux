@@ -144,6 +144,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     mac_first = set((env.get("MAC_FIRST") or "").split())
     linux_only = set((env.get("LINUX_ONLY") or "").split())
     linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    linux_refusal = ""
     problem = pool.snapshot_problem(snapshot, now)
     if linux and env.get("REQUIRE_LIVE_CAPACITY") == "1":
         matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
@@ -160,12 +161,18 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         queued = entry.get("queued") if isinstance(entry, Mapping) else None
         known_queue = type(queued) is int and queued >= 0
         if problem or not linux_members or not known_queue or idle <= queued:
+            linux_refusal = (
+                f"Linux pool capacity unknown: {problem}" if problem else
+                "Linux runner OS unknown or mismatched" if not linux_members else
+                "Linux queue depth was not observed" if not known_queue else
+                f"Linux runner is busy or has {queued} queued job(s)"
+            )
             linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
-        notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
+        notes.append(linux_refusal or "vars.LINUX_RUNNER names no fleet Linux runner")
 
     def done(why: str, mini: str = "", mini_jobs: tuple[str, ...] = ()) -> Placement:
         left = [job for job in rest if job not in mini_jobs]
