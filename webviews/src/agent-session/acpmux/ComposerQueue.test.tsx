@@ -727,6 +727,217 @@ test("an open edit closes, unsaved, when the row turns out to be a teammate's", 
   expect(actions(container, "p-1")).toEqual([]);
 });
 
+// A Save whose bridge call fails. Before acpmux could have it (not connected, a typed refusal) the row is
+// still queued, so the typed text goes back into that row's editor, never to the composer (the prompt would
+// show twice). After a timeout or a closed socket the edit may already be applied: nothing is restored and
+// the next snapshot shows the truth. Either way nothing is left unhandled.
+async function failedSave(error: Record<string, unknown> | "answered-no") {
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={() =>
+          error === "answered-no" ? Promise.resolve(false) : Promise.reject(Object.assign(new Error("failed"), error))
+        }
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  // Two macrotask turns: the rejection settles, then Node reports any one nobody handled.
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
+  return { lost, unhandled, editor, redraw: (rows: typeof queue) => act(async () => draw(rows)) };
+}
+
+for (const [name, error] of [
+  ["not connected", { code: "native.not_connected" }],
+  ["refused by the host", { code: "chat.queue.refused" }],
+] as const) {
+  test(`a save that fails before acpmux has it (${name}) reopens the row's editor with the typed text`, async () => {
+    const run = await failedSave(error);
+    expect(run.lost).toEqual([]);
+    expect(run.editor()?.value).toBe("first, reworded");
+    expect(run.unhandled).toEqual([]);
+  });
+}
+
+test("a reopened editor hands its text back to the composer if the row is gone when the queue next draws", async () => {
+  const run = await failedSave({ code: "native.not_connected" });
+  expect(run.editor()?.value).toBe("first, reworded");
+  await run.redraw([queue[1]!]);
+  await settle();
+  expect(run.lost).toEqual([["p-1", "first, reworded"]]);
+  expect(run.editor()).toBeNull();
+});
+
+// Overlapping saves of one row: A is pending, the row is reopened and B is saved, then A fails and B
+// succeeds. A's failure is stale (B superseded it), so it must not reopen A's text: the stale editor would
+// autosave A over B when clicked away.
+test("an older save that fails after a newer save of the same row began does not reopen its text", async () => {
+  const calls: { resolve(ok: boolean): void; reject(error: Error): void }[] = [];
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((resolve, reject) => calls.push({ resolve, reject }))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  const saveAs = async (text: string) => {
+    await startEdit(container, "p-1");
+    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("text A");
+  await saveAs("text B");
+  expect(calls).toHaveLength(2);
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
+  expect(editor()).toBeNull();
+  await act(async () => calls[0]!.reject(Object.assign(new Error("not connected"), { code: "native.not_connected" })));
+  await settle();
+  await act(async () => calls[1]!.resolve(true));
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  expect(editor()).toBeNull();
+  expect(lost).toEqual([]);
+  expect(unhandled).toEqual([]);
+});
+
+// Two rows saved, then both calls fail in one batch (one bridge reconnect): the first reopens its editor
+// with its text; the second waits, keeps its text, and reopens when the first editor closes. Neither
+// overwrites the other's recovery, and a waiting row that has gone hands its text to the composer.
+async function twoFailedSaves() {
+  const calls: { reject(error: Error): void }[] = [];
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((_, reject) => calls.push({ reject }))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  const saveAs = async (id: string, text: string) => {
+    await startEdit(container, id);
+    const field = container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`)!;
+    await act(async () => {
+      field.value = text;
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  await saveAs("p-1", "one edited");
+  await saveAs("p-2", "two edited");
+  const notConnected = () => Object.assign(new Error("not connected"), { code: "native.not_connected" });
+  await act(async () => {
+    calls[0]!.reject(notConnected());
+    calls[1]!.reject(notConnected());
+  });
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  const editor = (id: string) => container.querySelector<HTMLTextAreaElement>(`[data-prompt-id="${id}"] textarea`);
+  const escape = (id: string) =>
+    act(async () => {
+      editor(id)!.dispatchEvent(
+        new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+    });
+  return { lost, unhandled, editor, escape, redraw: (rows: typeof queue) => act(async () => draw(rows)) };
+}
+
+test("two saves that fail in one batch each keep their text: the second reopens when the first editor closes", async () => {
+  const run = await twoFailedSaves();
+  expect(run.editor("p-1")?.value).toBe("one edited");
+  expect(run.editor("p-2")).toBeNull();
+  expect(run.lost).toEqual([]);
+  await run.escape("p-1");
+  await settle();
+  expect(run.editor("p-1")).toBeNull();
+  expect(run.editor("p-2")?.value).toBe("two edited");
+  expect(run.lost).toEqual([]);
+  expect(run.unhandled).toEqual([]);
+});
+
+test("a waiting recovery whose row is gone when the editor frees hands its text to the composer", async () => {
+  const run = await twoFailedSaves();
+  await run.redraw([queue[0]!]);
+  await run.escape("p-1");
+  await settle();
+  expect(run.lost).toEqual([["p-2", "two edited"]]);
+  expect(run.editor("p-2")).toBeNull();
+});
+
+for (const [name, error] of [
+  ["timed out", { code: "native.timed_out" }],
+  ["closed", { code: "transport.closed" }],
+] as const) {
+  test(`a save that ${name} may already be applied: nothing is restored or reopened`, async () => {
+    const run = await failedSave(error);
+    expect(run.lost).toEqual([]);
+    expect(run.editor()).toBeNull();
+    expect(run.unhandled).toEqual([]);
+  });
+}
+
+test("a save acpmux answers no to (the prompt already started) hands its text back to the composer", async () => {
+  const run = await failedSave("answered-no");
+  expect(run.lost).toEqual([["p-1", "first, reworded"]]);
+  expect(run.editor()).toBeNull();
+});
+
 // The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
 // with. Picked after the row turned out to be a teammate's, none runs.
 test("a row menu opened before the row turned out to be a teammate's changes nothing", async () => {

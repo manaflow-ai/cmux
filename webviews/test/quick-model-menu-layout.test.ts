@@ -93,7 +93,8 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
+      // Ten harnesses and Add, less Claude Code (sr): a route of the Claude tab, never its own tab.
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {
@@ -218,8 +219,11 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     const page = await open("claude");
     try {
       expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
-      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
+      // A launch configuration of a family is a route in its Account row, never a tab of its own
+      // (Leo 2026-10-31: "THE FUCKING APP SERVER THE FUCKING SR" / "WHERE IS THE FUCKING ACCOUNTS").
+      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(0);
       await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitemradio", { name: "Claude Code (sr)", exact: true }).waitFor();
       await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
     } finally {
       await page.close();
@@ -518,7 +522,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("searching from a launch entry selects the visible model, not that launch entry", async () => {
+  test("searching from another family's tab selects the visible model", async () => {
     const page = await open("claude");
     try {
       await page.keyboard.press("ArrowLeft");
@@ -527,7 +531,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       );
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(
-        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
+        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "OpenCode",
       );
       await page.locator(".acpmux-quick-search input").fill("Sonnet");
       await page.keyboard.press("Enter");
