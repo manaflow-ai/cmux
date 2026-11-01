@@ -1,5 +1,15 @@
 import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
-import React, { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
@@ -1251,7 +1261,9 @@ export function QuickModelMenu({
             {/* The effort column: its fixed width (CSS), never the levels side by side. */}
             {menu.inlineEffort === true && <span className="acpmux-quick-width-probe-efforts" />}
             {/* The star and the ⌘N key after it, so every tab's rows fit whichever tab shows. */}
-            <span className={`acpmux-quick-width-probe-trail${families.stars ? " acpmux-quick-width-probe-starred" : ""}`} />
+            <span
+              className={`acpmux-quick-width-probe-trail${families.stars ? " acpmux-quick-width-probe-starred" : ""}`}
+            />
           </div>
         ))}
     </div>
