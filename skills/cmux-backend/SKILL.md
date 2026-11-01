@@ -13,7 +13,7 @@ description: "Backend TypeScript and Cloud VM development rules for cmux. Use wh
 - Cloud VM backend logic stays in Vercel route handlers and Effect services backed by Postgres. Do not reintroduce Rivet or a raw actor protocol unless a later architecture doc explicitly changes the control plane.
 - Postgres is the source of truth for VM lifecycle, active VM limits, idempotency, and usage events.
 - Production and staging Cloud VM Postgres use PlanetScale PostgreSQL database `cmux-prod` in organization `cmux`. The runtime reads `DATABASE_URL` with `CMUX_DB_DRIVER=url`; migration jobs use the protected `DATABASE_URL` secret. AWS credentials are not database credentials.
-- Run production/staging migrations with `bun run cloud-vm:migrate -- staging` followed by `-- production`; never from Vercel build or route startup. Local dev keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
+- Merging `main` deploys `web/` to production and deploys never migrate, so a migration reaches staging and then production before its pull request merges. Dispatch `cloud-vm-migrate.yml` from `main` with `source_ref=<PR head SHA>` for staging, then production; the required `Migration ledger` check fails until production's ledger holds every migration folder being merged. Never migrate from Vercel build or route startup. Details: [references/cloud-vm-control-plane.md](references/cloud-vm-control-plane.md#migrations). Local dev keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
 - Cloud VM create pricing gates use Stack Auth team payment items when enabled.
 
 ## Secrets
