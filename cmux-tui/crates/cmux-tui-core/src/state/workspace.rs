@@ -271,6 +271,29 @@ impl Mux {
             Some((workspace.id, terminals))
         });
         let Some((slot, terminals)) = target else { return Ok(()) };
+        // Adopted terminals of an incognito workspace, shown or not:
+        // private before the close drops the workspace's flag, so their
+        // exit and output keep nothing (incognito_terminals.rs).
+        // Fail closed: with no list, the workspace stays (and its flag with
+        // it, so its terminals stay private) until a later close can mark them.
+        let created_here = match self.read_registry_state(|connection| {
+            crate::state::store::workspace_terminal_public_ids(connection, workspace_id)
+        }) {
+            Ok(created_here) => created_here,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: kept ephemeral workspace {workspace_id}: could not list its terminals: {error:#}"
+                );
+                return Ok(());
+            }
+        };
+        for terminal in created_here
+            .iter()
+            .filter_map(|id| crate::resource::TerminalPublicId::parse(id.clone()).ok())
+            .chain(terminals.iter().cloned())
+        {
+            self.output_store.mark_private(&terminal);
+        }
         if !self.close_workspace_as(&Actor::Daemon, slot) {
             eprintln!("cmux-tui: could not close ephemeral workspace {workspace_id}");
             return Ok(());

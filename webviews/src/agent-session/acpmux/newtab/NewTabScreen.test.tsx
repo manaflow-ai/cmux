@@ -316,6 +316,67 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
+test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
+  const remoteFolder = "/remote/project";
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat(
+          [
+            {
+              sessionId: "remote-chat",
+              peer: "build-box",
+              host: "build-box",
+              hostKind: "local",
+              cwd: remoteFolder,
+            },
+          ],
+          { peers: ["build-box"], peerKinds: { "build-box": "ssh" } },
+        )}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        pageWidgets={new Set(["greeting"])}
+        machineName="This Mac"
+        environments
+        onAsk={(...args) => asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+
+  const folder = container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
+  expect(folder).toBeTruthy();
+  await act(async () => folder!.click());
+  const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("Do not work in a project"),
+  );
+  expect(noProject).toBeTruthy();
+  await act(async () => noProject!.click());
+  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at This Mac?");
+
+  await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
+
+  // The machine pick took its known folder: the chat starts there, so all three name it.
+  const headline = container.querySelector(".nt-headline-text")?.textContent ?? "";
+  expect(headline).toContain("project");
+  expect(headline).toContain("build-box");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  await typePrompt("fix it");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[2]).toBe(remoteFolder);
+  expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+});
+
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
   let opened = 0;
   const searches: string[] = [];

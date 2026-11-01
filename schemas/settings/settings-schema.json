@@ -17,6 +17,7 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
+              "app.touchBar",
               "app.startAgentGlobalHotKey",
               "app.hideDockIconWithoutWindows",
               "app.showMenuBarIcon"
@@ -1138,6 +1139,7 @@
             "key" : "settings.group.agentChat",
             "rows" : [
               "agentPane.display.transcriptView",
+              "agentPane.display.presentation",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
@@ -3319,6 +3321,57 @@
       "title" : {
         "key" : "settings.app.globalHotKey",
         "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.touchBar.help",
+        "text" : "Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.touchBar",
+      "keywords" : [
+        "touch bar",
+        "touchbar",
+        "control strip",
+        "workspace",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "touchBar"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.app.touchBar.summary",
+        "text" : "Show cmux actions on the Touch Bar"
+      },
+      "title" : {
+        "key" : "settings.app.touchBar",
+        "text" : "Touch Bar Controls"
       },
       "validation" : "portable"
     },
@@ -41590,6 +41643,158 @@
       "title" : {
         "key" : "settings.agentPane.display.transcriptView",
         "text" : "Transcript View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "transcript",
+        "messages"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatPresentationTranscript",
+            "text" : "Transcript"
+          },
+          "value" : "transcript"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatPresentationMessages",
+            "text" : "Messages"
+          },
+          "value" : "messages"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "transcript",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.presentation",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "presentation",
+        "messages",
+        "bubbles",
+        "chat",
+        "tools"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "presentation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.presentation"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.presentation",
+        "text" : "Chat Presentation"
       },
       "validation" : "portable"
     },
@@ -79977,6 +80182,9 @@
         "moon",
         "moon-blue",
         "mochi",
+        "captain",
+        "sprout",
+        "bolt",
         "fox-arctic",
         "machine-violet",
         "machine-gold",
@@ -80036,6 +80244,27 @@
             "text" : "Mochi"
           },
           "value" : "mochi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.captain",
+            "text" : "Captain"
+          },
+          "value" : "captain"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.sprout",
+            "text" : "Sprout"
+          },
+          "value" : "sprout"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.bolt",
+            "text" : "Bolt"
+          },
+          "value" : "bolt"
         },
         {
           "title" : {

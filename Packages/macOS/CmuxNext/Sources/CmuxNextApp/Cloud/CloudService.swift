@@ -61,6 +61,10 @@ final class CloudService {
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
+    /// The install guest links' owner tokens come from (``CloudConfiguration/shareAPIBaseURL(environment:)``):
+    /// ``installIdentity`` when both name one API, else a second install there, registered at the first share
+    /// (``shareOwnerToken()``) and revoked with it.
+    @ObservationIgnored let shareInstallIdentity: MacInstallIdentity
     /// `phone.cloudReplica`: this Mac's workspace list for phones while it is off.
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
@@ -165,15 +169,21 @@ final class CloudService {
             configuration: configuration,
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID })
-        let identity = MacInstallIdentity(
-            store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
-                           service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
-            transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
-            deviceName: Self.deviceName,
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        )
+        let configuration = self.configuration, paths = self.paths
+        let install = { (api: URL, folder: String) in
+            MacInstallIdentity(
+                store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
+                               service: "\(configuration.bundleID ?? "cmux").install-key.\(api.host ?? "unknown")",
+                               team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
+                transport: InstallHTTPTransport(baseURL: api),
+                deviceName: Self.deviceName,
+                clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            )
+        }
+        let identity = install(configuration.ownerAPIBaseURL(), "install")
         installIdentity = identity
+        let shareAPI = configuration.shareAPIBaseURL()
+        shareInstallIdentity = shareAPI == configuration.ownerAPIBaseURL() ? identity : install(shareAPI, "install-share")
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                             teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
@@ -330,6 +340,7 @@ final class CloudService {
                     // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
+                    if self.shareInstallIdentity !== self.installIdentity { await self.shareInstallIdentity.unbind() }
                     self.hands.stop()
                 }
             }
@@ -852,6 +863,9 @@ final class CloudService {
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+            if shareInstallIdentity !== installIdentity {
+                await shareInstallIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+            }
         }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()
@@ -875,6 +889,21 @@ final class CloudService {
             hostReplica.installReady()
         } catch {
             logger.error("install registration failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// A guest link's owner token from ``shareInstallIdentity``, registering that install first when sign-in
+    /// did not: a DEV build on the local backend never calls the Cloud API (``mayCallCloud``), but its links'
+    /// room is a Worker's. Nil signed out, or with Cloud off for the organization or its team missing.
+    func shareOwnerToken() async -> String? {
+        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        let auth = auth
+        do {
+            try await shareInstallIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+            return try await shareInstallIdentity.installToken()
+        } catch {
+            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }
