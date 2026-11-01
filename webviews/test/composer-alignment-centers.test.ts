@@ -136,11 +136,11 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   // The running turn's "↵ steer · ⌘↵ queue" placeholder too: only the idle one was measured, so its
   // misalignment escaped (Leo 2026-10-29).
   for (const variant of ["claude-auto", "grid-running"])
-  for (const width of [720, 420])
-    for (const scheme of ["light", "dark"])
-      test(`${variant} at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
-        const m = await measure(width, scheme, variant);
-        console.log(JSON.stringify({ variant, width, scheme, measure: m }));
-        expect(problems(m)).toEqual([]);
-      });
+    for (const width of [720, 420])
+      for (const scheme of ["light", "dark"])
+        test(`${variant} at ${width} px (${scheme}): + , placeholder and mic share one row center; the columns and the quiet row line up`, async () => {
+          const m = await measure(width, scheme, variant);
+          console.log(JSON.stringify({ variant, width, scheme, measure: m }));
+          expect(problems(m)).toEqual([]);
+        });
 });

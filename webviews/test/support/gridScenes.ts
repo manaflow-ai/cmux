@@ -217,8 +217,20 @@ export const gridScenes: GridScene[] = [
   scene("composer.foot", "agent-pane.composer-row", "grid-running", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("lead", ".acpmux-access-trigger svg", "cx", point(".acpmux-composer-box", "left"), token("composer-lead-center")),
-    from("trail", ".acpmux-composer-box", "right", point(".acpmux-context-ring svg", "cx"), token("composer-trail-center")),
+    from(
+      "lead",
+      ".acpmux-access-trigger svg",
+      "cx",
+      point(".acpmux-composer-box", "left"),
+      token("composer-lead-center"),
+    ),
+    from(
+      "trail",
+      ".acpmux-composer-box",
+      "right",
+      point(".acpmux-context-ring svg", "cx"),
+      token("composer-trail-center"),
+    ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
