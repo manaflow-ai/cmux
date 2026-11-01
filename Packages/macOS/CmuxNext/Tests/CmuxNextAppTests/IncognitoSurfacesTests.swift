@@ -70,22 +70,37 @@ struct IncognitoSurfacesTests {
         #expect(posted.body == "Rotated the production signing key.")
     }
 
-    /// An agent's passkey request from an incognito browser tab names neither the agent nor the site.
-    @Test func anIncognitoPasskeyBannerNamesNothing() async {
+    /// An agent's passkey request from an incognito browser tab names neither the agent nor the site; one
+    /// from a normal window's tab does. The tab resolves on its own machine and its window is read from
+    /// its pane (#28382), so the check works on the real tab tree, not on a by-id stand-in.
+    @Test func anIncognitoPasskeyBannerNamesNothing() async throws {
         let services = Self.services()
-        services.cache.browserTabs.isIncognitoTab = { $0 == "tab_secret" }
+        let window = services.windows.newIncognitoWindow()
+        let secret = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+        func workspace(_ id: UInt64, _ key: WorkspaceKey, tab: String) -> WorkspaceSnapshot {
+            let page = TabSnapshot(surface: .init(rawValue: id), tabResourceID: ResourceID(rawValue: tab), kind: .browser, url: "https://bank.example")
+            let pane = PaneSnapshot(id: .init(rawValue: id), tabs: [page])
+            return WorkspaceSnapshot(id: .init(rawValue: id), key: key, name: tab,
+                                     screens: [ScreenSnapshot(id: .init(rawValue: id), layout: .leaf(.init(rawValue: id)), panes: [pane])])
+        }
+        services.daemon.store.apply(snapshot: DaemonTree(workspaces: [workspace(1, secret, tab: "tab_secret"),
+                                                                      workspace(2, WorkspaceKey.generate(), tab: "tab_normal")]))
         let host = AppBrowserPasskeyHost(services: services)
         await host.post(BrowserPasskeyRequest(id: "p1", tabID: "tab_secret", agent: "Chief", site: "bank.example"))
         let posted = services.notifications.desktop.posted.last
         #expect(posted?.title == DesktopNotifier.incognitoTitle && posted?.body == DesktopNotifier.incognitoBody,
                 "an incognito tab's passkey banner names its agent or site: \(String(describing: posted))")
+        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_normal", agent: "Chief", site: "bank.example"))
+        let normal = services.notifications.desktop.posted.last
+        #expect(normal?.title.contains("Chief") == true && normal?.body.contains("bank.example") == true,
+                "a normal window's passkey banner lost its agent or site: \(String(describing: normal))")
         // A tab closed while the request waited may have been an incognito one: its banner names nothing either.
-        await host.post(BrowserPasskeyRequest(id: "p2", tabID: "tab_closed", agent: "Chief", site: "bank.example"))
+        await host.post(BrowserPasskeyRequest(id: "p3", tabID: "tab_closed", agent: "Chief", site: "bank.example"))
         #expect(services.notifications.desktop.posted.last?.body == DesktopNotifier.incognitoBody)
     }
 
     /// A Run or hand-off from an incognito chat is never saved for the next launch (its task or summary
-    /// included), so no later launch can post it.
+    /// included), so no later launch can post it. Only its bare id is kept while it may be open (#31040).
     @Test func incognitoRunsAreNeverSaved() async throws {
         let suite = "incognito-surfaces-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -98,7 +113,28 @@ struct IncognitoSurfacesTests {
         follower.watch(SandboxRunRecord(id: "run_normal", task: "make test", key: "k2", user: "u", team: nil, started: Date()))
         let saved = String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self)
         #expect(saved.contains("run_normal"))
-        #expect(!saved.contains("run_secret") && !saved.contains("prod key"), "an incognito Run was saved for the next launch")
+        #expect(!saved.contains("prod key"), "an incognito Run was saved for the next launch")
+        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        #expect(relaunched.following.map(\.id) == ["run_normal"], "an incognito Run's record was saved for the next launch")
+    }
+
+    /// Issue #31208: an incognito Run is never resumed after a relaunch (its record isn't saved, and no list
+    /// brings it back), so its id is dropped at the next sign-in instead of staying saved forever.
+    @Test func anIncognitoRunsIDIsDroppedAtTheNextLaunchsSignIn() async throws {
+        let suite = "incognito-surfaces-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func saved() -> String { String(decoding: defaults.data(forKey: SandboxRunFollower.defaultsKey) ?? Data(), as: UTF8.self) }
+        let first = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        first.account("u")
+        var secret = SandboxRunRecord(id: "run_secret", task: "rotate the prod key", key: "k1", user: "u", team: nil, started: Date())
+        secret.incognito = true
+        first.watch(secret)
+        #expect(saved().contains("run_secret"))
+        first.stop()
+        let relaunched = SandboxRunFollower(wait: { _, _ in throw CancellationError() }, defaults: defaults)
+        relaunched.account("u")
+        #expect(!saved().contains("run_secret"), "an incognito Run's id outlived the launch that could follow it")
     }
 
     /// The tabs the quit leaves out are taken before its window step closes the incognito workspaces (after

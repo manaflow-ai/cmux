@@ -373,7 +373,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // on the sidebar document; the App only answers `SidebarArchiveHost`.
         .target(
             name: "CmuxNextSidebarActions",
-            dependencies: ["CmuxNextActions", "CmuxNextDesignTokens", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextSettings", "CmuxNextSidebar"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
@@ -612,10 +612,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
         // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
-        // models and the Chief switch. No AppServices; the App's HomeService wires it.
+        // models, the Chief switch and the plan of which paired servers to reach (ServerReachPlan,
+        // moved out of CmuxNextApp). No AppServices; the App's HomeService and ServerReachService wire it.
         .target(
             name: "CmuxNextHostedChief",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine", "CmuxNextRemote"],
             resources: [
                 .process("Resources"),
             ],

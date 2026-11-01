@@ -598,6 +598,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+  `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
+  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
   note; a cheap classifier (Claude Haiku) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
@@ -776,6 +779,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+  `{chief} engine set --preset opus|hybrid|codex` switches the whole Chief:
+  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
   note; a cheap classifier (Claude Haiku) first decides whether it wakes
   you. Tune it for yourself with `{chief} engine set --reactions-can-wake
@@ -962,7 +968,7 @@ pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, i
 /// 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto
 /// route stuff all the time"); off until the person turns it on with
 /// `chief.autoRouteSubagents` or `chief engine set --subagent-routing auto`.
-pub const SPAWN_HARNESS_DESCRIPTION: &str = "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out.";
+pub const SPAWN_HARNESS_DESCRIPTION: &str = "The agent harness they run on, chosen per task: codex (GPT) for long autonomous coding, refactors, CI fixes and a second opinion on Claude-written code; claude for writing, design, research, UI and computer use; another acpmux profile by its name. Split a spawn when tasks want different harnesses. By default, the one you run on. Routing is off unless the person turned it on, and a harness they have not granted is refused: then leave it out. With routing on, a spawn that names neither harness nor model is routed task by task (code to Codex, writing and research to Claude, a review to the other model), and the answer names each pick.";
 /// `spawn(model)`: the model beside `harness`, under the same switch.
 pub const SPAWN_MODEL_DESCRIPTION: &str = "The model they run on, an id the harness takes (for example gpt-6-astra or claude-sonnet-5-5); by default, the harness's. Refused, like harness, while routing is off: then leave it out.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";

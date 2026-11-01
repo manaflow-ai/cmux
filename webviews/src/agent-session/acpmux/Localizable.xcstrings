@@ -1,6 +1,14 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "queue.held.updating": {"comment":"Agent pane: quiet note on a guest's held message while the guest's newer edit is on its way; Approve and Decline wait until its text shows","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ التحديث…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažurira se…"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdaterer…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird aktualisiert…"}},"en":{"stringUnit":{"state":"translated","value":"Updating…"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mise à jour…"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornamento…"}},"ja":{"stringUnit":{"state":"needs_review","value":"更新中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងធ្វើបច្ចុប្បន្នភាព…"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdaterer…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Aktualizowanie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновляется…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังอัปเดต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновлюється…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang cập nhật…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在更新…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在更新…"}}}},
+    "queue.held.stale": {"comment":"Agent pane: quiet note on a guest's held message when the guest edited it after the owner pressed Approve; the new text shows and the owner answers again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عُدّلت منذ أن اطلعت عليها"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izmijenjeno otkako ste pogledali"}},"da":{"stringUnit":{"state":"needs_review","value":"Redigeret siden du kiggede"}},"de":{"stringUnit":{"state":"needs_review","value":"Seitdem bearbeitet"}},"en":{"stringUnit":{"state":"translated","value":"Edited since you looked"}},"es":{"stringUnit":{"state":"needs_review","value":"Editado desde que lo viste"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modifié depuis votre lecture"}},"it":{"stringUnit":{"state":"needs_review","value":"Modificato da quando l'hai visto"}},"ja":{"stringUnit":{"state":"needs_review","value":"確認後に編集されました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានកែតាំងពីអ្នកមើល"}},"ko":{"stringUnit":{"state":"needs_review","value":"확인한 뒤 수정됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Redigert siden du så"}},"pl":{"stringUnit":{"state":"needs_review","value":"Edytowano od Twojego podglądu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Editada desde que você viu"}},"ru":{"stringUnit":{"state":"needs_review","value":"Изменено после просмотра"}},"th":{"stringUnit":{"state":"needs_review","value":"แก้ไขหลังจากที่คุณดู"}},"tr":{"stringUnit":{"state":"needs_review","value":"Baktığınızdan beri düzenlendi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Змінено після перегляду"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã sửa từ lúc bạn xem"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你查看后已被编辑"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你查看後已被編輯"}}}},
+    "queue.held.gone": {"comment":"Agent pane: quiet note on a guest's held message that was already approved or declined elsewhere when the owner answered","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تمت الإجابة بالفعل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Već odgovoreno"}},"da":{"stringUnit":{"state":"needs_review","value":"Allerede besvaret"}},"de":{"stringUnit":{"state":"needs_review","value":"Bereits beantwortet"}},"en":{"stringUnit":{"state":"translated","value":"Already answered"}},"es":{"stringUnit":{"state":"needs_review","value":"Ya respondido"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déjà traité"}},"it":{"stringUnit":{"state":"needs_review","value":"Già gestito"}},"ja":{"stringUnit":{"state":"needs_review","value":"回答済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានឆ្លើយរួចហើយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이미 처리됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Allerede besvart"}},"pl":{"stringUnit":{"state":"needs_review","value":"Już rozpatrzono"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Já respondida"}},"ru":{"stringUnit":{"state":"needs_review","value":"Уже решено"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบไปแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Zaten yanıtlandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Уже вирішено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã xử lý"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已处理"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已處理"}}}},
+    "multiplayer.guestName": {"comment":"Agent pane: a link guest's name on their message in a shared chat; {name} is the name the guest typed, which is a label and not a verified identity","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{name} (ضيف)"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} (gost)"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} (gæst)"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} (Gast)"}},"en":{"stringUnit":{"state":"translated","value":"{name} (guest)"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} (invitado)"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} (invité)"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} (ospite)"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name}（ゲスト）"}},"km":{"stringUnit":{"state":"needs_review","value":"{name} (ភ្ញៀវ)"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} (게스트)"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} (gjest)"}},"pl":{"stringUnit":{"state":"needs_review","value":"{name} (gość)"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} (convidado)"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} (гость)"}},"th":{"stringUnit":{"state":"needs_review","value":"{name} (ผู้เยี่ยมชม)"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} (misafir)"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} (гість)"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} (khách)"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{name}（访客）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{name}（訪客）"}}}},
+    "queue.held.waiting": {"comment":"Agent pane: quiet note at the end of a guest's message line while it waits for the chat owner to approve or decline it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظارك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka na vas"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på dig"}},"de":{"stringUnit":{"state":"needs_review","value":"Wartet auf dich"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for you"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando tu respuesta"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de vous"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di te"}},"ja":{"stringUnit":{"state":"needs_review","value":"あなたの承認待ち"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំអ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"승인 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på deg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka na Ciebie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando você"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ждёт вас"}},"th":{"stringUnit":{"state":"needs_review","value":"รอคุณอยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sizi bekliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Чекає на вас"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"等待你处理"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"等待你處理"}}}},
+    "queue.held.approve": {"comment":"Agent pane: button on a guest's held message that sends it to the agent","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"موافقة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odobri"}},"da":{"stringUnit":{"state":"needs_review","value":"Godkend"}},"de":{"stringUnit":{"state":"needs_review","value":"Freigeben"}},"en":{"stringUnit":{"state":"translated","value":"Approve"}},"es":{"stringUnit":{"state":"needs_review","value":"Aprobar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Approuver"}},"it":{"stringUnit":{"state":"needs_review","value":"Approva"}},"ja":{"stringUnit":{"state":"needs_review","value":"承認"}},"km":{"stringUnit":{"state":"needs_review","value":"យល់ព្រម"}},"ko":{"stringUnit":{"state":"needs_review","value":"승인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Godkjenn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatwierdź"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aprovar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Одобрить"}},"th":{"stringUnit":{"state":"needs_review","value":"อนุมัติ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Onayla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Схвалити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Duyệt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"批准"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"核准"}}}},
+    "queue.held.decline": {"comment":"Agent pane: button on a guest's held message that drops it without sending it to the agent","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"رفض"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbij"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvis"}},"de":{"stringUnit":{"state":"needs_review","value":"Ablehnen"}},"en":{"stringUnit":{"state":"translated","value":"Decline"}},"es":{"stringUnit":{"state":"needs_review","value":"Rechazar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Refuser"}},"it":{"stringUnit":{"state":"needs_review","value":"Rifiuta"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下"}},"km":{"stringUnit":{"state":"needs_review","value":"បដិសេធ"}},"ko":{"stringUnit":{"state":"needs_review","value":"거절"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslå"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recusar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонить"}},"th":{"stringUnit":{"state":"needs_review","value":"ปฏิเสธ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Reddet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Từ chối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"拒绝"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"拒絕"}}}},
+    "queue.held.declined": {"comment":"Agent pane: the one quiet line left where the owner declined a guest's message; {preview} is the message's first line","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مرفوضة: {preview}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbijeno: {preview}"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvist: {preview}"}},"de":{"stringUnit":{"state":"needs_review","value":"Abgelehnt: {preview}"}},"en":{"stringUnit":{"state":"translated","value":"Declined: {preview}"}},"es":{"stringUnit":{"state":"needs_review","value":"Rechazado: {preview}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Refusé : {preview}"}},"it":{"stringUnit":{"state":"needs_review","value":"Rifiutato: {preview}"}},"ja":{"stringUnit":{"state":"needs_review","value":"却下: {preview}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបដិសេធ៖ {preview}"}},"ko":{"stringUnit":{"state":"needs_review","value":"거절됨: {preview}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslått: {preview}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzucono: {preview}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recusada: {preview}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонено: {preview}"}},"th":{"stringUnit":{"state":"needs_review","value":"ปฏิเสธแล้ว: {preview}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Reddedildi: {preview}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилено: {preview}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã từ chối: {preview}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已拒绝：{preview}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已拒絕：{preview}"}}}},
     "queue.held.review": {"comment":"Agent pane: Needs you button on a guest's held message; it opens the message's card in the chat, where the owner reads it whole and approves or declines it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مراجعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregledaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Gennemse"}},"de":{"stringUnit":{"state":"needs_review","value":"Ansehen"}},"en":{"stringUnit":{"state":"translated","value":"Review"}},"es":{"stringUnit":{"state":"needs_review","value":"Revisar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Examiner"}},"it":{"stringUnit":{"state":"needs_review","value":"Esamina"}},"ja":{"stringUnit":{"state":"needs_review","value":"確認"}},"km":{"stringUnit":{"state":"needs_review","value":"ពិនិត្យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"검토"}},"nb":{"stringUnit":{"state":"needs_review","value":"Se gjennom"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejrzyj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Revisar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотреть"}},"th":{"stringUnit":{"state":"needs_review","value":"ตรวจดู"}},"tr":{"stringUnit":{"state":"needs_review","value":"İncele"}},"uk":{"stringUnit":{"state":"needs_review","value":"Переглянути"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"查看"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"查看"}}}},
     "sessionInfo.usage.showSubagents": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Show"}},"ar":{"stringUnit":{"state":"translated","value":"إظهار"}},"bs":{"stringUnit":{"state":"translated","value":"Prikaži"}},"da":{"stringUnit":{"state":"translated","value":"Vis"}},"de":{"stringUnit":{"state":"translated","value":"Anzeigen"}},"es":{"stringUnit":{"state":"translated","value":"Mostrar"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher"}},"it":{"stringUnit":{"state":"translated","value":"Mostra"}},"ja":{"stringUnit":{"state":"translated","value":"表示"}},"km":{"stringUnit":{"state":"translated","value":"បង្ហាញ"}},"ko":{"stringUnit":{"state":"translated","value":"보기"}},"nb":{"stringUnit":{"state":"translated","value":"Vis"}},"pl":{"stringUnit":{"state":"translated","value":"Pokaż"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Mostrar"}},"ru":{"stringUnit":{"state":"translated","value":"Показать"}},"th":{"stringUnit":{"state":"translated","value":"แสดง"}},"tr":{"stringUnit":{"state":"translated","value":"Göster"}},"uk":{"stringUnit":{"state":"translated","value":"Показати"}},"vi":{"stringUnit":{"state":"translated","value":"Hiện"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"显示"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"顯示"}}}},
     "sessionInfo.usage.restartWithCap": {"comment":"Agent pane: Session Info's Usage","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restart with cap"}},"ar":{"stringUnit":{"state":"translated","value":"إعادة التشغيل مع حد"}},"bs":{"stringUnit":{"state":"translated","value":"Ponovo pokreni s ograničenjem"}},"da":{"stringUnit":{"state":"translated","value":"Genstart med grænse"}},"de":{"stringUnit":{"state":"translated","value":"Mit Grenze neu starten"}},"es":{"stringUnit":{"state":"translated","value":"Reiniciar con límite"}},"fr":{"stringUnit":{"state":"translated","value":"Redémarrer avec limite"}},"it":{"stringUnit":{"state":"translated","value":"Riavvia con limite"}},"ja":{"stringUnit":{"state":"translated","value":"上限付きで再起動"}},"km":{"stringUnit":{"state":"translated","value":"ចាប់ផ្ដើមឡើងវិញដោយមានកំណត់"}},"ko":{"stringUnit":{"state":"translated","value":"제한을 두고 다시 시작"}},"nb":{"stringUnit":{"state":"translated","value":"Start på nytt med grense"}},"pl":{"stringUnit":{"state":"translated","value":"Uruchom ponownie z limitem"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Reiniciar com limite"}},"ru":{"stringUnit":{"state":"translated","value":"Перезапустить с ограничением"}},"th":{"stringUnit":{"state":"translated","value":"เริ่มใหม่พร้อมขีดจำกัด"}},"tr":{"stringUnit":{"state":"translated","value":"Sınırla yeniden başlat"}},"uk":{"stringUnit":{"state":"translated","value":"Перезапустити з обмеженням"}},"vi":{"stringUnit":{"state":"translated","value":"Khởi động lại có giới hạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"设上限后重启"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"設上限後重新啟動"}}}},
@@ -8662,6 +8670,9 @@
         }
       }
     },
+    "composer.slashResume": {"comment":"Agent pane: the slash menu's description of /resume, which opens the chats search (cmuxCommands.ts)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"استأنف محادثة سابقة"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavite raniji razgovor"}},"da":{"stringUnit":{"state":"translated","value":"Genoptag en tidligere samtale"}},"de":{"stringUnit":{"state":"translated","value":"Einen früheren Chat fortsetzen"}},"en":{"stringUnit":{"state":"translated","value":"Resume an earlier chat"}},"es":{"stringUnit":{"state":"translated","value":"Reanudar un chat anterior"}},"fr":{"stringUnit":{"state":"translated","value":"Reprendre une conversation précédente"}},"it":{"stringUnit":{"state":"translated","value":"Riprendi una chat precedente"}},"ja":{"stringUnit":{"state":"translated","value":"以前のチャットを再開"}},"km":{"stringUnit":{"state":"translated","value":"បន្តការជជែកមុន"}},"ko":{"stringUnit":{"state":"translated","value":"이전 채팅 이어서 하기"}},"nb":{"stringUnit":{"state":"translated","value":"Gjenoppta en tidligere chat"}},"pl":{"stringUnit":{"state":"translated","value":"Wznów wcześniejszy czat"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Retomar um chat anterior"}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить предыдущий чат"}},"th":{"stringUnit":{"state":"translated","value":"แชทก่อนหน้าต่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Önceki bir sohbete devam et"}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити попередній чат"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục một cuộc trò chuyện trước"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"继续之前的聊天"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"繼續之前的聊天"}}}},
+    "composer.slashLogin": {"comment":"Agent pane: the slash menu's description of /login, which signs in to the chat's agent in a terminal tab (cmuxCommands.ts)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"سجّل الدخول إلى وكيل هذه المحادثة"}},"bs":{"stringUnit":{"state":"translated","value":"Prijavite se na agenta ovog razgovora"}},"da":{"stringUnit":{"state":"translated","value":"Log ind på denne samtales agent"}},"de":{"stringUnit":{"state":"translated","value":"Beim Agenten dieses Chats anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign in to this chat's agent"}},"es":{"stringUnit":{"state":"translated","value":"Iniciar sesión en el agente de este chat"}},"fr":{"stringUnit":{"state":"translated","value":"Se connecter à l'agent de cette conversation"}},"it":{"stringUnit":{"state":"translated","value":"Accedi all'agente di questa chat"}},"ja":{"stringUnit":{"state":"translated","value":"このチャットのエージェントにサインイン"}},"km":{"stringUnit":{"state":"translated","value":"ចូលទៅភ្នាក់ងាររបស់ការជជែកនេះ"}},"ko":{"stringUnit":{"state":"translated","value":"이 채팅의 에이전트에 로그인"}},"nb":{"stringUnit":{"state":"translated","value":"Logg på agenten i denne chatten"}},"pl":{"stringUnit":{"state":"translated","value":"Zaloguj się do agenta tego czatu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Entrar no agente deste chat"}},"ru":{"stringUnit":{"state":"translated","value":"Войти в агента этого чата"}},"th":{"stringUnit":{"state":"translated","value":"ลงชื่อเข้าใช้เอเจนต์ของแชทนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu sohbetin ajanında oturum aç"}},"uk":{"stringUnit":{"state":"translated","value":"Увійти в агента цього чату"}},"vi":{"stringUnit":{"state":"translated","value":"Đăng nhập vào tác tử của cuộc trò chuyện này"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"登录此聊天的智能体"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"登入此聊天的代理程式"}}}},
+    "composer.cmuxLoginElsewhere": {"comment":"Agent pane: /login refused for a chat bound to an account route or running on another host (App.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"سجّل الدخول إلى حساب هذه المحادثة من قائمة الحساب، أو من الإعدادات > الوكلاء."}},"bs":{"stringUnit":{"state":"translated","value":"Prijavite se na račun ovog razgovora iz menija Račun ili u Postavke > Agenti."}},"da":{"stringUnit":{"state":"translated","value":"Log ind på denne samtales konto fra dens Konto-menu eller i Indstillinger > Agenter."}},"de":{"stringUnit":{"state":"translated","value":"Melde dich über das Konto-Menü dieses Chats oder unter Einstellungen > Agenten an."}},"en":{"stringUnit":{"state":"translated","value":"Sign in to this chat's account from its Account menu, or in Settings > Agents."}},"es":{"stringUnit":{"state":"translated","value":"Inicia sesión en la cuenta de este chat desde su menú Cuenta o en Ajustes > Agentes."}},"fr":{"stringUnit":{"state":"translated","value":"Connectez-vous au compte de cette conversation depuis son menu Compte, ou dans Réglages > Agents."}},"it":{"stringUnit":{"state":"translated","value":"Accedi all'account di questa chat dal suo menu Account o in Impostazioni > Agenti."}},"ja":{"stringUnit":{"state":"translated","value":"このチャットのアカウントには、アカウントメニューまたは「設定」>「エージェント」からサインインしてください。"}},"km":{"stringUnit":{"state":"translated","value":"ចូលគណនីរបស់ការជជែកនេះពីម៉ឺនុយគណនី ឬក្នុងការកំណត់ > ភ្នាក់ងារ។"}},"ko":{"stringUnit":{"state":"translated","value":"이 채팅의 계정 메뉴 또는 설정 > 에이전트에서 로그인하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Logg på kontoen til denne chatten fra Konto-menyen, eller i Innstillinger > Agenter."}},"pl":{"stringUnit":{"state":"translated","value":"Zaloguj się na konto tego czatu z jego menu Konto lub w Ustawienia > Agenci."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Entre na conta deste chat pelo menu Conta ou em Ajustes > Agentes."}},"ru":{"stringUnit":{"state":"translated","value":"Войдите в аккаунт этого чата через его меню «Аккаунт» или в «Настройки» > «Агенты»."}},"th":{"stringUnit":{"state":"translated","value":"ลงชื่อเข้าใช้บัญชีของแชทนี้จากเมนูบัญชี หรือใน การตั้งค่า > เอเจนต์"}},"tr":{"stringUnit":{"state":"translated","value":"Bu sohbetin hesabında Hesap menüsünden ya da Ayarlar > Ajanlar'dan oturum aç."}},"uk":{"stringUnit":{"state":"translated","value":"Увійдіть в обліковий запис цього чату з його меню «Обліковий запис» або в «Налаштування» > «Агенти»."}},"vi":{"stringUnit":{"state":"translated","value":"Đăng nhập tài khoản của cuộc trò chuyện này từ menu Tài khoản, hoặc trong Cài đặt > Tác tử."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"请从此聊天的“账户”菜单或“设置”>“智能体”登录。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"請從此聊天的「帳號」選單或「設定」>「代理程式」登入。"}}}},
     "composer.slashImport": {
       "comment": "Agent pane: the slash menu's description of /import (cmuxCommands.ts)",
       "extractionState": "manual",
@@ -234595,6 +234606,270 @@
         }
       }
     },
+    "sessionInfo.outputs.showLess": {
+      "comment": "Agent pane Session Info, Outputs: whole-row button under the opened outputs list that folds it back to five",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض أقل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži manje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mindre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weniger anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar menos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher moins"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra meno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示を減らす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញតិចជាងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간략히 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mindre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż mniej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar menos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать меньше"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงน้อยลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha az göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати менше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện ít hơn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示更少"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示較少"
+          }
+        }
+      }
+    },
+    "sessionInfo.outputs.showMore": {
+      "comment": "Agent pane Session Info, Outputs: whole-row button under the first five outputs that shows the rest",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المزيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži više"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra altro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もっと見る"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញច្រើនទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis mer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż więcej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать больше"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha fazla göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати більше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thêm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示更多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示更多"
+          }
+        }
+      }
+    },
     "sessionInfo.subagents.more": {
       "comment": "Agent pane Inspector, Subagents: under the first running subagents and chats, opens the {n} more that run",
       "extractionState": "manual",
@@ -243722,6 +243997,33 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "提供者在這台 Cloud 機器上拒絕了 {harness} 的憑證{status}。請重新設定。" } }
       }
     },
+    "turn.failure.cloudTeamMachineNoLogin": {
+      "comment": "Agent pane: a Claude sign-in failure on a team Cloud machine, where cmux passes no personal login. harness is the agent name. Never include raw output or host.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "{harness} on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يملك {harness} على جهاز Cloud الخاص بالفريق هذا أي تسجيل دخول يمكنه استخدامه. لا ينقل cmux تسجيلات الدخول الشخصية إلى أجهزة الفريق المشتركة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "{harness} na ovom timskom Cloud računaru nema prijavu koju može koristiti. cmux ne prenosi lične prijave na dijeljene timske računare." } },
+        "da": { "stringUnit": { "state": "translated", "value": "{harness} på denne team-Cloud-maskine har intet login, den kan bruge. cmux overfører ikke personlige logins til delte team-maskiner." } },
+        "de": { "stringUnit": { "state": "translated", "value": "{harness} auf diesem Team-Cloud-Computer hat keine nutzbare Anmeldung. cmux überträgt keine persönlichen Anmeldungen auf gemeinsam genutzte Team-Computer." } },
+        "es": { "stringUnit": { "state": "translated", "value": "{harness} en esta máquina de Cloud del equipo no tiene un inicio de sesión que pueda usar. cmux no pasa inicios de sesión personales a máquinas compartidas del equipo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "{harness} sur cette machine Cloud d’équipe n’a aucune connexion utilisable. cmux ne transmet pas les connexions personnelles aux machines d’équipe partagées." } },
+        "it": { "stringUnit": { "state": "translated", "value": "{harness} su questa macchina Cloud del team non ha un accesso utilizzabile. cmux non trasferisce gli accessi personali alle macchine condivise del team." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチームの Cloud マシンの {harness} には使えるサインインがありません。cmux は個人のログインを共有チームマシンに渡しません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "{harness} នៅលើម៉ាស៊ីន Cloud របស់ក្រុមនេះ មិនមានការចូលគណនីដែលវាអាចប្រើបានទេ។ cmux មិនបញ្ជូនការចូលគណនីផ្ទាល់ខ្លួនទៅម៉ាស៊ីនក្រុមដែលចែករំលែកទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 팀 Cloud 머신의 {harness}에는 사용할 수 있는 로그인이 없습니다. cmux는 개인 로그인을 공유 팀 머신에 전달하지 않습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "{harness} på denne team-Cloud-maskinen har ingen innlogging den kan bruke. cmux overfører ikke personlige innlogginger til delte team-maskiner." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "{harness} na tej zespołowej maszynie Cloud nie ma logowania, którego mógłby użyć. cmux nie przekazuje osobistych logowań na współdzielone maszyny zespołu." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "{harness} nesta máquina Cloud da equipe não tem um login que possa usar. O cmux não passa logins pessoais para máquinas compartilhadas da equipe." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "У {harness} на этой командной машине Cloud нет входа, который можно использовать. cmux не передаёт личные входы на общие машины команды." } },
+        "th": { "stringUnit": { "state": "translated", "value": "{harness} บนเครื่อง Cloud ของทีมนี้ไม่มีการลงชื่อเข้าใช้ที่ใช้ได้ cmux ไม่ส่งการเข้าสู่ระบบส่วนตัวไปยังเครื่องที่ทีมใช้ร่วมกัน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu ekip Cloud makinesindeki {harness} için kullanılabilir bir oturum yok. cmux kişisel oturumları paylaşılan ekip makinelerine aktarmaz." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "У {harness} на цій командній хмарній машині немає входу, який можна використати. cmux не передає особисті входи на спільні машини команди." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "{harness} trên máy Cloud của nhóm này không có thông tin đăng nhập nào dùng được. cmux không chuyển thông tin đăng nhập cá nhân sang máy dùng chung của nhóm." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "这台团队 Cloud 机器上的 {harness} 没有可用的登录。cmux 不会把个人登录传给共享的团队机器。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這台團隊 Cloud 機器上的 {harness} 沒有可用的登入。cmux 不會把個人登入傳給共用的團隊機器。" } }
+      }
+    },
     "turn.signIn.claude": {
       "comment": "Agent pane: a Cloud chat's failed sign-in card, the button that runs Claude's own login on the user's Cloud machine.",
       "extractionState": "manual",
@@ -246968,6 +247270,17 @@
     "cloudStartup.harness": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Started {harness}"}},"ar":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"da":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"de":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"es":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"it":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"km":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"th":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Started {harness}"}}}},
     "cloudStartup.setupHint": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add a setup script to install dependencies and configure your environment."}},"ar":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"bs":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"da":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"de":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"es":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"fr":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"it":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"ja":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"km":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"ko":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"nb":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"pl":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"ru":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"th":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"tr":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"uk":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"vi":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Add a setup script to install dependencies and configure your environment."}}}},
     "cloudStartup.cached": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cached"}},"ar":{"stringUnit":{"state":"needs_review","value":"cached"}},"bs":{"stringUnit":{"state":"needs_review","value":"cached"}},"da":{"stringUnit":{"state":"needs_review","value":"cached"}},"de":{"stringUnit":{"state":"needs_review","value":"cached"}},"es":{"stringUnit":{"state":"needs_review","value":"cached"}},"fr":{"stringUnit":{"state":"needs_review","value":"cached"}},"it":{"stringUnit":{"state":"needs_review","value":"cached"}},"ja":{"stringUnit":{"state":"needs_review","value":"cached"}},"km":{"stringUnit":{"state":"needs_review","value":"cached"}},"ko":{"stringUnit":{"state":"needs_review","value":"cached"}},"nb":{"stringUnit":{"state":"needs_review","value":"cached"}},"pl":{"stringUnit":{"state":"needs_review","value":"cached"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"cached"}},"ru":{"stringUnit":{"state":"needs_review","value":"cached"}},"th":{"stringUnit":{"state":"needs_review","value":"cached"}},"tr":{"stringUnit":{"state":"needs_review","value":"cached"}},"uk":{"stringUnit":{"state":"needs_review","value":"cached"}},"vi":{"stringUnit":{"state":"needs_review","value":"cached"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"cached"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"cached"}}}},
+    "cloudStartup.copyInstead": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copying the folder instead"}},"ar":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"bs":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"da":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"de":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"es":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"it":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"ja":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"km":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"ko":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"nb":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"pl":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"ru":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"th":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"tr":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"uk":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"vi":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Copying the folder instead"}}}},
+    "cloudStartup.copyingFiles": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{done} of {total} files"}},"ar":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"bs":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"da":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"de":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"es":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"fr":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"it":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"ja":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"km":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"ko":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"nb":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"pl":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"ru":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"th":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"tr":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"uk":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"vi":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{done} of {total} files"}}}},
+    "cloudStartup.ofSize": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{done} of {total}"}},"ar":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"da":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"de":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"es":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"it":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"km":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"th":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{done} of {total}"}}}},
+    "cloudStartup.installApp": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Install the cmux GitHub App to clone it next time"}},"ar":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"bs":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"da":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"de":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"es":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"fr":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"it":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"ja":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"km":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"ko":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"nb":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"pl":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"ru":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"th":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"tr":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"uk":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"vi":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Install the cmux GitHub App to clone it next time"}}}},
+    "cloudStartup.phase.upload": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sending your changes ({size})"}},"ar":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"da":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"de":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"es":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"fr":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"it":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"ja":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"km":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"ko":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"ru":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"th":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Sending your changes ({size})"}}}},
+    "cloudStartup.phase.clone": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloning from GitHub"}},"ar":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"bs":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"da":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"de":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"es":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"it":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"ja":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"km":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"ko":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"nb":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"pl":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"ru":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"th":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"tr":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"uk":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Cloning from GitHub"}}}},
+    "cloudStartup.phase.fetch": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fetching from GitHub"}},"ar":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"bs":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"da":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"de":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"es":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"fr":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"it":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"ja":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"km":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"ko":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"pl":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"ru":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"th":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"tr":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"uk":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"vi":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Fetching from GitHub"}}}},
+    "cloudStartup.phase.bundle": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Applying your changes"}},"ar":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"bs":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"da":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"de":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"es":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"it":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"ja":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"km":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"ko":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"nb":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"th":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"tr":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"uk":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"vi":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Applying your changes"}}}},
+    "cloudStartup.phase.checkout": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Checking out files"}},"ar":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"bs":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"da":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"de":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"es":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"fr":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"it":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"ja":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"km":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"ko":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"nb":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"pl":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"ru":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"th":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"tr":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"uk":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"vi":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Checking out files"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Checking out files"}}}},
+    "cloudStartup.phase.submodules": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Getting submodules"}},"ar":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"bs":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"da":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"de":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"es":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"fr":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"it":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"ja":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"km":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"ko":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"nb":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"pl":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"ru":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"th":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"tr":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"uk":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"vi":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Getting submodules"}}}},
+    "cloudStartup.phase.lfs": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Getting large files"}},"ar":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"bs":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"da":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"de":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"es":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"fr":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"it":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"ja":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"km":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"ko":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"nb":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"pl":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"ru":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"th":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"tr":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"uk":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"vi":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Getting large files"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Getting large files"}}}},
     "cloudStartup.state.done": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Complete"}},"ar":{"stringUnit":{"state":"needs_review","value":"Complete"}},"bs":{"stringUnit":{"state":"needs_review","value":"Complete"}},"da":{"stringUnit":{"state":"needs_review","value":"Complete"}},"de":{"stringUnit":{"state":"needs_review","value":"Complete"}},"es":{"stringUnit":{"state":"needs_review","value":"Complete"}},"fr":{"stringUnit":{"state":"needs_review","value":"Complete"}},"it":{"stringUnit":{"state":"needs_review","value":"Complete"}},"ja":{"stringUnit":{"state":"needs_review","value":"Complete"}},"km":{"stringUnit":{"state":"needs_review","value":"Complete"}},"ko":{"stringUnit":{"state":"needs_review","value":"Complete"}},"nb":{"stringUnit":{"state":"needs_review","value":"Complete"}},"pl":{"stringUnit":{"state":"needs_review","value":"Complete"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Complete"}},"ru":{"stringUnit":{"state":"needs_review","value":"Complete"}},"th":{"stringUnit":{"state":"needs_review","value":"Complete"}},"tr":{"stringUnit":{"state":"needs_review","value":"Complete"}},"uk":{"stringUnit":{"state":"needs_review","value":"Complete"}},"vi":{"stringUnit":{"state":"needs_review","value":"Complete"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Complete"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Complete"}}}},
     "cloudStartup.state.running": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"In progress"}},"ar":{"stringUnit":{"state":"needs_review","value":"In progress"}},"bs":{"stringUnit":{"state":"needs_review","value":"In progress"}},"da":{"stringUnit":{"state":"needs_review","value":"In progress"}},"de":{"stringUnit":{"state":"needs_review","value":"In progress"}},"es":{"stringUnit":{"state":"needs_review","value":"In progress"}},"fr":{"stringUnit":{"state":"needs_review","value":"In progress"}},"it":{"stringUnit":{"state":"needs_review","value":"In progress"}},"ja":{"stringUnit":{"state":"needs_review","value":"In progress"}},"km":{"stringUnit":{"state":"needs_review","value":"In progress"}},"ko":{"stringUnit":{"state":"needs_review","value":"In progress"}},"nb":{"stringUnit":{"state":"needs_review","value":"In progress"}},"pl":{"stringUnit":{"state":"needs_review","value":"In progress"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"In progress"}},"ru":{"stringUnit":{"state":"needs_review","value":"In progress"}},"th":{"stringUnit":{"state":"needs_review","value":"In progress"}},"tr":{"stringUnit":{"state":"needs_review","value":"In progress"}},"uk":{"stringUnit":{"state":"needs_review","value":"In progress"}},"vi":{"stringUnit":{"state":"needs_review","value":"In progress"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"In progress"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"In progress"}}}},
     "cloudStartup.state.pending": {"comment":"Agent pane: Cloud startup checklist","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Waiting"}},"ar":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"bs":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"da":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"de":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"es":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"fr":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"it":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"ja":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"km":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"ko":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"nb":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"pl":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"ru":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"th":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"tr":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"uk":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"vi":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Waiting"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Waiting"}}}},

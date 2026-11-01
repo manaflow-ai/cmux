@@ -1,3 +1,4 @@
+import { TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
@@ -28,6 +29,7 @@ import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { agentKey } from "../shared/agentKey";
 import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
@@ -70,6 +72,7 @@ import {
   QueuedMessageCard,
   SteerWaitingActions,
   WaitingMessageMenu,
+  type HeldAnswer,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -79,6 +82,7 @@ import {
   authText,
   isAuthPreflightPending,
   sessionLogin,
+  slashLogin,
   useRouteAuthSwitch,
   useSessionAuth,
   UNKNOWN_AUTH,
@@ -130,7 +134,7 @@ import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
   clearScrollOrigin,
@@ -399,6 +403,7 @@ import {
   useBackgroundKey,
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
+import { withSkillDollars } from "./slashCommands";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import {
   editableKey,
@@ -680,6 +685,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import { withCloudMachineSummary } from "./cloudSummary";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -985,6 +991,20 @@ const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { 
 /// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
 const steerControls = (row: AcpmuxRow) =>
   row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
+
+/// A guest's queued prompt (held for the owner, or approved and waiting): a person's, drawn on its own.
+const isPersonQueuedRow = (row: AcpmuxRow) => Boolean(row.queuedMessage?.person || row.queuedMessage?.held);
+
+/// The owner's Approve or Decline of a guest's held prompt (conversation/QueuedMessageCard.tsx).
+const answerHeld = (promptId: string, approve: boolean, revision?: number): Promise<HeldAnswer> =>
+  callNative(approve ? "chat.queue.approve" : "chat.queue.decline", {
+    promptId,
+    ...(approve && revision !== undefined ? { revision } : {}),
+  }).then(
+    () => "ok",
+    (error: { reason?: unknown } | null) =>
+      error?.reason === "queue.stale" ? "stale" : error?.reason === "queue.not_found" ? "gone" : "failed",
+  );
 
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
@@ -1864,6 +1884,12 @@ const ReadOnlyPermissionRow = memo(
 const ReadOnlyQueuedMessageRow = memo(
   function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
     if (row.incoming?.kind !== "message") return null;
+    // A person's message (a guest's prompt) is drawn whole here too: its text is never read as a
+    // lane notice, so nothing it says is hidden from the read-only transcript either.
+    const person = row.queuedMessage?.person;
+    const whole = Boolean(
+      person || row.queuedMessage?.held || row.queuedMessage?.declined || row.incoming.message.fromPerson,
+    );
     return (
       <div className="cv-incoming">
         <IncomingMessageLine
@@ -1873,6 +1899,8 @@ const ReadOnlyQueuedMessageRow = memo(
           images={row.images}
           onOpen={openSenderChat}
           githubRepository={githubRepository}
+          {...(person ? { person } : {})}
+          {...(whole ? { whole: true } : {})}
         />
       </div>
     );
@@ -3702,7 +3730,14 @@ export function VirtualTranscript({
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
         : foldBase.current;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockRoom - trayHold;
+  // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
+  // a turn footer's action row lies in the band under its reply, so that band comes first
+  // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
+  const tailGap =
+    dockSpace > 0
+      ? (measured.layout.restBand ?? 0)
+      : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + tailGap + dockRoom - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -3727,7 +3762,7 @@ export function VirtualTranscript({
         )
       : grown;
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
@@ -5242,12 +5277,13 @@ export function VirtualTranscript({
         {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "" }}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        // The bottom one takes follow's deadband: a reader resting at the end saw the band above the
+        // composer flicker on and off as a row's measure or the stack moved the end by a pixel (Leo,
+        // 2026-10-23: "that little bit above composer can flicker").
         data-seeking={seeking || undefined}
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top - origin > 0.5 || undefined}
-        data-fade-bottom={
-          (!renderFollowing && layout.totalHeight - (renderScroll.top - origin) - height > 0.5) || undefined
-        }
+        data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
         // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
         // out of sight behind it instead of reading through its glass.
         data-jump-shown={(jumpButton && behind) || undefined}
@@ -5765,6 +5801,11 @@ function AcpmuxPane() {
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
+  // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
+  // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
+  const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
+  // Automatic Cloud credential recovery survives turn-action memo rebuilds and is bounded per session.
+  const automaticCloudCredentialAttempts = useRef<Set<string>>(new Set());
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -6769,9 +6810,15 @@ function AcpmuxPane() {
   // none in a run come back as they are.
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
-    const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
+    // A guest's prompt is a person's, never another session's message: it draws on its own, held
+    // with its Approve and Decline in view (conversation/QueuedMessageCard.tsx), never folded into
+    // the group.
+    const people = queuedRows.filter(isPersonQueuedRow);
+    const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
+    const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const shown = mergeInboxNotices(turnRowsShown);
+    const merged = mergeInboxNotices(turnRowsShown);
+    const shown = people.length ? [...merged, ...people] : merged;
     const rows = group ? [...shown, group] : shown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
@@ -6887,6 +6934,11 @@ function AcpmuxPane() {
     () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
     [snapshot, cardRows],
   );
+  const sessionInfoSnapshot = useMemo(() => {
+    const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
+    return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
+  }, [cardSnapshot, cloudMachineID]);
+  const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],
@@ -7364,6 +7416,9 @@ function AcpmuxPane() {
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
+  // The agent's commands, for an edited prompt's Codex skills (`edit.send`), read at the send.
+  const agentCommands = useRef(snapshot.commands);
+  agentCommands.current = snapshot.commands;
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7384,8 +7439,13 @@ function AcpmuxPane() {
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
+          // A Codex skill typed `/name` in the editor goes as `/$name` (slashCommands.ts).
           send: (rowId: string, throughSeq: number, text: string) =>
-            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+            callNative<boolean>("chat.editResend", {
+              rowId,
+              throughSeq,
+              text: withSkillDollars(text, agentCommands.current),
+            }).then(
               (sent) => sent === true,
               () => false,
             ),
@@ -7508,13 +7568,14 @@ function AcpmuxPane() {
             }).catch(() => undefined),
         }),
       transferCloudCredentials: cloudCredentialRecovery(
-        connected && cloudCredentialRecoveryAvailable,
+        connected && cloudCredentialRecoveryAvailable && !cloudTeamMachine,
         cloudMachineID,
         snapshot.sessionId,
         snapshot.summary?.harness,
         callNative,
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => directClient.current ?? undefined,
+        automaticCloudCredentialAttempts.current,
       ),
       // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
       // important"): its own login, never this Mac's. Its page opens as a link click does here.
@@ -7534,7 +7595,8 @@ function AcpmuxPane() {
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
-        hostKind: cloudMachineID ? "cloud" : snapshot.summary?.hostKind,
+        hostKind: cloudRouteHostKind,
+        ...(cloudMachineID && cloudTeamMachine && { teamMachine: true }),
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -7556,7 +7618,9 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
+      cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
+      cloudTeamMachine,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
@@ -8180,7 +8244,7 @@ function AcpmuxPane() {
   }, [scopedOwn, scopedTasks, scopedRows, registryProcesses, registryListed, transcriptWork, workflows.length]);
   // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
-  const sessionInfoSummary = snapshot.summary;
+  const sessionInfoSummary = sessionInfoSnapshot.summary;
   const sessionInfoLocal =
     sessionInfoSummary !== undefined &&
     !sessionInfoSummary.peer &&
@@ -8285,7 +8349,7 @@ function AcpmuxPane() {
     [restartChat, compactOffered],
   );
   const sessionInfo = useSessionInfo({
-    snapshot: cardSnapshot,
+    snapshot: sessionInfoSnapshot,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
@@ -8775,6 +8839,8 @@ function AcpmuxPane() {
   // Delete, Move up/down. Offered while disconnected too, as the queue row's were: a call then fails
   // and the card stays. The menu reads them as it opens.
   const sideChatOffered = Boolean(opensSideSessions && !isSideSession && snapshot.sessionId);
+  // A guest's held prompt offers Approve and Decline only where acpmux serves them.
+  const queueApproval = snapshot.queueApproval === true;
   const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
     () => ({
       steer: (promptId) => editQueued(promptId, { op: "send_now" }),
@@ -8794,12 +8860,13 @@ function AcpmuxPane() {
         return index < 0 ? undefined : { index, count: queue.length };
       },
       move: (promptId, index) => editQueued(promptId, { op: "move", index }),
+      ...(queueApproval && { answerHeld }),
       ...(sideChatOffered && {
         sideChat: (promptId: string, text: string) =>
           queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
       }),
     }),
-    [sideChatOffered, readQueuedImage],
+    [sideChatOffered, readQueuedImage, queueApproval],
   );
   // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
   queuedMessageActionsRef.current = queuedMessageActions;
@@ -8979,7 +9046,15 @@ function AcpmuxPane() {
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>([
+      "import",
+      "model",
+      "fast",
+      "context",
+      "plan",
+      "resume",
+      "login",
+    ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) {
@@ -9624,6 +9699,7 @@ function AcpmuxPane() {
           cloudMachineID?: unknown;
           cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
+          cloudTeamMachine?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
           cloudRepositoryAvailable?: unknown;
@@ -9635,6 +9711,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudTeamMachine(host.cloudTeamMachine === true);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
@@ -9922,6 +9999,8 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
           expectedSessionId?: string,
+          // Onboarding's seeded first task: no key or click of the person's sent it.
+          seeded = false,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -9939,7 +10018,7 @@ function AcpmuxPane() {
             counted = false;
           };
           try {
-            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, expectedSessionId);
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, expectedSessionId, seeded);
           } finally {
             handedOn();
           }
@@ -9989,6 +10068,7 @@ function AcpmuxPane() {
           promptId: string | undefined,
           handedOn: () => void,
           expectedSessionId?: string,
+          seeded = false,
         ) => {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
@@ -10036,7 +10116,15 @@ function AcpmuxPane() {
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
-          const held = harnessSwitch.send(text, attachments, undefined, switchPromptId);
+          // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
+          // to it), keeps its gesture for a prompt held behind a slow start (#23031).
+          const held = harnessSwitch.send(
+            text,
+            attachments,
+            undefined,
+            switchPromptId,
+            !seeded && promptId === undefined,
+          );
           if (held) {
             accepted?.();
             return held.then(
@@ -10116,6 +10204,9 @@ function AcpmuxPane() {
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
+          "chat.queue.approve": ({ promptId, revision }) =>
+            client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
+          "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
           "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
@@ -10654,11 +10745,14 @@ function AcpmuxPane() {
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId) => {
+          send: (text, attachments, promptId, ticket) => {
             const kept = heldPrompt.take();
             // session/new has completed by the time HarnessSwitch hands the prompt back. The
             // transport's start credit now pays for this prompt ticket, including remote starts.
-            const switchTicket = kept?.promptId === promptId ? kept.ticket : client.bindSendGesture(promptId)?.ticket;
+            const switchTicket =
+              (kept?.promptId === promptId ? kept.ticket : undefined) ??
+              ticket ??
+              client.bindSendGesture(promptId)?.ticket;
             switchSendOwners.set(promptId, {
               client,
               generation: client.trustGeneration,
@@ -10755,8 +10849,9 @@ function AcpmuxPane() {
           );
         } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
-        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
+        } else if (prompt)
+          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
@@ -10882,6 +10977,33 @@ function AcpmuxPane() {
     if (refusal) return t(refusal);
     if (command.action === "status") {
       setStatusCardOpen(true);
+      return true;
+    }
+    // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat
+    // opens again where it left off.
+    // A harness other than Claude Code that lists its own /resume or /login keeps it, as before. On
+    // New Tab the pane's last chat is not the one being started, so cmux's own command runs there.
+    if (
+      !fresh &&
+      (command.action === "resume" || command.action === "login") &&
+      agentKey(snapshot.summary?.family ?? snapshot.summary?.harness) !== "claude" &&
+      snapshot.commands?.some((own) => own.name.toLowerCase() === command.name)
+    )
+      return CMUX_PASS_THROUGH;
+    if (command.action === "resume") {
+      showAllChats();
+      return true;
+    }
+    if (command.action === "login") {
+      // New Tab picks its own harness and machine, which this pane's sign-in answer is not about;
+      // its sign-in card covers it. The default login runs only for a chat acpmux says is here.
+      if (fresh) return t("composer.cmuxLoginElsewhere");
+      const harness = sessionAuth.harness ?? snapshot.summary?.harness ?? healthHarness;
+      const declared = composerSnapshot.catalog.find((entry) => entry.id === harness)?.auth?.login;
+      const login = slashLogin(sessionAuth, healthLocal ? declared : undefined);
+      if (!login) return authText(sessionAuth, t) ?? t("composer.cmuxLoginElsewhere");
+      if (login.kind === "session") signIn.loginSession?.(sessionAuth);
+      else signIn.logIn(harness ?? "", login.command);
       return true;
     }
     const argument = args?.trim();

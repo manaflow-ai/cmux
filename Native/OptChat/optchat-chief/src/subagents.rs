@@ -216,6 +216,15 @@ pub fn routing_on(engine: &crate::engine::EngineChoice, user: Option<&Value>) ->
     }
 }
 
+/// The line a spawn answer names an automatic pick by: `Routed to codex (code
+/// task)`, with the model when the pick chose one.
+fn route_line(p: &crate::spawn_route::Pick) -> String {
+    match &p.model {
+        Some(m) => format!("Routed to {} on {m} ({})", p.harness, p.kind.reason()),
+        None => format!("Routed to {} ({})", p.harness, p.kind.reason()),
+    }
+}
+
 /// The subagent preset of `family` beside the default one `preset`.
 pub fn family_preset(preset: &str, family: crate::acpmux::Family) -> Option<String> {
     match family {
@@ -495,6 +504,9 @@ pub struct Spawner {
     /// This Chief's engine.json, read at each spawn for `subagent_routing`
     /// and `subagent_harness`; None: neither is set.
     engine_file: Option<std::path::PathBuf>,
+    /// Every harness acpmux admitted and its family, what the automatic
+    /// picker (spawn_route.rs) chooses from; empty: it picks nothing.
+    families: BTreeMap<String, crate::acpmux::Family>,
 }
 
 impl Spawner {
@@ -525,6 +537,7 @@ impl Spawner {
             person: None,
             cloud_workspaces: None,
             engine_file: None,
+            families: BTreeMap::new(),
         }
     }
 
@@ -649,6 +662,93 @@ impl Spawner {
         self
     }
 
+    /// The harnesses the automatic picker chooses from, with their families.
+    pub fn with_families(mut self, families: BTreeMap<String, crate::acpmux::Family>) -> Spawner {
+        self.families = families;
+        self
+    }
+
+    /// Whether subagent routing is on now (`routing_on`: engine.json, then
+    /// cmux.json, else off).
+    fn routing_enabled(&self, choice: &crate::engine::EngineChoice) -> bool {
+        let user = std::env::var_os("HOME")
+            .and_then(|home| crate::agent_memory::settings::document(std::path::Path::new(&home)));
+        routing_on(choice, user.as_ref())
+    }
+
+    /// The automatic picker's choice for `task` over `default`, among the
+    /// harnesses acpmux admitted and the person's grant allows.
+    fn pick_for(&self, task: &str, default: &str) -> Option<crate::spawn_route::Pick> {
+        let grant = self.grant.as_ref().map(|g| g.grant());
+        let allowed = |h: &str| grant.as_ref().is_none_or(|g| g.allows_harness(h));
+        let offered = |h: &str| -> Vec<String> {
+            self.agents
+                .offered_models(h)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        };
+        // Only the families the host made a subagent preset for (host.rs:
+        // the subagent harness's own, and the other family's).
+        let base = self
+            .families
+            .get(&self.settings.harness)
+            .copied()
+            .unwrap_or(crate::acpmux::Family::Claude);
+        let prepared = crate::spawn_route::prepared_families(base);
+        let families: BTreeMap<String, crate::acpmux::Family> = self
+            .families
+            .iter()
+            .filter(|(_, f)| prepared.contains(f))
+            .map(|(h, f)| (h.clone(), *f))
+            .collect();
+        crate::spawn_route::pick(task, default, &families, &allowed, &offered)
+    }
+
+    /// A spawn whose tasks the picker sent to more than one harness: one
+    /// spawn per harness, in the order of their first task, each answer under
+    /// a line naming its pick. A group with no pick spawns as before (its
+    /// tasks pick nothing again, so it does not split further).
+    fn spawn_groups(
+        &self,
+        groups: Vec<(Option<crate::spawn_route::Pick>, Vec<usize>)>,
+        tasks: &[String],
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        default: &str,
+    ) -> Result<String, String> {
+        let total = tasks.len();
+        let mut parts = Vec::new();
+        let mut any = false;
+        for (p, ks) in groups {
+            let which = ks
+                .iter()
+                .map(|k| (k + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let head = match &p {
+                Some(p) => format!("{} for task {which} of {total}:", route_line(p)),
+                None => format!("Stayed on {default} for task {which} of {total}:"),
+            };
+            let sub: Vec<String> = ks.iter().map(|k| tasks[*k].clone()).collect();
+            let (h, m) = match p {
+                Some(p) => (Some(p.harness), p.model),
+                None => (None, None),
+            };
+            match self.spawn_with_route(sub, cwd.clone(), effort.clone(), place.clone(), h, m) {
+                Ok(answer) => {
+                    any = true;
+                    parts.push(format!("{head}\n{answer}"));
+                }
+                Err(e) => parts.push(format!("{head}\nNo subagent started: {e}")),
+            }
+        }
+        let text = parts.join("\n\n");
+        if any { Ok(text) } else { Err(text) }
+    }
+
     fn engine_choice(&self) -> crate::engine::EngineChoice {
         self.engine_file
             .as_deref()
@@ -657,15 +757,16 @@ impl Spawner {
     }
 
     /// Whether a spawn may name its subagents' `what` (`harness` or
-    /// `model`): refused when OPTCHAT_SUBAGENT_HARNESS pins the harness or
-    /// routing is off (`routing_on`, read now; off by default).
+    /// `model`): refused when routing is off (`routing_on`, read now; off by
+    /// default), and a harness also when OPTCHAT_SUBAGENT_HARNESS pins it (a
+    /// model on the pinned harness is fine, #31163).
     fn check_route(
         &self,
         choice: &crate::engine::EngineChoice,
         what: &str,
         value: &str,
     ) -> Result<(), String> {
-        if self.pinned {
+        if self.pinned && what == "harness" {
             return Err(format!(
                 "spawn: this Chief's subagent harness is pinned (OPTCHAT_SUBAGENT_HARNESS), so it cannot route to {what} {value}; leave out {what}"
             ));
@@ -1247,6 +1348,8 @@ impl Spawner {
                 effort: saved
                     .effort
                     .or_else(|| queued.engine.as_ref().and_then(|e| e.effort.clone())),
+                // The model its spawn chose (#31164), else the engine's.
+                model: saved.model.or(run.model.clone()),
                 ..run
             },
         })
@@ -1409,6 +1512,49 @@ impl Orchestrator for Spawner {
         if let Some(m) = model.as_deref() {
             self.check_route(&choice, "model", m)?;
         }
+        // The cap holds for the whole spawn, before the picker splits it.
+        if tasks.len() > MAX_TASKS {
+            return Err(format!(
+                "spawn takes at most {MAX_TASKS} tasks; split the work"
+            ));
+        }
+        // The automatic picker (spawn_route.rs): routing on, and the spawn
+        // names no harness or model. A pinned harness never routes.
+        let mut routed_note = None;
+        let (harness, model) = if harness.is_none()
+            && model.is_none()
+            && !self.pinned
+            && self.routing_enabled(&choice)
+        {
+            let default = choice
+                .subagent_harness
+                .clone()
+                .filter(|h| !h.trim().is_empty())
+                .unwrap_or_else(|| self.settings.harness.clone());
+            let mut groups: Vec<(Option<crate::spawn_route::Pick>, Vec<usize>)> = Vec::new();
+            for (k, task) in tasks.iter().enumerate() {
+                let p = self.pick_for(task, &default);
+                let key = |p: &Option<crate::spawn_route::Pick>| {
+                    p.as_ref().map(|p| (p.harness.clone(), p.model.clone()))
+                };
+                match groups.iter_mut().find(|(g, _)| key(g) == key(&p)) {
+                    Some((_, ks)) => ks.push(k),
+                    None => groups.push((p, vec![k])),
+                }
+            }
+            if groups.len() > 1 {
+                return self.spawn_groups(groups, &tasks, cwd, effort, place, &default);
+            }
+            match groups.pop().and_then(|(p, _)| p) {
+                Some(p) => {
+                    routed_note = Some(format!("{}.", route_line(&p)));
+                    (Some(p.harness), p.model)
+                }
+                None => (None, None),
+            }
+        } else {
+            (harness, model)
+        };
         // The person's subagent harness (`--subagent-harness`) for a spawn
         // that names none, routing on or off; a pinned harness wins.
         let harness = harness.or_else(|| {
@@ -1423,11 +1569,6 @@ impl Orchestrator for Spawner {
             return Err(format!(
                 "no effort {e}; one of {}",
                 crate::tools::EFFORTS.join(", ")
-            ));
-        }
-        if tasks.len() > MAX_TASKS {
-            return Err(format!(
-                "spawn takes at most {MAX_TASKS} tasks; split the work"
             ));
         }
         let began = Instant::now();
@@ -1456,8 +1597,8 @@ impl Orchestrator for Spawner {
         let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let mut run = self.engine_settings(plan.engine.as_ref());
         // `spawn(model)`: over the engine's (a cloud peer keeps its own).
-        if let Some(m) = model {
-            run.model = Some(m);
+        if let Some(m) = &model {
+            run.model = Some(m.clone());
         }
         // The person's grant: a harness outside it starts nothing.
         let grant = self.grant.as_ref().map(|g| g.grant());
@@ -1560,6 +1701,7 @@ impl Orchestrator for Spawner {
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
                         harness: harness.clone(),
+                        model: model.clone(),
                     },
                 });
                 self.waiting
@@ -1727,7 +1869,8 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{}{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Name a subagent by its id (a1): the user's app shows each id as a link to its chat. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
+            routed_note.map(|n| format!("{n}\n")).unwrap_or_default(),
             lines.join("\n")
         ))
     }
@@ -1944,6 +2087,15 @@ pub fn recover_launch(
                     return None;
                 }
                 let input: Value = serde_json::from_str(input).ok()?;
+                // Trimmed, and dropped when empty, as `Call::parse` does.
+                let named = |key: &str| {
+                    input
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .map(str::to_owned)
+                };
                 return Some(crate::state::QueuedLaunch {
                     task: input.get("tasks")?.get(k)?.as_str()?.to_owned(),
                     cwd: input.get("cwd").and_then(Value::as_str).map(str::to_owned),
@@ -1952,7 +2104,8 @@ pub fn recover_launch(
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     floor: None,
-                    harness: None,
+                    harness: named("harness"),
+                    model: named("model"),
                 });
             }
             _ => {}

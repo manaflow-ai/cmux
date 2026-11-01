@@ -1182,8 +1182,8 @@
   --acpmux-row-group-gap: 0px;
   --acpmux-row-edge: var(--grid-composer-quiet-row-text);
   min-height: var(--grid-composer-quiet-row-height);
-  /* design/grid.md 5.1: the quiet row stands one foot gap (4 px) under the box, so its middle is
-     18 px under it. */
+  /* design/grid.md 5.1: the quiet row stands one foot gap under the box (Leo 2026-10-29: "hm i still
+     feel like we could go lower tho"). */
   margin-top: var(--grid-gap-foot);
   /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing

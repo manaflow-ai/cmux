@@ -50,6 +50,7 @@ import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./
 import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
 import { PresentationToggle, usePresentation } from "./presentation";
+import { sliceWhole } from "../../ui/wholeChars";
 
 const NOTICE_MS = 1600;
 
@@ -803,5 +804,5 @@ function askedLine(id: string | undefined, messages: readonly HomeMessage[]): st
   const message = id ? messages.find((entry) => entry.id === id) : undefined;
   const text = message?.parts.find((part) => part.type === "text");
   const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
-  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
+  return line ? (line.length > 120 ? `${sliceWhole(line, 119)}…` : line) : undefined;
 }

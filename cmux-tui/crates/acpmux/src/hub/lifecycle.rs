@@ -326,6 +326,7 @@ impl Hub {
             (session, stops)
         };
         let (session, created_stops) = session;
+        self.update_live_session_index(&session);
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;
@@ -1270,6 +1271,7 @@ impl Hub {
             self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
                 .await;
             self.set_status(session, SessionStatus::Ready);
+            self.note_launch(session, &child);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1351,6 +1353,7 @@ impl Hub {
         }
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
+        self.note_launch(session, &child);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
