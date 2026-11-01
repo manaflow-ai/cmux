@@ -30,7 +30,7 @@ const INPUTS = ["pointermove", "pointerdown", "keydown", "wheel"] as const;
 const VERTEX = `attribute vec2 a_pos;
 void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-const FRAGMENT = `precision mediump float;
+const FRAGMENT = `precision highp float;
 uniform vec2 u_size;
 uniform float u_time;
 uniform float u_style;
@@ -61,7 +61,8 @@ void main() {
       float fi = float(i);
       float y = 0.55 + 0.12 * sin(p.x * (1.3 + fi * 0.7) + t * (0.11 + fi * 0.05) + fi * 2.1)
                      + 0.05 * sin(p.x * 3.7 - t * 0.17 + fi);
-      band += exp(-pow((uv.y - y + fi * 0.09) * (7.0 + fi * 3.0), 2.0)) * (0.7 - fi * 0.18);
+      float d = (uv.y - y + fi * 0.09) * (7.0 + fi * 3.0);
+      band += exp(-d * d) * (0.7 - fi * 0.18);
     }
     color = mix(deep, mid, uv.y * 0.6);
     color = mix(color, hot, clamp(band, 0.0, 1.0) * 0.75);
@@ -110,12 +111,17 @@ function createGpu(canvas: HTMLCanvasElement): Gpu | null {
   const vertex = shader(gl.VERTEX_SHADER, VERTEX);
   const fragment = shader(gl.FRAGMENT_SHADER, FRAGMENT);
   const program = gl.createProgram();
-  if (!vertex || !fragment || !program) return null;
+  // A failed setup releases the context now rather than at garbage collection.
+  const fail = () => {
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return null;
+  };
+  if (!vertex || !fragment || !program) return fail();
   gl.attachShader(program, vertex);
   gl.attachShader(program, fragment);
   gl.bindAttribLocation(program, 0, "a_pos");
   gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return fail();
   gl.useProgram(program);
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -212,9 +218,16 @@ export function installLiveBackground(doc: Document, style: LiveBackgroundStyle)
     frames++;
   };
   const allowed = () => !lost && !doc.hidden && !stillOnly(doc) && view.performance.now() - lastInput < IDLE_MS;
+  /** The shader's time now: the paused clock plus the running stretch. */
+  const elapsed = (now: number) => clock + (frame ? (now - clockFrom) / 1000 : 0);
   const tick = (now: number) => {
+    if (!allowed()) {
+      // Idle, hidden or motion off: the clock keeps what ran, so the next start resumes from here.
+      clock += (now - clockFrom) / 1000;
+      frame = 0;
+      return;
+    }
     frame = 0;
-    if (!allowed()) return;
     if (now - lastDraw >= 1000 / MAX_FPS - 1) {
       lastDraw = now;
       draw(clock + (now - clockFrom) / 1000);
@@ -239,7 +252,7 @@ export function installLiveBackground(doc: Document, style: LiveBackgroundStyle)
   const onVisibility = () => (doc.hidden ? pause() : start());
   const onResize = () => {
     resize();
-    draw(clock);
+    draw(elapsed(view.performance.now()));
   };
   const onLost = (event: Event) => {
     event.preventDefault();
