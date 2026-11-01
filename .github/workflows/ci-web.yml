@@ -25,6 +25,9 @@ permissions:
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
+    # The Linux pool's live member, never LINUX_RUNNER alone: on 2026-11-01
+    # LINUX_RUNNER sat on a stalled blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited
+    # 50 minutes unassigned, holding every webview shard behind it.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:

@@ -410,6 +410,28 @@ const workflowProps = (
   };
 };
 
+/// A provider failure after an earlier progress message, read through the real summary fold.
+const workflowFailureProps = (): Props => {
+  const nodes = workflowFixture("finished").map((node) => ({
+    ...node,
+    state: "failed",
+    workflowAgents: new Map(
+      [...(node.workflowAgents ?? [])].map(([index, agent]) => [
+        index,
+        index === 4
+          ? {
+              ...agent,
+              state: "failed",
+              error: "503: No provider capacity available",
+              lastMessage: "Earlier reply before the request failed",
+            }
+          : agent,
+      ]),
+    ),
+  }));
+  return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
+};
+
 const assertNarrowWorkflowLayout: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
   const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
@@ -616,6 +638,19 @@ export default componentEntry<Props>({
       props: workflowProps("finished"),
       play: openPhase(2),
     },
+    "workflow-agent-failed": {
+      note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
+      props: workflowFailureProps(),
+      play: async (ctx) => {
+        await openPhase(2)(ctx);
+        const message = ctx.find({
+          selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
+        });
+        if (message.textContent !== "503: No provider capacity available")
+          throw new Error("missing workflow failure reason");
+        await assertNarrowWorkflowLayout(ctx);
+      },
+    },
     "workflow-agent-row-compact": {
       note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
       props: workflowProps("running", "compact"),
@@ -688,12 +723,40 @@ export default componentEntry<Props>({
       props: { ...environmentProps(), projectRowLook: "parent" },
     },
     "environment-remote-control": {
-      note: "Shipped (Leo, 2026-10-28: \"you don't even have the, like, remote control toggle functionality\"): a chat on this Mac while it can serve cmux on iPhone. Remote Control is the iPhone host's own switch (mobile.allowIPhoneConnections, as Settings > Mobile), so its tooltip says it covers every chat on this Mac. Off here; a chat on another machine, Quick Chat, or a Mac with no account signed in draws no row.",
+      note: 'Shipped (Leo, 2026-10-28: "you don\'t even have the, like, remote control toggle functionality"; its pointer icon, as Claude Code desktop\'s Remote Control row, since 2026-11-01: "i think we should rethink what symbol we have for remote control at least"): a chat on this Mac while it can serve cmux on iPhone. Remote Control is the iPhone host\'s own switch (mobile.allowIPhoneConnections, as Settings > Mobile), so its tooltip says it covers every chat on this Mac. Off here; a chat on another machine, Quick Chat, or a Mac with no account signed in draws no row.',
       props: { ...environmentProps(), remoteControl: { on: false, set: () => undefined } },
     },
     "environment-remote-control-on": {
       note: "Shipped: the same chat with Remote Control on; cmux on the same account's iPhone can open this Mac's chats.",
       props: { ...environmentProps(), remoteControl: { on: true, set: () => undefined } },
+    },
+    "environment-remote-control-icon-phone-waves": {
+      note: 'Alternative (not shipped): a phone with signal waves. Says "from your phone" more plainly than the bare outline it replaces, but it is still a phone first, the shape Leo asked to rethink, and the waves get busy at row size.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "mobile.pair",
+      },
+    },
+    "environment-remote-control-icon-display": {
+      note: 'Alternative (not shipped): a display. Reads as "a screen" rather than "control this chat from elsewhere", and beside the machine row\'s own Mac glyph it looks like a second machine.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "remote.display",
+      },
+    },
+    "environment-remote-control-icon-phone": {
+      note: 'Replaced (before 2026-11-01): the bare phone outline Leo asked to rethink ("i think we should rethink what symbol we have for remote control at least"). Taller and narrower than every other row icon.',
+      props: {
+        ...environmentProps(),
+        remoteControl: { on: true, set: () => undefined },
+        remoteControlIcon: "device.phone",
+      },
+    },
+    "environment-remote-control-icon-link": {
+      note: "Alternative (not shipped): a chain link. Fits the icon box well, but in this list it reads as a URL row (the repository and branch rows already link out).",
+      props: { ...environmentProps(), remoteControl: { on: true, set: () => undefined }, remoteControlIcon: "link" },
     },
     "environment-scratchpad": {
       note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",

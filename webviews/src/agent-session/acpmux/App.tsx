@@ -8,6 +8,7 @@ import React, {
   memo,
   Suspense,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -65,6 +66,7 @@ import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
   SteerWaitingActions,
+  WaitingMessageMenu,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -328,7 +330,7 @@ import {
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
+import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -434,6 +436,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
+import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
   forkRefusal,
@@ -600,6 +603,8 @@ import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
+  cdFolder,
   continueTargets,
   cmuxCommandRefusal,
   mergedCommands,
@@ -1188,6 +1193,33 @@ const MessageRow = memo(
     // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.inboxThread)
+      return (
+        <div className="cv-incoming">
+          <InboxNoticeCard
+            rowId={row.id}
+            messageAt={row.at}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                  ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
+                },
+              ],
+            }}
+            onOpen={openSenderChat}
+            readThread={readInboxThread}
+            githubRepository={githubRepository}
+            actions={row.inboxQueue ? <InboxQueueActions queue={row.inboxQueue} version={row.version} /> : undefined}
+          />
+        </div>
+      );
     // acpmux's inbox notice: its threads as received lines, never its text for the agent
     // (conversation/InboxNoticeCard.tsx).
     if (row.kind === "user" && row.incoming?.kind === "inbox")
@@ -1399,6 +1431,7 @@ const ThinkingRow = memo(
         sendTo={row.doingSendTo}
         sendSession={row.doingSendSession}
         draft={row.doingDraft}
+        done={row.doingDone}
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
@@ -1424,6 +1457,7 @@ const ThinkingRow = memo(
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
+    a.row.doingDone === b.row.doingDone &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
     a.row.below === b.row.below &&
@@ -1671,6 +1705,33 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now/Dismiss
+/// controls beside the first flattened preview row without turning every delivery into a queue row.
+const InboxQueueActions = memo(function InboxQueueActions({
+  queue,
+  version,
+}: {
+  queue: NonNullable<AcpmuxRow["inboxQueue"]>;
+  version: number;
+}) {
+  const act = useContext(TurnActionsContext).queuedMessages?.();
+  const [sentAt, setSentAt] = useState<number>();
+  const fail = () => undefined;
+  return (
+    <span className="cv-received-actions">
+      <MessageFooterRow>
+        <WaitingMessageMenu
+          sendNow={
+            act && !queue.next && sentAt !== version
+              ? () => void act.steer(queue.promptId).then((ok) => ok && setSentAt(version), fail)
+              : undefined
+          }
+          dismiss={act ? () => void act.remove(queue.promptId).catch(fail) : undefined}
+        />
+      </MessageFooterRow>
+    </span>
+  );
+});
 /// The messages that wait for the agent, as one group (conversation/PendingMessagesCard.tsx): each
 /// message draws in it as its own row draws alone.
 const PendingMessagesRow = memo(
@@ -1678,6 +1739,10 @@ const PendingMessagesRow = memo(
     const renderMessage = (message: AcpmuxRow) =>
       message.kind === LANE_NOTICE_BATCH ? (
         <LaneNoticeBatch row={message} renderMessage={renderMessage} />
+      ) : message.inboxThread ? (
+        <MessageRow {...props} row={message} />
+      ) : message.inboxQueue ? (
+        <QueuedMessageRow {...props} row={{ ...message, queuedMessage: message.inboxQueue }} />
       ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
@@ -6579,7 +6644,7 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
-          // Turn folding follows acpmux's session family; Claude keeps every assistant message visible.
+          // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
           waitingSteers: snapshot.waitingSteers,
@@ -6587,7 +6652,10 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
-      const subagents = subagentRowsFrom(turns.rows, folds, last?.subagents);
+      // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
+      // for turn boundaries, retries and queue actions; this is a display-only projection.
+      const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
+      const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
@@ -8758,6 +8826,7 @@ function AcpmuxPane() {
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
+    if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) {
       enabledCmuxActions.add("fork");
       if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
@@ -8880,7 +8949,7 @@ function AcpmuxPane() {
   shownSession.current = snapshot.sessionId;
 
   const requestFolder = useCallback(
-    (cwd: string, use: (folder: string) => void, cancel?: () => void) => {
+    (cwd: string, use: (folder: string) => void, cancel?: () => void): Promise<void> => {
       const pick = ++folderPick.current;
       folderConfirmGeneration.current += 1;
       folderConfirmInFlight.current = false;
@@ -8892,7 +8961,7 @@ function AcpmuxPane() {
       // The pick lands only in the chat it was made in: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
       const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
-      void pickFolder(
+      return pickFolder(
         callNative,
         cwd,
         (folder) => {
@@ -8912,22 +8981,27 @@ function AcpmuxPane() {
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
   const pickedProject = useRef<string | undefined>(undefined);
+  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder.
   const chooseProject = useCallback(
-    (cwd: string, peer?: string) => {
+    (cwd: string, peer?: string, refused?: () => void): Promise<void> => {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
       // Another computer's folder is that computer's to check.
       if (peer) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
-        return;
+        return Promise.resolve();
       }
       // Fresh or started is read when the folder is used (an answer can come later).
-      requestFolder(cwd, (folder) => {
-        pickedProject.current = folder;
-        if (freshRef.current) setProjectDraft(folder);
-        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
-      });
+      return requestFolder(
+        cwd,
+        (folder) => {
+          pickedProject.current = folder;
+          if (freshRef.current) setProjectDraft(folder);
+          else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+        },
+        refused,
+      );
     },
     [folderContinuation, requestFolder],
   );
@@ -10604,6 +10678,8 @@ function AcpmuxPane() {
       session: !fresh && !!snapshot.sessionId,
       isSideSession,
       targets: fresh ? [] : handoffTargets,
+      cwd: snapshot.summary?.cwd,
+      newTab: fresh,
     });
     if (refusal) return t(refusal);
     if (command.action === "status") {
@@ -10611,6 +10687,24 @@ function AcpmuxPane() {
       return true;
     }
     const argument = args?.trim();
+    // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
+    // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
+    if (command.action === "cd") {
+      if (!argument)
+        return callNative<{ cwd?: string }>("project.browse").then((result) => {
+          if (result?.cwd) return chooseProject(result.cwd);
+        });
+      const folder = cdFolder(argument, snapshot.summary?.cwd);
+      if (!folder) return t("composer.cmuxCdPath");
+      const summary = snapshot.summary;
+      const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
+      let refused = false;
+      return chooseProject(folder, peer, () => {
+        refused = true;
+      }).then(() => {
+        if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
+      });
+    }
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
     // way any other prompt goes.
     if (command.action === "passThrough") return CMUX_PASS_THROUGH;

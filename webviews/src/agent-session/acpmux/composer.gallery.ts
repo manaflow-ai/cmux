@@ -1899,10 +1899,11 @@ export default agentPaneEntry({
       },
     },
     // Leo, 2026-10-31: "our + button is ass" / "inside chat and in the composer it's ass". The chat
-    // advertises 30 skills (synthetic names), Plan and Goal: + lists attach, then Plan, Goal, @ and one
-    // Skills… row, then the searches, each row one line, in a bounded panel; no skill is a row.
+    // advertises 30 skills (synthetic names), Plan and Goal: + lists attach, then Plan, Goal, @, then one
+    // Commands and skills… row, then the searches, each row one line, in a bounded panel; no skill is
+    // a row (recent ones: gallery agent-pane.composer-plus).
     "add-menu-skills": {
-      note: "Play: open + in a chat with 30 skills, Plan and Goal: attach rows, then Plan, Goal, Mention and one Skills… row (no skill rows), then Search; icon, title and a muted description on one line, in a bounded panel.",
+      note: "Play: open + in a chat with 30 skills, Plan and Goal: attach rows, then Plan, Goal, Mention, then one Commands and skills… row (no skill rows), then Search; icon, title and a muted description on one line, in a bounded panel.",
       snapshot: ((base) => ({
         ...base,
         summary: {
