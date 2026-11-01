@@ -61,6 +61,7 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { InboxNoticeCard } = await import("../src/agent-session/acpmux/conversation/InboxNoticeCard");
 const { senderHarness } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
+const { groupSender } = await import("../src/agent-session/acpmux/conversation/MessageGroupHead");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
@@ -69,6 +70,9 @@ const sessions = [
   entry({ sessionId: "s-claude", name: "grid-lane", harness: "claude" }),
   // A Codex chat whose name starts with another harness's.
   entry({ sessionId: "s-mesh", name: "claude-sr2-fleet-mesh-2", harness: "codex" }),
+  // Two different chats with one name, on different harnesses (cmux#30821).
+  entry({ sessionId: "s-rev-claude", name: "reviewer", harness: "claude" }),
+  entry({ sessionId: "s-rev-codex", name: "reviewer", harness: "codex" }),
 ];
 
 const thread = (from: string, fields: Partial<InboxThread> = {}): InboxThread => ({
@@ -136,6 +140,29 @@ test("a folded group of one sender draws its mark in the tool rows' icon slot; o
   root = undefined;
   await render({
     threads: [thread("grid-lane", { fromSession: "s-claude" }), thread("claude-x", { threadId: "pr:3" })],
+  });
+  expect(marks(".cv-inbox__head > .cv-tool__icon")).toEqual(["neutral"]);
+});
+
+// cmux#30821: the head keys its sender by session, not by name, so two sessions that share a name
+// are two senders and the head draws the messages glyph, never the last one's mark.
+test("two sessions with one name are two senders: the group head draws the messages glyph", async () => {
+  const message = (fields: { sessionId?: string; harness?: string }) => ({
+    name: "reviewer",
+    text: "",
+    raw: "",
+    ...fields,
+  });
+  expect(groupSender([message({ sessionId: "s-rev-claude" }), message({ sessionId: "s-rev-codex" })])).toBeUndefined();
+  expect(groupSender([message({ harness: "claude" }), message({ harness: "codex" })])).toBeUndefined();
+  expect(groupSender([message({ sessionId: "s-rev-claude" }), message({ sessionId: "s-rev-claude" })])?.sessionId).toBe(
+    "s-rev-claude",
+  );
+  await render({
+    threads: [
+      thread("reviewer", { threadId: "pr:1", fromSession: "s-rev-claude" }),
+      thread("reviewer", { threadId: "pr:2", fromSession: "s-rev-codex" }),
+    ],
   });
   expect(marks(".cv-inbox__head > .cv-tool__icon")).toEqual(["neutral"]);
 });
