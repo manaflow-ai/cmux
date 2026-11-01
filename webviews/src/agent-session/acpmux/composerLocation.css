@@ -265,17 +265,6 @@
   padding-block: 6px;
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
-/* Codex's look keeps this row inside the box under the prompt: + stands as far off the box's left
-   as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
-   shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
-.acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
-  /* A 28 px control with 8 px over and under it (composerLook.css --acpmux-codex-row), and + as far
-     off the box's left as off its bottom. */
-  --acpmux-row-edge: calc((var(--acpmux-codex-row) - var(--acpmux-composer-control)) / 2);
-  min-height: var(--acpmux-codex-row);
-  padding-block: 0;
-  padding-inline: var(--acpmux-row-edge);
-}
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {
   width: 30px;
@@ -697,8 +686,8 @@
    2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
-/* New Tab's row takes the same forms: with Codex's look its chips sit there (NewTabScreen.tsx), so
-   the model's family and short names must draw as they do in the chat's box row. */
+/* New Tab's row takes the same forms: where its chips sit there (a page with no quiet row,
+   NewTabScreen.tsx), the model's family and short names draw as they do in the chat's row. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button { position: relative; overflow: clip; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
@@ -716,8 +705,8 @@
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
-   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+/* New Tab's row: the effort always, and the model's and mode's other forms too where its chips sit
+   in this row (NewTabScreen.tsx), as the chat's row does. */
 .nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
@@ -732,8 +721,7 @@
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
-   always did. The box's own row keeps them whatever its footer look, since Codex's look puts the
-   mode, model and ring there (composerLook.ts). The guard is
+   always did. The guard is
    `:where(:not(.acpmux-composer-foot[data-footer-look="plain"]))`, never a bare `:not(...)`:
    these rules sit after the hiding rules above and must keep losing to them, so the row's measured
    fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
