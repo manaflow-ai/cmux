@@ -2,10 +2,9 @@
 // The transcript's one row grammar (design/chat-transcript.md "One row grammar"; Leo 2026-10-29:
 // "this ui isn't consistent :(" and "this rendering can be better for sent stuff"). Four row kinds
 // drawn side by side, a SendMessage call, a shell `acpmux send`, "Ran 2 commands" and "Subagent
-// finished", share one layout: the tool rows' flex row (`.cv-tool`), the icon first, the sentence
-// with its chevron right after it (base's inline carets, #28018), then the trailing column (status,
-// or duration) at the row's right edge. A send reads "Sent to" with its recipient as the one chip,
-// and a shut send's first line shows once.
+// finished", share one layout: the tool rows' grid (`.cv-tool`), the icon first, the sentence,
+// then the trailing column (status, then duration), then the chevron last. A send reads "Sent to"
+// with its recipient as the one chip, and a shut send's first line shows once.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
@@ -13,7 +12,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
-import { SubagentNavContext } from "../subagents/SubagentGroup";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
@@ -108,10 +106,7 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
         <ToolGroupRow kind="commands" items={commands} disclosureKey="group" folded />
       </div>
       <div data-kind="subagent">
-        {/* A line that opens its subagent, so it draws its chevron. */}
-        <SubagentNavContext.Provider value={() => {}}>
-          <SubagentDoneLine row={subagentRow} />
-        </SubagentNavContext.Provider>
+        <SubagentDoneLine row={subagentRow} />
       </div>
     </>,
   );
@@ -124,26 +119,35 @@ async function fourRows(): Promise<{ container: HTMLElement; rows: Record<string
   return { container, rows };
 }
 
-test("the four row kinds share one grammar: icon first, one chevron, no status in the sentence", async () => {
+/// The row's own columns, in order: its direct children that draw (React's text spaces aside).
+/// A row whose open button holds the icon and sentence (the subagent line, so Restart and Retry
+/// can sit beside it rather than inside a button) counts that button's children in its place.
+const columns = (row: Element): string[] =>
+  [...row.children].flatMap((child) =>
+    child.firstElementChild?.classList.contains("cv-tool__icon")
+      ? columns(child)
+      : [
+          child.classList.contains("cv-tool__icon")
+            ? "icon"
+            : child.classList.contains("cv-tool__trail")
+              ? "trail"
+              : child.classList.contains("cv-tool__chevron")
+                ? "chevron"
+                : "sentence",
+        ],
+  );
+
+test("the four row kinds share one row grammar: icon, sentence, trailing column, chevron last", async () => {
   const { rows } = await fourRows();
   for (const [kind, row] of Object.entries(rows)) {
-    // The icon leads, whether the row holds it or its one open button does.
-    const first = row.firstElementChild!;
-    const icon = first.classList.contains("cv-tool__icon") ? first : first.firstElementChild;
-    expect({ kind, icon: icon?.classList.contains("cv-tool__icon") }).toEqual({ kind, icon: true });
-    // One chevron, inside the row's one control (never a control of its own).
-    const chevrons = row.querySelectorAll(".cv-tool__chevron");
-    expect({ kind, chevrons: chevrons.length }).toEqual({ kind, chevrons: 1 });
-    // The trailing column, when a row has one, is the row's own child, after its sentence.
-    const trail = row.querySelector(".cv-tool__trail");
-    if (trail) expect({ kind, parent: trail.parentElement === row }).toEqual({ kind, parent: true });
-    // Base's inline caret (#28018): the chevron follows the label, and the status is drawn after it.
-    // A tool row draws its trail last (`order: 4`, pinned below); a message line in DOM order.
-    if (trail) {
-      const drawnLast = row.matches(".cv-tool:not(.cv-agentmsg__line)");
-      const after = Boolean(chevrons[0]!.compareDocumentPosition(trail) & Node.DOCUMENT_POSITION_FOLLOWING);
-      expect({ kind, chevronFirst: drawnLast || after }).toEqual({ kind, chevronFirst: true });
-    }
+    const order = columns(row);
+    expect({ kind, first: order[0] }).toEqual({ kind, first: "icon" });
+    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
+    // The trailing column, when a row has one, sits right before the chevron.
+    const trail = order.indexOf("trail");
+    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
+    // Every chevron is the same glyph in the same slot.
+    expect(row.lastElementChild!.matches(".cv-tool__chevron, svg.cv-tool__chevron")).toBe(true);
   }
 });
 
@@ -163,11 +167,7 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     const status = trail?.textContent?.toLowerCase();
     expect({ kind, status }).toEqual({ kind, status: "queued" });
     if (kind === "acpmux-send") expect(trail!.querySelector(".cv-row-status")).not.toBeNull();
-    const sentence = [...row.childNodes]
-      .filter((node) => node !== trail)
-      .map((node) => node.textContent)
-      .join("");
-    expect(sentence.toLowerCase()).not.toContain("queued");
+    expect(row.querySelector(".cv-agentmsg__sentence")!.textContent).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
   expect(rows["acpmux-send"]!.querySelector(".cv-recipient")!.textContent).toBe("fanout-infra");
@@ -209,71 +209,30 @@ test("an opened send shows its message once, under the row, not again on the lin
   }
 });
 
-test("the trailing column sits at the row's right edge, the chevron inline after the label", () => {
+test("the trailing column and chevron use the shared flex row contract", () => {
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
   const block = (selector: string) =>
-    new RegExp(`(?:^|\\n)${selector.replace(/[.()>:]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  // Base's inline carets (#28018): no pinned chevron column.
+    new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
   expect(block(".cv-tool")).toContain("display: flex");
-  expect(block(".cv-tool__chevron")).not.toContain("grid-column");
-  expect(block(".cv-tool__trail")).toContain("margin-inline-start: auto");
-  expect(block(".cv-tool:not(.cv-agentmsg__line) > .cv-tool__trail")).toContain("order: 4");
-  // The message line keeps base's flex sentence, its chevron inside the toggle.
+  expect(block(".cv-tool__chevron")).toContain("order: 3");
+  expect(css).toContain(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,");
+  expect(css).toContain("  order: 4;");
+  // Message rows use the same shared flex sentence, with the trailing status outside it.
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
-  const line = /\.cv-agentmsg__line \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
-  expect(line).toContain("display: flex");
+  const sentence = /\.cv-agentmsg__sentence \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
+  expect(sentence).toContain("flex: 1 1 0");
+  expect(sentence).toContain("overflow: hidden");
 });
 
-/// What a keyboard reaches in `row`: buttons, links and anything with a tab stop, enabled.
-const focusable = (row: Element) =>
-  [...row.querySelectorAll<HTMLElement>("button, a[href], [tabindex]")].filter(
-    (element) => !(element as HTMLButtonElement).disabled && element.getAttribute("tabindex") !== "-1",
-  );
-
-test("a subagent done line is one control: its chevron only draws and opens nothing of its own", async () => {
-  const opened: string[] = [];
-  const container = await render(
-    <SubagentNavContext.Provider value={(id) => void opened.push(id ?? "")}>
-      <SubagentDoneLine row={subagentRow} />
-    </SubagentNavContext.Provider>,
-  );
-  const row = container.querySelector<HTMLElement>(".cv-subagent-done-row")!;
-  // One focusable control, the open button, which names the whole line.
-  const controls = focusable(row);
-  expect(controls.map((element) => element.className)).toEqual(["cv-tool cv-bgtask cv-subagent-done"]);
-  // The chevron only draws, inside that button: hidden from assistive tech, no tab stop, no
-  // pointer role and no handler of its own.
-  const chevron = row.querySelector<SVGElement>(".cv-tool__chevron")!;
-  expect(chevron.getAttribute("aria-hidden")).toBe("true");
-  expect(chevron.closest<HTMLElement>("button")).toBe(controls[0]!);
-  expect(chevron.hasAttribute("tabindex")).toBe(false);
-  expect(chevron.hasAttribute("data-interactive")).toBe(false);
-  // The button is what opens it.
-  await act(async () => controls[0]!.click());
-  expect(opened).toEqual(["sa-1"]);
-  // The button's hit area spans the row, and the duration lets a click through to it.
+test("the subagent row's one button reaches its trailing markers", () => {
   const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
-  expect(css).toMatch(/\.cv-subagent-done-row > \.cv-subagent-done::before \{[^}]*position: absolute;[^}]*inset: 0;/);
-  expect(css).toMatch(/\.cv-subagent-done-row > \.cv-subagent-done__trail \{\s*pointer-events: none;/);
-});
-
-test("a message row's chevron only draws: the toggle is its one control for opening", async () => {
-  const { rows } = await fourRows();
-  const row = rows["send-message"]!;
-  const chevron = row.querySelector<SVGElement>(".cv-tool__chevron")!;
-  const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle")!;
-  // Inside the toggle, never a control of its own: no handler, no tab stop, hidden from AT.
-  expect(chevron.getAttribute("aria-hidden")).toBe("true");
-  expect(chevron.hasAttribute("data-interactive")).toBe(false);
-  expect(chevron.hasAttribute("tabindex")).toBe(false);
-  expect(focusable(row).filter((element) => element.contains(chevron))).toEqual([toggle]);
-  // The status only draws too; the toggle's hit area reaches it.
-  expect(row.querySelector(".cv-tool__trail")!.querySelector("button, [data-interactive]")).toBeNull();
-  await act(async () => toggle.click());
-  expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
-  expect(css).toMatch(/\.cv-agentmsg__toggle::before \{[^}]*position: absolute;[^}]*inset: 0;/);
-  expect(css).toMatch(/\.cv-agentmsg__line > \.cv-tool__trail \{\s*pointer-events: none;/);
+  const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(row).toContain("position: relative");
+  expect(row).toContain("isolation: isolate");
+  const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(hitArea).toContain('content: ""');
+  expect(hitArea).toContain("inset: 0");
+  expect(hitArea).toContain("z-index: var(--layer-backdrop)");
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {

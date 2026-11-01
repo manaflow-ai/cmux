@@ -138,6 +138,9 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
 });
 
 test("New Tab preflights its selected harness and keeps a refused draft", async () => {
+  // The test above started a chat on Claude: that is the last pick now (lastPick.ts), which a New
+  // Tab's harness follows over the app's remembered agent. This page has none.
+  window.localStorage.clear();
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");

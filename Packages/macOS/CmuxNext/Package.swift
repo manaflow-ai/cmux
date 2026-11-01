@@ -621,7 +621,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
-                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
@@ -1138,7 +1138,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote"],
             resources: [
                 .process("Resources"),
             ],
@@ -1236,7 +1236,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextBridge",
             dependencies: [
                 "CmuxNextCompat",
-                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings
@@ -1569,7 +1569,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
         .target(
             name: "CmuxNextBrowserAutomation",
-            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1788,13 +1788,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextMobileTests",
             dependencies: [
                 "CmuxNextMobile",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextTestSupport",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),

@@ -460,7 +460,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
   await ctx.click(more);
   const clicked = performance.now();
-  // The hold lasts at most FOLD_HOLD_MAX_MS from the click; the view is the reader's after it.
+  // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
     () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
     { capMs: 5000 },
@@ -472,8 +472,8 @@ const showLessAtEnd = async (ctx: PlayContext) => {
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
 /// commands, short narration, a compaction and a subagent ending, two answers to the person, a
-/// command after the second and a closing line. Only the work folds, each stretch under its own
-/// line between the answers (turns.ts `foldSegments`).
+/// command after the second and a closing line. Once complete, everything before the closing
+/// answer folds under the turn's one Worked-for line.
 const takeawayTurnRows = [
   user("Why is the agent pane slow, and what should we fix first?", 12, { id: "gallery-takeaway-user" }),
   activity(
@@ -1797,11 +1797,11 @@ export default agentPaneEntry({
       },
     },
     "takeaways-stay-open": {
-      note: 'A long finished turn (synthetic text): every answer to the person stays in sight, and only the work folds, each stretch under its own Worked for line between the answers. The closing "Pushed." stays too.',
+      note: 'A long finished turn (synthetic text): the closing "Pushed." stays in sight, and the earlier dialogue folds into one Worked-for line.',
       snapshot: chat(takeawayTurnRows),
     },
     "takeaways-fold-open": {
-      note: "The same turn with its first Worked for opened: the commands, the short narration and the compaction, in order, then the first answer.",
+      note: "The same turn with Worked for opened: every command, intermediate answer, short note, and compaction remains in order.",
       snapshot: chat(takeawayTurnRows),
       play: (ctx) => ctx.click({ selector: ".cv-worked" }),
     },
@@ -1890,9 +1890,9 @@ export default agentPaneEntry({
       ),
     },
     "steer-ended": {
-      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      note: "A turn Leo steered, once it ended: the whole connected turn folds under one Worked for keyed by its prompt, with the answer below it. Play: that fold opens on the call before the steer, the reply, the steer, then the call after it, in the order they ran.",
       snapshot: chat([
-        user("Fix the flaky login test", 3),
+        user("Fix the flaky login test", 3, { id: "steer-ended-prompt" }),
         activity(
           [
             thought("The login test fails one run in five; check how the retry waits for the session."),
@@ -1910,9 +1910,11 @@ export default agentPaneEntry({
         summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
       ]),
       play: async (ctx: PlayContext) => {
-        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        // A finished turn draws one fold, the prompt's; the steer and the work after it open inside it.
+        const fold = '[data-row-id="worked-steer-ended-prompt"] .cv-worked';
         await ctx.click({ selector: fold });
         await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="steer-ended-steer"]'));
       },
     },
     "working-tokens": {
@@ -3118,6 +3120,31 @@ export default agentPaneEntry({
           ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
         );
       },
+    },
+    "markdown-fence-pipes": {
+      note: "A reply that quotes Markdown in a four-backtick fence (its inner three-backtick fence stays text) and a table whose cell holds an escaped pipe (a literal pipe, not a column break).",
+      snapshot: chat(
+        [
+          user("Show me the fence and the table", 2),
+          assistant(
+            [
+              "Quoting a reply keeps its own fence:",
+              "",
+              "````md",
+              "```js",
+              "console.log(1);",
+              "```",
+              "````",
+              "",
+              "| command | note |",
+              "| --- | --- |",
+              "| `ls \\| head` | the pipe stays in its cell |",
+            ].join("\n"),
+            1,
+          ),
+        ],
+        { isWorking: false },
+      ),
     },
     queued: {
       note: "Prompts queued behind a running turn.",

@@ -2,17 +2,16 @@ import AppKit
 import CmuxNextDesign
 
 /// Open and close of a panel pinned to its window's top-right corner with no
-/// control under it (the notifications and feed panels, cx-f6i7): it grows
-/// out of that corner and shrinks back into it (`NSWindow.openPopup`), so it
-/// never pops in or vanishes. A reopen during the close continues from what
-/// is on screen. Reduce Motion keeps the fades only.
+/// control under it (the notifications and feed panels, cx-f6i7): it appears
+/// in one frame and fades/shrinks back into that corner on close. A reopen
+/// during the close continues from what is on screen.
 @MainActor
 final class CornerPanelMotion {
     private var generation = 0
     /// The panel is fading out: it is on screen but no longer shown.
     private(set) var isClosing = false
 
-    /// Orders `panel` front at its frame, growing out of its top-right corner.
+    /// Orders `panel` front at its frame in one frame.
     func open(_ panel: NSWindow) {
         let reopening = isClosing && panel.isVisible
         isClosing = false
@@ -20,7 +19,7 @@ final class CornerPanelMotion {
         panel.ignoresMouseEvents = false
         if !reopening { panel.alphaValue = 0 }
         panel.orderFront(nil)
-        panel.openPopup(pivot: Self.pivot(of: panel), entrance: true)
+        panel.openPopup(pivot: Self.pivot(of: panel))
         // A reopen continues the close's scale, whose pivot was for the frame before.
         if reopening { resized(panel) }
     }
