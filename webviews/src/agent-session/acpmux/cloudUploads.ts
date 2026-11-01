@@ -9,11 +9,15 @@ export type UploadCancelled = ((index: number) => boolean) & {
   subscribe?(index: number, changed: () => void): () => void;
 };
 
-export type UploadResult = { paths: string[] } | { error: string } | undefined;
+/// `final`: the host refused the file outright (the app could not save it), so trying again would
+/// fail the same way; any other error (a link down, a timeout) may pass on the next try.
+export type UploadResult = { paths: string[] } | { error: string; final?: boolean } | undefined;
 /// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
 export type UploadProgressReport = (index: number, done: number) => void;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
+/// Host error codes that fail the same way every time: the app could not save the file.
+const REFUSED = new Set(["io", ...NOT_TAKEN]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
@@ -92,6 +96,12 @@ function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
 
+/// The answer for a failed upload: its words, and whether the host refused it outright.
+function uploadError(error: unknown): UploadResult {
+  const text = error instanceof Error ? error.message : String(error);
+  return REFUSED.has((error as { code?: string } | null)?.code ?? "") ? { error: text, final: true } : { error: text };
+}
+
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -142,7 +152,7 @@ export async function uploadToMachine(
           return { error: translate("upload.hostTooLarge") };
         return legacyUpload(files, call, cancelled);
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error);
     }
     begun = true;
     const begin = object(started);
@@ -181,7 +191,7 @@ export async function uploadToMachine(
         paths.push("");
         continue;
       }
-      return { error: error instanceof Error ? error.message : String(error) };
+      return uploadError(error);
     } finally {
       unsubscribe?.();
     }

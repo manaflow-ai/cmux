@@ -1,4 +1,4 @@
-import { errorMessage, isHostRefusal } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -460,7 +460,7 @@ export class HarnessSwitch {
     intent.queued = intent.queued.filter((candidate) => candidate !== prompt);
     this.handlers.restore?.(prompt.text, prompt.attachments);
     // Back in the composer (`handedBack`): the sender puts nothing back.
-    prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
+    prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
     this.changed();
   }
 
@@ -549,8 +549,7 @@ export class HarnessSwitch {
     intent.sessionId = undefined;
     if (restoreQueued && intent.queued.length) {
       this.handBack(intent.queued);
-      for (const prompt of intent.queued)
-        prompt.reject(Object.assign(new Error(t("switch.cancelled")), { handedBack: true }));
+      for (const prompt of intent.queued) prompt.reject(Object.assign(startCancelled(), { handedBack: true }));
       intent.queued = [];
     }
     intent.done.resolve(undefined);
