@@ -201,6 +201,8 @@ async fn write(
         Err(e) => e,
     };
     let Some((peer, id, _)) = hub.resolve_remote(key) else { return Err(missing) };
+    // A link that is reconnecting is waited for, as a forwarded upload call is (`peer_forward.rs`).
+    super::peer_forward::await_upload_link(&peer, super::peer_forward::UPLOAD_LINK_WAIT).await;
     if !peer.supports_file_put_chunks() {
         return Err(file_uploads::peer_unsupported(&peer));
     }

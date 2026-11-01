@@ -160,6 +160,48 @@ fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
     e
 }
 
+/// How long a file upload for a peer's chat waits for that peer's link to come back before it is
+/// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
+pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The upload methods that wait for a peer's link (`await_upload_link`).
+pub(super) fn waits_for_link(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_STATUS
+    )
+}
+
+/// A file the person dropped for a chat on `peer` waits, up to `within`, for the peer's link to be
+/// up instead of failing at once while it reconnects: the peer is wanted (`peer_wanted.rs`), so the
+/// next attempt comes within a second, and each settled attempt is checked. Before, the first
+/// try of a pasted video met a link that was reconnecting and failed, and only the person's Retry
+/// got it through (Leo, 2026-11-01: "i had to retry to get it to load???"). Whether it came up:
+/// a link still down is refused as unreachable by the request, as before.
+pub(super) async fn await_upload_link(
+    peer: &crate::peer::Peer,
+    within: std::time::Duration,
+) -> bool {
+    if peer.ready() {
+        return true;
+    }
+    let mut settled = peer.settled();
+    peer.want();
+    let deadline = tokio::time::Instant::now() + within;
+    while !peer.ready() {
+        match tokio::time::timeout_at(deadline, settled.changed()).await {
+            Ok(Ok(())) => {}
+            // The deadline passed, or the peer went (its sender dropped).
+            _ => break,
+        }
+    }
+    peer.ready()
+}
+
 pub(super) async fn forward(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -229,6 +271,13 @@ async fn forward_inner(
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
             return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
+        }
+        // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
+        if waits_for_link(m) && !peer.ready() {
+            tokio::select! {
+                _ = await_upload_link(&peer, UPLOAD_LINK_WAIT) => {}
+                () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
+            }
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
