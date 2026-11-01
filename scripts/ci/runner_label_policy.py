@@ -22,6 +22,7 @@ two cannot drift apart.
 from __future__ import annotations
 
 import re
+import json
 from functools import cache
 from pathlib import Path
 
@@ -333,9 +334,40 @@ def forbidden_reason(label: str) -> str | None:
 NO_HOSTED_MAC_VARIABLES = frozenset({
     "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
     "LINUX_RUNNER",
+    "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+
+
+def runner_pools_reason(value: str) -> str | None:
+    """Validate the label values in the structured RUNNER_POOLS variable.
+
+    RUNNER_POOLS is JSON rather than a scalar runner label.  Its `_dead`
+    metadata is timestamps and is deliberately ignored; every other pool
+    member is a runner label and must not smuggle in a hosted Mac or a
+    self-hosted fleet label.
+    """
+    if not value.strip():
+        return None
+    try:
+        pools = json.loads(value)
+    except (TypeError, ValueError):
+        return "is not valid JSON, so its runner labels cannot be checked"
+    if not isinstance(pools, dict):
+        return "is not a JSON object of runner pool labels"
+    for pool, label in pools.items():
+        if str(pool).startswith("_"):
+            continue
+        if not isinstance(label, str) or not label.strip():
+            continue
+        label = label.strip().lower()
+        if HOSTED_MAC_LABEL.fullmatch(label):
+            return f"pool `{pool}` names a GitHub-hosted Mac `{label}`"
+        reason = forbidden_reason(label)
+        if reason is not None:
+            return f"pool `{pool}` {reason}"
+    return None
 
 
 def drifted_runner_variables(
@@ -349,6 +381,11 @@ def drifted_runner_variables(
     drifted = []
     for name, value in variables.items():
         if not isinstance(value, str):
+            continue
+        if name == "RUNNER_POOLS":
+            reason = runner_pools_reason(value)
+            if reason is not None:
+                drifted.append((name, value.strip(), reason))
             continue
         if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
             drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
