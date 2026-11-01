@@ -365,7 +365,7 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   expect(placed.tops[1]).toBe(0);
 });
 
-test("a status row between two replies is estimated in the middle of the gap", () => {
+test("a status row between two replies is estimated under the reply's kept room", () => {
   // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
   // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
   // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
@@ -386,10 +386,11 @@ test("a status row between two replies is estimated in the middle of the gap", (
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {
-    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
-    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    // No reply draws its own action row (a turn's copy lives in its footer), but it keeps that row's
+    // room (model.ts keepsReplyRoom; Leo, 2026-11-01: "i like this spacing kinda i prefer it to what
+    // we have now"): the same 36px over the run as over a prompt. The run keeps the plain 12px under it.
     expect(step).toBe(2 + 22 + 12);
-    expect(reply).toBe(overPrompt! + 2);
+    expect(reply).toBe(overPrompt!);
   }
   expect(alone).toBeGreaterThan(0);
 });
