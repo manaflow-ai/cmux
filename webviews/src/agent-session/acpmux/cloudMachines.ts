@@ -15,9 +15,9 @@ export type CloudMachine = { id: string; name: string; stage: string };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
-/// Whether the app's Cloud account is signed in. `undefined` means the app has not said (no reply
-/// yet, or the read was refused); the picker offers Sign in for Cloud only on an explicit `false`,
-/// which a signed-out app, a fresh home included, answers.
+/// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
+/// explicit account state (for example, a fresh home where Cloud is not available yet); the
+/// picker treats that the same as signed out until a reply says `true`.
 let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -125,8 +125,9 @@ function publishAccount(next: boolean | undefined): void {
   for (const listener of listeners) listener();
 }
 
-/// Reads the app's list and account state again. Outside the app, or when the app refuses, both are
-/// left as they were; a signed-out answer carries no machines, so it drops the previous account's.
+/// Reads the app's list again. A read the app refused clears both snapshots: the previous
+/// account's machines and signed-in state cannot be trusted after it. With no app to ask (outside
+/// the app, or while its bridge reconnects: `native.not_connected`) the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   const asked = generation;
   inFlight ??= call("cloudMachine.list", {})
@@ -136,7 +137,13 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         publish(cloudMachinesFromReply(reply));
       }
     })
-    .catch(() => undefined)
+    .catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
+      if (asked === generation) {
+        publishAccount(undefined);
+        publish([]);
+      }
+    })
     .finally(() => {
       if (asked === generation) inFlight = undefined;
     });
@@ -201,7 +208,7 @@ export function useCloudSignedIn(): boolean | undefined {
 }
 
 /// The account state shown in capture diagnostics. This is deliberately read-only and mirrors the
-/// value consumed by EnvironmentPicker, including the unknown `undefined` state.
+/// value consumed by EnvironmentPicker, including the fresh-home `undefined` state.
 export function cloudSignedInForDebug(): boolean | undefined {
   return accountSignedIn;
 }

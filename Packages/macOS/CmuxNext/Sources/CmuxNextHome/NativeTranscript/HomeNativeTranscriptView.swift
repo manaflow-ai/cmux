@@ -151,12 +151,15 @@ public final class HomeNativeTranscriptView: NSView {
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once. Before the
+        // transcript: the open brings back a kept transcript, so the transcript's
+        // first pass installs it at the newest message, as it does a chat another
+        // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
+        binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
-        // One binding per shown conversation; it opens the conversation on
-        // the store now and `stop()` closes exactly that open, once.
-        binding = HomeStoreBinding(store: store, conversation: conversation)
         attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
@@ -263,7 +266,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header views that run ``onNamePill`` (the pill and the avatar).
     public var namePillToggles: [NSView] { transcript.namePillToggles }
 
-    /// The header avatar's text; nil shows the conversation's initials.
+    /// The header avatar's text; nil shows the monogram of the header's name (`MonogramAvatar`).
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
@@ -272,7 +275,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
     public var headerTitle: String? {
         get { transcript.headerTitle }
-        set { transcript.headerTitle = newValue }
+        set {
+            transcript.headerTitle = newValue
+            applyHeroFace()  // the hero's monogram follows a rename
+        }
     }
 
     /// The header avatar's picture, over its text; nil shows the text.

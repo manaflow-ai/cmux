@@ -99,6 +99,13 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
+# only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
+# so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
+# scripts/test-reload-cloud-terminate-app.sh kills the children it starts and passes, and every red in its Fleet
+# tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
+# an exit status of 128 + N) is a crash wherever it is.
+STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -215,6 +222,18 @@ def echoed(lines: list[str]) -> set[int]:
                 at = end + 1
                 continue
         at += 1
+    return found
+
+
+def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
+    """The indexes of LINES (log_lines) inside a step that passed: from a step's echo (echoed) to the next step's, with
+    no error line between. The last step (no step after it) never passed: it may be the one that died."""
+    skip = echoed(lines) if skip is None else skip
+    starts = [n for n in sorted(skip) if ECHO_START.match(lines[n])]
+    found: set[int] = set()
+    for start, end in zip(starts, starts[1:]):
+        if not any(STEP_ERROR.match(lines[n]) for n in range(start, end) if n not in skip):
+            found.update(range(start, end))
     return found
 
 
@@ -483,13 +502,17 @@ def read(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    lines = lines_of(log)
+    every = log_lines(log)
+    skip = echoed(every)
+    passed = passed_steps(every, skip)
+    kept = [n for n in range(len(every)) if n not in skip]
+    lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for text in lines:
+    for at, text in enumerate(lines):
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
@@ -507,7 +530,8 @@ def read(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True

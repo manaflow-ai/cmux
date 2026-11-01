@@ -34,19 +34,6 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
-    /// Sign in for Cloud runs sign-in only (`palette.auth.signIn`), never New Cloud Machine, on the
-    /// person's gesture only.
-    @Test func cloudSignInRunsSignInOnAGesture() async {
-        let model = AgentPaneModel(host: NoHost())
-        var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
-        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool != true)
-        #expect(ran.isEmpty, "no gesture, no sign-in")
-        model.transport.gestures.record()
-        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool == true)
-        #expect(ran == ["palette.auth.signIn"])
-    }
-
     /// Picking the strip's red machine reconnects it: the header's own Reconnect, on a gesture only
     /// (the host resolves the tab's machine; the page names none).
     @Test func machineReconnectRunsOnAGesture() async {
@@ -67,6 +54,19 @@ struct AgentPaneConnectActionTests {
         let reply = await model.respond(to: .runAction("newCloudMachine"))
         #expect(reply["ok"] as? Bool != true)
         #expect(ran == ["newCloudMachine"])
+    }
+
+    /// The signed-out picker's Sign in for Cloud runs Sign In itself, on a gesture only: it never
+    /// goes through New Cloud Machine, which would create a machine once sign-in finished.
+    @Test func cloudSignInRunsSignInOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool != true)
+        #expect(ran.isEmpty, "no gesture, no sign-in")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("palette.auth.signIn"))["ok"] as? Bool == true)
+        #expect(ran == ["palette.auth.signIn"])
     }
 
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
