@@ -147,8 +147,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
 
-    def invoke_authoritative(self, *, fetched_association="MEMBER", fetched_head=HEAD):
-        event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": "MEMBER"}}
+    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD):
+        event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": event_association}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             event_path = root / "event.json"
@@ -162,7 +162,7 @@ class Rerun(unittest.TestCase):
                     log.write("called\\n")
                 endpoint = next(arg for arg in args if arg.startswith("repos/"))
                 if "/pulls/" in endpoint:
-                    print(json.dumps({{"base": {{"ref": "feat-cmux-next"}}, "head": {{"repo": {{"full_name": REPO}}, "sha": {fetched_head!r}}}}))
+                    print(json.dumps({{"base": {{"ref": "feat-cmux-next"}}, "head": {{"repo": {{"full_name": os.environ["REPO"]}}, "sha": {fetched_head!r}}}}))
                 elif "/issues/comments/" in endpoint:
                     print(json.dumps({{"author_association": {fetched_association!r}, "body": "Review (router): SHIP at {HEAD}\\nEvidence: focused checks passed"}}))
                 else:
@@ -176,22 +176,33 @@ class Rerun(unittest.TestCase):
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
-        return result, calls
+            output_text = output.read_text() if output.exists() else ""
+        return result, calls, output_text
 
     def test_valid_receipt_reaches_authoritative_api_checks(self):
-        result, calls = self.invoke_authoritative()
+        result, calls, output = self.invoke_authoritative()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["called", "called"])
+        self.assertIn("eligible=true", output)
+        self.assertIn(f"head_sha={HEAD}", output)
 
     def test_fetched_untrusted_author_is_still_rejected(self):
-        result, calls = self.invoke_authoritative(fetched_association="CONTRIBUTOR")
+        result, calls, output = self.invoke_authoritative(fetched_association="CONTRIBUTOR")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["called", "called"])
+        self.assertNotIn("eligible=true", output)
 
     def test_fetched_stale_head_is_still_rejected(self):
-        result, calls = self.invoke_authoritative(fetched_head="b" * 40)
+        result, calls, output = self.invoke_authoritative(fetched_head="b" * 40)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, ["called", "called"])
+        self.assertNotIn("eligible=true", output)
+
+    def test_event_association_is_only_a_prefilter_hint(self):
+        result, calls, output = self.invoke_authoritative(event_association="CONTRIBUTOR")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ["called", "called"])
+        self.assertIn("eligible=true", output)
 
 
 if __name__ == "__main__":

@@ -49,19 +49,13 @@ jobs:
           COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
-          # The issue_comment payload already contains the comment body and
-          # author association. Reject ordinary comments before spending a
-          # pull-request or comment API read; the API checks below remain the
-          # authority for an eligible-looking receipt.
+          # The issue_comment payload already contains the comment body. Reject
+          # ordinary comments before spending a pull-request or comment API
+          # read; the API response remains the authority for author trust.
           event_first_line="$(jq -r '.comment.body // "" | split("\n")[0]' "$EVENT_PATH")"
-          event_association="$(jq -r '.comment.author_association // empty' "$EVENT_PATH")"
           event_receipt_re='^Review \([^)]*\): SHIP at [0-9a-f]{40}$'
           if [[ ! "$event_first_line" =~ $event_receipt_re ]]; then
             echo "The event comment is not an exact-head SHIP receipt."
-            exit 0
-          fi
-          if [[ ! "$event_association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
-            echo "The event comment author is not a trusted repository member."
             exit 0
           fi
           pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
