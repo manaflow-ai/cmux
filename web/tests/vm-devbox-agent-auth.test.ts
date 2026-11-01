@@ -672,6 +672,47 @@ describe("the default for every agent", () => {
     }
   });
 
+  test("a machine with no CodeRouter origin starts claude on its own sign-in, never an empty team plane", async () => {
+    // fs-firstsend-exercise (2026-10-31): a shell with only the OpenAI pair persisted that pair alone,
+    // so no shell after it had an origin, and team-unknown left claude with no endpoint and no key
+    // ("Not logged in"). With no origin there is no team plane to choose.
+    const m = machine();
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude} --resume x`], { env });
+    expect(result.status).toBe(0);
+    const claude = parse(result.stdout);
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(claude.CLAUDE_CONFIG_DIR).toBe("<unset>");
+    const reason = await runChild("/bin/sh", ["-c", `. ${m.auth}; cmux_agent_auth_resolve claude; printf '%s %s' "$cmux_agent_auth_mode" "$cmux_agent_auth_reason"`],
+      { env: { PATH: env.PATH, HOME: m.home } });
+    expect(reason.stdout).toBe("own no-team-plane");
+    // Nothing asked CodeRouter: there was no origin to ask.
+    const calls = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
+    expect(calls).not.toContain("agent-access");
+  });
+
+  test("with no CodeRouter origin, a stale model-plane pair never reaches codex or opencode", async () => {
+    // The persisted OpenAI pair alone: its URL names CodeRouter but no CMUX_CODEROUTER_URL does. Own mode must
+    // drop the URL with the placeholder key, or an own login would go to that endpoint.
+    const m = machine();
+    cmuxCodexConfig(m);
+    writeFileSync(m.modelPlane, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    for (const agent of ["codex", "opencode"] as const) {
+      const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers[agent]} --resume x`], { env });
+      expect(result.status).toBe(0);
+      const child = parse(result.stdout);
+      expect(child.OPENAI_BASE_URL).toBe("<unset>");
+      expect(child.OPENAI_API_KEY).toBe("<unset>");
+    }
+    // A user's own endpoint with their own key stays.
+    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; export OPENAI_BASE_URL=https://api.example.test/v1 OPENAI_API_KEY=sk-user; ${m.launchers.codex} --resume x`], { env });
+    expect(parse(own.stdout).OPENAI_BASE_URL).toBe("https://api.example.test/v1");
+  });
+
   test("CMUX_<AGENT>_AUTH pins one launch over the recorded choice and the default", async () => {
     const m = machine();
     cmuxCodexConfig(m);

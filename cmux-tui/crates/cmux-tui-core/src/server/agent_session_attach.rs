@@ -460,6 +460,8 @@ pub(crate) enum Refusal {
     Limit,
     Timeout,
     Refused,
+    /// acpmux's session list could not be read whole (`LinkError::BadList`).
+    BadList,
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
@@ -501,6 +503,7 @@ impl Refusal {
             Self::Limit => "agent_session.limit",
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
+            Self::BadList => "agent_session.bad_list",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
@@ -529,6 +532,7 @@ impl Refusal {
             Self::Limit => "too many attached agent tabs",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux's session list could not be read whole",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
             Self::AcpmuxUnavailable => {
@@ -563,6 +567,7 @@ impl Refusal {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }

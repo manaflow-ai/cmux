@@ -710,14 +710,14 @@ while True:
                 open(late, "w").close()
                 os._exit(0)
             os.waitpid(first, 0)
-            said = "You've hit your usage limit"
+            said = "Not logged in" if os.environ.get("FAKE_CLAUDE_AUTH_FAIL") == "1" else "You've hit your usage limit"
             send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
                   "content": [{"type": "text", "text": said}]}})
             send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,
                   "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
             continue
         if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
-            sys.stderr.write("proxy down\n")
+            sys.stderr.write(("Not logged in" if os.environ.get("FAKE_CLAUDE_AUTH_FAIL") == "1" else "proxy down") + "\n")
             sys.stderr.flush()
             sys.exit(1)
         if STORE and RESUME and not os.path.exists(stored(RESUME)):

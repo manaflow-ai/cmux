@@ -23,7 +23,9 @@
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
-//! `role` (the Linux worker).
+//! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
+//! Cloud and restored into a replacement machine, #25584) and
+//! `trajectory_thread` (its thread).
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
@@ -44,6 +46,9 @@ mod receiver_lifecycle;
 pub mod role;
 pub mod sender;
 pub mod session;
+pub mod trajectory;
+#[cfg(unix)]
+pub mod trajectory_thread;
 pub mod wire;
 
 #[cfg(all(test, unix))]
@@ -61,3 +66,5 @@ mod receiver_files_tests;
 mod receiver_read_tests;
 #[cfg(test)]
 mod receiver_reply_tests;
+#[cfg(test)]
+mod trajectory_tests;

@@ -696,7 +696,8 @@ test("⌥⌘1 on the environment already chosen stays the app's", async () => {
   expect(calls).toEqual([]);
 });
 
-// hq#2569 #9: a new chat chooses a worktree beside its folder, as Codex's Worktree and Claude's chips do.
+// A new chat makes a worktree from its folder menu. The bar above the composer holds the folder and
+// the machine only (Leo 2026-10-31, on a New Worktree control there: "who the f*** put worktree on there").
 const inFolder = {
   summary: {
     sessionId: "",
@@ -710,13 +711,25 @@ const worktreeButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
     (button) => button.textContent?.trim() === t("worktree.new"),
   );
+// New Worktree from the folder menu.
+const newWorktreeFromMenu = async () => {
+  const folder = host.querySelector<HTMLButtonElement>(
+    `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
+  );
+  expect(folder, "no folder control").toBeTruthy();
+  await act(async () => folder!.click());
+  const action = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].find(
+    (item) => item.textContent?.trim() === t("worktree.new"),
+  );
+  expect(action, "no New Worktree in the folder menu").toBeTruthy();
+  await act(async () => action!.click());
+};
 
-test("previews on: New Worktree is a control beside the folder, not inside its menu", async () => {
+test("previews on: New Worktree is in the folder menu, not a control beside the folder", async () => {
   const worktrees: string[] = [];
   await mount(true, { ...inFolder, onNewWorktree: (cwd: string) => worktrees.push(cwd) });
-  const button = worktreeButton();
-  expect(button, "no New Worktree beside the folder").toBeTruthy();
-  await act(async () => button!.click());
+  expect(worktreeButton(), "a New Worktree control beside the folder").toBeUndefined();
+  await newWorktreeFromMenu();
   expect(worktrees).toEqual(["/Users/you/src/cmux"]);
 });
 
@@ -771,7 +784,7 @@ test("New Tab, previews on: New Worktree starts the chat in the worktree the hos
     return "/Users/you/wt/app-blue-fox";
   });
   expect(folderName()).toBe("app");
-  await act(async () => worktreeButton()!.click());
+  await newWorktreeFromMenu();
   expect(asked).toEqual(["/Users/you/src/app"]);
   expect(folderName()).toContain("fox");
 });
@@ -780,7 +793,7 @@ test("New Tab, previews on: the host's refusal shows above the card, and the fol
   await mountNewTab(async () => {
     throw new Error("not a git repository");
   });
-  await act(async () => worktreeButton()!.click());
+  await newWorktreeFromMenu();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   expect(folderName()).toBe("app");
 });
@@ -788,8 +801,8 @@ test("New Tab, previews on: the host's refusal shows above the card, and the fol
 test("New Tab, previews on: a slower worktree reply doesn't replace a newer choice", async () => {
   const replies: ((folder: string) => void)[] = [];
   await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)));
-  await act(async () => worktreeButton()!.click());
-  await act(async () => worktreeButton()!.click());
+  await newWorktreeFromMenu();
+  await newWorktreeFromMenu();
   await act(async () => replies[1]!("/Users/you/wt/app-blue-fox"));
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(folderName()).toContain("fox");
@@ -803,7 +816,7 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
     peerConnected: { devbox: true },
   });
   await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)), snapshot);
-  await act(async () => worktreeButton()!.click());
+  await newWorktreeFromMenu();
   await openPicker();
   const devbox = machineRows().find((row) => row.textContent?.includes("devbox"))!;
   await act(async () => devbox.click());

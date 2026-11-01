@@ -83,6 +83,7 @@ side runners were idle, so verify queued about 1.5 h on Blacksmith.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -218,6 +219,37 @@ def owned_queue_route(labels: str | Sequence[str], runners: Sequence[Mapping[str
     return "", f"no registered runner carries {', '.join(f'`{c}`' for c in candidates)}"
 
 
+def trusted_route(pool_label: str, runner_label: str, runners: Sequence[Mapping[str, Any]] | None,
+                  *, event: str, ref: str) -> tuple[str, str]:
+    """Return the configured trusted NEXT runner as a JSON runs-on selector.
+
+    The trusted runner is the configured dedicated nightly Mac.  It is
+    selected with both its pool and runner-name labels so seed
+    work cannot claim the same runner.  A trusted pair is emitted only after
+    the routing API confirms an idle matching runner; an unread API must fall
+    through to the watched owned pool or bounded Blacksmith route rather than
+    queue indefinitely on a single Mac.  Other events never inherit the NEXT
+    reservation.
+    """
+    pool_label = (pool_label or "").strip()
+    runner_label = (runner_label or "").strip()
+    if not pool_label or not runner_label:
+        return "", "trusted NEXT pool/runner is not configured"
+    if event != "push" or ref != "refs/heads/nightly-next":
+        return "", f"event {event or '<unset>'} on {ref or '<unset>'} is not a nightly-next push"
+    selector = json.dumps([pool_label, runner_label], separators=(",", ":"))
+    if runners is None:
+        return "", f"trusted NEXT selector {selector} is unavailable because runner listing is unread"
+    matching = [runner for runner in runners
+                if runner.get("status") == "online"
+                and not runner.get("busy")
+                and pool_label in pool.runner_labels(runner)
+                and runner_label in pool.runner_labels(runner)]
+    if matching:
+        return selector, f"trusted NEXT selector {selector} has an idle runner"
+    return "", f"trusted NEXT selector {selector} has no idle runner"
+
+
 def unread_owned_route(labels: str | Sequence[str]) -> tuple[str, str]:
     """(the first watched owned label, or "", why) for a pick that could not read the runners."""
     wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
@@ -275,6 +307,7 @@ def main(env: Mapping[str, str] = os.environ,
     if only_verify:
         dedicated_label = ""  # the verify jobs never take the dedicated builder: it keeps that Mac for the next build
     event = (env.get("GITHUB_EVENT_NAME") or "").strip()
+    ref = (env.get("GITHUB_REF") or "").strip()
     off_event = bool(dedicated_label) and event not in DEDICATED_EVENTS
     if off_event:
         dedicated_label = ""
@@ -335,6 +368,10 @@ def main(env: Mapping[str, str] = os.environ,
         queued, queued_why = owned_queue_route(labels, runners)
         if queued:
             owned, owned_why = queued, queued_why
+    trusted, trusted_why = trusted_route(
+        env.get("TRUSTED_POOL", ""), env.get("TRUSTED_RUNNER", ""), runners,
+        event=event, ref=ref,
+    )
     if only_verify:
         write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
                                              f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
@@ -347,9 +384,10 @@ def main(env: Mapping[str, str] = os.environ,
         helper_runners = read() if any(owned_label(label) for label in labels) else None
         helper, helper_why = owned_route(labels, helper_runners)
     runner = owned or blacksmith
-    write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,
+    write_output(env, {"dedicated": dedicated, "trusted": trusted, "owned": owned, "blacksmith": blacksmith, "runner": runner,
                        "helper": helper, "attempt": attempt or "1"},
-                 [f"dedicated: {dedicated or 'none'} ({dedicated_why})", f"owned: {owned or 'none'} ({owned_why})",
+                 [f"dedicated: {dedicated or 'none'} ({dedicated_why})", f"trusted: {trusted or 'none'} ({trusted_why})",
+                  f"owned: {owned or 'none'} ({owned_why})",
                   f"blacksmith: {blacksmith} ({blacksmith_why})", f"route: {runner}",
                   f"helper: {helper or blacksmith} ({helper_why if helper else 'no idle owned Mac besides the dedicated builder, so Blacksmith'})",
                   f"attempt: {attempt or '1'}"])

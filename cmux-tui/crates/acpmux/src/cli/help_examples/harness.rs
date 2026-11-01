@@ -130,7 +130,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "harness codex-runtime status",
-        &[("Print the managed Codex version, path and readiness", "acpmux harness codex-runtime status")],
+        &[(
+            "Print the managed Codex version, path and readiness",
+            "acpmux harness codex-runtime status",
+        )],
     ),
     (
         "harness reload",

@@ -8,10 +8,10 @@
 // (conversation/BackgroundTaskNote.tsx).
 //
 // Debug Settings `agentPane.debug.subagentTray` (AgentPaneTunables+SubagentTray.swift) turns it off:
-// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx),
-// the agents pill sits above the composer (AgentsPill.tsx) and the running turn's line counts the
-// work (conversation/WorkingFor.tsx). The host sends it with the theme (`subagentTray`); absent
-// means on.
+// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx) and
+// the running turn's line counts the work (conversation/WorkingFor.tsx). The separate running
+// activity pill above the composer is intentionally not rendered. The host sends the setting with
+// the theme (`subagentTray`); absent means on.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";

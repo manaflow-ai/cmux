@@ -16,6 +16,7 @@ mod enrollment;
 mod ensure;
 mod native_broker;
 mod native_route;
+mod start_chat_cli;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -135,6 +136,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("machine") {
         return machine_update::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("start-chat") {
+        return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {

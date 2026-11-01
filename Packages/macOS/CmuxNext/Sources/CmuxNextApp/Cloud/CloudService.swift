@@ -64,6 +64,10 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
+    /// sizes and the rates the server gave listed machines of the same size. Read from the list
+    /// itself, so a machine this Mac could not connect to still gives its size a rate.
+    private(set) var planSizes: [CloudWorkspaceSetupWizard.SizeOption] = []
     /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
@@ -115,8 +119,6 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
-    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
-    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -226,7 +228,6 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
-        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
@@ -242,6 +243,18 @@ final class CloudService {
     func localDeviceID() throws -> String { try deviceID.loadNow() }
     /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
     func installID() async throws -> String { try await deviceID.load() }
+
+    /// Whether the signed-in caller owns `machineID`, as the platform answers it and as the Codex
+    /// broker's target reads it: the classic attach answer's `vmKind == "owner"` (#28788 gives a team
+    /// machine's creator that), or a Worker machine's owner link on the app server link. A personal
+    /// harness login goes only to such a machine (``CloudCredentialTransfer``).
+    func callerOwnsVM(_ machineID: String) async throws -> Bool {
+        guard configuration.linkSource == .appServer else {
+            return try await api.pinningTeam(auth.teamID).attachEndpoint(machineID).vmKind == "owner"
+        }
+        guard let link = machines.session(machineID)?.appLink else { return false }
+        return await link.ownerLink != nil
+    }
     @ObservationIgnored private let deviceID: CloudDeviceID
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -473,6 +486,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
+            planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
@@ -654,6 +668,7 @@ final class CloudService {
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]
         machines.cloudLimits = nil
+        planSizes = []
         hasLoadedMachines = false
         listLoadedAt = nil
     }
