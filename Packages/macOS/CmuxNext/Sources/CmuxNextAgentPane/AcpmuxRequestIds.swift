@@ -118,26 +118,36 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // parse for the usual `session/update` payloads while retaining the parsed object for the
         // three notifications read by host observers.
         let methodScan = Self.topLevelMethod(text)
-        if methodScan.found {
-            guard let method = methodScan.value else {
-                return .page(text, object: nil, replyTo: nil)
+        var method = methodScan.value
+        var notificationObject: [String: Any]?
+        // JSON method names are normally plain ASCII. If an escaped key or value appears, use
+        // Foundation once to decode that rare spelling before deciding whether host observers
+        // need the object; plain stream notifications never take this path.
+        if method?.contains("\\") == true || (!methodScan.found && text.contains("\\")) {
+            if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+               let decoded = object["method"] as? String {
+                method = decoded
+                notificationObject = object
             }
-            guard Self.observedNotificationMethods.contains(method) else {
-                return .page(text, object: nil, replyTo: nil)
-            }
+        }
+        if let method, Self.observedNotificationMethods.contains(method) {
             // Most `_acpmux/event` frames are transcript chunks. The host only reads permission
             // records from that stream; pacing for turn boundaries uses the raw text path below.
             if method == "_acpmux/event" &&
                 !Self.eventObserverMarkers.contains(where: text.contains) {
                 return .page(text, object: nil, replyTo: "_acpmux/event")
             }
-            guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            let object = notificationObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            guard let object
             else { return .page(text, object: nil, replyTo: nil) }
             if method == "_acpmux/prompt_accepted", let promptAccepted,
                let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
                 promptAccepted(promptId)
             }
             return .page(text, object: object, replyTo: method)
+        }
+        if methodScan.found {
+            return .page(text, object: nil, replyTo: nil)
         }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
