@@ -308,8 +308,7 @@ enum DebugWindowSnapshot {
     static func window(_ params: [String: JSONValue], services: AppServices) -> NSWindow? {
         let windows = NSApp.windows
         if let id = params["window"]?.stringValue ?? params["window"]?.intValue.map(String.init) {
-            if let main = services.windows.controller(for: id)?.window { return main }
-            return windows.first { String($0.windowNumber) == id }
+            return services.windows.controller(for: id)?.window ?? windows.first { String($0.windowNumber) == id }
         }
         if let kind = params["kind"]?.stringValue {
             if kind == "main" { return services.windows.active?.window }

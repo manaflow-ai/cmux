@@ -128,8 +128,7 @@ final class RemoteTerminalService {
     }
 
     func resource(for ref: RemoteTerminalRef, on daemon: DaemonService) -> ResourceID? {
-        if let known = resources[Self.key(ref)] { return known }
-        return daemon.store.tab(terminal: ref.terminalID)?.terminalResourceID
+        resources[Self.key(ref)] ?? daemon.store.tab(terminal: ref.terminalID)?.terminalResourceID
     }
 
     /// Learns a terminal's public id from its session (`set-terminal-keep`,
