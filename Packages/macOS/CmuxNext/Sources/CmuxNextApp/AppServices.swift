@@ -89,6 +89,8 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
+    /// The editor `file.open {where: editor}` opens with; tests replace it to record the open.
+    var editorApps: any AgentPaneEditorApps = AgentPaneWorkspaceEditors()
     /// The app's key window, from the composition root (AppServices never reads the global `NSApp`, nil in a
     /// test process). Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow?
