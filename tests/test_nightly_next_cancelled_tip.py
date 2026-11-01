@@ -238,7 +238,9 @@ class CancelledTip(unittest.TestCase):
         names = [step.get("name") for step in steps]
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
-        self.assertNotIn("if", check)  # every train mode, "off" included: the promotion still runs then
+        # Automatic/empty-SHA ticks recover the current nightly tip in every train mode.
+        # Explicit-SHA ticks must reach promotion without waiting for an older tip's API reads.
+        self.assertEqual(check["if"], "inputs.sha == ''")
         self.assertEqual(check["run"], 'bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Re-run a cancelled nightly-next tip"))
