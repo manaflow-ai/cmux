@@ -53,10 +53,7 @@ enum WindowHandlers {
         })
         registry.bind("closeAllWindows", run: { _ in
             // Each window's own close check (an incognito window asks), then close.
-            for controller in context.services.windows.controllers {
-                context.services.windows.noteUserClose(controller)
-                if let window = controller.window { WindowTargeting.close(window) }
-            }
+            for window in context.services.windows.controllers.compactMap(\.window) { WindowTargeting.close(window) }
         })
         registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })

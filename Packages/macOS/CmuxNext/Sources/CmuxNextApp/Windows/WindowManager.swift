@@ -458,14 +458,6 @@ final class WindowManager {
         WindowActivation.show(window, .raise)
     }
 
-    /// Records a user's close intent before AppKit begins its close delegate callbacks. Restore
-    /// can resume on the next main-actor turn, so the intent must be visible before `window.close()`.
-    func noteUserClose(_ controller: WindowController) {
-        guard restoring || !restored else { return }
-        closedDuringRestore.insert(controller.state.id)
-        if controller.state.id == launchWindowID { closedLaunchWindowID = controller.state.id }
-    }
-
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
