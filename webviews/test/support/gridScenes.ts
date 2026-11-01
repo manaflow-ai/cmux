@@ -87,6 +87,17 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
     value("mid: trailing control", last, "cy", point(plus, "cy")),
   ]);
 };
+// A two-line draft grows the box, and + and Send stay on its last line, so the one-line box's
+// height and first-line optical center do not apply; its text column is still the 44 px line.
+const draftLines = scene("composer.box", "agent-pane.composer-row", "grid-draft-lines", ".acpmux-composer-box", [
+  left("edge: control inset", plus, "left", token("composer-inset")),
+  left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
+  left("text", ".acpmux-md p", "text", token("composer-text")),
+  trail(".acpmux-send:not(.acpmux-steer-now) svg", token("composer-trail-center")),
+  value("radius", ":scope", "radius", token("composer-radius")),
+  ...centered(`${plus} svg`, plus),
+  value("mid: trailing control", ".acpmux-send:not(.acpmux-steer-now)", "cy", point(plus, "cy")),
+]);
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
 // The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
@@ -171,7 +182,7 @@ export const gridScenes: GridScene[] = [
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
-  composer("grid-draft-lines", ".acpmux-md p"),
+  draftLines,
   attachScreenshot,
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
@@ -196,16 +207,6 @@ export const gridScenes: GridScene[] = [
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
   scene("composer.foot", "agent-pane.composer-row", "grid-running", ".acpmux-composer-foot", [
-    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
-    value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
-    from("lead", ".acpmux-access-trigger svg", "cx", point(".acpmux-composer-box", "left"), token("composer-lead-center")),
-    from("trail", ".acpmux-composer-box", "right", point(".acpmux-context-ring svg", "cx"), token("composer-trail-center")),
-    mid(".acpmux-access-trigger svg", ":scope"),
-    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
-    value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
-  ]),
-  scene("composer.foot", "agent-pane.composer-look", "codex-chat", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
     from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
