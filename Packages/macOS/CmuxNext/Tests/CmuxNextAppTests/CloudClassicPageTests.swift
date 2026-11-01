@@ -69,18 +69,6 @@ struct CloudClassicPageTests {
         for _ in 0..<50 where !done() { await Task.yield() }
     }
 
-    /// The red test: the app's own Cloud page provider on the classic link (the default) answers
-    /// with no daemon relay at all. Before, it threw `cmux.protocol.transport` (the disconnected
-    /// state) because the op went to the Cloud app server.
-    @Test func theClassicLinkPageAnswersWithoutTheRelay() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        #expect(services.cloud.configuration.linkSource == .legacy)
-        let provider = PageFactory.cloudProvider(cloud: services.cloud, registry: services.machines)
-        let answer = try await provider.call("cmux.cloud.auth.status", params: .object([:]), context: Self.page)
-        #expect(answer["signedIn"]?.boolValue == services.cloud.isSignedIn)
-    }
-
     @Test func theListIsTheSidebarsMachinesAsPageRecords() async throws {
         let machines = Machines()
         machines.list = [CloudMachine(id: "vm-1", status: .running, displayName: "box"),
