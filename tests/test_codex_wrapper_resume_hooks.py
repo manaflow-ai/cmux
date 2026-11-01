@@ -39,10 +39,11 @@ def run_wrapper(
     in_cmux: bool = True,
     nested_launch: bool = False,
     launcher_preflight: bool = False,
+    profile_reorders_path: bool = False,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
-        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_dir = tmp / ("wrapper bin" if profile_reorders_path else "wrapper-bin")
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir()
@@ -136,6 +137,11 @@ exit 1
         env["ZDOTDIR"] = str(home)
         env["SHELL"] = "/bin/zsh"
         env["FAKE_TEST_PATH"] = env["PATH"]
+        if profile_reorders_path:
+            # Homebrew shellenv and macOS path_helper can put the real binary
+            # ahead of cmux's shim while an interactive login shell starts.
+            env["FAKE_TEST_PATH"] = f"{real_dir}:{wrapper_dir}:/usr/bin:/bin"
+        env["CMUX_CODEX_WRAPPER_SHIM"] = str(wrapper_dir / "codex")
         env["FAKE_LAUNCHER_CALLS"] = str(tmp / "launcher-calls")
         env["FAKE_WRAPPER"] = str(wrapper)
         env["FAKE_NESTED_ONCE"] = "1" if nested_launch else "0"
@@ -292,6 +298,26 @@ def test_custom_launch_command(failures: list[str]) -> None:
            f"a launcher version preflight must not consume the resume handoff: {stderr}", failures)
     expect(SESSION_ID in actual and "--no-daemon" in actual and sum("hooks codex inject-args" in call for call in calls) == 1,
            "version preflight must preserve resume arguments and one injection", failures)
+
+
+def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
+    for argv in ([], ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"]):
+        code, actual, calls, env, stderr = run_wrapper(
+            socket_state="stale", argv=argv, launch_command="subcodex",
+            launcher_preflight=True, profile_reorders_path=True,
+        )
+        expect(code == 0 and env.get("FAKE_PROVIDER") == "custom",
+               f"login profile must retain custom launcher: {stderr}", failures)
+        expect(env.get("REAL_PID") == env.get("CMUX_CODEX_PID"),
+               "profile PATH reorder bypassed Codex PID registration", failures)
+        expect(sum(a.startswith("hooks.SessionStart=") for a in actual) == 1,
+               "profile PATH reorder lost session hooks", failures)
+        expect(sum("hooks codex inject-args" in call for call in calls) == 1,
+               "profile PATH reorder must inject hooks exactly once", failures)
+        expect(env.get("CMUX_CODEX_LAUNCH_COMMAND_ACTIVE") == "__UNSET__",
+               "profile PATH reorder leaked the handoff guard", failures)
+        if argv:
+            expect(all(a in actual for a in argv), "profile PATH reorder lost saved resume arguments", failures)
 
 
 # cmux-launched Codex always disables the native `computer_use` provider before
@@ -502,6 +528,7 @@ def test_headless_marker_follows_the_subcommand(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_custom_launch_command(failures)
+    test_custom_launcher_profile_reorders_path(failures)
     test_every_resume_route_is_instrumented(failures)
     test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
