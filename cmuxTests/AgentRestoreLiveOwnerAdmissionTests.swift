@@ -46,6 +46,59 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         #expect(!input.contains("stop process"), Comment(rawValue: input))
     }
 
+    @Test("A known live owner does not consume restore-pass ownership")
+    func liveOwnerLeavesCheckpointForARealLaunch() throws {
+        let fixture = try makeFixture(kind: .amp, ownerState: .live)
+        defer { fixture.cleanup() }
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let index = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        snapshot.panels[index].terminal?.agent = fixture.agent
+        snapshot.panels[index].terminal?.wasAgentRunning = true
+        snapshot.panels[index].terminal?.isRemoteTerminal = true
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: fixture.defaults,
+            restorableAgentIndexProvider: { fixture.index }
+        )
+        defer { restored.teardownAllPanels() }
+        restored.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "restore-test.invalid",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_000,
+                relayID: "live-owner-test",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/live-owner-\(UUID().uuidString).sock",
+                terminalStartupCommand: "ssh restore-test.invalid",
+                preserveAfterTerminalExit: false,
+                persistentDaemonSlot: nil
+            ),
+            autoConnect: false
+        )
+        let paneID = try #require(restored.bonsplitController.allPaneIds.first)
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        batch.beginRestorePass()
+        defer { batch.reset() }
+        let restoredID = try #require(restored.createPanel(
+            from: snapshot.panels[index],
+            inPane: paneID,
+            snapshotWorkspaceId: restored.id,
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: fixture.index
+        ))
+        let panel = try #require(restored.terminalPanel(for: restoredID))
+        #expect(panel.surface.debugInitialInputForTesting() == nil)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredID] != nil)
+        #expect(batch.claimAgentRestore(kind: fixture.kind.rawValue, sessionID: fixture.sessionID) == .owner)
+    }
+
     @Test(
         "No current owner admits autoresume",
         arguments: [

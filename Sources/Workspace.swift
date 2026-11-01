@@ -1852,7 +1852,71 @@ extension Workspace {
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let restoredBindingLaunch = unresolvedBindingLaunch
+            let agentRestoreStartupInput: String? = if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                restoredHibernation == nil, restoredRemotePTYSessionID == nil {
+                restoresRemoteWorkspaceTerminalSnapshot
+                ? restorableAgent?.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
+                )
+                : restorableAgent?.resumeStartupInput(
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            } else {
+                nil
+            }
+            // Build the candidate before arming the gate. A binding that is
+            // disabled, unapproved, or cannot render a command must start as an
+            // ordinary shell instead of waiting behind deferred admission.
+            let deferredAgentResumeCandidateInput: String? = if restoredRemotePTYSessionID == nil,
+                restoreStartupBlocked || liveSessionOwner != nil,
+                restoredHibernation == nil,
+                restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
+                if let agentRestoreStartupInput {
+                    agentRestoreStartupInput
+                } else {
+                    sessionRestorePolicy
+                        .approvedSurfaceResumeBinding(
+                            resumeBinding,
+                            autoResumeAgentSessions: shouldAutoResumeAgent,
+                            promptForApproval: true,
+                            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                        )
+                        .flatMap {
+                            if restoresRemoteWorkspaceTerminalSnapshot {
+                                return $0.remoteStartupInput()
+                            }
+                            return sessionRestorePolicy
+                                .surfaceResumeStartupLaunch(forApprovedBinding: $0)?
+                                .initialInput
+                        }
+                }
+            } else {
+                nil
+            }
+            // A crash snapshot can contain the same agent checkpoint in more
+            // than one workspace or window. The first panel that is about to
+            // start it (immediately or through deferred admission) owns it for
+            // the enclosing restore pass; later panels stay manually
+            // recoverable but never start a second writer. A live owner keeps
+            // the ordinary attach path, so it is never claimed here.
+            let restorePassClaimResult = SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+                eligible: restoredRemotePTYSessionID == nil &&
+                    restoredHibernation == nil &&
+                    !suppressesResumeForBackgroundSession &&
+                    liveSessionOwner == nil &&
+                    !stablePanelHasLiveProcess,
+                restorableAgent: restorableAgent,
+                agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                    agentRestoreStartupInput != nil,
+                resumeBinding: resumeBinding,
+                bindingWillLaunch: unresolvedBindingLaunch != nil ||
+                    deferredAgentResumeCandidateInput != nil
+            )
+            let restorePassIdentity = restorePassClaimResult.identity
+            let restorePassClaim = restorePassClaimResult.claim
+            let duplicateRestoreOwner = restorePassClaimResult.isDuplicate
+            let restoredBindingLaunch = duplicateRestoreOwner ? nil : unresolvedBindingLaunch
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&
                     liveSessionOwner == nil &&
@@ -1874,6 +1938,7 @@ extension Workspace {
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
                       restoredHibernation == nil, restoredBindingLaunch == nil,
+                      !duplicateRestoreOwner,
                       let restorableAgent else {
                     return false
                 }
@@ -1921,20 +1986,10 @@ extension Workspace {
                 return remoteRestoreClaim == nil
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                if shouldAutoResumeAgent && !duplicateRestoreOwner && restorableAgentCanAutoResume,
                    restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
-                    if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
-                        )
-                            .map(SurfaceResumeStartupLaunch.input)
-                    } else {
-                        restorableAgent?.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        ).map(SurfaceResumeStartupLaunch.input)
-                    }
+                    agentRestoreStartupInput.map(SurfaceResumeStartupLaunch.input)
                 } else {
                     nil
                 }
@@ -1948,46 +2003,8 @@ extension Workspace {
                 )
                 remoteRestoreClaim = nil
             }
-            // Build the candidate before arming the gate. A binding that is
-            // disabled, unapproved, or cannot render a command must start as an
-            // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
-                restoredHibernation == nil,
-                restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-                if let restorableAgent {
-                    if restoresRemoteWorkspaceTerminalSnapshot {
-                        // Same rule as the immediate remote resume above: only the trusted
-                        // remote cwd, never the recorded directory as a fallback.
-                        restorableAgent.resumeStartupInput(
-                            useLocalRestoreVerb: false,
-                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
-                        )
-                    } else {
-                        restorableAgent.resumeStartupInput(
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
-                        )
-                    }
-                } else {
-                    sessionRestorePolicy
-                        .approvedSurfaceResumeBinding(
-                            resumeBinding,
-                            autoResumeAgentSessions: shouldAutoResumeAgent,
-                            promptForApproval: true,
-                            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-                        )
-                        .flatMap {
-                            if restoresRemoteWorkspaceTerminalSnapshot {
-                                return $0.remoteStartupInput()
-                            }
-                            return sessionRestorePolicy
-                                .surfaceResumeStartupLaunch(forApprovedBinding: $0)?
-                                .initialInput
-                        }
-                }
-            } else {
-                nil
-            }
-            let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
+            let deferredAgentResumeStartupInput = !duplicateRestoreOwner &&
+                deferredAgentResumeCandidateInput?.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
             let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
@@ -2116,6 +2133,14 @@ extension Workspace {
                 )
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+                // The panel never attached, so give back a checkpoint this
+                // panel claimed: a later panel carrying it may start it.
+                if restorePassClaim == .owner, let restorePassIdentity {
+                    SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
+                        kind: restorePassIdentity.kind,
+                        sessionID: restorePassIdentity.sessionID
+                    )
+                }
                 // The claim taken above (if any) was for a launch that never
                 // actually happened; release it immediately instead of
                 // leaving it to block a legitimate resume for up to the TTL.
@@ -2137,7 +2162,26 @@ extension Workspace {
                 }
                 return nil
             }
+            if restorePassClaim == .owner, let restorePassIdentity {
+                SurfaceResumeRunPromptBatch.shared.recordAgentRestoreOwner(
+                    panelID: terminalPanel.id,
+                    kind: restorePassIdentity.kind,
+                    sessionID: restorePassIdentity.sessionID
+                )
+            }
             terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
+            if duplicateRestoreOwner {
+                // Offer the same command this panel would have run, in the
+                // form its terminal needs (remote restores cannot reach the
+                // local `cmux restore` verb).
+                let duplicateRecoveryInput = agentRestoreStartupInput
+                    ?? unresolvedBindingLaunch?.initialInput
+                    ?? deferredAgentResumeCandidateInput
+                terminalPanel.restoreRecovery.state = .failed(
+                    reason: "duplicate-restore-owner",
+                    recoveryInput: duplicateRecoveryInput
+                )
+            }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -2220,6 +2264,7 @@ extension Workspace {
                 chatWorkingDirectory: resumeSessionWorkingDirectory,
                 agentSessionAlreadyActive: liveSessionOwner != nil ||
                     suppressesResumeForBackgroundSession ||
+                    duplicateRestoreOwner ||
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
