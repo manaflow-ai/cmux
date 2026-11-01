@@ -40,8 +40,8 @@ SESSION_JOBS = ("daemon-test", "generated-files")
 
 
 def on(name: str, label: str) -> str:
-    """The label a job takes where the compile jobs take an owned side or std label."""
-    return GUI if name in GUI_JOBS and label in (SIDE, STD) else label
+    """The generic picker label a same-repository PR job takes."""
+    return label
 JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files", "swift-canary")
 # The fast tier reads the placement runner too, but runs only on feat-cmux-next PRs and pushes
 # and has its own fast-lane route, so the side-lane runs-on cases below cover JOBS only.
@@ -1111,7 +1111,7 @@ class CmuxNextWiring(unittest.TestCase):
         # With no online gui or session runner, placement writes both empty and names the overflow (main()).
         context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="", gui_overflow=FALLBACK)
         for name in GUI_JOBS:
-            self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+            self.assertEqual(evaluate(jobs[name]["runs-on"], context), STD, name)
 
     def test_a_declined_gui_route_and_the_rescues_rerun_take_the_gui_overflow(self):
         jobs = self.workflow()["jobs"]
@@ -1125,7 +1125,7 @@ class CmuxNextWiring(unittest.TestCase):
                 declined["vars"]["CI_SESSION_LANE_RUNNER"] = SESSION
                 declined["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
                                                                     gui_overflow=FALLBACK)
-                self.assertEqual(evaluate(runs_on, declined), FALLBACK)
+                self.assertEqual(evaluate(runs_on, declined), STD)
                 # The rescue's full re-run as rerun_main() writes it: no runner, the overflow named.
                 rerun = self.context("2", triggering_actor=bot)
                 rerun["needs"][self.PLACEMENT]["outputs"].update(runner="", gui_overflow=FALLBACK)
@@ -1341,7 +1341,7 @@ class CmuxNextWiring(unittest.TestCase):
                         idle = self.context("2", triggering_actor=actor)
                         idle["needs"][self.PLACEMENT]["outputs"].update(
                             gui_runner=GUI, session_runner=GUI, free_gui_runner=GUI, free_session_runner=GUI)
-                        self.assertEqual(evaluate(expression, idle), GUI, actor)
+                        self.assertEqual(evaluate(expression, idle), SIDE, actor)
                         # None idle: the size it named, never 6 vCPU by a fixed leg.
                         busy = self.context("2", triggering_actor=actor)
                         busy["needs"][self.PLACEMENT]["outputs"]["gui_overflow"] = large
@@ -1350,7 +1350,7 @@ class CmuxNextWiring(unittest.TestCase):
                     declined = self.context(runner=STD)
                     declined["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
                                                                         gui_overflow=large)
-                    self.assertEqual(evaluate(expression, declined), large)
+                    self.assertEqual(evaluate(expression, declined), STD)
                     # The same reading carried into a later attempt is stale: 6 vCPU, the last resort.
                     carried = self.context("3", runner=STD)
                     carried["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", gui_overflow=large)

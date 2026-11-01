@@ -232,7 +232,7 @@ NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app c
 # fail-closed diagnostic with the base would turn missing evidence into an apparent PR red.
 GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
-    r"^(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
+    r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
 )
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
