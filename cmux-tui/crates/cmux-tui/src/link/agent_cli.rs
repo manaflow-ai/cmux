@@ -257,7 +257,7 @@ fn parse(args: &[String]) -> Option<Args> {
                     "push" => false,
                     "pull" => true,
                     _ => return None,
-                })
+                });
             }
             "--sync-socket" => sync_socket = Some(PathBuf::from(rest.next()?)),
             "--sync-local" => sync_local = Some(PathBuf::from(rest.next()?)),
