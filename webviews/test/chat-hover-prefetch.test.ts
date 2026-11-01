@@ -122,6 +122,8 @@ class Daemon {
   }
 }
 
+const newestSeq = (tail: any): number => Math.max(0, ...(tail?.events ?? []).map((event: any) => Number(event.seq)));
+
 /// The app host's tail store (AgentPaneTailCache), shared by every page as the app is.
 class Host {
   readonly tails = new Map<string, any>();
@@ -132,6 +134,9 @@ class Host {
       "chat.tail.get": async (params: any) => this.tails.get(String(params.sessionId)) ?? null,
       "chat.tail": async (params: any) => {
         const sessionId = String(params.sessionId);
+        // A hover's hand-over is compared and kept in one step, as AgentPaneTailCache.rememberIfNewer does.
+        const kept = this.tails.get(sessionId);
+        if (params.ifNewer === true && kept && newestSeq(kept) >= newestSeq(params.tail)) return null;
         this.tails.delete(sessionId);
         if (Array.isArray(params.tail?.events) && params.tail.events.length > 0) this.tails.set(sessionId, params.tail);
         return null;
@@ -264,6 +269,23 @@ describe("sidebar hover prefetch, through the page on screen", () => {
     await flush();
     expect(text(opened.last())).toContain("A newer question.");
     void opened.client.then((client) => client.close());
+  });
+
+  test("a hover keeps the host's fuller copy when both end on the same record", async () => {
+    const shown = await worker();
+    const chat = CHATS[2]!;
+    shown.client.hoverPrefetch(chat);
+    await rest();
+    // Another tab's own read: the same newest record, and an older one the read ahead did not carry.
+    const fuller = structuredClone(host.tails.get(chat));
+    fuller.events.unshift({ ...fuller.events[0], seq: 0, msg: { text: "An older question." } });
+    fuller.turnOpener = fuller.events[0];
+    host.tails.set(chat, fuller);
+    (shown.client as unknown as { hoverReads: { fired: Map<string, number> } }).hoverReads.fired.clear();
+    shown.client.hoverPrefetch(undefined);
+    shown.client.hoverPrefetch(chat);
+    await rest();
+    expect(host.tails.get(chat)).toEqual(fuller);
   });
 
   test("a hover back on a chat read moments ago reads nothing again", async () => {

@@ -7719,10 +7719,10 @@ export class AcpmuxDirectClient {
     while (this.shareOnRead.size > HOVER_RECENT) this.shareOnRead.delete(this.shareOnRead.keys().next().value!);
     this.queueReadAhead([sessionId], true);
     // Nothing to read: this page holds a tail of the chat it counts as current, so that one goes,
-    // unless the host holds a newer one (`shareReadAhead` compares them).
+    // and the host keeps it only over an older one (`shareReadAhead`).
     if (!this.readingAhead.has(sessionId) && !this.readAheadQueue.includes(sessionId)) {
       this.shareOnRead.delete(sessionId);
-      void shareReadAhead(sessionId);
+      shareReadAhead(sessionId);
     }
   }
 
@@ -7813,7 +7813,7 @@ export class AcpmuxDirectClient {
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
     // A rested hover asked for it: the tab its click opens is another page, which reads the host.
-    if (this.shareOnRead.delete(sessionId)) void shareReadAhead(sessionId);
+    if (this.shareOnRead.delete(sessionId)) shareReadAhead(sessionId);
   }
 
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the

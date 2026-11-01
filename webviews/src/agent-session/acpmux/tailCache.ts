@@ -75,25 +75,16 @@ export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
 /// own. Bounded as every hand-over is (`writeHostTail`), and by the host's 20 chats. False when the
 /// page holds no tail of the chat.
 ///
-/// Never older than what the host holds: another tab may have handed the host a newer read of the
-/// chat since this page read it, and a hover must not put an older transcript in its place (the
-/// next tab would draw fewer messages until its attach answers). So the host's copy is read first,
-/// and this page's goes over only when its newest record is at least as new.
-export async function shareReadAhead(sessionId: string): Promise<boolean> {
+/// Never older than what the host holds: another tab may have handed the host a newer or fuller
+/// read of the chat, and a hover must not put an older transcript in its place (the next tab would
+/// draw fewer messages until its attach answered). So the write is `ifNewer`: the host compares and
+/// keeps in one step (AgentPaneTailCache `rememberIfNewer`), keeping its own on a tie, and a page
+/// can never race another page's write between a read and its own.
+export function shareReadAhead(sessionId: string): boolean {
   const tail = keptTail(sessionId);
   if (!tail) return false;
-  const held = await callHost<unknown>("chat.tail.get", { sessionId }).then(tailFromHost, () => undefined);
-  if (held && newestSeq(held) > newestSeq(tail)) return false;
-  // This page read or forgot the chat meanwhile: that is what it stands behind now.
-  if (keptTail(sessionId) !== tail) return false;
-  writeHostTail(sessionId, tail);
+  writeHostTail(sessionId, tail, true);
   return true;
-}
-
-function newestSeq(tail: KeptTail): number {
-  let newest = 0;
-  for (const event of tail.events) newest = Math.max(newest, event.seq);
-  return newest;
 }
 
 /// Keeps `tail` for this chat's next open, here and in the app host.
@@ -188,7 +179,9 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 
 /// Hands the tail to the host for the next tab, bounded in records and bytes. Never awaited: an
 /// open must not wait on it, and a host that refuses it only means the next tab opens cold.
-function writeHostTail(sessionId: string, tail: KeptTail): void {
+/// `ifNewer` (a hover's hand-over, ``shareReadAhead``): the host keeps it only over an older tail,
+/// and a tail cut to nothing forgets nothing.
+function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void {
   // The rest of the tail is counted first, because it is not bounded by a record count the way
   // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
   // pasted log would otherwise hand over megabytes that neither side counts.
@@ -198,11 +191,12 @@ function writeHostTail(sessionId: string, tail: KeptTail): void {
   // it on its own): the host forgets what it had rather than keeping an older tail under a chat
   // this page has since read on.
   if (events.length === 0) {
-    void callHost("chat.tail", { sessionId }).catch(() => undefined);
+    if (!ifNewer) void callHost("chat.tail", { sessionId }).catch(() => undefined);
     return;
   }
   void callHost("chat.tail", {
     sessionId,
+    ...(ifNewer ? { ifNewer: true } : {}),
     tail: {
       ...tail,
       events,

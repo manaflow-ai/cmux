@@ -175,6 +175,11 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const hostTail = (method: string, params: { sessionId?: string; tail?: unknown }) => {
     const sessionId = String(params.sessionId ?? "");
     if (method === "chat.tail.get") return hostTails.get(sessionId) ?? null;
+    // A hover's hand-over is kept only over an older tail, as AgentPaneTailCache.rememberIfNewer does.
+    const newest = (tail: unknown) =>
+      Math.max(0, ...((tail as { events?: { seq: number }[] } | undefined)?.events ?? []).map((event) => event.seq));
+    const kept = hostTails.get(sessionId);
+    if ((params as { ifNewer?: boolean }).ifNewer === true && kept && newest(kept) >= newest(params.tail)) return null;
     hostTails.delete(sessionId);
     if (params.tail) hostTails.set(sessionId, params.tail);
     while (hostTails.size > 20) hostTails.delete(hostTails.keys().next().value!);
