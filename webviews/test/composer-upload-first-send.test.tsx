@@ -111,13 +111,10 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   });
   let shownFailed = false;
   await act(() => void handle.current!.attach([mp4()], true));
-  await until(
-    () => {
-      if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
-      return handle.current!.attachments.length === 1;
-    },
-    UPLOAD_RETRY_DELAY_MS * 3,
-  );
+  await until(() => {
+    if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
+    return handle.current!.attachments.length === 1;
+  }, UPLOAD_RETRY_DELAY_MS * 3);
   expect(calls).toBe(2);
   expect(shownFailed).toBe(false);
   expect(handle.current!.pending).toEqual([]);
@@ -190,7 +187,6 @@ function fakeDocument() {
     count: () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0),
   };
 }
-
 
 test("the first try again goes on its own; the last waits for the person's key or click, never Return", async () => {
   const { doc, fire, count } = fakeDocument();

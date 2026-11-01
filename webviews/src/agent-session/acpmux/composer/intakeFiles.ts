@@ -192,7 +192,9 @@ export async function intakeFiles(
           });
         else if (!options.cancelled?.(index)) {
           const reason: IntakeError =
-            sent && "error" in sent ? { text: sent.error, final: sent.final } : { name: file.name, reason: "unsupported" };
+            sent && "error" in sent
+              ? { text: sent.error, final: sent.final }
+              : { name: file.name, reason: "unsupported" };
           if (image) events.originalFailed?.(index, reason);
           else fail(index, reason);
         }
