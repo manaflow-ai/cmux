@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "guest.composer.placeholder": {"comment":"Guest page: placeholder and label of the guest's message field (the owner approves each message before the agent gets it)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message the agent"}},"de":{"stringUnit":{"state":"translated","value":"Nachricht an den Agenten"}},"fr":{"stringUnit":{"state":"translated","value":"Écrire à l’agent"}},"ar":{"stringUnit":{"state":"translated","value":"راسل الوكيل"}},"es":{"stringUnit":{"state":"translated","value":"Escribe al agente"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"傳訊息給代理程式"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"给代理发消息"}},"ko":{"stringUnit":{"state":"translated","value":"에이전트에게 메시지 보내기"}},"ja":{"stringUnit":{"state":"translated","value":"エージェントにメッセージ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poruka agentu"}},"da":{"stringUnit":{"state":"needs_review","value":"Skriv til agenten"}},"it":{"stringUnit":{"state":"needs_review","value":"Scrivi all’agente"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ញើសារទៅភ្នាក់ងារ"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skriv til agenten"}},"pl":{"stringUnit":{"state":"needs_review","value":"Napisz do agenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mensagem para o agente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сообщение агенту"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งข้อความถึงเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajana mesaj yaz"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повідомлення агенту"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhắn cho tác tử"}}}},
+    "guest.composer.send": {"comment":"Guest page: the button that sends the guest's message (to the owner, who approves it)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Send"}},"de":{"stringUnit":{"state":"translated","value":"Senden"}},"fr":{"stringUnit":{"state":"translated","value":"Envoyer"}},"ar":{"stringUnit":{"state":"translated","value":"إرسال"}},"es":{"stringUnit":{"state":"translated","value":"Enviar"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"傳送"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"发送"}},"ko":{"stringUnit":{"state":"translated","value":"보내기"}},"ja":{"stringUnit":{"state":"translated","value":"送信"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pošalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Send"}},"it":{"stringUnit":{"state":"needs_review","value":"Invia"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ញើ"}},"nb":{"stringUnit":{"state":"needs_review","value":"Send"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wyślij"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправить"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönder"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi"}}}},
+    "guest.composer.tooLong": {"comment":"Guest page: the guest's message is over the 32 KB the room takes; Send is off","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Too long to send (32 KB at most)"}},"de":{"stringUnit":{"state":"translated","value":"Zu lang zum Senden (höchstens 32 KB)"}},"fr":{"stringUnit":{"state":"translated","value":"Trop long pour être envoyé (32 Ko au maximum)"}},"ar":{"stringUnit":{"state":"translated","value":"أطول من أن يُرسل (32 ك.ب كحد أقصى)"}},"es":{"stringUnit":{"state":"translated","value":"Demasiado largo para enviar (32 KB como máximo)"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"太長，無法傳送（最多 32 KB）"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"太长，无法发送（最多 32 KB）"}},"ko":{"stringUnit":{"state":"translated","value":"너무 길어서 보낼 수 없습니다(최대 32KB)"}},"ja":{"stringUnit":{"state":"translated","value":"長すぎて送信できません（最大 32 KB）"}},"bs":{"stringUnit":{"state":"needs_review","value":"Predugo za slanje (najviše 32 KB)"}},"da":{"stringUnit":{"state":"needs_review","value":"For lang til at sende (højst 32 KB)"}},"it":{"stringUnit":{"state":"needs_review","value":"Troppo lungo da inviare (massimo 32 KB)"}},"km":{"stringUnit":{"state":"needs_review","value":"វែងពេកមិនអាចផ្ញើបាន (យ៉ាងច្រើន 32 KB)"}},"nb":{"stringUnit":{"state":"needs_review","value":"For lang til å sendes (maks. 32 KB)"}},"pl":{"stringUnit":{"state":"needs_review","value":"Za długie do wysłania (maks. 32 KB)"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Longo demais para enviar (até 32 KB)"}},"ru":{"stringUnit":{"state":"needs_review","value":"Слишком длинно для отправки (не более 32 КБ)"}},"th":{"stringUnit":{"state":"needs_review","value":"ยาวเกินกว่าจะส่งได้ (สูงสุด 32 KB)"}},"tr":{"stringUnit":{"state":"needs_review","value":"Göndermek için çok uzun (en fazla 32 KB)"}},"uk":{"stringUnit":{"state":"needs_review","value":"Задовге для надсилання (не більше 32 КБ)"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quá dài để gửi (tối đa 32 KB)"}}}},
+    "guest.prompt.sending": {"comment":"Guest page: under the guest's message while the room has not taken it yet","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sending…"}},"de":{"stringUnit":{"state":"translated","value":"Wird gesendet…"}},"fr":{"stringUnit":{"state":"translated","value":"Envoi…"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ الإرسال…"}},"es":{"stringUnit":{"state":"translated","value":"Enviando…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在傳送…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在发送…"}},"ko":{"stringUnit":{"state":"translated","value":"보내는 중…"}},"ja":{"stringUnit":{"state":"translated","value":"送信しています…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Slanje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Sender…"}},"it":{"stringUnit":{"state":"needs_review","value":"Invio…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងផ្ញើ…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sender…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysyłanie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправка…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังส่ง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderiliyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надсилання…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang gửi…"}}}},
+    "guest.prompt.waiting": {"comment":"Guest page: under the guest's message while the chat's owner has not approved or declined it; {owner} is the owner's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Waiting for {owner}"}},"de":{"stringUnit":{"state":"translated","value":"Wartet auf {owner}"}},"fr":{"stringUnit":{"state":"translated","value":"En attente de {owner}"}},"ar":{"stringUnit":{"state":"translated","value":"في انتظار {owner}"}},"es":{"stringUnit":{"state":"translated","value":"Esperando a {owner}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在等待 {owner}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在等待 {owner}"}},"ko":{"stringUnit":{"state":"translated","value":"{owner} 님을 기다리는 중"}},"ja":{"stringUnit":{"state":"translated","value":"{owner} を待っています"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se: {owner}"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på {owner}"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di {owner}"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំ {owner}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på {owner}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka na: {owner}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando {owner}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание: {owner}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอ {owner}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{owner} bekleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування: {owner}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ {owner}"}}}},
+    "guest.prompt.sent": {"comment":"Guest page: one quiet line for a guest's message the owner approved and sent to the agent; {text} is its first line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sent: {text}"}},"de":{"stringUnit":{"state":"translated","value":"Gesendet: {text}"}},"fr":{"stringUnit":{"state":"translated","value":"Envoyé : {text}"}},"ar":{"stringUnit":{"state":"translated","value":"أُرسلت: {text}"}},"es":{"stringUnit":{"state":"translated","value":"Enviado: {text}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已傳送：{text}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已发送：{text}"}},"ko":{"stringUnit":{"state":"translated","value":"보냄: {text}"}},"ja":{"stringUnit":{"state":"translated","value":"送信済み：{text}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano: {text}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt: {text}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato: {text}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើ៖ {text}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt: {text}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano: {text}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviada: {text}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено: {text}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งแล้ว: {text}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderildi: {text}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано: {text}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã gửi: {text}"}}}},
+    "guest.prompt.declined": {"comment":"Guest page: one quiet line for a guest's message the owner declined; {text} is its first line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Declined: {text}"}},"de":{"stringUnit":{"state":"translated","value":"Abgelehnt: {text}"}},"fr":{"stringUnit":{"state":"translated","value":"Refusé : {text}"}},"ar":{"stringUnit":{"state":"translated","value":"مرفوضة: {text}"}},"es":{"stringUnit":{"state":"translated","value":"Rechazado: {text}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已拒絕：{text}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已拒绝：{text}"}},"ko":{"stringUnit":{"state":"translated","value":"거절됨: {text}"}},"ja":{"stringUnit":{"state":"translated","value":"却下：{text}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbijeno: {text}"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvist: {text}"}},"it":{"stringUnit":{"state":"needs_review","value":"Rifiutato: {text}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានបដិសេធ៖ {text}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslått: {text}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzucono: {text}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Recusada: {text}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отклонено: {text}"}},"th":{"stringUnit":{"state":"needs_review","value":"ถูกปฏิเสธ: {text}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Reddedildi: {text}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відхилено: {text}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã từ chối: {text}"}}}},
+    "guest.prompt.withdrawn": {"comment":"Guest page: one quiet line for a guest's message taken back before the owner decided; {text} is its first line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Withdrawn: {text}"}},"de":{"stringUnit":{"state":"translated","value":"Zurückgezogen: {text}"}},"fr":{"stringUnit":{"state":"translated","value":"Retiré : {text}"}},"ar":{"stringUnit":{"state":"translated","value":"مسحوبة: {text}"}},"es":{"stringUnit":{"state":"translated","value":"Retirado: {text}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已撤回：{text}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已撤回：{text}"}},"ko":{"stringUnit":{"state":"translated","value":"철회됨: {text}"}},"ja":{"stringUnit":{"state":"translated","value":"取り下げ：{text}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Povučeno: {text}"}},"da":{"stringUnit":{"state":"needs_review","value":"Trukket tilbage: {text}"}},"it":{"stringUnit":{"state":"needs_review","value":"Ritirato: {text}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានដកវិញ៖ {text}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Trukket tilbake: {text}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycofano: {text}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Retirada: {text}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отозвано: {text}"}},"th":{"stringUnit":{"state":"needs_review","value":"ถอนแล้ว: {text}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri çekildi: {text}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкликано: {text}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã rút lại: {text}"}}}},
+    "guest.prompt.refused": {"comment":"Guest page: one quiet line for a guest's message the owner's computer would not take; {text} is its first line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent: {text}"}},"de":{"stringUnit":{"state":"translated","value":"Nicht gesendet: {text}"}},"fr":{"stringUnit":{"state":"translated","value":"Non envoyé : {text}"}},"ar":{"stringUnit":{"state":"translated","value":"لم تُرسل: {text}"}},"es":{"stringUnit":{"state":"translated","value":"No enviado: {text}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"未傳送：{text}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未发送：{text}"}},"ko":{"stringUnit":{"state":"translated","value":"보내지 못함: {text}"}},"ja":{"stringUnit":{"state":"translated","value":"未送信：{text}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano: {text}"}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: {text}"}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato: {text}"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ៖ {text}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt: {text}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano: {text}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada: {text}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено: {text}"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง: {text}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi: {text}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано: {text}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi: {text}"}}}},
+    "guest.prompt.tooManyHeld": {"comment":"Guest page: one quiet line for a guest's message refused because 16 of the guest's messages already wait for the owner; {text} is its first line","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not sent, too many messages waiting: {text}"}},"de":{"stringUnit":{"state":"translated","value":"Nicht gesendet, zu viele Nachrichten warten: {text}"}},"fr":{"stringUnit":{"state":"translated","value":"Non envoyé, trop de messages en attente : {text}"}},"ar":{"stringUnit":{"state":"translated","value":"لم تُرسل، رسائل كثيرة جدًا قيد الانتظار: {text}"}},"es":{"stringUnit":{"state":"translated","value":"No enviado, demasiados mensajes en espera: {text}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"未傳送，等待中的訊息太多：{text}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未发送，等待中的消息太多：{text}"}},"ko":{"stringUnit":{"state":"translated","value":"보내지 못함, 대기 중인 메시지가 너무 많음: {text}"}},"ja":{"stringUnit":{"state":"translated","value":"未送信、待機中のメッセージが多すぎます：{text}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nije poslano, previše poruka čeka: {text}"}},"da":{"stringUnit":{"state":"needs_review","value":"Ikke sendt, for mange beskeder venter: {text}"}},"it":{"stringUnit":{"state":"needs_review","value":"Non inviato, troppi messaggi in attesa: {text}"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនបានផ្ញើ សាររង់ចាំច្រើនពេក៖ {text}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ikke sendt, for mange meldinger venter: {text}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie wysłano, zbyt wiele wiadomości czeka: {text}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não enviada, mensagens demais aguardando: {text}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не отправлено, слишком много ожидающих сообщений: {text}"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่ได้ส่ง มีข้อความรออยู่มากเกินไป: {text}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderilmedi, bekleyen çok fazla mesaj var: {text}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не надіслано, забагато повідомлень очікує: {text}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chưa gửi, có quá nhiều tin nhắn đang chờ: {text}"}}}},
+    "guest.you": {"comment":"Guest page: the guest's own chip over its messages when the page does not know the name it joined with","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You"}},"de":{"stringUnit":{"state":"translated","value":"Du"}},"fr":{"stringUnit":{"state":"translated","value":"Vous"}},"ar":{"stringUnit":{"state":"translated","value":"أنت"}},"es":{"stringUnit":{"state":"translated","value":"Tú"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你"}},"ko":{"stringUnit":{"state":"translated","value":"나"}},"ja":{"stringUnit":{"state":"translated","value":"あなた"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ti"}},"da":{"stringUnit":{"state":"needs_review","value":"Dig"}},"it":{"stringUnit":{"state":"needs_review","value":"Tu"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នក"}},"nb":{"stringUnit":{"state":"needs_review","value":"Deg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Você"}},"ru":{"stringUnit":{"state":"needs_review","value":"Вы"}},"th":{"stringUnit":{"state":"needs_review","value":"คุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ви"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bạn"}}}},
     "guest.join.title": {"comment":"Guest page: heading of the join page a guest sees before joining a shared chat (shows nothing about the chat)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Join a shared cmux chat"}},"de":{"stringUnit":{"state":"translated","value":"Einem geteilten cmux-Chat beitreten"}},"fr":{"stringUnit":{"state":"translated","value":"Rejoindre une discussion cmux partagée"}},"ar":{"stringUnit":{"state":"translated","value":"انضم إلى محادثة cmux مشتركة"}},"es":{"stringUnit":{"state":"translated","value":"Unirse a un chat de cmux compartido"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"加入共享的 cmux 聊天"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"加入共享的 cmux 聊天"}},"ko":{"stringUnit":{"state":"translated","value":"공유된 cmux 채팅에 참여"}},"ja":{"stringUnit":{"state":"translated","value":"共有された cmux チャットに参加"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pridruži se dijeljenom cmux chatu"}},"da":{"stringUnit":{"state":"needs_review","value":"Deltag i en delt cmux-chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Partecipa a una chat cmux condivisa"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលរួមការជជែក cmux ដែលបានចែករំលែក"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bli med i en delt cmux-chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dołącz do udostępnionego czatu cmux"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrar em um chat do cmux compartilhado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Присоединиться к общему чату cmux"}},"th":{"stringUnit":{"state":"needs_review","value":"เข้าร่วมแชต cmux ที่แชร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Paylaşılan bir cmux sohbetine katıl"}},"uk":{"stringUnit":{"state":"needs_review","value":"Приєднатися до спільного чату cmux"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tham gia một cuộc trò chuyện cmux được chia sẻ"}}}},
     "guest.join.detail": {"comment":"Guest page: one line under the join heading; the chat's owner approves each message a guest sends","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The owner approves each message you send."}},"de":{"stringUnit":{"state":"translated","value":"Der Besitzer genehmigt jede Nachricht, die du sendest."}},"fr":{"stringUnit":{"state":"translated","value":"Le propriétaire approuve chaque message que vous envoyez."}},"ar":{"stringUnit":{"state":"translated","value":"يوافق المالك على كل رسالة ترسلها."}},"es":{"stringUnit":{"state":"translated","value":"El propietario aprueba cada mensaje que envías."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"擁有者會核准你傳送的每則訊息。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"所有者会批准你发送的每条消息。"}},"ko":{"stringUnit":{"state":"translated","value":"보내는 모든 메시지는 소유자가 승인합니다."}},"ja":{"stringUnit":{"state":"translated","value":"送信するメッセージはすべてオーナーが承認します。"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vlasnik odobrava svaku poruku koju pošalješ."}},"da":{"stringUnit":{"state":"needs_review","value":"Ejeren godkender hver besked, du sender."}},"it":{"stringUnit":{"state":"needs_review","value":"Il proprietario approva ogni messaggio che invii."}},"km":{"stringUnit":{"state":"needs_review","value":"ម្ចាស់អនុម័តសារនីមួយៗដែលអ្នកផ្ញើ។"}},"nb":{"stringUnit":{"state":"needs_review","value":"Eieren godkjenner hver melding du sender."}},"pl":{"stringUnit":{"state":"needs_review","value":"Właściciel zatwierdza każdą wysłaną przez ciebie wiadomość."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O dono aprova cada mensagem que você envia."}},"ru":{"stringUnit":{"state":"needs_review","value":"Владелец одобряет каждое ваше сообщение."}},"th":{"stringUnit":{"state":"needs_review","value":"เจ้าของจะอนุมัติทุกข้อความที่คุณส่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Gönderdiğin her mesajı sahibi onaylar."}},"uk":{"stringUnit":{"state":"needs_review","value":"Власник схвалює кожне ваше повідомлення."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chủ sở hữu duyệt từng tin nhắn bạn gửi."}}}},
     "guest.join.name": {"comment":"Guest page: label and placeholder of the one field on the join page, the name the guest shows as","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your name"}},"de":{"stringUnit":{"state":"translated","value":"Dein Name"}},"fr":{"stringUnit":{"state":"translated","value":"Votre nom"}},"ar":{"stringUnit":{"state":"translated","value":"اسمك"}},"es":{"stringUnit":{"state":"translated","value":"Tu nombre"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你的名稱"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你的名字"}},"ko":{"stringUnit":{"state":"translated","value":"이름"}},"ja":{"stringUnit":{"state":"translated","value":"名前"}},"bs":{"stringUnit":{"state":"needs_review","value":"Tvoje ime"}},"da":{"stringUnit":{"state":"needs_review","value":"Dit navn"}},"it":{"stringUnit":{"state":"needs_review","value":"Il tuo nome"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈ្មោះរបស់អ្នក"}},"nb":{"stringUnit":{"state":"needs_review","value":"Navnet ditt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Twoje imię"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Seu nome"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ваше имя"}},"th":{"stringUnit":{"state":"needs_review","value":"ชื่อของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Adın"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ваше ім’я"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tên của bạn"}}}},
@@ -207393,6 +207404,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "{place}:上次讀數,無法重新整理"
+          }
+        }
+      }
+    },
+    "composer.machinesList": {
+      "comment": "Agent pane: the environment control's right-click item that opens the list of every machine (SSH, Cloud machines, saved environments), off the This Mac / Cloud menu",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računari…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskiner…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechner…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipos…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macchine…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskiner…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyny…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютеры…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineler…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютери…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器…"
           }
         }
       }

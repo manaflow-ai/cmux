@@ -28,6 +28,7 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -250,6 +251,10 @@ export class ResizableTableView extends TableView {
     cellMinWidth = 100,
   ) {
     super(node, cellMinWidth);
+    // A wide table shows that it scrolls by the thin sideways scrollbar, drawn at rest too
+    // (scrollers.ts), never by fading its edge (user 2026-10-31: "why blur?"). Set before the box
+    // is in the page: WebKit picks a scroller's kind when it makes it.
+    this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
     this.handle.contentEditable = "false";
@@ -282,29 +287,12 @@ export class ResizableTableView extends TableView {
    * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
    */
   private readonly layoutChanged = (): void => {
-    this.markOverflow();
     if (!this.dragging) this.refresh();
   };
 
   private readonly leave = (): void => {
     this.pointer = null;
     if (!this.dragging) this.hide();
-  };
-
-  /**
-   * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
-   * when the table fits). The stylesheet fades those edges, so a wide table shows that it scrolls
-   * even with overlay scrollbars hidden (MARKDOWN-TABLE-SCROLL, user 2026-10-20).
-   */
-  private readonly markOverflow = (): void => {
-    const box = this.dom;
-    const max = box.scrollWidth - box.clientWidth;
-    const edges = [box.scrollLeft > 1 && "start", box.scrollLeft < max - 1 && "end"].filter(Boolean).join(" ");
-    if (max > 1 && edges) {
-      if (box.dataset.overflow !== edges) box.dataset.overflow = edges;
-    } else if (box.dataset.overflow !== undefined) {
-      delete box.dataset.overflow;
-    }
   };
 
   /**

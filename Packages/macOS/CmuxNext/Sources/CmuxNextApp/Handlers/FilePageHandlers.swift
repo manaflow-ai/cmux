@@ -87,17 +87,17 @@ enum FilePageHandlers {
                 }
             })
         })
-        // The word wrap toggle is the `editor.wordWrap` setting (PAGE-PREFS); the page follows its look.
-        registry.bind("toggleFileEditorWordWrap", run: { invocation in
-            _ = try page(.editor, context, invocation)
-            let look = services.viewers.editorPages.look
-            let current = look.current()["settings"]?["wordWrap"]?.stringValue ?? "off"
-            let writer = SettingWriter(invocation.origin)
-            registry.track(Task { @MainActor in
-                try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"), by: writer)
-                return nil
+        // The word wrap and minimap toggles flip the `editor.*` settings the page toolbar writes (PAGE-PREFS).
+        for toggle in EditorPreferenceToggle.all {
+            registry.bindEffect(ActionID(rawValue: toggle.action), requires: nil, effect: { invocation in
+                _ = try page(.editor, context, invocation)
+                let look = services.viewers.editorPages.look, writer = SettingWriter(invocation.origin)
+                let value = toggle.next(in: look.current()["settings"])
+                return .applied(result: {
+                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
+                })
             })
-        })
+        }
     }
 
     /// The focused (or targeted) tab's page of `kind`.

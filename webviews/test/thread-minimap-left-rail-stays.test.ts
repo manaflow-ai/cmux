@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -129,9 +130,9 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await closeSessionInfo(page);
           await openSessionInfo(page, true);
           const pushed = await rail(page);
-          // The rail is pinned to the pane edge. Its inset grows from space-2 to space-4 with room;
-          // the chat column may therefore overlap it at narrow widths without hiding the rail.
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          // The rail is pinned to the pane edge at its spacing-token inset (model.ts railPlacement: the
+          // widest step whenever the gutter has room for it), whatever the chat column does.
+          const railInset = railPlacement(width).left;
           for (const state of [closed, open, pushed]) {
             expect(state).toMatchObject({ shown: true, insidePane: true });
             expect(state.occluded).toBe(state.distance! < -0.5);
@@ -236,7 +237,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         return trace.samples as { railLeft: number; railRight: number; columnLeft: number; cardLeft: number | null }[];
       });
       if (process.env.RAIL_RESIZE_SCREENSHOT) await page.screenshot({ path: process.env.RAIL_RESIZE_SCREENSHOT });
-      const paneInset = Math.min(16, Math.max(8, Math.round(1600 / 100)));
+      const paneInset = railPlacement(1600).left;
       expect(samples.every((sample) => Math.abs(sample.railLeft - paneInset) <= 1)).toBe(true);
       expect(
         samples.every((sample) => sample.cardLeft === null || Math.abs(sample.cardLeft - sample.railRight) <= 1),
@@ -324,7 +325,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const nav = page.locator('.acpmux-minimap__rail[data-side="right"]:not(.acpmux-scrollmap)');
           await nav.waitFor({ state: "attached" });
           await settle(page);
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          const railInset = railPlacement(width).left;
           const placed = await page.evaluate(() => {
             const scroller = document.querySelector(".acpmux-scroll")!;
             const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();

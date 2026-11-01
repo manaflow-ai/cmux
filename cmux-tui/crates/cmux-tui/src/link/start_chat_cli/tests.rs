@@ -10,9 +10,9 @@ use serde_json::{Value, json};
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::{
-    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, origin_url,
-    percent_segment, pin, plan, remote_name, too_broad, valid_environment, valid_key, valid_repo,
-    valid_workspace,
+    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, too_broad, valid_environment,
+    valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -1289,4 +1289,104 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
         json!("refused")
     );
     assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
+}
+
+/// Zero-setup hot start: a new machine for a send from a repository's folder, on the personal account, is the
+/// platform's workspace machine, pinned like one the App made; a team's send, a folder with no repository, or a
+/// platform that made none keeps the App's own create; one that may have made it refuses the send.
+#[test]
+fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
+    use crate::cli::PlatformCallError as E;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("paint");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(
+        folder.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://github.com/me/paint\n",
+    )
+    .unwrap();
+    let local = folder.to_str().unwrap().to_string();
+    let request = |key: &str, account: &str| {
+        json!({"key": key, "account": account, "user": ME, "loaded": true, "machines": [], "workspace": "ws-1",
+               "local": local, "environment": ENV, "credential_on_stdin": true})
+        .to_string()
+    };
+    let asked = RefCell::new(Vec::new());
+    let made = |ensure: &Ensure, credential: &str| -> Result<Value, E> {
+        asked.borrow_mut().push((ensure.body(), credential.to_string()));
+        Ok(
+            json!({"machine": {"id": "vm-hot"}, "team": "team_p", "created": true, "snapshot": "snap_x",
+                  "environment": {"id": "denv_1", "status": "ready"}}),
+        )
+    };
+    let key = key();
+    let answer = plan_with(&path, &request(&key, "user-leo/"), &mut "token-1\n".as_bytes(), &made);
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    assert_eq!(answer["machine"], json!("vm-hot"));
+    assert_eq!(answer["ensured"]["environment"], json!({"id": "denv_1", "status": "ready"}));
+    assert_eq!(answer["repo"], json!("me/paint"));
+    assert_eq!(
+        asked.borrow().as_slice(),
+        [(
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
+            "token-1".to_string()
+        )]
+    );
+    // Pinned: the retry, before the App's list shows the machine, stays on it and asks the platform nothing.
+    let retry =
+        json!({"key": key, "account": "user-leo/", "user": ME, "loaded": false, "machines": [],
+                       "workspace": "ws-1", "local": local, "credential_on_stdin": true})
+        .to_string();
+    assert_eq!(
+        plan_with(&path, &retry, &mut "token-1\n".as_bytes(), &made)["machine"],
+        json!("vm-hot")
+    );
+    assert_eq!(asked.borrow().len(), 1);
+
+    // A team's send, and a personal one without the credential flag, keep the App's create.
+    let never = |_: &Ensure, _: &str| -> Result<Value, E> { panic!("no ensure") };
+    let team =
+        plan_with(&path, &request(&self::key(), "user-leo/team-a"), &mut "t\n".as_bytes(), &never);
+    assert_eq!(
+        (team["machine"].clone(), team["new_name"].is_string()),
+        (Value::Null, true),
+        "{team}"
+    );
+    let flagless = json!({"key": self::key(), "account": "user-leo/", "local": local}).to_string();
+    assert_eq!(plan_with(&path, &flagless, &mut "t\n".as_bytes(), &never)["machine"], Value::Null);
+
+    // A platform that made no machine (no route here, no sign-in) leaves it to the App; no credential reads as 401.
+    let no_route =
+        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status: 404, code: "" }) };
+    let fallback =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &no_route);
+    assert_eq!(
+        (fallback["ok"].clone(), fallback["machine"].clone()),
+        (json!(true), Value::Null),
+        "{fallback}"
+    );
+    let empty = plan_with(&path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
+    assert_eq!(
+        (empty["ok"].clone(), empty["machine"].clone()),
+        (json!(true), Value::Null),
+        "{empty}"
+    );
+
+    // A refused environment, or a failure after which the machine may exist, refuses the send.
+    let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
+        Err(E::Status { status: 404, code: "cloud_environment.not_found" })
+    };
+    let refused =
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &theirs);
+    assert_eq!(refused["error_code"], json!("cloud_environment.not_found"));
+    let lost =
+        |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Unreachable("timed out".into())) };
+    assert_eq!(
+        plan_with(&path, &request(&self::key(), "user-leo/"), &mut "t\n".as_bytes(), &lost)["error_code"],
+        json!("unreachable")
+    );
+    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
+    assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
+    assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
 }

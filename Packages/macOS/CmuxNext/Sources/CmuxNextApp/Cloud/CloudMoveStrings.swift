@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import Foundation
 
 /// Move to Cloud's text (``CloudMove``). Keys live in Resources/Cloud.xcstrings.
@@ -81,7 +82,7 @@ enum CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine)
     }
     /// What a link CLI answers when the machine's cmux-tui is too old for it (cmux-tui `link/machine_gate.rs`).
-    static let outdatedCode = "machine_outdated"
+    static let outdatedCode = CloudOutdatedMachine.code
     static func unknownMachine(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .module), machine)

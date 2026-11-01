@@ -197,6 +197,13 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
+    // its one-use execution capability. The app exposes the rewind action only for configured
+    // new Cloud workspace sessions; local and legacy sessions never send this envelope.
+    Capability {
+        id: "agent-session-turn-rewind-v1",
+        wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
+    },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -211,7 +218,20 @@ pub const CAPABILITIES: &[Capability] = &[
 
 /// The ids of [`CAPABILITIES`], in its order.
 pub fn ids() -> Vec<&'static str> {
-    CAPABILITIES.iter().map(|capability| capability.id).collect()
+    CAPABILITIES
+        .iter()
+        .filter(|capability| {
+            capability.id != "agent-session-turn-rewind-v1"
+                || [
+                    "CMUX_PLATFORM_ORIGIN",
+                    "CMUX_PLATFORM_WORKSPACE_ID",
+                    "CMUX_PLATFORM_MACHINE_ID",
+                ]
+                .iter()
+                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        })
+        .map(|capability| capability.id)
+        .collect()
 }
 
 /// `acpmux capabilities`: one id per line, or with `--json`
