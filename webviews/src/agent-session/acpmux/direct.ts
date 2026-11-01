@@ -5933,7 +5933,9 @@ export class AcpmuxDirectClient {
   /// Binds the person's current gesture to one prompt before the caller waits for a start or
   /// persistence. The host still refuses frames without a ticket, so forged/script sends remain
   /// denied; a ticket is scoped to this prompt id and can be spent only once.
-  bindSendGesture(promptId: string = crypto.randomUUID()): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
     return { promptId, ticket: reservePromptGesture(promptId) };
   }
 
