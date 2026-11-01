@@ -119,6 +119,11 @@ struct CloudStartChat {
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
+        report(.init(name: "folder", folder: folderName, machine: name, size: size,
+                     cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
+                     cloneReceivedBytes: copy.0.seedReceivedBytes, cloneObjects: copy.0.seedObjects,
+                     cloneTotalObjects: copy.0.seedTotalObjects, setupStatus: copy.0.environmentStatus,
+                     setupLogTail: copy.0.environmentLogTail))
         let remoteChat = copy.1.chat
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
         // Mac's tab stays.

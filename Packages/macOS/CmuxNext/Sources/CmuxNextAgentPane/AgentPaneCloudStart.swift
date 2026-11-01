@@ -205,11 +205,27 @@ extension AgentPaneCloudStart {
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
+                                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
+                                    cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
+                                    setupLogTail: String? = nil,
                                     to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
         if let size { value["size"] = .string(size) }
+        var cloneFields: [String: JSONValue] = [:]
+        if let cloneState { cloneFields["state"] = .string(cloneState) }
+        if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
+        var cloneProgress: [String: JSONValue] = [:]
+        if let cloneReceivedBytes { cloneProgress["received_bytes"] = .number(Double(cloneReceivedBytes)) }
+        if let cloneObjects { cloneProgress["objects"] = .number(Double(cloneObjects)) }
+        if let cloneTotalObjects { cloneProgress["total_objects"] = .number(Double(cloneTotalObjects)) }
+        if !cloneProgress.isEmpty { cloneFields["progress"] = .object(cloneProgress) }
+        if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
+        var setupFields: [String: JSONValue] = [:]
+        if let setupStatus { setupFields["status"] = .string(setupStatus) }
+        if let setupLogTail { setupFields["log_tail"] = .string(setupLogTail) }
+        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
         let now = JSONValue.number(Date().timeIntervalSince1970 * 1000)
         if step == "machine" { value["machineStartedAt"] = now }
         if step == "folder" { value["machineFinishedAt"] = now; value["clone"] = .object(["state": .string("done")]) }
