@@ -558,6 +558,11 @@ export class MockAcpmuxSocket {
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
       case "session/new": {
+        // A gallery state can stand for an agent slow to start, or one that fails to (`mockStart`).
+        const start = (globalThis as { cmuxAcpmuxMockStart?: { delayMs?: number; error?: string } })
+          .cmuxAcpmuxMockStart;
+        if (start?.delayMs) await this.delay(start.delayMs);
+        if (start?.error) throw Object.assign(new Error(start.error), { code: -32603 });
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
         const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);

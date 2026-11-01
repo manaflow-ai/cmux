@@ -447,16 +447,18 @@ function shapedTurn(
   // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
   // measures zero. Only a wholly invisible completed turn is omitted below.
   const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
-  // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
-  // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
-  // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
+  // A sent prompt waiting for its turn to open draws the Thinking line already, also while its
+  // agent still starts (harnessSwitch): no "Starting Claude Code…" and no Cancel there (Leo,
+  // 2026-11-01: "i hate the "Starting Claude Code... cancel" thing that it starts with"; the
+  // composer's Stop takes the prompt back). The line never jumps from under the bubble to the
+  // turn's status row, nor leaves for a frame (cx-ncc.58).
   const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
   let shaped: AcpmuxRow[];
   if (waiting) {
-    const { status, queued } = user;
-    const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
-    if (status) Object.assign(line, { status, queued });
-    shaped = [...date, ...(status ? [{ ...user, status: undefined }] : drawnUser), line];
+    const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING };
+    // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts).
+    if (user.queued) line.queued = user.queued;
+    shaped = [...date, ...drawnUser, line];
   } else {
     const body = shapeTurn(
       user,

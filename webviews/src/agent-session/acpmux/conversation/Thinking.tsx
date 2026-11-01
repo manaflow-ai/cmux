@@ -3,13 +3,16 @@
 // (Leo, 2026-10-20: "wtf have we removed this yet"); the word itself carries the motion, as the Codex
 // and ChatGPT apps draw it: a light band in the theme accent sweeps across it (`is-shimmer`,
 // conversation.css), still under Reduce Motion and the static status look. Before the turn, while
-// the prompt waits for its agent to start, the same line reads the start status ("Starting Claude
-// Code…") with Cancel, no time and no sweep, so the line keeps one place from send to the first
-// output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
+// the prompt waits for its agent to start, the same line already reads "Thinking", with no start
+// status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
+// the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
+import { agentStartLook } from "./agentStart.experiment";
+import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
@@ -47,8 +50,7 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
 /// writes the command (`draft`). All shimmer. While text streams (`quietKey` moves) the line keeps
 /// its height but draws nothing.
 export function Thinking({
-  status,
-  onCancel,
+  starting = false,
   since,
   now = Date.now,
   doing,
@@ -62,8 +64,8 @@ export function Thinking({
   below = false,
   command = false,
 }: {
-  status?: string;
-  onCancel?: () => void;
+  /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
+  starting?: boolean;
   since?: number;
   now?: () => number;
   doing?: string;
@@ -84,14 +86,14 @@ export function Thinking({
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
+  const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
   const from = doing !== undefined ? doingAt : untimed ? undefined : since;
-  const timed = !status && !waiting && from !== undefined;
+  const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
-  const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
+  const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const label =
-    status ??
-    (doing === undefined
+    doing === undefined
       ? t("thinking")
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
@@ -101,7 +103,7 @@ export function Thinking({
             : draft
               ? t("tools.writingCommand")
               : t("tools.runningUnnamed")
-          : doing);
+          : doing;
   const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
@@ -109,15 +111,23 @@ export function Thinking({
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
-  const parts = counts && !status && !waiting ? workingParts(t, counts) : [];
+  const parts = counts && !waiting ? workingParts(t, counts) : [];
+  // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
+  if (startLook !== "thinking")
+    return (
+      <div
+        className={`cv-worked${below ? " is-below" : ""}${startLook === "silent" ? " is-quiet" : ""}`}
+        data-find-skip
+      >
+        {startLook === "spinner" && <Spinner size={14} loading />}
+      </div>
+    );
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
-      ) : status ? (
-        <output className="cv-thinking">{label}</output>
       ) : (
         <span className="cv-shimmer__row">
           <output className="cv-thinking is-shimmer">
@@ -155,11 +165,6 @@ export function Thinking({
       ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
-      {status && onCancel && (
-        <button type="button" className="cv-thinking__cancel" onClick={onCancel}>
-          {t("switch.cancelPrompt")}
-        </button>
-      )}
     </div>
   );
 }
