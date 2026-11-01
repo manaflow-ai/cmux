@@ -113,6 +113,12 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("systemctl --user enable --now acpmux.service");
     expect(command).toContain("systemctl --user restart acpmux.service");
     expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
+    const stop = command.indexOf("systemctl --user stop acpmux.service");
+    const shutdown = command.indexOf("daemon shutdown --keep-agents");
+    const enable = command.indexOf("systemctl --user enable --now acpmux.service");
+    expect(stop).toBeGreaterThanOrEqual(0);
+    expect(shutdown).toBeGreaterThan(stop);
+    expect(enable).toBeGreaterThan(shutdown);
   });
 
   test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
