@@ -44,13 +44,8 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noPage) }
                 save(invocation, services, workspaces: false, toastIn: services.windows.active?.window) { try await stash.stash(tabs: ids) }
             })
-            // The tab the run takes, targeted (a tab menu) or focused (the palette, a key, the CLI without
-            // `tab`): no web page there disables the row with the reason on every path alike, so the
-            // palette never offers what its run then refuses. The lookup reports nothing (`setTargetReason`).
-            context.setTargetReason(id) { invocation in
-                guard let found = try? pages(scope, invocation, context) else { return nil }
-                return found.isEmpty ? StashHandlerStrings.noPage : nil
-            }
+            context.setTargetReason(id) { tabReason(scope, $0, context) }
+            ActionTargetTitles.setPaletteReason(id, in: registry) { [weak registry] in registry?.withoutRefusals { tabReason(scope, ActionInvocation(), context) } }
             ActionTargetVisibility.hide(id, in: registry) { invocation in
                 guard invocation.target?.kind == .tab, let id = invocation.target?.id, let (_, pane) = services.locateTab(id) else { return false }
                 return !services.machines.daemon(forPane: pane).isLocal
@@ -122,6 +117,11 @@ enum StashHandlers {
             } ?? strip.filter { $0 !== tab && !$0.pinned }
         }
         return picked.filter(isPage)
+    }
+
+    /// Why a tab row's run refuses on its tab, targeted or focused (also the palette's reason): another Mac's, or no web page. Nil when it runs.
+    static func tabReason(_ scope: TabScope, _ invocation: ActionInvocation, _ context: AppActionContext) -> String? {
+        do { return try pages(scope, invocation, context).flatMap { $0.isEmpty ? StashHandlerStrings.noPage : nil } } catch { return (error as? ActionFailure)?.message ?? "\(error)" }
     }
 
     /// A web page Stash keeps: an http(s) browser tab, not a cmux page or an app's tab.
