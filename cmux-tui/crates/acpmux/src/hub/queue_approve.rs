@@ -269,9 +269,9 @@ impl Hub {
         let found = session.queue().into_iter().find(|q| q.prompt_id == prompt_id);
         let Some(q) = found else { return Err(self.not_waiting(session, prompt_id)) };
         let blocks = &q.run.blocks;
-        let images = super::prompt_images::named(blocks);
-        let parts =
-            super::prompt_images::inline_parts(blocks, &images, q.run.display_parts.as_ref());
+        let display_parts = q.run.display_parts.as_ref();
+        let images = super::prompt_images::named_sourced(blocks, display_parts);
+        let parts = super::prompt_images::inline_parts(blocks, &images, display_parts);
         Ok(json!({
             "sessionId": session.id,
             "promptId": q.prompt_id,
