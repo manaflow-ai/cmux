@@ -20,8 +20,13 @@ mod daemon_env;
 // agent hosts this process starts in background class (`qos.rs`), so a hosted harness would
 // inherit it: the hosted test checks that its harness clears it at its exec. The in-process hubs
 // start their harnesses directly and read no `ACPMUX_QOS`.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in()
-    .with_env(&[("ACPMUX_TEST_CPU_CLASS_REF", "normal"), ("ACPMUX_QOS", "background")]);
+// The hermetic environment keeps stand-ins at normal class (`daemon_env::vars`); these tests
+// check the product's background class, so this process and its daemons ask for it.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
+    ("ACPMUX_TEST_CPU_CLASS_REF", "normal"),
+    ("ACPMUX_QOS", "background"),
+    ("ACPMUX_SESSION_CPU_CLASS", "background"),
+]);
 
 use acpmux::agent::{Attached, ChildAgent};
 use acpmux::agent_host::link::{self, HostLauncher};
@@ -439,6 +444,7 @@ impl RealDaemon {
             .env("ACPMUX_HEALTH_FETCH", "0")
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_PROBE_HARNESSES", "fake")
+            .env(acpmux::cpu_class::ENV, "background")
             .env_remove("ACPMUX_SESSION_ID")
             .stdin(std::process::Stdio::null());
         cmd
