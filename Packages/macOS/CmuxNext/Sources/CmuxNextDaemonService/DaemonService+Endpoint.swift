@@ -34,6 +34,12 @@ extension DaemonService {
     /// daemon only, whose give-backs the app listens to.
     public var queuesCreatingInput: Bool { isLocal && supports(DaemonCapability.terminalInputWhileCreating.rawValue) }
 
+    /// ``queuesCreatingInput`` for a create on pane `target`. A create on a stand-in (Cmd-N's first pane, a split still in
+    /// flight) waits for the daemon's pane before it is sent (`DaemonStore.daemonTarget`, #29530), so the daemon does not know
+    /// its terminal id yet and refuses keys sent by it: those keys wait in the creation hold for the daemon's terminal, as
+    /// on feat-cmux-next (#30271: after Cmd-N then Ctrl-`, the line typed into the stand-in never reached the terminal).
+    public func queuesCreatingInput(on target: PaneID) -> Bool { queuesCreatingInput && !ProvisionalPane.isStandIn(target) }
+
     /// The input of a view whose terminal `terminalID` is still being created goes to this daemon
     /// by that id until `targetKnown` (cx-wb5.78); nil when the daemon does not queue such input.
     public func creatingInput(_ terminalID: TerminalID?, targetKnown: @escaping @Sendable () -> Bool) -> CreatingTerminalInput? {

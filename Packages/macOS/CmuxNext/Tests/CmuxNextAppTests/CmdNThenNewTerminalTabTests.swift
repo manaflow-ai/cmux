@@ -130,9 +130,10 @@ struct CmdNThenNewTerminalTabTests {
     /// because the focus landed on the new terminal. The pass condition is what the person sees: every typed key reaches
     /// the NEW terminal, in order (its screen shows `echo held` and the shell's answer `held`), and no other terminal gets
     /// them. Each key goes through the app's own dispatch (`KeyRouter.interceptKeyDown`, then the window, as
-    /// `CmuxApplication.sendEvent` does). On this dogfood line a key typed while the Ctrl-` stand-in terminal has the
-    /// keyboard is not held: it goes to that terminal's view at once, which sends it by the minted terminal id or by the
-    /// attachment (107f5da1ac6, 050651b6e16); feat holds it. How each key went is in the failure text, not the pass rule.
+    /// `CmuxApplication.sendEvent` does). On this dogfood line a key typed while the Ctrl-` stand-in terminal had the
+    /// keyboard went to that view (107f5da1ac6, 050651b6e16), which sent it by a terminal id the daemon did not know yet
+    /// (the create waits for Cmd-N's pane): lost. Now they wait in the creation hold, as on feat. How each key went is in the
+    /// failure text, not the pass rule.
     @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-keys")
@@ -141,6 +142,10 @@ struct CmdNThenNewTerminalTabTests {
             let store = services.daemon.store
             let before = Set(store.workspaces.map(\.id))
             let coordinator = services.keyRouter.creationInputCoordinator
+            // A held key runs again through the same key path as a typed one (the test window is never key).
+            coordinator.replay = { event, window, router in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
+            // Cmd-N's page hold keeps its keys while the page opens, as a person's does (this page never reports ready).
+            services.keyRouter.newTabInputCoordinator.incomingHoldLimit = .seconds(120)
 
             #expect(kill(pid, SIGSTOP) == 0)
             var resumed = false
