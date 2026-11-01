@@ -5,6 +5,37 @@ use cmux_json::JsonSet as _;
 
 mod host_load;
 
+/// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
+/// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
+pub const SUBAGENTS_RUNNING: &str = "subagents_running";
+
+/// The most running subagents a summary names (`subagentNames`); `subagentsRunning` counts all.
+pub const SUBAGENT_NAMES: usize = 5;
+
+/// What a session runs below its turn now, as its summary says it.
+#[derive(Debug, PartialEq)]
+pub(crate) struct RunningWork {
+    /// Its subagents that run now, at any depth (`SubagentTree::running_now`).
+    pub subagents: usize,
+    /// The first [`SUBAGENT_NAMES`] of their labels, oldest first; an unnamed one has none.
+    pub names: Vec<String>,
+    /// Its background commands that run now (`processes.rs`).
+    pub commands: usize,
+}
+
+/// `session`'s running work: without a running turn (`turn_runs` false) only its background
+/// subagents still run. `commands` is the session's running background commands.
+pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) -> RunningWork {
+    let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+    let running = tree.running_now(turn_runs);
+    let names = running
+        .iter()
+        .filter_map(|(_, label)| label.map(str::to_owned))
+        .take(SUBAGENT_NAMES)
+        .collect();
+    RunningWork { subagents: running.len(), names, commands }
+}
+
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
@@ -361,6 +392,8 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
+        let notice = turn.as_ref().is_some_and(|t| t.notice);
         let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
@@ -543,6 +576,21 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
+        // being able to see the # of associated subagents and whatnot"): its running subagents,
+        // their first names, and its running background commands (`running_work`).
+        let work = running_work(
+            session,
+            summary["turn"].is_object(),
+            self.running_processes_read(session),
+        );
+        summary.set("subagentsRunning", json!(work.subagents));
+        summary.set("subagentNames", json!(work.names));
+        summary.set("commandsRunning", json!(work.commands));
+        if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
+            // A History of the person's prompts leaves it out (`turn.notice`).
+            turn.insert("notice".into(), Value::Bool(true));
+        }
         // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
         summary.set(
             "respawnPending",

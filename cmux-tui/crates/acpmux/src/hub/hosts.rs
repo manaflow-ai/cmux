@@ -1203,6 +1203,8 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not

@@ -351,6 +351,9 @@ pub struct TurnInfo {
     /// What the turn does right now: its latest tool call's title and its
     /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Its prompt is acpmux's own notice of other agents' messages (an inbox notice or a
+    /// digest, `prompt_line::is_notice`), not words anyone typed: the summary's `turn.notice`.
+    pub notice: bool,
 }
 
 /// Options for `Hub::prompt_with`.

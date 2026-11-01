@@ -583,7 +583,8 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
-            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()));
+            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .noticed(super::prompt_line::is_notice(provenance.as_ref()));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
