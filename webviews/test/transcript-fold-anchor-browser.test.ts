@@ -215,6 +215,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await show(page, [...done, ...live(1)]);
     await settle(page);
     expect(await atLatest(page)).toBe(true);
+    const aboveBefore = await page.locator('[data-row-id="live-user"]').evaluate((node) => {
+      (node as HTMLElement).dataset.aboveProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
+    const earlierBefore = await page.locator('[data-row-id="t7-answer"]').evaluate((node) => {
+      (node as HTMLElement).dataset.earlierProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
 
     const opened = await clickAndWatch(page);
@@ -225,6 +233,16 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadAnimations).toBe(1);
     expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    expect(opened.moved).toBeGreaterThan(1);
+    await settle(page);
+    const aboveAfter = await page
+      .locator("[data-above-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    const earlierAfter = await page
+      .locator("[data-earlier-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    expect(aboveAfter).toBeLessThan(aboveBefore - 1);
+    expect(earlierAfter).toBeLessThan(earlierBefore - 1);
     expect(await atLatest(page)).toBe(true);
 
     const expandedEnd = await scrollHeight(page);
@@ -248,6 +266,68 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
+
+    // Reopening fills the retained room without moving the stack or adding a second gap.
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    const reopened = await clickAndWatch(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(reopened.threadAnimations).toBeLessThanOrEqual(1);
+    expect(reopened.moved).toBeLessThanOrEqual(1);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(await atLatest(page)).toBe(true);
+    await page.close();
+  });
+
+  test("away from the bottom a tool call expands downward without moving the earlier stack", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(8)]);
+    await settle(page);
+    // Keep enough content after the tool to place its actual hit target well inside the view
+    // while remaining away from the end. A blind wheel can leave it under the bottom mask.
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const toggle = document.querySelector<HTMLElement>('[data-row-id="live-run"] button.cv-tool.is-toggle')!;
+      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
+      scroller.scrollTop += toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    const before = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>('[data-row-id="t7-answer"]')!;
+      above.dataset.aboveProbe = "true";
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
+    });
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    expect(
+      await page.locator("[data-probe]").evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(document.elementFromPoint(box.left + 24, box.top + box.height / 2));
+      }),
+    ).toBe(true);
+    const opened = await clickAndWatch(page);
+    await settle(page);
+    const after = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const above = document.querySelector<HTMLElement>("[data-above-probe]")!;
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
+    });
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(opened.threadAnimations).toBe(0);
+    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(after.scrollTop).toBeCloseTo(before.scrollTop, 0);
+    expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight);
+    expect(after.aboveTop).toBeCloseTo(before.aboveTop, 0);
     await page.close();
   });
 
@@ -320,6 +400,43 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.bottomDrift).toBeLessThanOrEqual(2);
     expect(await atLatest(page)).toBe(true);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
+    await page.close();
+  });
+
+  test("empty and zero-width replies add no vertical gap between tool groups", async () => {
+    const page = await open("reduce");
+    const rows = (withInvisible: boolean) => [
+      row("spacing-user", "user", "Run both checks."),
+      row("spacing-first", "activity", undefined, { items: [read("spacing-first-tool")] }),
+      ...(withInvisible
+        ? [row("spacing-empty", "assistant", ""), row("spacing-zero", "assistant", "\u200B\u200C\u200D\uFEFF\u2060")]
+        : []),
+      row("spacing-second", "activity", undefined, { items: [read("spacing-second-tool")] }),
+      row("spacing-answer", "assistant", "Both checks passed."),
+      row("spacing-summary", "turnSummary", undefined, { status: "completed", durationMs: 9_000 }),
+    ];
+    const gapAfterOpenFold = async (withInvisible: boolean) => {
+      await show(page, rows(withInvisible));
+      await settle(page);
+      const fold = page.locator('[data-row-id="worked-spacing-user"] .cv-worked');
+      if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
+      await settle(page);
+      return page.evaluate(() => {
+        const first = document.querySelector<HTMLElement>('[data-row-id="spacing-first"]');
+        const second = document.querySelector<HTMLElement>('[data-row-id="spacing-second"]');
+        if (!first || !second) throw new Error("tool groups were not mounted");
+        const a = first.getBoundingClientRect();
+        const b = second.getBoundingClientRect();
+        return {
+          gap: b.top - a.bottom,
+          emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
+        };
+      });
+    };
+    const normal = await gapAfterOpenFold(false);
+    const withInvisible = await gapAfterOpenFold(true);
+    expect(withInvisible.emptyRows).toBe(0);
+    expect(Math.abs(withInvisible.gap - normal.gap)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 

@@ -44,7 +44,7 @@
     "name": "date"
   },
   {
-    "description": "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.",
+    "description": "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -92,7 +92,7 @@
     "name": "spawn"
   },
   {
-    "description": "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note.",
+    "description": "Send a message to a subagent; a running one reads it at once (its current step stops, as Send now in its chat; a background shell or subagent runs on) and its turn goes on, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note. Another acpmux session (a lane or agent on this Mac or an acpmux peer; control sessions lists them) is id session:<name>: the message goes to it as yours (from chief), and its answer comes back as a \"[session:<name>] ...\" report. A message an agent sent you through cmux chief starts [from <name>] and names its session: answer it there.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -123,7 +123,7 @@
     "name": "tell"
   },
   {
-    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.",
+    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: open or close its sidebar workspace (subagents run hidden unless the setting subagents.showWorkspaces is on; show one when the user asks to watch it or must allow its prompt). cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. sessions: the acpmux sessions you can tell (session:<name>). Never poll: reports, stuck notes and prompts come to you as messages.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -137,8 +137,11 @@
             "cancel",
             "restart",
             "priority",
+            "show",
+            "hide",
             "cap",
-            "cloud"
+            "cloud",
+            "sessions"
           ],
           "type": "string"
         },

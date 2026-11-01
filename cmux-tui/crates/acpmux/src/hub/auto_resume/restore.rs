@@ -125,11 +125,11 @@ impl Hub {
                 "remote_control_ended" => ended = true,
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
-                // daemon_restart records are queued continuations, not waiting retries.
+                // daemon_restart and moved records are queued continuations, not waiting
+                // retries.
                 "auto_resume_scheduled"
                     if is_cut
-                        && e.msg.get("reason").and_then(Value::as_str)
-                            != Some("daemon_restart") =>
+                        && !super::Cut::queued(e.msg.get("reason").and_then(Value::as_str)) =>
                 {
                     has_retry_marker = true;
                     not_before = e.msg.get("notBefore").and_then(Value::as_u64);

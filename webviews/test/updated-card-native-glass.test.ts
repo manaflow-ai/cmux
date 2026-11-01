@@ -124,7 +124,7 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
             shadow: "none",
             backdrop: "none",
           });
-          expect(await page.locator(".wn-card").innerText()).toContain("See What");
+          expect(await page.locator(".wn-card").innerText()).toContain("What's New");
           await page.close();
         });
       }

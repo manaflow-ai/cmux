@@ -4,34 +4,35 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// Selectable inner tabs embedded in the workspace's existing rich preview.
-/// Overflow expands inside the same bounded scroll area; it never covers the history.
+/// Every tab is listed; a list taller than `maxVisibleRows` scrolls in place, with half a row
+/// showing at the bottom, instead of hiding tabs behind a "Show N more" (Leo 2026-11-01: "the
+/// show 1 more is reallly bad when it's this small like you need to be able to scroll through
+/// them").
 @MainActor
 final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCardTextReporting {
     private let rowHeight: CGFloat
-    private let rowLimit: Int
+    private let maxVisibleRows: CGFloat
     private let showsFolder: Bool
     private let scrollView = NSScrollView()
     private let document = WorkspaceTabHoverDocument()
-    private let more = ClickableButton(title: "", target: nil, action: nil)
     private var listHeight: NSLayoutConstraint?
     private var rowViews: [WorkspaceTabHoverCardRow] = []
     private var tabs: [SidebarTab] = []
     private var workspace = ""
-    private var expanded = false
     private var selectedIndex = 0
     private var showsKeyboardSelection = false
     var onSelect: ((TabID) -> Void)?
-    var onResize: (() -> Void)?
 
-    var reportedLines: [String] {
-        rowViews.prefix(visibleCount).map { $0.reportedLine } + (more.isHidden ? [] : [more.title])
-    }
-    private var visibleCount: Int { expanded ? tabs.count : min(tabs.count, rowLimit) }
+    var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
+    private var stride: CGFloat { rowHeight + Metrics.space1 }
+    private var documentHeight: CGFloat { max(0, CGFloat(tabs.count) * stride - Metrics.space1) }
     override var isFlipped: Bool { true }
 
+    /// `rowLimit` rows, and one more, show without scrolling: one tab past a round number never
+    /// scrolls. A longer list shows `rowLimit` and a half rows and scrolls.
     init(rowHeight: CGFloat = 36, rowLimit: Int = 4, showsFolder: Bool = true) {
         self.rowHeight = rowHeight
-        self.rowLimit = max(1, rowLimit)
+        maxVisibleRows = CGFloat(max(1, rowLimit)) + 1.5
         self.showsFolder = showsFolder
         super.init(frame: .zero)
         isHidden = true
@@ -40,15 +41,9 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         scrollView.hasVerticalScroller = true
         scrollView.verticalScrollElasticity = .none
         SystemScrollers.followThin(scrollView)
-        more.isBordered = false
-        more.font = Typography.caption
-        more.alignment = .left
-        more.target = self
-        more.action = #selector(expandTabs)
-        let stack = NSStackView(views: [scrollView, more])
+        let stack = NSStackView(views: [scrollView])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space1
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -69,7 +64,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     func configure(title: String, tabs: [SidebarTab]) {
         let changed = workspace != title || self.tabs.map(\.id) != tabs.map(\.id)
         let selected = self.tabs.indices.contains(selectedIndex) ? self.tabs[selectedIndex].id : nil
-        if changed { expanded = false; showsKeyboardSelection = false }
+        if changed { showsKeyboardSelection = false }
         workspace = title
         self.tabs = tabs
         isHidden = tabs.isEmpty
@@ -79,7 +74,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     }
 
     private func updateRows() {
-        let count = visibleCount
+        let count = tabs.count
         while rowViews.count < count {
             let row = WorkspaceTabHoverCardRow(height: rowHeight, showsFolder: showsFolder)
             row.onRelease = { [weak self, weak row] in
@@ -96,10 +91,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
             rowViews[index].isHidden = index >= count
             if index < count { rowViews[index].configure(tabs[index]) }
         }
-        let height = max(0, CGFloat(count) * (rowHeight + Metrics.space1) - Metrics.space1)
-        listHeight?.constant = min(height, CGFloat(rowLimit) * (rowHeight + Metrics.space1) - Metrics.space1)
-        more.title = Strings.showMore(max(0, tabs.count - count))
-        more.isHidden = expanded || tabs.count <= rowLimit
+        listHeight?.constant = min(documentHeight, maxVisibleRows * stride - Metrics.space1)
         needsLayout = true
         updateSelection()
         applyColors()
@@ -115,22 +107,13 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
                                              verticalScrollerClass: scrollView.hasVerticalScroller ? NSScroller.self : nil,
                                              borderType: scrollView.borderType, controlSize: .regular,
                                              scrollerStyle: scrollView.scrollerStyle).width
-        document.frame = CGRect(x: 0, y: 0, width: width,
-                                height: max(0, CGFloat(visibleCount) * (rowHeight + Metrics.space1) - Metrics.space1))
-        for index in 0..<visibleCount {
-            rowViews[index].frame = CGRect(x: 0, y: CGFloat(index) * (rowHeight + Metrics.space1), width: width, height: rowHeight)
+        document.frame = CGRect(x: 0, y: 0, width: width, height: documentHeight)
+        for index in 0..<min(tabs.count, rowViews.count) {
+            rowViews[index].frame = CGRect(x: 0, y: CGFloat(index) * stride, width: width, height: rowHeight)
         }
     }
 
-    @objc private func expandTabs() {
-        expanded = true
-        updateRows()
-        layoutSubtreeIfNeeded()
-        onResize?()
-    }
-
     func applyColors() {
-        performWithTheme { more.contentTintColor = Palette.textSecondary }
         rowViews.forEach { $0.applyColors() }
     }
 
@@ -152,7 +135,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         let point = superview?.convert(windowPoint, from: nil) ?? windowPoint
         var hit = hitTest(point)
         while let view = hit {
-            if view is WorkspaceTabHoverCardRow || view === more { return true }
+            if view is WorkspaceTabHoverCardRow || view === scrollView { return true }
             hit = view.superview
         }
         return false
@@ -161,7 +144,6 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     private func moveSelection(by delta: Int) {
         showsKeyboardSelection = true
         selectedIndex = (selectedIndex + delta + tabs.count) % tabs.count
-        if selectedIndex >= visibleCount { expandTabs() }
         updateSelection()
         rowViews[selectedIndex].scrollToVisible(rowViews[selectedIndex].bounds)
     }

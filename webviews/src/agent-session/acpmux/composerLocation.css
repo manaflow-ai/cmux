@@ -269,6 +269,11 @@
    as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
    shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
+  /* A 28 px control with 8 px over and under it (composerLook.css --acpmux-codex-row), and + as far
+     off the box's left as off its bottom. */
+  --acpmux-row-edge: calc((var(--acpmux-codex-row) - var(--acpmux-composer-control)) / 2);
+  min-height: var(--acpmux-codex-row);
+  padding-block: 0;
   padding-inline: var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
@@ -1327,10 +1332,12 @@
    The controls (Leo 2026-10-31: "composer still looks like shit with the + spacing indent to the
    text" and "why is our shit not vertically centered like claude's is??? applies to the send and
    mic buttons"; leo-workspace design/composer.md, Controls): +, the mic and Send are one 28 px
-   control, each `--acpmux-composer-inset` (8 px) off every box edge it meets, so a one-line box is
-   8 + 28 + 8 = 44 px and every control stands on the box's middle; the prompt's text drops by
+   control, each `--acpmux-composer-inset` (8 px) off the box's sides and
+   `--acpmux-composer-block-inset` (10 px) off its top and bottom (Leo 2026-11-01: "there's not
+   enough of a space at the bottom"), so a one-line box is 10 + 28 + 10 = 48 px and every control
+   stands on the box's middle; the prompt's text drops by
    --acpmux-text-drop so its ink (not its line box) centers there too. The text starts one `--acpmux-composer-lead-gap` (8 px) after +. The prompt's top and
-   bottom padding are derived, (44 - line height) / 2, never literals (design/grid.md 5.1).
+   bottom padding are derived, (48 - line height) / 2, never literals (design/grid.md 5.1).
    test/composer-plus-geometry.test.ts measures it.
    ComposerBox marks this look on the box and Composer on its form (`data-composer-grid`), rather
    than a `:has(> .acpmux-chrome-area > .acpmux-composer-inner)` the box and the pane would test: a
@@ -1341,6 +1348,10 @@
 :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
+  /* The room over and under a one-line prompt's controls: more than the side inset, so the text
+     never sits on the box's bottom edge (Leo 2026-11-01: "this is all still not aligned there's not
+     enough of a space at the bottom"). The top and the bottom are always equal. */
+  --acpmux-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1));
   --acpmux-composer-lead-gap: calc(8px * var(--cmux-interface-scale, 1));
   /* The text, not the controls, moves for optical centering (design/grid.md rule 7): a line's ink
      sits about 1 px over its line box's center at 14 px, so the prompt's line box drops that far
@@ -1353,7 +1364,7 @@
   align-items: end;
   --acpmux-prompt-inset: max(
     0px,
-    calc((var(--acpmux-composer-control) + 2 * var(--acpmux-composer-inset) - var(--text-content--line-height)) / 2)
+    calc((var(--acpmux-composer-control) + 2 * var(--acpmux-composer-block-inset) - var(--text-content--line-height)) / 2)
   );
   /* The drop never outgrows the padding it moves (a large chrome size has none under the line). */
   --acpmux-prompt-drop: min(var(--acpmux-text-drop), var(--acpmux-prompt-inset));
@@ -1383,11 +1394,19 @@
 }
 /* The grid's inset is the control inset on both sides: + sits 8 px from the box's left, the mic or
    Send 8 px from its right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px
-   glyph), and 8 px over the bottom on a one-line prompt. */
+   glyph), and the block inset (10 px) over the bottom on a one-line prompt, as far as under the top.
+   + is one 28 px flex box standing on the row's end: no line box of its own (a baseline gap under
+   the button raised + over the box's middle in the app's font, Leo 2026-11-01). */
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
   margin: 0 0 var(--acpmux-prompt-control-bottom) var(--acpmux-composer-inset);
+}
+.acpmux-composer-inner > .acpmux-composer-plus {
+  display: flex;
+  align-items: center;
+  align-self: end;
+  height: var(--acpmux-composer-control);
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
@@ -1467,16 +1486,45 @@
 .acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 11px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
-/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,
-   in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
-   hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
-.acpmux-env-popover { min-width: 260px; }
-/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections the same way. */
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]),
+/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's rows, as Codex's
+   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud, then a hairline and the other
+   machines. No section headers and no second lines; each of the first nine machines ends with its
+   ⌥⌘ digit, then the current one's check. */
+.acpmux-env-popover { min-width: 220px; }
+/* The hairline over the person's other machines: the + menu's untitled-group split. */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { margin-top: 9px; position: relative; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 6px;
+  right: 6px;
+  border-top: .5px solid var(--acpmux-composer-edge, color-mix(in srgb, currentColor 12%, transparent));
+  pointer-events: none;
+}
+/* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
+.acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+/* The right-click menu's host (ContextMenu) adds no box around the control. */
+.acpmux-location-picker > .acpmux-env-more { display: contents; }
+/* The control's looks (gallery variants): its icon alone, or a bordered chip as Codex's row above
+   its composer. The default is the icon and the short name. */
+.acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
+.acpmux-location-picker[data-face="chip"] .acpmux-location-button {
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: var(--ui-row-radius);
+  padding-inline: 8px;
+}
+/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]),
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
-.acpmux-env-row[data-section]::before,
 .acpmux-location-name[data-section]::before {
   content: attr(data-section);
   position: absolute;
@@ -1541,18 +1589,3 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
-/* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
-.acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.acpmux-env-new .acpmux-env-detail {
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
-  line-height: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: var(--text-caption--letter-spacing);
-}

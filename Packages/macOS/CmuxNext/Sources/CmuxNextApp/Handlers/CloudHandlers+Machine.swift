@@ -241,12 +241,13 @@ extension CloudHandlers {
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
-            guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
-                throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
-            }
-            result("resize machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["size": .string(size)])) {
-                try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory)
-                return machineFields(session.machineID, ["size": .string(size)])
+            // A menu or palette run with neither still asks for the size, as when --size was required.
+            if invocation["size"] == nil, invocation["disk"] == nil, origin(of: invocation) == .user,
+               registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
+            let request = try CloudResizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
+            result("resize machine", context, pendingAfter: machineAnswerWait, pending: fields) {
+                try await cloud.api.resize(session.machineID, cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
+                return fields
             }
         }
         // The idle auto-pause (web/services/vms/idlePause.ts): cmux Cloud pauses the machine
@@ -296,6 +297,9 @@ extension CloudHandlers {
         }
         bind("palette.cloud.ports", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            if session.appLink != nil, cloud.previewAPI != nil {
+                return livePreviewPorts(session, invocation, context)
+            }
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
             answer("machine ports", invocation, context) {
                 let table = try await connection.request(MachineListeningTCPRequest()).stdout
@@ -616,9 +620,6 @@ extension CloudHandlers {
     static func templateName(_ machineID: String, at date: Date) -> String {
         "template-\(machineID.prefix(12))-\(Int(date.timeIntervalSince1970))"
     }
-
-    /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
-    static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]
 
     static func filePath(_ invocation: ActionInvocation) throws -> String {
         guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

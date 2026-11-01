@@ -265,25 +265,22 @@ final class SectionHeaderRowView: SidebarRowView {
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }
-        var trailing = b.width - SidebarStyle.horizontalInset
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
         addButton.isHidden = !allowsAdd
         let control = SidebarStyle.controlSize
         if allowsAdd {
-            addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
-            trailing -= control + Metrics.space1
+            addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
         }
         // The disclosure is a section control too; keep it stable instead of
         // making the header reflow when the pointer arrives.
         chevron.isHidden = isEmpty
         let chevronSide = Metrics.smallIconSize
         // Without the add button the chevron takes the trailing column, as a group header's does.
-        chevron.frame = allowsAdd ? NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
-            : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: chevronSide)
-        if !allowsAdd { trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) }
-        trailing -= chevronSide + Metrics.space2
+        chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
+                                                         side: chevronSide, slot: allowsAdd ? 1 : 0)
+        let trailing = chevron.frame.minX - Metrics.space2
         let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
         // The label cell draws inside its frame: the text starts where row titles do.

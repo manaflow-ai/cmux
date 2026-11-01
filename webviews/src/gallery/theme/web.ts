@@ -3,8 +3,11 @@
 //   - AgentPaneTheme.swift: the agent pane's `AgentSessionTheme` (`cmuxAcpmuxBridge.applyTheme`);
 //   - the diff viewer and markdown appearance (`DiffViewerAppearance`, appearance.ts), which
 //     carries the Ghostty theme pair itself.
-// The window is opaque here (background-opacity 1, WindowBackdrop.panesPaintBackground), and
-// borders draw lines (appearance.borders lines), as by default.
+// The window is opaque (background-opacity 1, WindowBackdrop.panesPaintBackground) unless the
+// gallery's background axis puts a picture behind it (`seeThrough`): then, as over the user's
+// picture in the app, the page background is clear and the window's tint over the picture shows
+// through (frame/background.ts paints both). Borders draw lines (appearance.borders lines), as by
+// default.
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
 import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
@@ -43,10 +46,13 @@ export const themeTokens = (theme: GhosttyTheme, accent: AppAccent = "neutral"):
   deriveTokens(themeInput(theme, accent));
 
 /** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`; with `app`, also the app
- * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract). */
+ * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract).
+ * `seeThrough`: the window shows a picture behind its material, so the page background is the
+ * surface at alpha 0 (WebTheme.pageBackground where panes do not paint), the solid surface stays. */
 export function webThemePayload(
   tokens: ThemeTokens,
   app?: AppTheme,
+  seeThrough = false,
 ): {
   variables: Record<string, string>;
   colorScheme: "dark" | "light";
@@ -55,7 +61,7 @@ export function webThemePayload(
   const page = withAlpha(tokens.surfaceBackground, 1);
   return {
     variables: {
-      "--cmux-surface-background": css(page),
+      "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),
       "--cmux-elevated-background": css(tokens.elevatedBackground),
@@ -85,9 +91,13 @@ export function webThemePayload(
 const MOTION = { hover: 0.08, hoverOut: 0, focus: 0.1, fadeIn: 0.12, fadeOut: 0.08, move: 0.19 } as const;
 const CROSSFADE = 0.1;
 
-/** AgentPaneTheme.values(tokens). */
-export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Record<string, unknown> {
-  const page = withAlpha(tokens.surfaceBackground, 1);
+/** AgentPaneTheme.values(tokens); `seeThrough` as in webThemePayload (AgentPaneTheme.pageColor). */
+export function agentPaneTheme(
+  tokens: ThemeTokens,
+  reducedMotion: boolean,
+  seeThrough = false,
+): Record<string, unknown> {
+  const page = withAlpha(tokens.surfaceBackground, seeThrough ? 0 : 1);
   const opaquePage = withAlpha(tokens.contentBackground, 1);
   const motion = Object.fromEntries(
     Object.entries(MOTION).map(([key, seconds]) => [

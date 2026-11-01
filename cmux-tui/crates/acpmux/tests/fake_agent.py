@@ -920,8 +920,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
         time.sleep(0.05)
         os._exit(0)
+    # "limit:": a usage limit (a sign-in failure with FAKE_AUTH_FAIL=1, which fails over where a
+    # usage limit waits for its reset, #27924).
     if text.startswith("limit:"):
-        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
     if text.startswith("big-output:"):

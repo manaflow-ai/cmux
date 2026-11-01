@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
@@ -129,32 +130,32 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              _ make: @escaping Make) -> Bool {
+              focusing focus: FocusState.Target = .content, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, make, done: done)
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus, make, done: done)
         }
         return now ? opened : true
     }
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, _ make: Make,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            return moved(from: source, to: .split(.right), background: background, make, done: done)
+            return moved(from: source, to: .split(.right), background: background, focusing: focus, make, done: done)
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
             guard let right = source.workspace?.panes[id] else { defer { done() }; return make(source, nil) }
-            return moved(from: right, to: .split(.bottom), background: background, make, done: done)
+            return moved(from: right, to: .split(.bottom), background: background, focusing: focus, make, done: done)
         case .newColumn:
-            return moved(from: source, to: .besideColumn, background: background, make, done: done)
+            return moved(from: source, to: .besideColumn, background: background, focusing: focus, make, done: done)
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
             // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
@@ -194,13 +195,13 @@ final class LinkOpener {
 
     /// `make`'s tab, made unselected in `pane` and kept out of its strip (``OutboundTab``), moved to
     /// `destination`; `done` once the move has landed or failed.
-    private func moved(from pane: PaneController, to destination: Destination, background: Bool, _ make: Make,
+    private func moved(from pane: PaneController, to destination: Destination, background: Bool, focusing focus: FocusState.Target = .content, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
         let outbound = OutboundTab.begin(in: pane)
         shownInPlace = false
         let made = outbound.started(make(pane) { [weak self, weak pane] surface in
             guard let self, let pane else { done(); return outbound.finish(moved: false) }
-            self.move(surface, from: pane, to: destination, focus: !background, outbound: outbound, then: done)
+            self.move(surface, from: pane, to: destination, focus: !background, target: focus, outbound: outbound, then: done)
         })
         return ended(made, outbound, done)
     }
@@ -291,16 +292,21 @@ final class LinkOpener {
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is.
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
+    func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
+            if let machine, !machine.isLocal {
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
+                                                      shownInPlace: inPlace)
+            }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)
         }
@@ -490,14 +496,14 @@ extension LinkOpener {
         }
     }
 
-    /// `pane`'s width as the window shows it, nil until it is in a window: a pane view starts at its
-    /// 400 pt placeholder frame (PaneContentView) before any layout, which is no measure, so an unshown
-    /// pane sets no floor and is never taken for one too narrow to split (fleet runs of #28044 at
-    /// 8e520360 and caf8e69e: SideOpenStripTests' windowless pane opened its links in place).
+    /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
+    /// right reads (links, and agent opens through ``rightColumn(beside:)``). Not its view's bounds: right after a
+    /// split the source still shows its old width and the new pane a sliver, so a link opened at once in a narrow
+    /// window split below the pane on the right instead of a tab in it (review of #29787 at 29861047). Nil for a
+    /// pane its workspace has not laid out (its view's 400 pt placeholder is no measure, so it sets no floor:
+    /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
-        guard pane.view.window != nil else { return nil }
-        let width = pane.view.bounds.width
-        return width > 0 ? width : nil
+        pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen

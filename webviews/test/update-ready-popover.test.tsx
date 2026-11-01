@@ -73,7 +73,10 @@ test("the popup names the full build, lists the highlights and has See all chang
   });
   const version = host.querySelector<HTMLElement>(".wn-pop-title .wn-copy-version")!;
   expect(version.textContent).toBe("nightly 3845050");
-  expect(version.getAttribute("role")).toBe("button");
+  // A native button (CopyVersion): focus, Return and Space come from the platform.
+  expect(version.tagName).toBe("BUTTON");
+  expect(version.getAttribute("type")).toBe("button");
+  expect(version.hasAttribute("role")).toBe(false);
   expect(version.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.3845050428001");
   await act(async () => {
     version.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -92,7 +95,7 @@ test("the popup names the full build, lists the highlights and has See all chang
 
 // The "Updated to" card (Leo 2026-10-13; version and date in words since 2026-10-20): "Nightly · Oct 13",
 // the terse fallback headline when no change is known, and no Share cmux text link (it is the palette's).
-test("the Updated card names the short build, says What's new in this build and has no Share link", async () => {
+test("the Updated card says what it updated to, What's new in this build and has no Share link", async () => {
   const { createRoot } = await import("react-dom/client");
   const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
   const { createStrings } = await import("../src/pages/shared/i18n");
@@ -120,10 +123,11 @@ test("the Updated card names the short build, says What's new in this build and 
       />,
     ),
   );
-  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
-  expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
+  expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
+  expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  expect(buttons).toEqual(["Close", "See What's New"]);
+  // The title's version is the copy button (CopyVersion), then the card's own two.
+  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
 });
 
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
@@ -183,7 +187,7 @@ test("the popup and the card read notes published before the readable rules as t
     ),
   );
   // The card summarizes by area (#22810): one row, made only of the readable change.
-  const rows = [...host.querySelectorAll(".wn-card-areas li")].map((li) => li.textContent ?? "");
+  const rows = [...host.querySelectorAll(".wn-card-note")].map((li) => li.textContent ?? "");
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatch(/keep the mac awake while agents work/i);
   expect(rows[0]).not.toMatch(/perf-fanout|backdrop/i);

@@ -21,7 +21,8 @@ import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
-import { headerQuickTools } from "./headerQuickTools";
+import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
+import { useHeaderFold } from "./headerOverflow";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -54,7 +55,7 @@ import {
 } from "./quickActions";
 
 /// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and the Inspector toggle included.
+/// them, the Needs you inbox and Session Info toggle included.
 export const HEADER_GLYPH = 16;
 
 export { HEADER_ACTIONS } from "./headerActions";
@@ -165,7 +166,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  inspector,
+  sessionInfo,
   inbox,
   nativeRowTools,
 }: {
@@ -215,9 +216,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// Session Info's toggle (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
-  inspector?: ReactNode;
+  sessionInfo?: ReactNode;
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
@@ -255,6 +256,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    overflow: [] as HeaderQuickTool[],
   });
   live.current = {
     actions,
@@ -267,6 +269,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    overflow: live.current.overflow,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
@@ -280,11 +283,22 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
+      overflow,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
     const shownIds = new Set(actions.map((action) => action.id));
-    const folded: ChatMenuItem[] = [];
+    // The buttons the pane is too narrow for come first, in their order: Changes keeps its own row below.
+    const folded: ChatMenuItem[] = overflow
+      .filter((tool) => tool.id !== "changes")
+      .map((tool) => ({
+        key: `quick-${tool.id}`,
+        label: tool.label,
+        icon: tool.icon,
+        shortcutAction: (HEADER_ACTIONS as Record<string, string | undefined>)[tool.id],
+        disabled: !tool.run,
+        onSelect: () => tool.run?.(),
+      }));
     // Changes stays in "..." beside its button, as in the Codex and Claude apps' chat menus (hq#2569 item 4).
     if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
@@ -357,11 +371,14 @@ export function ChatHeaderTools({
     browser: browserKey,
     changes: changesKey,
   };
+  // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const webButtons = !native && tabTools && actions.length > 0;
+  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
+  live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
   const buttons =
-    !native &&
-    tabTools &&
-    actions.length > 0 &&
-    tools.map((tool) => (
+    webButtons &&
+    tools.slice(0, tools.length - fold).map((tool) => (
       <button
         key={tool.id}
         data-quick-action={tool.id}
@@ -376,13 +393,13 @@ export function ChatHeaderTools({
       </button>
     ));
   return (
-    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
-      {!native && inspector}
+      {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
       {inbox}
       {buttons ? (
@@ -589,7 +606,7 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
-  // A row's letter (`accelerator`, never drawn) picks it, as Claude Code desktop's R, F, A; never a
+  // A row's letter (`accelerator`, never drawn) picks it, as the title menu's R, F, A, D; never a
   // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
   const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;

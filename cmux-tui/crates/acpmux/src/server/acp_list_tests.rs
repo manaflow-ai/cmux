@@ -87,8 +87,8 @@ async fn acp_pages(hub: &Arc<crate::hub::Hub>) -> Vec<(Value, usize, Duration)> 
 
 #[tokio::test]
 async fn a_fleet_sized_acp_list_goes_in_pages_under_the_message_limit() {
-    // 25 peers with 400 chats each: 10,000 rows, enough to exceed the larger transport limit.
-    let hub = fleet_hub(25, 400).await;
+    // 25 peers with 210 chats each: 5250 rows, about as many as that daemon listed.
+    let hub = fleet_hub(25, 210).await;
     let pages = acp_pages(&hub).await;
     let total: usize = pages.iter().map(|(_, bytes, _)| bytes).sum();
     assert!(total > MAX_MESSAGE_BYTES, "the list is not past the limit: {total} bytes");
@@ -101,7 +101,7 @@ async fn a_fleet_sized_acp_list_goes_in_pages_under_the_message_limit() {
             assert!(seen.insert(id.clone()), "{id} came twice");
         }
     }
-    assert_eq!(seen.len(), 25 * 400);
+    assert_eq!(seen.len(), 25 * 210);
     let ms: Vec<u128> = pages.iter().map(|(_, _, took)| took.as_millis()).collect();
     println!("PERF acp_list rows={} bytes={total} pages={} ms={ms:?}", seen.len(), pages.len());
 }

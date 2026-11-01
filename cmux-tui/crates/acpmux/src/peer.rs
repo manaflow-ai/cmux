@@ -773,11 +773,11 @@ impl Peer {
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
-            "localBuild": crate::hub::BUILD,
+            "localBuild": crate::hub::build(),
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
@@ -1296,7 +1296,13 @@ impl Peer {
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            let watch = |tools| json!({"enabled": true, "withTools": tools});
+            // Without tools: an inventory is read per session, on an attachment (whose
+            // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
+            // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
+            // limit, and every link to it built and was refused one list before reading it
+            // again without them; without them 16.6 MB. A delta is asked for as the list it
+            // patches was read (`known_tools`).
+            let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
             // A link that read the list before reads only what changed since (`watch_delta.rs`),
             // with or without tools as that list was: a daemon serving it as a peer answers
@@ -1324,28 +1330,17 @@ impl Peer {
                 me.watch_row_pages(link).await?;
                 None
             } else {
-                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
-                    // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
-                    // 2026-10-30) is read without them: the link connects with its rows' tools
-                    // missing rather than never. A peer on this build leaves its peers' rows out
-                    // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
+                match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
+                    // A peer from before #28182 sends a whole list in one message or not at
+                    // all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on 2026-10-30): it is
+                    // read in pages of a count of rows, which such a peer serves.
                     Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                        match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
-                            // A peer from before #28182 sends a whole list in one message or not
-                            // at all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on
-                            // 2026-10-30): it is read in pages of a count of rows, which such a
-                            // peer serves.
-                            Err(e) if too_large(&e) => {
-                                tracing::warn!(peer = %me.name, "the watch list is too large without tools ({}); reading it in pages", e.message);
-                                me.watch_row_pages(link).await?;
-                                *me.row_pages_for.lock_or_recover() = build.clone();
-                                None
-                            }
-                            answer => Some((answer?, false)),
-                        }
+                        tracing::warn!(peer = %me.name, "the watch list is too large ({}); reading it in pages", e.message);
+                        me.watch_row_pages(link).await?;
+                        *me.row_pages_for.lock_or_recover() = build.clone();
+                        None
                     }
-                    answer => Some((answer?, true)),
+                    answer => Some((answer?, false)),
                 }
             };
             // A list too large for one message comes in pages (a peer served as Web, over
