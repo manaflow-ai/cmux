@@ -191,11 +191,16 @@ struct SidebarAgentRowPresentationTests {
 
     @MainActor
     @Test func legacyDefaultLookingUserNamesRespectDaemonCompatibility() throws {
-        for legacy in [false, true] {
-            let workspace = try fixture(name: "workspace-7", nameSource: .user, nameRevision: 0)
-            let turns = turnStore(title: nil, generatedTitle: nil)
-            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
-                        allowsLegacyDefaults: legacy).title == (legacy ? "Review the release" : "workspace-7"))
+        for name in ["workspace-7", "~"] {
+            for legacy in [false, true] {
+                let workspace = try fixture(name: name, nameSource: .user, nameRevision: 0)
+                let turns = turnStore(title: nil, generatedTitle: nil)
+                // #26719 heals never-renamed numbered defaults regardless of daemon capability.
+                // Other legacy defaults still follow the capability's naming provenance.
+                let expected = name == "workspace-7" || legacy ? "Review the release" : name
+                #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
+                            allowsLegacyDefaults: legacy).title == expected)
+            }
         }
     }
 
