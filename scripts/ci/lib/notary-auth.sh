@@ -30,10 +30,20 @@ notary_auth_init() {
 
   if [ "${CMUX_NOTARY_USE_KEYCHAIN_PROFILE:-false}" = true ]; then
     local profile="${CMUX_NATIVE_NOTARY_PROFILE:-cmux-notary-${ASC_API_KEY_ID}}"
-    local keychain="${CMUX_NATIVE_SIGNING_KEYCHAIN:-}"
+    local keychain="${CMUX_NATIVE_SIGNING_KEYCHAIN:-}" keychain_path=""
     local xcrun_tool="${CMUX_XCRUN_TOOL:-xcrun}"
     if [ -z "$keychain" ]; then
       echo "CMUX_NATIVE_SIGNING_KEYCHAIN is required for a native notary profile" >&2
+      return 1
+    fi
+    if [ -e "$keychain" ]; then
+      keychain_path="$keychain"
+    elif [ -e "${CMUX_KEYCHAIN_DIR:-$HOME/Library/Keychains}/$keychain-db" ]; then
+      keychain_path="${CMUX_KEYCHAIN_DIR:-$HOME/Library/Keychains}/$keychain-db"
+    elif [ -e "${CMUX_KEYCHAIN_DIR:-$HOME/Library/Keychains}/$keychain" ]; then
+      keychain_path="${CMUX_KEYCHAIN_DIR:-$HOME/Library/Keychains}/$keychain"
+    else
+      echo "native signing keychain does not exist: $keychain" >&2
       return 1
     fi
     case "$profile" in
@@ -48,13 +58,13 @@ notary_auth_init() {
     exec 3< <(printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode)
     if ! "$xcrun_tool" notarytool store-credentials "$profile" \
       --key /dev/fd/3 --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" \
-      --keychain "$keychain"; then
+      --keychain "$keychain_path"; then
       exec 3<&-
       echo "notarytool could not store the API key in the temporary keychain profile" >&2
       return 1
     fi
     exec 3<&-
-    NOTARY_AUTH_ARGS=(--keychain-profile "$profile" --keychain "$keychain")
+    NOTARY_AUTH_ARGS=(--keychain-profile "$profile" --keychain "$keychain_path")
     NOTARY_AUTH_MODE=keychain-profile
     return 0
   fi
