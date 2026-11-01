@@ -52,7 +52,7 @@ jobs:
       vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'workflow_run' ||
       (github.event.workflow_run.event == 'pull_request_target' &&
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.run_attempt > 1)))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 47
     # One pass at a time; a pass waiting for the reset is never cancelled. Passes
     # that arrive meanwhile collapse into one pending pass. Job level, so the many
