@@ -118,18 +118,36 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
                              "authorization:", "bearer ", "api-key", "aws_secret_access_key", "aws_session_token",
                              "client_secret", "private_key", "refresh_token", "-----begin"]
         let normalized = lower.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        let riskyPatterns = ["rm -rf", "rm -r ", "git reset --hard", "git push --force", "sudo ",
-                             "curl |", "curl -s |", "wget |", "| sh", "| bash", "| zsh", "| /bin/sh",
-                             "| /bin/bash"]
-        let hasURLCredentials = ["http://", "https://"].contains { scheme in
-            guard let schemeStart = lower.range(of: scheme)?.upperBound else { return false }
-            let authority = lower[schemeStart...].split(whereSeparator: { "/?#".contains($0) }).first ?? ""
-            guard let at = authority.lastIndex(of: "@") else { return false }
-            return authority[..<at].contains(":")
-        }
+        let riskyPatterns = ["rm -rf", "rm -r ", "git reset --hard", "git push --force", "sudo "]
+        let pipesToShell = normalized.range(
+            of: #"\|\s*(?:(?:/bin/)?(?:ba|z)?sh)\b"#,
+            options: .regularExpression
+        ) != nil
         return !secretMarkers.contains(where: lower.contains)
-            && !hasURLCredentials
+            && !Self.hasURLCredentials(in: lower)
+            && !pipesToShell
             && !riskyPatterns.contains(where: normalized.contains)
+    }
+
+    private static func hasURLCredentials(in text: String) -> Bool {
+        let end = text.endIndex
+        var searchStart = text.startIndex
+        while searchStart < end {
+            let http = text.range(of: "http://", range: searchStart..<end)
+            let https = text.range(of: "https://", range: searchStart..<end)
+            guard let scheme = [http, https].compactMap({ $0 }).min(by: { $0.lowerBound < $1.lowerBound }) else {
+                return false
+            }
+            let authorityStart = scheme.upperBound
+            let authorityEnd = text[authorityStart...].firstIndex(where: { "/?# \t\r\n\"'<>".contains($0) }) ?? end
+            let authority = text[authorityStart..<authorityEnd]
+            if let at = authority.lastIndex(of: "@"), authority[..<at].contains(":") {
+                return true
+            }
+            guard authorityEnd < end else { return false }
+            searchStart = text.index(after: authorityEnd)
+        }
+        return false
     }
 
     fileprivate static func key(machine: String, cwd: String, command: String) -> String {
