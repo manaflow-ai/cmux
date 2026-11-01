@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import { act, useState, type ReactNode } from "react";
+import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -141,8 +141,12 @@ function Pane({
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const [scrollFrame, setScrollFrame] = useState(0);
+  const sessionInfoSnapshot = useMemo(
+    () => ({ ...snapshot, summary: withCloudMachineSummary(snapshot.summary, cloudMachineID) }),
+    [snapshot, cloudMachineID],
+  );
   const sessionInfo = useSessionInfo({
-    snapshot: { ...snapshot, summary: withCloudMachineSummary(snapshot.summary, cloudMachineID) },
+    snapshot: sessionInfoSnapshot,
     machineName: "Studio",
     cloudRepositoryAvailable,
     shell,

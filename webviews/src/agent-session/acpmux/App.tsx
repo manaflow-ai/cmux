@@ -6895,6 +6895,7 @@ function AcpmuxPane() {
     const summary = withCloudMachineSummary(cardSnapshot.summary, cloudMachineID);
     return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
   }, [cardSnapshot, cloudMachineID]);
+  const cloudRouteHostKind = withCloudMachineSummary(snapshot.summary, cloudMachineID)?.hostKind;
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [cardRows, chatSubsessions, workflows],
@@ -7543,7 +7544,7 @@ function AcpmuxPane() {
       route: {
         harness: snapshot.summary?.harness,
         name: catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.name,
-        hostKind: withCloudMachineSummary(snapshot.summary, cloudMachineID)?.hostKind,
+        hostKind: cloudRouteHostKind,
       },
       switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
       // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
@@ -7565,7 +7566,7 @@ function AcpmuxPane() {
       hunkReview,
       loginCommand,
       cloudMachineID,
-      snapshot.summary,
+      cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
