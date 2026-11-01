@@ -1513,6 +1513,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/host_notice",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place",
       "params": true,
       "result": true
