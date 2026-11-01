@@ -258,7 +258,7 @@ impl Export {
             Some("refs/cmux-back" | BASE_RECORD) => {}
             // The Mac is on the seed (or nothing recorded): no other base.
             _ => {
-                self.set(BASE_RECORD, ["head", "index", "work", "stash"].map(|name| (name, None)))?
+                self.set(BASE_RECORD, ["head", "index", "work", "stash"].map(|name| (name, None)))?;
             }
         }
         self.set(
