@@ -6,6 +6,18 @@
 
 use serde_json::{Map, Value, json};
 
+/// [`add_sender`] for a steer's `opts`.
+pub(super) fn add_steer_sender(params: &mut Value, sender: Option<&str>, opts: &super::PromptOptions) {
+    let class = opts.class.map(crate::prompt_class::PromptClass::as_str);
+    add_sender(params, sender, class, opts.provenance.as_ref());
+}
+
+/// [`prompt_params`] for queued prompt `run`.
+pub(super) fn run_params(agent_sid: &str, prompt: Value, run: &super::queue::PromptRun) -> Value {
+    let class = run.class.map(crate::prompt_class::PromptClass::as_str);
+    prompt_params(agent_sid, prompt, run.agent.as_deref(), class, run.provenance.as_ref())
+}
+
 /// The `session/prompt` params for `prompt` to `agent_sid`, with the sender of
 /// an agent's message (`agent`, its `class` and its provenance's `threadId`).
 pub(super) fn prompt_params(
@@ -16,7 +28,19 @@ pub(super) fn prompt_params(
     provenance: Option<&Value>,
 ) -> Value {
     let mut params = json!({"sessionId": agent_sid, "prompt": prompt});
-    let Some(name) = agent.filter(|n| !n.is_empty()) else { return params };
+    add_sender(&mut params, agent, class, provenance);
+    params
+}
+
+/// Adds `_meta.acpmux.sender` to `params` (a turn's prompt or a steer) when
+/// `agent` sent it.
+pub(super) fn add_sender(
+    params: &mut Value,
+    agent: Option<&str>,
+    class: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    let Some(name) = agent.filter(|n| !n.is_empty()) else { return };
     let mut sender = Map::new();
     sender.insert("name".into(), json!(name));
     if let Some(class) = class {
@@ -25,8 +49,10 @@ pub(super) fn prompt_params(
     if let Some(thread) = provenance.and_then(|p| p.get("threadId")).and_then(Value::as_str) {
         sender.insert("threadId".into(), json!(thread));
     }
-    params["_meta"] = json!({"acpmux": {"sender": Value::Object(sender)}});
-    params
+    if !params.get("_meta").is_some_and(Value::is_object) {
+        params["_meta"] = json!({});
+    }
+    params["_meta"]["acpmux"] = json!({"sender": Value::Object(sender)});
 }
 
 #[cfg(test)]
@@ -43,6 +69,13 @@ mod tests {
             json!({"name": "lane-a", "class": "question", "threadId": "t1"})
         );
         assert_eq!(params["sessionId"], "s");
+    }
+
+    #[test]
+    fn a_steer_keeps_its_own_meta_and_names_its_sender() {
+        let mut params = json!({"sessionId": "s", "prompt": [], "_meta": {"steer": true}});
+        add_sender(&mut params, Some("lane-a"), None, None);
+        assert_eq!(params["_meta"], json!({"steer": true, "acpmux": {"sender": {"name": "lane-a"}}}));
     }
 
     #[test]

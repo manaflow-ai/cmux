@@ -94,7 +94,13 @@ pub fn is_owner_message(summary: &Summary, message: &Message) -> bool {
 
 /// [`is_owner_message`] for an explicit owner participant id (a placed Cloud
 /// brain uses its `user_...` owner rather than the local `user_local`).
+/// A message another agent sent through the owner's CLI (its
+/// `client_msg_id` names that agent, `cmux_conversation::agent_sender`) is
+/// that agent's, never the owner's, whoever posted it.
 pub fn is_owner_message_as(summary: &Summary, message: &Message, owner: &str) -> bool {
+    if cmux_conversation::agent_sender::of_client_msg_id(&message.client_msg_id).is_some() {
+        return false;
+    }
     summary.participants.iter().any(|p| {
         p.id == message.author
             && p.kind == ParticipantKind::Human

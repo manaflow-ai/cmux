@@ -242,7 +242,10 @@ impl Brain {
                 _ => Vec::new(),
             };
             let logged =
-                super::files::logged_text(&super::images::logged_text(&labelled, &images), &files);
+                super::files::logged_text(
+                &super::images::logged_text(&super::inbox::agent_framed(&message, &labelled), &images),
+                &files,
+            );
             if let Some(target) = crate::membership::thread_target(summary, &message) {
                 self.reply_threads.insert(message.id.clone(), target);
             }
@@ -254,6 +257,8 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
+                    agent: cmux_conversation::agent_sender::of_client_msg_id(&message.client_msg_id)
+                        .map(|sender| sender.name),
                     requires_approval: !self
                         .settings
                         .membership
