@@ -268,7 +268,7 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
-import { settleTrayExit } from "./subagents/trayMotion";
+import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
@@ -2662,6 +2662,10 @@ export function VirtualTranscript({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
+  /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
+  /// own height as of the last pass, which tells a pass whose rows grew.
+  const foldBase = useRef(0);
+  const rowsSeen = useRef(0);
   /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
   /// row; a withdrawn one (deleted from the queue) never does.
   const queueLeft = useRef(false);
@@ -2732,14 +2736,27 @@ export function VirtualTranscript({
     // The composer card's height, while the stack reaches over the view.
     const card = (space: number) =>
       space > 0 ? (dock.querySelector(".acpmux-composer-box")?.getBoundingClientRect().height ?? 0) : 0;
-    // The tray, at its drawn height while what it opens plays (useFold animates it).
+    // The tray, at its drawn height while what it opens plays (useFold animates it); not the copy
+    // of one that left (trayMotion.tsx), which fades over the stack and takes no room.
     const tray = (space: number) =>
-      space > 0 ? (dock.querySelector(":scope > .acpmux-running-tray")?.getBoundingClientRect().height ?? 0) : 0;
+      space > 0
+        ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
+        : 0;
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
+    // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
+    // unless the tray's height changed meanwhile.
     const toggled = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const toggle = target?.closest("[aria-expanded]");
-      if (toggle && toggle.closest(".acpmux-running-tray")?.parentElement === dock) trayToggled.current = true;
+      if (!toggle || toggle.closest(".acpmux-running-tray")?.parentElement !== dock) return;
+      trayToggled.current = true;
+      const at = tray(1);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (Math.abs(tray(1) - at) < 0.5 && Math.abs(dockTrayRef.current - foldBase.current) < 0.5)
+            trayToggled.current = false;
+        }),
+      );
     };
     dock.addEventListener("click", toggled, { capture: true });
     const observer = new ResizeObserver(() => {
@@ -2748,6 +2765,8 @@ export function VirtualTranscript({
       const nextHeight = height();
       const nextCard = card(next);
       const nextTray = tray(next);
+      // A tray that went holds nothing: the room is the stack's again.
+      if (nextTray <= 0) trayToggled.current = false;
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
@@ -3175,10 +3194,6 @@ export function VirtualTranscript({
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockSpace);
-  /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
-  /// own height as of the last pass, which tells a pass whose rows grew.
-  const foldBase = useRef(0);
-  const rowsSeen = useRef(0);
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
