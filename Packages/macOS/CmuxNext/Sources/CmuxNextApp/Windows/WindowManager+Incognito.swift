@@ -42,10 +42,10 @@ extension WindowManager {
             EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice, space: space)
             return windowID
         }
-        // Claimed before anything else runs: the pending claim keeps the
-        // session alive until the window opens.
+        // Claimed before anything else runs: the pending claim keeps the session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
+        recordIncognitoWorkspaces() // phones hide it before the daemon creates it (PhoneIncognitoHiding)
         Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
