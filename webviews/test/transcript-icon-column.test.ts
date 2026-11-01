@@ -86,7 +86,12 @@ await requireBrowserLane("transcript-icon-column.test.ts", async () => {
         const slot = row.querySelector<HTMLElement>(ICON);
         if (!slot) throw new Error(`a row with no icon slot: ${row.className}`);
         const slotBox = slot.getBoundingClientRect();
-        const glyph = [...slot.querySelectorAll<Element>("svg, img, span")].find(visible) ?? slot;
+        // The drawn glyph itself (an svg or an image) before any wrapper: AgentIdentity wraps its mark
+        // in spans wider than the glyph, so a span is only the fallback for a text mark.
+        const glyph =
+          [...slot.querySelectorAll<Element>("svg, img")].find(visible) ??
+          [...slot.querySelectorAll<Element>("span")].find(visible) ??
+          slot;
         const glyphBox = glyph.getBoundingClientRect();
         let ink = Math.max(glyphBox.width, glyphBox.height);
         if (glyph instanceof SVGSVGElement) {
