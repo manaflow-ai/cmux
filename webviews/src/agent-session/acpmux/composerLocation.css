@@ -300,6 +300,7 @@
      trailing gutter holding its number, or the check on the chosen row, as Claude's model menu. */
   grid-template-columns: 16px minmax(0, 1fr) 16px;
   align-items: center;
+  /* menu-gutter-allow: Claude Code's mode menu, a trailing number or check column by design (Leo 2026-10-19) */
   gap: 8px;
   min-height: var(--ui-row-height);
   /* Tight, as the references (Leo 2026-10-21, "STOP WITH THE INCESSANT LEFT-RIGHT PADDING"): the
@@ -310,6 +311,7 @@
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 /* The chosen row's check is the theme's lit accent (never system blue, never orange). */
+/* menu-gutter-allow: the mode menu's trailing check, in its 16px number column (Leo 2026-10-19) */
 .acpmux-access-item .ui-menu-check { grid-row: 1; grid-column: 3; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); font-weight: 600; }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
@@ -1177,12 +1179,13 @@
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
-  --acpmux-row-inset: 8px;
+  --acpmux-row-inset: var(--grid-composer-inset);
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
-  --acpmux-row-edge: 14px;
-  min-height: 28px;
-  /* The foot gap (grid.md 5.1, Leo 2026-10-29: "hm i still feel like we could go lower tho"). */
+  --acpmux-row-edge: var(--grid-composer-quiet-row-text);
+  min-height: var(--grid-composer-quiet-row-height);
+  /* design/grid.md 5.1: the quiet row stands one foot gap under the box (Leo 2026-10-29: "hm i still
+     feel like we could go lower tho"). */
   margin-top: var(--grid-gap-foot);
   /* Claude Code's row sits at the window's bottom edge with about 8 px under it (Leo 2026-10-21: too
      much space at the bottom compared to Claude Code). The floating dock's composer adds nothing
@@ -1316,7 +1319,7 @@
 /* The box's corner, which the trust bar in the stack over it shares. */
 .acpmux-composer-box[data-composer-grid],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid]) {
-  --acpmux-composer-radius: 11px;
+  --acpmux-composer-radius: var(--grid-composer-radius);
 }
 /* The bar is the grid's own items, not one box in it: styles.css gives .acpmux-composer-bar a flex
    row with the same specificity, so this names the bar too and wins by order (the diagnostics in

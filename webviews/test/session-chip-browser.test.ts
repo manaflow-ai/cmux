@@ -3,7 +3,7 @@
 // whole line gets highlighted and it's not obvious that clicking on this will be a new thing"), in
 // a real layout (test/browser/session-chip.harness.tsx): on a received message's line and on a
 // sent message's row, the chip's centre is the row icon's centre, it has real padding around its
-// name, it reads as a link (the link colour, an open cue), and pointing at it lights the chip alone:
+// name, it reads as a way to another chat (its own tint, an open cue), and pointing at it lights the chip alone:
 // the line's background and text keep their tone. design/chat-transcript.md "Session link chip".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -160,6 +160,95 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
           expect(clicked.lineColor).toBe(rest.lineColor);
           expect(await page.evaluate(() => (window as unknown as { opened: string[] }).opened.length)).toBe(1);
           expect(errors).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
+  // Leo, 2026-11-01: "dont do blue by default, theme it". The chip's text, tint and ring are the
+  // theme's own text colour (--cv-text, from the host's --agent-text) at rest and under the pointer,
+  // in light, dark and a non-default theme whose own blue is set (Catppuccin Mocha): never the link
+  // blue. design/chat-transcript.md "Session link chip".
+  const CHIPS = {
+    received: ROWS.received.chip,
+    sent: ROWS.sent.chip,
+    reply: '[data-chip-row="reply"] .acpmux-started-chip',
+  } as const;
+  const chipColours = async (page: Page, selector: string) => {
+    await settled(page);
+    return page.evaluate((selector) => {
+      const chip = document.querySelector<HTMLElement>(selector)!;
+      // The theme's text token as this chip's scope resolves it.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--cv-text)";
+      chip.parentElement!.append(probe);
+      // A computed colour as [r, g, b] in 0-255 and its alpha. Chromium gives rgb(), color(srgb ...)
+      // (any srgb color-mix) or, for an oklab mix such as the link blue, oklab(); the last is read
+      // back off a 1px canvas, which is exact for an opaque colour.
+      const parse = (value: string) => {
+        const colour = /^((?:rgba?|color|oklab|oklch|lab|lch)\([^)]*\))/.exec(value.trim())?.[1];
+        if (!colour) return null;
+        const match = /^(rgba?|color)\((?:srgb\s+)?([^)]*)\)$/.exec(colour);
+        if (match) {
+          const parts = match[2]!
+            .split(/[\s,/]+/)
+            .filter(Boolean)
+            .map(Number);
+          const scale = match[1] === "color" ? 255 : 1;
+          return { rgb: parts.slice(0, 3).map((part) => part * scale), alpha: parts[3] ?? 1 };
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = colour;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, bl, a] = context.getImageData(0, 0, 1, 1).data;
+        return { rgb: [r!, g!, bl!], alpha: a! / 255 };
+      };
+      const token = getComputedStyle(probe).color;
+      const style = getComputedStyle(chip);
+      const result = {
+        token: parse(token),
+        text: parse(style.color),
+        tint: parse(style.backgroundColor),
+        ring: style.boxShadow === "none" ? null : parse(style.boxShadow),
+      };
+      probe.remove();
+      return result;
+    }, selector);
+  };
+  const sameRgb = (a: { rgb: number[] } | null, b: { rgb: number[] } | null) => {
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    for (const [index, channel] of a!.rgb.entries()) expect(Math.abs(channel - b!.rgb[index]!)).toBeLessThanOrEqual(1);
+  };
+
+  for (const theme of ["dark", "light", "mocha"] as const)
+    for (const [kind, selector] of Object.entries(CHIPS)) {
+      test(`${theme} ${kind}: the session chip takes the theme's text colour, never the link blue`, async () => {
+        const page = await browser.newPage({ viewport: { width: 700, height: 320 }, deviceScaleFactor: 2 });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.emulateMedia({ reducedMotion: "reduce" });
+          await page.goto(`http://127.0.0.1:${port}/test/browser/session-chip.html?theme=${theme}`);
+          await page.locator(selector).waitFor();
+          await page.mouse.move(690, 310);
+          const rest = await chipColours(page, selector);
+          // Its words are the theme's text, its tint and ring a wash of that same colour.
+          sameRgb(rest.text, rest.token);
+          expect(rest.text!.alpha).toBe(1);
+          sameRgb(rest.tint, rest.token);
+          expect(rest.tint!.alpha).toBeGreaterThan(0);
+          if (rest.ring) sameRgb(rest.ring, rest.token);
+
+          // Under the pointer it lifts with a stronger wash of the same token, still no blue.
+          await page.locator(selector).hover();
+          const hover = await chipColours(page, selector);
+          sameRgb(hover.text, hover.token);
+          sameRgb(hover.tint, hover.token);
+          expect(hover.tint!.alpha).toBeGreaterThan(rest.tint!.alpha);
+          if (hover.ring) sameRgb(hover.ring, hover.token);
         } finally {
           await page.close();
         }

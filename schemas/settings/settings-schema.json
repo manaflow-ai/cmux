@@ -80130,6 +80130,9 @@
         "moon",
         "moon-blue",
         "mochi",
+        "captain",
+        "sprout",
+        "bolt",
         "fox-arctic",
         "machine-violet",
         "machine-gold",
@@ -80189,6 +80192,27 @@
             "text" : "Mochi"
           },
           "value" : "mochi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.captain",
+            "text" : "Captain"
+          },
+          "value" : "captain"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.sprout",
+            "text" : "Sprout"
+          },
+          "value" : "sprout"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.bolt",
+            "text" : "Bolt"
+          },
+          "value" : "bolt"
         },
         {
           "title" : {
