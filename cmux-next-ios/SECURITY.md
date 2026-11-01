@@ -3,8 +3,8 @@
 This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cmux-mobile-host`. Each
-path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
-`upload`, or `echo`, and, when the app supervises hostd, only after the
+path goes through one link service: `daemon`, `chief`, `acpmux`, `cloud-directory`,
+`cloud-acpmux`, `file`, `upload`, or `echo`, and, when the app supervises hostd, only after the
 `auth` pairing service (below) accepted the phone.
 Any other service is refused with `unknown_service`.
 
@@ -101,6 +101,24 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
   the answer.
 - **Unowned objects.** The phone sees only the owner's acpmux sessions.
 - **Local state.** Transcripts belong to the owner.
+
+## `cloud-directory` and `cloud-acpmux`: authenticated Cloud chat
+
+`cloud-directory` asks the signed-in Mac app for a fresh snapshot of its
+authenticated owner CloudLinkSession objects. It returns only machine id, team
+id and display name. Socket paths, ownership markers and link tickets never
+reach the phone. Duplicate machine/team entries are omitted so a stale or
+conflicting link cannot be selected.
+
+`cloud-acpmux` accepts a machine id and team id from that directory and asks
+the app for another fresh snapshot. Hostd requires exactly one matching owner
+link and an absolute socket path supplied by the app. It performs the normal
+`link.dial` handshake for that machine's `daemon` service and then forwards the
+ACP stream to the Cloud machine's native adapter. The VM adapter remains the
+security boundary: it maps the supported chat calls to scoped agent-session
+operations and applies the same remote-origin asking-mode and approval checks
+as the Mac acpmux path. Hostd never opens a phone-supplied path, accepts an
+arbitrary service, or treats the carrier as a local-owner connection.
 
 ## `file`: read-only previews
 
