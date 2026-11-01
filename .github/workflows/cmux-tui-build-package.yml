@@ -161,10 +161,10 @@ jobs:
           # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188),
           # on 32 4.6-6.0 min (2026-10-30/31). 32 vCPU held the room of two 16 vCPU legs
           # under Blacksmith's vCPU cap (.github/runners.json linux_sizes).
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
-          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || !startsWith(fromJSON(vars.RUNNER_POOLS || '{}').linux, 'blacksmith-') && fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || !startsWith(fromJSON(vars.RUNNER_POOLS || '{}').linux, 'blacksmith-') && fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || !startsWith(fromJSON(vars.RUNNER_POOLS || '{}').linux, 'blacksmith-') && fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
@@ -1003,7 +1003,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || !startsWith(fromJSON(vars.RUNNER_POOLS || '{}').linux, 'blacksmith-') && fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404') }}
     timeout-minutes: 30
     permissions:
       contents: read

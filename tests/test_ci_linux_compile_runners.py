@@ -145,11 +145,13 @@ LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
-def trusted_fallback(label: str, other: str | None = None) -> str:
-    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
+def trusted_fallback(label: str, other: str | None = None, *, pool: bool = False) -> str:
+    """Measured size and outage switch, optionally preceded by the live Linux pool."""
     other = other or (SMALL if label == BIG else BIG)
+    live_pool = ("!startsWith(fromJSON(vars.RUNNER_POOLS || '{}').linux, 'blacksmith-') "
+                 "&& fromJSON(vars.RUNNER_POOLS || '{}').linux || ") if pool else ""
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
+            f"{live_pool}vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -187,7 +189,7 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
         OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
-        OWNER + "(inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
+        OWNER + "(inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
@@ -224,7 +226,11 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
         else:
             fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
             prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
-    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id))) + closing + " }}"
+    pool = (workflow, job_id, where) in {
+        ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"),
+        ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"),
+    }
+    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), pool=pool) + closing + " }}"
 
 
 def load(name: str) -> dict:
@@ -277,9 +283,14 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
-                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)))), 1, f"{workflow}:{job_id} {where}: {value}")
+                pool = (workflow, job_id, where) in {
+                    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"),
+                    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"),
+                }
+                expected = trusted_fallback(label, OTHER.get((workflow, job_id)), pool=pool)
+                self.assertEqual(value.count(expected), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)))) + r"\)? \}\}$",
+                    value, re.escape(expected) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
