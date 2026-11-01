@@ -6,8 +6,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::message_events::{
-    embed_message_context, ensure_message_provenance, message_context, name_message,
-    record_message_context,
+    embed_message_context, ensure_message_provenance, keep_message, message_context,
+    name_kept_message, name_message, record_message_context,
 };
 
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
@@ -186,7 +186,11 @@ impl Hub {
             }));
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
-        let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+        let duplicate = |v: Value| {
+            let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+            name_kept_message(&mut answer, session, &prompt_id);
+            answer
+        };
         let seen = {
             let mut ledger = session.prompts.lock().unwrap();
             match ledger.iter().find(|(id, _)| *id == prompt_id) {
@@ -232,12 +236,18 @@ impl Hub {
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
-                f(duplicate(logged.clone()));
+                let value = match &logged {
+                    Ok(value) => value.clone(),
+                    Err(error) => json!({"_meta": {"acpmux": {
+                        "turnId": error.data.as_ref().and_then(|d| d.get("turnId"))
+                    }}}),
+                };
+                f(duplicate(value));
             }
             let mut ledger = session.prompts.lock().unwrap();
-            outcome.send_replace(Some(Ok(logged.clone())));
+            outcome.send_replace(Some(logged.clone()));
             prompt_ledger::prune(&mut ledger);
-            return Ok(logged);
+            return logged;
         }
         // Message events are acknowledged at the same point as the prompt. This covers direct
         // sends and automatic lane reports, both of which can call `prompt_with` without passing
@@ -253,10 +263,12 @@ impl Hub {
             let accepted = accepted.clone();
             let hub = self.clone();
             let target_id = session.id.clone();
+            let (kept_in, kept_id) = (session.clone(), prompt_id.clone());
             opts.on_accepted = Some(Box::new(move |mut v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
                     record_message_context(&hub, &target_id, message);
+                    keep_message(&kept_in, &kept_id, message);
                     name_message(&mut v, message);
                 }
                 f(v);
@@ -265,10 +277,12 @@ impl Hub {
             let accepted = accepted.clone();
             let hub = self.clone();
             let target_id = session.id.clone();
+            let (kept_in, kept_id) = (session.clone(), prompt_id.clone());
             opts.on_accepted = Some(Box::new(move |_| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
                     record_message_context(&hub, &target_id, message);
+                    keep_message(&kept_in, &kept_id, message);
                 }
             }));
         }

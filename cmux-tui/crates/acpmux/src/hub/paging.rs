@@ -30,6 +30,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_order",
     "queue_paused",
     "queue_resumed",
+    // The owner approved or declined a prompt that waited for them (`queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_started",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
@@ -585,6 +588,8 @@ mod transcript_kind_tests {
             "queue_order",
             "queue_paused",
             "queue_resumed",
+            "queue_approved",
+            "queue_declined",
         ] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }

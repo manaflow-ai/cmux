@@ -105,6 +105,10 @@
   width: 0;
   height: 24px;
 }
+/* Over a control of the row (LookSwitch.tsx useCrowded): not drawn and not in the control's way. */
+.acpmux-look-slot[data-crowded] {
+  visibility: hidden;
+}
 .nt-style.acpmux-look-dots {
   top: 0;
   bottom: auto;
