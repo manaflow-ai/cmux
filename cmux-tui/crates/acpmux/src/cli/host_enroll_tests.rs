@@ -1249,3 +1249,29 @@ fn doctor_refuses_to_move_a_daemon_run_with_its_own_listener_and_token() {
     assert!(results[2].fix.as_deref().unwrap().contains("ssh://leo@box.tail:47921"), "{results:?}");
     assert_read_only(&fake);
 }
+
+/// `--harness local` (what Add Machine passes): every profile in this Mac's
+/// harness folder is copied, and a Mac with none skips in words a person reads.
+#[test]
+#[cfg(unix)]
+fn harness_local_copies_every_profile_this_mac_has() {
+    let local = local_with("all", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let dir = local.harness_dir.clone().unwrap();
+    std::fs::write(dir.join("zed.toml"), "command = \"zed\"\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "not a profile").unwrap();
+    let home = std::env::temp_dir().join(format!("acpmux-enroll-all-home-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let sh = Sh(home.clone());
+    let ids = vec![LOCAL_HARNESSES.to_string()];
+    let fixed = harness(&sh, "box", &ids, &local, true);
+    assert_eq!(fixed.state, StepState::Fixed, "{fixed:?}");
+    assert_eq!(fixed.detail, "pi copied (missing); zed copied (missing)");
+    assert!(home.join(".config/cmux/harnesses/zed.toml").is_file());
+    let none = Local { harness_dir: None, home: None };
+    let skipped = harness(&sh, "box", &ids, &none, true);
+    assert_eq!(skipped.state, StepState::Skip);
+    assert_eq!(skipped.detail, "this machine has no agent profiles to copy");
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&dir);
+}
