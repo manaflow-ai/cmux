@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
@@ -51,5 +52,24 @@ import Testing
         }
         let plain = SidebarIntent.renameGroup(GroupID("g-a"), "x")
         #expect(plain.resolvingHostGroup(end: end) == plain)
+    }
+}
+
+/// A right-click on a remote group shows its machine's menu, never the group menu (rename, color, ungroup).
+@MainActor @Suite struct SidebarHostGroupMenuTests {
+    @Test func aRemoteGroupsMenuIsItsMachines() throws {
+        let machine = MachineID("ssh-box")
+        var s = SidebarSection(kind: .machine(SidebarMachine(id: machine, name: "box", kind: .ssh)),
+                               nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("w-1"), title: "one"))])
+        s.isHostGroup = true
+        let list = SidebarListView(model: SidebarModel(sections: [s.wrappedAsHostGroup()]))
+        list.frame = CGRect(x: 0, y: 0, width: 280, height: 300)
+        var asked: [SidebarContextTarget] = []
+        list.contextMenuProvider = { asked.append($0); return NSMenu() }
+        list.menuPresenter = { _, _, _ in }
+        list.reload(animated: false)
+        list.groupEditing.showMenu(SidebarGroup.hostGroupID(machine))
+        list.groupEditing.open(SidebarGroup.hostGroupID(machine))
+        #expect(asked == [.section(.machine(machine)), .section(.machine(machine))])
     }
 }
