@@ -90,13 +90,14 @@ import PackageDescription
 // bash 4.4-5.2 integration forks once per command, not twice; an iOS
 // renderer paces draws with a CADisplayLink.
 //
-// Since ef6ce279a..7f8d846b2 (release/cmux-ef6ce279-e2: this line's pin plus
-// only fork PRs #66 and #68 part 1 and the release workflow of #67, as feat's
-// 84a225487): a scroll region scroll breaks
+// Since ef6ce279a..d94ab9a53 (release/cmux-ef6ce279-e2: this line's pin plus
+// only fork PRs #66 and #68 and the release workflow of #67, as feat's
+// 34e73ba8b): a scroll region scroll breaks
 // the soft wrap across its edges, and the unwrapping formatter carries blank
 // cells only across a joined wrap (VT fuzz finding E2: the attach replay drew
 // the row under a DECSTBM region 43 or 163 columns to the right). The edge
-// break reads a compressed history row only when the pair was joined.
+// break reads a compressed history row only when the pair was joined, and
+// a clear of rows (ED, DECALN) breaks the wrap across the cleared rows' edges.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -121,8 +122,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7f8d846b24cf0f994feaebddfe6376f3ee38c595-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "e5f7345e4bab90a3de2476b008d5ad507de32d2b3c629ce06da83d6400a5b2cc"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-d94ab9a530c4104bec04bced642fafe3ce100235-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "e1e9324d05475526ec06bfa2450d55764ba3a65a0b5290ef90f4883e39ea4493"
         ),
     ]
 )
