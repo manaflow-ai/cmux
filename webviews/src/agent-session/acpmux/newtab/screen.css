@@ -1009,6 +1009,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   overflow-wrap: anywhere;
   letter-spacing: var(--text-heading--letter-spacing);
 }
+/* The machine the chat starts on, plain text in the question: a long name gives way first. */
+.nt-headline-machine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .nt-headline[data-look="quiet"] {
   --nt-headline-line: var(--text-heading--line-height);
   margin-bottom: 6px;

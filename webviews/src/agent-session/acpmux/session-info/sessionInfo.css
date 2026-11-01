@@ -409,7 +409,9 @@
    Subagents' fold rows, a subagent or a started chat) hovers one way: a faint tint of the text over
    whatever the card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light
    slab over the card), and inside the card's padding with the card's radius less that padding, so a
-   hover never reaches past the card's edge. */
+   hover never reaches past the card's edge. A Sources row lights only when it takes a click (its
+   file or link, as a pull request's row): an MCP tool's row or a file outside the folder is no
+   target, and the row and its link never both tint (two tints stacked to 14% over the link). */
 .acpmux-session-info {
   --acpmux-session-info-card-radius: 10px;
   --acpmux-session-info-panel-radius: 14px;
@@ -421,8 +423,7 @@
 .acpmux-session-info-section .ui-disclosure-trigger:hover,
 .acpmux-session-info-row--button:hover:not(:disabled),
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
-.acpmux-session-info-source:hover,
-.acpmux-session-info-source__link:hover,
+.acpmux-session-info-source:has(> .acpmux-session-info-source__link:hover),
 .acpmux-session-info-task__open:hover:not(:disabled),
 .acpmux-session-info-icon-button:hover:not(:disabled),
 button.acpmux-session-info-port:hover,
@@ -625,6 +626,17 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-link:hover:not(:disabled) {
   color: var(--agent-text);
   text-decoration: underline;
+}
+/* A grant's Revoke shows only while its own row is hovered or holds focus, at once, with no fade
+   (as the pull request chips' × does, #28533): a list of grants does not repeat a lit Revoke on
+   every row. At rest it is transparent, not hidden, so Tab still reaches it; the row itself takes
+   no highlight, only the button lights on its own hover. */
+.acpmux-session-info-row--grant > .acpmux-session-info-link {
+  opacity: 0;
+  transition: none;
+}
+.acpmux-session-info-row--grant:is(:hover, :focus-within) > .acpmux-session-info-link {
+  opacity: 1;
 }
 .acpmux-session-info-switch {
   flex: 1 1 auto;
@@ -1200,4 +1212,87 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* Cloud repository attachment rows and their instant-open picker. */
+.acpmux-cloud-environment-row .acpmux-session-info-row__end {
+  margin-left: auto;
+}
+.acpmux-session-info-row--button[data-open] {
+  background: var(--acpmux-session-info-row-hover);
+}
+.acpmux-cloud-repository-popover {
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px;
+}
+.acpmux-cloud-repository-picker {
+  display: grid;
+  gap: 8px;
+}
+.acpmux-cloud-repository-search {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 6px;
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-cloud-repository-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.acpmux-cloud-repository-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--agent-text);
+  background: transparent;
+  text-align: left;
+}
+.acpmux-cloud-repository-option:hover,
+.acpmux-cloud-repository-option:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.acpmux-cloud-repository-option:disabled {
+  cursor: wait;
+}
+.acpmux-cloud-repository-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-cloud-repository-source {
+  margin-left: auto;
+  color: color-mix(in srgb, var(--agent-text) 52%, transparent);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.acpmux-cloud-repository-progress,
+.acpmux-cloud-repository-empty,
+.acpmux-cloud-repository-error {
+  padding: 4px 8px;
+  color: color-mix(in srgb, var(--agent-text) 65%, transparent);
+  font-size: var(--text-detail);
+}
+.acpmux-cloud-repository-error {
+  color: var(--agent-error, #d66);
+}
+.acpmux-cloud-repository-connect {
+  display: block;
+  padding: 4px 8px;
+  color: var(--accent-color);
+  font-size: var(--text-detail);
 }

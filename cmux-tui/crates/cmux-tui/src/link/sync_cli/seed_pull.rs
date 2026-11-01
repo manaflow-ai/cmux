@@ -372,11 +372,15 @@ fn export(
             json!({ "folder": remote_root, "since_work": base.work, "since_head": base.head, "bundle": bundle }),
         )
         .map_err(refused)?;
-    let job = started["job"].as_str().context("the export answered no job")?.to_string();
+    let job = started
+        .get("job")
+        .and_then(Value::as_str)
+        .context("the export answered no job")?
+        .to_string();
     let deadline = Instant::now() + EXPORT_DEADLINE;
     let status = loop {
         let status = remote.call("git.seed.status", json!({ "job": job })).map_err(refused)?;
-        if status["state"] != "running" {
+        if status.get("state").and_then(Value::as_str) != Some("running") {
             break status;
         }
         if Instant::now() > deadline {
@@ -384,21 +388,22 @@ fn export(
         }
         std::thread::sleep(EXPORT_POLL);
     };
-    if status["state"] != "done" {
+    let text = |name: &str| status.get(name).and_then(Value::as_str);
+    if text("state") != Some("done") {
         return Err(ExportFailed {
-            code: status["error_code"].as_str().unwrap_or("seed.export_failed").to_string(),
-            message: status["error"].as_str().unwrap_or("the machine's export failed").to_string(),
+            code: text("error_code").unwrap_or("seed.export_failed").to_string(),
+            message: text("error").unwrap_or("the machine's export failed").to_string(),
         }
         .into());
     }
     let sha = |name: &str| -> anyhow::Result<String> {
-        let value = status[name].as_str().unwrap_or_default();
+        let value = text(name).unwrap_or_default();
         if !is_sha(value) {
             bail!("the machine's export answered no {name} commit");
         }
         Ok(value.to_string())
     };
-    let head_ref = status["head_ref"].as_str().map(str::to_string);
+    let head_ref = text("head_ref").map(str::to_string);
     if let Some(name) = &head_ref
         && name.strip_prefix("refs/heads/").is_none_or(str::is_empty)
     {
@@ -409,9 +414,9 @@ fn export(
         head: sha("head")?,
         index: sha("index")?,
         work: sha("work")?,
-        unchanged: status["unchanged"] == json!(true),
-        bundle_bytes: status["bundle_bytes"].as_u64().unwrap_or(0),
-        left_out: status["left_out"].clone(),
+        unchanged: status.get("unchanged").and_then(Value::as_bool) == Some(true),
+        bundle_bytes: status.get("bundle_bytes").and_then(Value::as_u64).unwrap_or(0),
+        left_out: status.get("left_out").cloned().unwrap_or_default(),
     })
 }
 
@@ -750,8 +755,9 @@ impl Staging {
             if read == 0 {
                 break;
             }
-            hasher.update(&buffer[..read]);
-            out.write_all(&buffer[..read])?;
+            let chunk = buffer.get(..read).context("a read said it filled more than its buffer")?;
+            hasher.update(chunk);
+            out.write_all(chunk)?;
         }
         let sha256 = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
         Ok((path, sha256))
