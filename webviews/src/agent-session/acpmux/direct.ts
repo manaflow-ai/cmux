@@ -7785,7 +7785,7 @@ export class AcpmuxDirectClient {
         // The person moved to another chat while acpmux answered: nothing shows for this one.
         if (this.closed || generation !== this.selectionGeneration) return;
         const live = liveDetails((error as { details?: unknown }).details);
-        if (!adopt.watch && (await this.watchLive(adopt, live))) return;
+        if (!adopt.watch && (await this.watchLive(adopt))) return;
         if (this.closed || generation !== this.selectionGeneration) return;
         this.liveAdopt = { adopt, ...live };
         this.emit();
@@ -7806,12 +7806,15 @@ export class AcpmuxDirectClient {
     this.adoptFailed(translate("notice.resumeUnsupported"));
   }
   /// The chat acpmux refused to resume because another app still runs it (`adopt.live`), shown
-  /// here View Only instead: its transcript at once, following that app, with the same Fork It and
-  /// Open Anyway over it (`takeOver`). "there's frequently nothing wrong with showing the same
-  /// session but in two different places" (Leo, 2026-10-29). False when it cannot be watched (a
-  /// daemon or harness without watching): the choice shows alone. True also when the person moved
-  /// to another chat (or the pane closed) meanwhile: then nothing more shows for this one.
-  private async watchLive(adopt: AcpmuxAdopt, live: { canFork: boolean; command?: string }): Promise<boolean> {
+  /// here View Only instead: its transcript at once, following that app, under the View Only
+  /// banner. "there's frequently nothing wrong with showing the same session but in two different
+  /// places" (Leo, 2026-10-29). It asks nothing on open: Fork It and Open Anyway show only once
+  /// the person replies or takes over and acpmux refuses that as live (`takeOver`). "the fact that
+  /// it's asking me to fork while im inside an existing claude code chat is bad" (Leo,
+  /// 2026-10-30). False when it cannot be watched (a daemon or harness without watching): the
+  /// choice shows alone. True also when the person moved to another chat (or the pane closed)
+  /// meanwhile: then nothing more shows for this one.
+  private async watchLive(adopt: AcpmuxAdopt): Promise<boolean> {
     const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
     const generation = this.selectionGeneration;
     const moved = () => this.closed || generation !== this.selectionGeneration;
@@ -7831,8 +7834,6 @@ export class AcpmuxDirectClient {
       await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
       return moved();
     }
-    this.liveTakeOver = live;
-    this.liveTakeOverFor = sessionId;
     if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
     return true;
   }
@@ -7842,7 +7843,7 @@ export class AcpmuxDirectClient {
   async adoptLive(choice: "fork" | "open"): Promise<void> {
     const live = this.liveAdopt;
     if (!live) {
-      // The same choice over a watched chat (`watchLive`, or a Take Over refused as live): it forks
+      // The same choice over a watched chat (a reply or Take Over refused as live): it forks
       // or takes that chat over; `adopted` names the chat the tab keeps.
       const sessionId = this.selectedSessionId;
       const generation = this.selectionGeneration;
