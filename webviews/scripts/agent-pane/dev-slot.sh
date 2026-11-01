@@ -122,6 +122,8 @@ case "$cmd" in
     bin="$(resolve_bin)"
     if [[ -n "$from" ]]; then
       python3 -I "$WEBVIEWS/scripts/agent-pane/dev_slot_project.py" "$from" "$home" --sessions "$sessions"
+      # An agent host a prompt in an earlier copy started belongs to a log this replaced.
+      rm -rf "$home/hosts"
       echo "$from" > "$home/projection"
     fi
     # A fresh token every start; the daemon trusts only this slot's Vite origin.

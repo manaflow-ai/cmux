@@ -14,6 +14,8 @@ Store layout (cmux-tui/crates/acpmux/src/store.rs): `sessions/<id>/session.json`
     dev_slot_project.py SOURCE_HOME SLOT_HOME [--sessions N]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -21,13 +23,16 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
-# The kinds that open or close work the next daemon would act on. serde writes `"kind":"x"`.
-OPENS = {"queued", "turn_started"}
-CLOSES = {"turn_result", "queue_removed", "queue_declined"}
-# A prompt joined into a running turn (`joinedTurnId`) left the queue; that turn is tracked itself.
-# A plain `dequeued` is followed by its own `turn_started`, and one taken into an inbox digest waits.
-JOINED = "dequeued"
+# The kinds that hold work the next daemon would act on. serde writes `"kind":"x"`.
+# A queued prompt waits (hub/queue.rs `restore_queue_only`) until its turn starts, it is removed or
+# declined, or it joins a running turn (`dequeued` with `joinedTurnId`); a plain `dequeued` whose
+# turn never started is put back (`lost_start.rs`), and one taken into an inbox digest waits too.
+WAITS_END = {"turn_started", "queue_removed", "queue_declined"}
+# An inbox message wakes its chat (hub/inbox.rs `restore_inbox`, `inbox_review`) until it is
+# noticed (`deliveredRead`, or named by `inbox_noticed`) or removed.
+INBOX = {"inbox", "inbox_noticed", "inbox_removed"}
 MOVES = {"transfer_out": True, "transfer_aborted": False, "imported": False}
 PAIRS = {
     "agent_pair_held": True,
@@ -36,8 +41,8 @@ PAIRS = {
     "agent_pair_released": False,
     "agent_pair_dropped": False,
 }
-NEEDLES = tuple(f'"kind":"{k}"'.encode() for k in OPENS | CLOSES | {JOINED} | set(MOVES) | set(PAIRS))
-
+KINDS = {"queued", "dequeued", "turn_result"} | WAITS_END | INBOX | set(MOVES) | set(PAIRS)
+NEEDLES = tuple(f'"kind":"{k}"'.encode() for k in KINDS)
 
 def segments(session: Path) -> list[Path]:
     events = session / "events"
@@ -51,9 +56,18 @@ def last_change(session: Path) -> float:
     return max((p.stat().st_mtime for p in files if p.exists()), default=0.0)
 
 
-def pending_work(session: Path) -> str | None:
+def changed_or_zero(session: Path) -> float:
+    try:
+        return last_change(session)
+    except FileNotFoundError:
+        return 0.0
+
+
+def pending_work(session: Path) -> Optional[str]:
     """Why the next daemon would act on this chat, or None when it is quiet."""
-    open_turns: set[str] = set()
+    waiting: set = set()
+    running: set = set()
+    unread: set = set()
     moving = paired = False
     last_status = None
     for segment in segments(session):
@@ -67,22 +81,37 @@ def pending_work(session: Path) -> str | None:
                     continue  # a torn last line of a log being written
                 if record.get("dir") != "mux":
                     continue  # an agent's update may carry any kind
-                kind, msg = record.get("kind"), record.get("msg") or {}
-                turn = msg.get("turnId") if isinstance(msg, dict) else None
-                if kind in OPENS and turn:
-                    open_turns.add(turn)
-                elif kind == JOINED and turn and msg.get("joinedTurnId"):
-                    open_turns.discard(turn)
-                elif kind in CLOSES and turn:
-                    open_turns.discard(turn)
-                    if kind == "turn_result":
-                        last_status = msg.get("status")
+                kind, msg = record.get("kind"), record.get("msg")
+                if not isinstance(msg, dict):
+                    continue
+                turn = msg.get("turnId")
+                if kind == "queued" and turn:
+                    waiting.add(turn)
+                elif kind == "dequeued" and turn and msg.get("joinedTurnId"):
+                    waiting.discard(turn)
+                elif kind in WAITS_END and turn:
+                    waiting.discard(turn)
+                    if kind == "turn_started":
+                        running.add(turn)
+                elif kind == "turn_result" and turn:
+                    running.discard(turn)
+                    last_status = msg.get("status")
+                elif kind == "inbox" and msg.get("promptId") and msg.get("deliveredRead") is not True:
+                    unread.add(msg["promptId"])
+                elif kind == "inbox_noticed":
+                    unread.difference_update(i for i in msg.get("promptIds") or [] if isinstance(i, str))
+                elif kind == "inbox_removed":
+                    unread.discard(msg.get("promptId"))
                 elif kind in MOVES:
                     moving = MOVES[kind]
                 elif kind in PAIRS:
                     paired = PAIRS[kind]
-    if open_turns:
-        return f"{len(open_turns)} unfinished or queued turn(s)"
+    if running:
+        return f"{len(running)} unfinished turn(s)"
+    if waiting:
+        return f"{len(waiting)} queued prompt(s)"
+    if unread:
+        return f"{len(unread)} unnoticed inbox message(s)"
     if moving:
         return "a move in flight"
     if paired:
@@ -91,14 +120,13 @@ def pending_work(session: Path) -> str | None:
         return "a failed last turn a retry may continue"
     return None
 
-
 def project(source: Path, slot: Path, limit: int) -> tuple[list[str], list[tuple[str, str]]]:
     root = source / "sessions"
     if not root.is_dir():
         raise SystemExit(f"no chats in {source}: {root} is not a folder")
     # A symlinked chat folder is refused by the store (store.rs), so it is not copied either.
     chats = [p for p in root.iterdir() if p.is_dir() and not p.is_symlink() and (p / "session.json").is_file()]
-    chats.sort(key=last_change, reverse=True)
+    chats.sort(key=lambda p: changed_or_zero(p), reverse=True)
     taken: list[str] = []
     skipped: list[tuple[str, str]] = []
     staging = Path(tempfile.mkdtemp(prefix=".sessions-", dir=slot))
@@ -106,11 +134,17 @@ def project(source: Path, slot: Path, limit: int) -> tuple[list[str], list[tuple
         for chat in chats:
             if len(taken) >= limit:
                 break
-            why = pending_work(chat)
+            try:
+                why = pending_work(chat)
+                if not why:
+                    shutil.copytree(chat, staging / chat.name, symlinks=True)
+            except FileNotFoundError:
+                # Removed while this ran (retention, a close): not projected.
+                shutil.rmtree(staging / chat.name, ignore_errors=True)
+                why = "removed while it was copied"
             if why:
                 skipped.append((chat.name, why))
                 continue
-            shutil.copytree(chat, staging / chat.name, symlinks=True)
             # Read again after the copy: work that began while it ran is not projected.
             why = pending_work(staging / chat.name)
             if why:

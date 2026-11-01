@@ -70,6 +70,22 @@ class ProjectionTest(unittest.TestCase):
         chat(self.source, "pair-done", [*DONE, ("mux", "agent_pair_held", {}), ("mux", "agent_pair_released", {})])
         self.assertEqual(self.project(), (["joined", "moved-back", "pair-done", "removed"], {}))
 
+    def test_an_unnoticed_inbox_message_wakes_the_chat(self):
+        chat(self.source, "unread", [*DONE, ("mux", "inbox", {"promptId": "m1"})])
+        chat(self.source, "noticed", [*DONE, ("mux", "inbox", {"promptId": "m1"}),
+                                      ("mux", "inbox_noticed", {"promptIds": ["m1"], "noticePromptId": "n1"})])
+        chat(self.source, "removed", [*DONE, ("mux", "inbox", {"promptId": "m1"}),
+                                      ("mux", "inbox_removed", {"promptId": "m1"})])
+        chat(self.source, "delivered", [*DONE, ("mux", "inbox", {"promptId": "m1", "deliveredRead": True})])
+        taken, skipped = self.project()
+        self.assertEqual(taken, ["delivered", "noticed", "removed"])
+        self.assertEqual(list(skipped), ["unread"])
+
+    def test_a_queued_prompt_waits_until_its_turn_starts(self):
+        # The daemon restores a queued prompt whose turn never started, whatever else was logged.
+        chat(self.source, "queued", [("mux", "queued", {"turnId": "t2"}), ("mux", "turn_result", {"turnId": "t2"})])
+        self.assertEqual(self.project()[0], [])
+
     def test_a_plain_dequeue_waits_for_its_turn(self):
         chat(self.source, "dequeued", [("mux", "queued", {"turnId": "t2"}), ("mux", "dequeued", {"turnId": "t2"})])
         self.assertEqual(self.project()[0], [])

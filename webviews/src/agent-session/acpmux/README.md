@@ -38,7 +38,7 @@ To iterate on your own chats instead of an empty daemon, start the slot from a p
 webviews/scripts/agent-pane/dev-slot.sh up 1 --from ~/.acpmux [--sessions 30]
 ```
 
-`dev_slot_project.py` copies the newest chats that leave no work for a daemon (no unfinished turn, waiting prompt, move or agent pair in flight, or failed last turn a retry may continue) into the slot's `sessions/`, replacing its last projection, and names each chat it skipped and why. The source home is only read and its agent hosts are not copied, so the slot adopts nothing; the slot's config turns auto-resume off. The pane then shows your real transcripts with hot reload. A prompt sent in a copied chat runs there as a new turn (in the chat's own folder), so use a projection for looking, not for working. `dev-slot.sh status` names the home a slot's chats came from.
+`dev_slot_project.py` copies the newest chats that leave no work for a daemon (no unfinished turn, queued prompt, unnoticed inbox message, move or agent pair in flight, or failed last turn a retry may continue) into the slot's `sessions/`, replacing its last projection, and names each chat it skipped and why. The source home is only read and its agent hosts are not copied (and the slot's own are cleared), so the slot adopts nothing; the slot's config sets `autoResumeDelaysMs: []`. The pane then shows your real transcripts with hot reload. A prompt sent in a copied chat runs there as a new turn (in the chat's own folder), so use a projection for looking, not for working. `dev-slot.sh status` names the home a slot's chats came from.
 
 To iterate on the real pane inside a running cmux-next with hot reload:
 
