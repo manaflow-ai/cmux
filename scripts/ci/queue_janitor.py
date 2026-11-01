@@ -217,6 +217,14 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} on main"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
+    path = str(run.get("path") or "")
+    name = str(run.get("name") or run.get("display_title") or "")
+    delivery = ("nightly" in path.lower() or "promote" in path.lower() or
+                path.endswith("cmux-next-dev-daily.yml") or
+                path.endswith("cmux-next-dev-daily-dispatch.yml") or
+                name.startswith("cmux NEXT DEV daily · "))
+    if delivery and event not in {"pull_request", "pull_request_target", "merge_group"}:
+        return "nightly/DEV/promote delivery workflow"
     if PROTECTED_WORKFLOW.search(haystack):
         return "release/nightly/TestFlight/App Store workflow"
     return None

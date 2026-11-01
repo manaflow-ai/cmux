@@ -137,6 +137,12 @@ class ProtectionTests(unittest.TestCase):
             event="push", branch="exp/incremental-generation-canary-v2",
             name="Xcode incremental generation canary", path=".github/workflows/incremental-state-canary.yml")))
 
+    def test_shared_dev_dispatch_is_delivery_protected(self):
+        run = make_run(event="workflow_dispatch", branch="feat-cmux-next",
+                       path=".github/workflows/cmux-next.yml",
+                       name="cmux NEXT DEV daily · aaa")
+        self.assertIsNotNone(janitor.protected_reason(run))
+
 
 class CategoryTests(unittest.TestCase):
     def classify(self, run, pr=None, *, jobs=None, newer=False, policy="compile-only"):
