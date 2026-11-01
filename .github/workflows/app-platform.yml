@@ -1,0 +1,54 @@
+# The app platform gate (scripts/cmux-next/check-app-platform.sh): the app host's runtime bundle
+# and generated cmux global are current, the @cmux/app-test harness, the runtime and the sample
+# apps pass their bun tests, the copies the Mac app bundles match their sources, and every
+# first-party app runs its own tests as a fork with only the public SDK
+# (first-party-apps/fork-check.ts, docs/app-store-platonic-ideal.md 5; known gaps in
+# first-party-apps/fork-check-gaps.json). Bun only: no Cargo, no app build, about 2 s of tests.
+# Any pull request or push (feat-cmux-next included: changes land there by direct push) that
+# touches what the gate reads runs it; a lane can dispatch it on any pushed ref:
+#   gh workflow run app-platform.yml --repo manaflow-ai/cmux --ref <branch>
+# Bun is pinned to the version the webviews and the fleet hosts use.
+
+name: app platform
+
+on:
+  pull_request:
+    paths:
+      - cmux-tui/crates/cmux-app-host/**
+      - samples/apps/**
+      - first-party-apps/**
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
+      - scripts/cmux-next/check-app-platform.sh
+      - scripts/cmux-next/sync-app-runtime.sh
+      - .github/workflows/app-platform.yml
+  push:
+    paths:
+      - cmux-tui/crates/cmux-app-host/**
+      - samples/apps/**
+      - first-party-apps/**
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
+      - scripts/cmux-next/check-app-platform.sh
+      - scripts/cmux-next/sync-app-runtime.sh
+      - .github/workflows/app-platform.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-platform-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: app platform (runtime, SDK, samples, first-party forks)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - run: bash scripts/cmux-next/check-app-platform.sh

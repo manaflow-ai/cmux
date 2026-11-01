@@ -37,10 +37,16 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
+    /// `session.json` in version order (fuzz row g finding g2).
+    pub(super) meta_writer: super::meta_save::MetaWriter,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
     pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
+    /// Tool output snapshots held back from the log while a newer one may replace them
+    /// (`store/deferred.rs`); taken only under `append_lock`.
+    pub(super) log_deferral: StdMutex<crate::store::Deferral>,
     pub(super) loading: AtomicBool,
     /// The generations of the agents whose `session/load` (or Claude fork prime) replays
     /// history: from the load's start until the inbound loop reaches that agent's
@@ -58,12 +64,37 @@ pub struct Session {
     /// for reads that take no lock.
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
+    /// Claim retry recovery once per session object; imports may replace a chat with the
+    /// same id and a different journal, which must get its own recovery pass.
+    pub(super) auto_resume_restored: AtomicBool,
+    /// What a daemon start restored here waits for the person: the chat's folder is
+    /// privacy-protected, so its queue, cut turn, inbox and retries start no agent until the
+    /// person opens, types into or prompts the chat (`protected_hold.rs`).
+    pub(super) protected_hold: AtomicBool,
+    /// A retry task may outlive an imported replacement with the same durable id. Its mark
+    /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
+    pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
+    /// Set while a prompt holds `turn_lock` for its turn (`subsession_runs.rs` `ClaimedTurn`):
+    /// from the moment it takes the lock, before `start_turn` shows its turn in `turn`, until
+    /// its guard drops. A prompt that comes meanwhile queues and is accepted at once
+    /// (`queue_slot`), instead of waiting unanswered for the lock (fuzz row g, g1).
+    pub(super) turn_claimed: AtomicBool,
+    /// Makes a new prompt's check whether it must wait and its place in the `queued` count one
+    /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
+    /// free. A leaf lock, held for no await.
+    pub(super) admit: StdMutex<()>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
+    /// not land within the grace (`shutdown.rs` `settle_ends`).
+    pub(super) ending: StdMutex<Option<TurnInfo>>,
+    /// A detach is ending the agent it took under the child lock (`detach_child`): a shutdown
+    /// that meets that lock waits for the detach rather than count the agent as kept.
+    pub(super) detaching: AtomicBool,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
@@ -74,11 +105,20 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
+    /// None until a restored log has been read successfully.
+    pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
     /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
     pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
+    /// What the messages waiting inbox digests took out of the queue hold, charged against
+    /// `queueMaxBytes` until each digest's turn takes them over or they go back in
+    /// (`queue_admission.rs`). Changed and read only under the `queue` lock, in the same critical
+    /// section that moves the messages, so a new prompt always sees them in one place or the
+    /// other (`DigestTurn::charge`, `DigestTurn::release`).
+    pub(super) digest_bytes: AtomicU64,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -93,6 +133,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -120,6 +163,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -127,6 +174,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -208,6 +259,11 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
+    /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
+    /// process is. Not persisted: after a daemon restart, a line that continues a control opened
+    /// before it reads as text.
+    pub(super) stderr_stream: StdMutex<SessionStderr>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
@@ -245,6 +301,8 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Other agents' messages to this chat, in threads (`inbox.rs`).
+    pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -280,6 +338,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.
@@ -318,6 +382,10 @@ impl Session {
     }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
+    }
+    /// Whether a prompt holds the turn lock for its turn (`turn_claimed`).
+    pub(super) fn turn_claimed(&self) -> bool {
+        self.turn_claimed.load(Ordering::SeqCst)
     }
     pub fn queued(&self) -> u64 {
         self.queued.load(Ordering::SeqCst)
@@ -359,7 +427,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }
@@ -450,4 +518,30 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// A session's agent output streams, one per agent generation and pipe (`Inbound::Stderr`). Only a
+/// stream inside a string control is kept (a closed one is the same as a new one), and it is kept
+/// until its own terminator arrives, after its agent exited too: its reader may still be draining,
+/// and a late line read as a fresh stream would show payload. Nothing is evicted: an entry is a
+/// source and one control kind, left only by an agent that stopped inside a control.
+#[derive(Debug, Default)]
+pub(crate) struct SessionStderr {
+    open: std::collections::HashMap<(u64, crate::agent::StderrPipe), crate::stderr::StderrStream>,
+}
+
+impl SessionStderr {
+    /// `line` from `source` (an agent generation and its pipe), cleaned in that source's stream.
+    pub(crate) fn clean_line(
+        &mut self,
+        source: (u64, crate::agent::StderrPipe),
+        line: &str,
+    ) -> String {
+        let mut stream = self.open.remove(&source).unwrap_or_default();
+        let clean = stream.clean_line(line);
+        if stream.is_open() {
+            self.open.insert(source, stream);
+        }
+        clean
+    }
 }

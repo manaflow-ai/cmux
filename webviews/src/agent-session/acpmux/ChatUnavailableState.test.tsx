@@ -39,28 +39,50 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("connecting and offline chats use a neutral status spinner", async () => {
+test("an offline chat uses a neutral status spinner", async () => {
   const container = installDom();
   root = createRoot(container);
-  for (const reason of ["connecting", "offline"] as const) {
-    await act(async () => {
-      root!.render(
-        <ChatUnavailableState
-          unavailable={{ reason, machine: "remote" }}
-          session="session-id"
-          machine="remote"
-          onRemove={() => undefined}
-          onReconnect={() => undefined}
-          onResume={() => undefined}
-          onClose={() => undefined}
-        />,
-      );
-    });
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector(".cv-spinner")).not.toBeNull();
-    expect(container.textContent).toContain("Reconnecting…");
-  }
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        session="session-id"
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResume={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+  });
+  expect(container.querySelector('[role="status"]')).not.toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector(".cv-spinner")).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("a chat still connecting shows nothing: no spinner, no text, no buttons", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "connecting", machine: "remote" }}
+        session="session-id"
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResume={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+  });
+  const area = container.querySelector('[data-unavailable="connecting"]');
+  expect(area).not.toBeNull();
+  expect(area!.childElementCount).toBe(0);
+  expect(container.textContent).toBe("");
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.querySelector("[role]")).toBeNull();
 });
 
 test("deleted chats remain a terminal alert without a reconnect spinner", async () => {

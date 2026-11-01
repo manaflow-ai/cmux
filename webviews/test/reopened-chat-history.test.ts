@@ -119,9 +119,10 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       bigPaste("q-2", 300),
       bigPaste("q-3", 300),
     ]),
-    // More rowless pages in a row than one ask reads (direct.ts OLDER_PAGES_PER_ASK), with older
-    // turns behind them: the ask has to be made again from where the last one stopped, which is
-    // what moving `historyFrom` on a capped read is for (#22794).
+    // Many rowless pages in a row, with older turns behind them: one ask reads on past every one of
+    // them (direct.ts OLDER_PAGES_PER_ASK) until a turn starts. A wall longer than one ask reads,
+    // which moves `historyFrom` on a capped read so the transcript asks again (#22794), is
+    // agent-pane-restore-long-turn.test.ts.
     pasteWall: history([
       ...Array.from({ length: 14 }, (_, at) => turn(at + 1)).flat(),
       ...Array.from({ length: 10 }, (_, at) => bigPaste(`q-${at + 1}`, 300)),
@@ -401,7 +402,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       was = now;
     }
     // The band is only the transcript's own to answer for while the composer floats over it
-    // (`data-dock`); on the hero, a handoff review, the diff or the inspector the stack is in flow
+    // (`data-dock`); on the hero, a handoff review, the diff or Session Info the stack is in flow
     // and `.acpmux-dock` is `display: contents`, whose rect is all zeroes (bottomStack.css).
     const mode = document.querySelector<HTMLElement>(".acpmux-main")?.dataset.dock;
     if (mode !== "float") throw new Error(`the stage is not the transcript: data-dock=${mode}`);

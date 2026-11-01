@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// the daemon running (first window frame 3119 ms, first terminal frame 3266 ms), seconds when the
 /// daemon starts cold. A terminal that showed at quit shows that frame from the launch's first
 /// frame, until its live content draws.
-@MainActor @Suite(.serialized) struct TerminalLaunchFrameTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalLaunchFrameTests {
     static let size = NSSize(width: 480, height: 240)
     static let work = BackgroundWork(label: "test.terminal-launch-frames")
 
