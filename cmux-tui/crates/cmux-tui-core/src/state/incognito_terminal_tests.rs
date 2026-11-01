@@ -296,3 +296,47 @@ fn an_incognito_terminal_commands_stay_out_of_the_command_history() {
     );
     mux.shutdown();
 }
+
+/// A daemon that starts again adopts the terminals of the incognito
+/// workspaces an earlier run left, then closes those workspaces (which
+/// drops their flag) before it ends the terminals: their exit stored the
+/// final screen, because nothing had marked the adopted terminals private.
+#[cfg(unix)]
+#[test]
+fn an_adopted_incognito_terminal_closed_at_start_stores_no_screen() {
+    const TERMINAL: &str = "00000000000040008000000000000d01";
+    const INCARNATION: &str = "10000000000040008000000000000d01";
+    let session = Session::new("incognito-adopted");
+    let mux = session.open();
+    let (_, key) = workspace(&mux, "private", "empty", true);
+    let surface = mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &key).unwrap();
+    let public = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(TERMINAL)
+        .unwrap()
+        .expect("a public terminal id");
+    // A fresh daemon's output store: the adopted terminal is not marked.
+    mux.output_store.forget(&public);
+    let bytes = b"secret output of an adopted terminal\r\n".to_vec();
+    mux.surface(surface).unwrap().apply_stream_output_for_test(&bytes).unwrap();
+    mux.close_ephemeral_workspaces().unwrap();
+    assert!(
+        mux.output_store.is_private(&mux, &public),
+        "an adopted incognito terminal is private once its workspace closes"
+    );
+    let exit = crate::terminal_host_protocol::TerminalExit {
+        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        exited_at_ms: 1,
+    };
+    // Its exit, when one is still recorded after the close, keeps no screen.
+    let _ = mux.persist_terminal_exit_for_test(&public, &exit);
+    let registry = mux.workspace_registry.lock().unwrap();
+    assert!(
+        registry.terminal_exit_snapshot(public.as_str()).ok().flatten().is_none(),
+        "an adopted incognito terminal's exit must store no screen"
+    );
+    drop(registry);
+    mux.shutdown();
+}
