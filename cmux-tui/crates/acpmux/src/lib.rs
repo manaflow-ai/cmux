@@ -20,6 +20,7 @@ pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
+pub mod agent_login;
 pub mod agent_link;
 pub mod agent_tools;
 pub mod attach;
