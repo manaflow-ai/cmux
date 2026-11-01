@@ -41,6 +41,21 @@ class ManifestTests(unittest.TestCase):
             proof.remove_private_cloud_captures(directory)
             self.assertEqual(list(screens.iterdir()), [])
 
+    def test_cloud_artifact_allowlist_removes_raw_failure_captures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "screens").mkdir()
+            (root / "screens" / "failure.png").write_bytes(b"private")
+            (root / "phone.log").write_text("machine-name and assistant reply")
+            (root / "cloud-ui-proof.json").write_text("{}")
+            proof.allowlist_public_cloud_artifact(directory)
+            self.assertEqual([path.name for path in root.iterdir()], ["cloud-ui-proof.json"])
+
+    def test_cloud_artifact_allowlist_rejects_missing_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(proof.ProofFailure):
+                proof.allowlist_public_cloud_artifact(directory)
+
     def test_runner_input_cannot_enter_the_artifact_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(proof.ProofFailure):

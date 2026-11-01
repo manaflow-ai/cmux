@@ -56,6 +56,21 @@ def remove_private_cloud_captures(out):
         Path(out, "screens", name).unlink(missing_ok=True)
 
 
+def allowlist_public_cloud_artifact(out):
+    """On every exit path, leave only the sanitized receipt in Cloud proof output."""
+    root = Path(out)
+    receipt = root / "cloud-ui-proof.json"
+    for path in sorted(root.rglob("*"), reverse=True):
+        if path == receipt:
+            continue
+        if path.is_dir():
+            path.rmdir()
+        else:
+            path.unlink(missing_ok=True)
+    if not receipt.is_file():
+        raise ProofFailure("Cloud proof ended without a sanitized receipt")
+
+
 FIELDS = frozenset(("owner_user_id", "stack_project_id", "machine_id", "team_id",
                     "machine_name", "session_id", "session_name", "history_reply",
                     "prompt", "expected_reply"))
