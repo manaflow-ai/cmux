@@ -8,7 +8,8 @@ import Darwin
 /// whose controlling terminal is that terminal. A Claude inside tmux or screen, or one detached
 /// from any terminal, outlives the switch and keeps writing the session the resumed Claude
 /// continues, so the switch refuses it up front (``ownership(paneTTYDevice:)``). A Claude that
-/// is still running after the exit wait gets no resume typed (``stillRunning``).
+/// is still running after the exit wait gets no resume typed (``stillRunning``), and a Claude
+/// that started in the pane while the switch awaited is caught by ``startedProcesses(since:)``.
 struct ClaudeAccountSwitchReplacedAgents {
     /// Whether the switch can stop the replaced agents by closing the pane's terminal.
     enum Ownership: Equatable {
@@ -45,6 +46,13 @@ struct ClaudeAccountSwitchReplacedAgents {
     /// The recorded processes still running as the same process generation.
     var stillRunning: [AgentPIDProcessIdentity] {
         processes.filter { currentIdentity($0.pid) == $0 }
+    }
+
+    /// The processes running now that `earlier` did not name: a Claude that started in the pane
+    /// since `earlier` was read. A reused pid is a new process generation, so it counts as new.
+    func startedProcesses(since earlier: Self) -> [AgentPIDProcessIdentity] {
+        let known = Set(earlier.processes)
+        return stillRunning.filter { !known.contains($0) }
     }
 
     /// Whether closing the pane's terminal, whose PTY device is `paneTTYDevice`, stops every

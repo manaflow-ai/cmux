@@ -76,7 +76,9 @@ extension Workspace {
     /// is refused there with ``ClaudeAccountSwitchRefusal/noConversationYet``, and copies that went
     /// on under both accounts with ``ClaudeAccountSwitchRefusal/transcriptDiverged(newerAccount:)``.
     /// A Claude the pane's restart would not stop (inside tmux or screen, or detached) is refused
-    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``. The surface then respawns with the
+    /// with ``ClaudeAccountSwitchResult/agentNotOwnedByPane``, and a Claude that started in the
+    /// pane while the transcript was copied with ``ClaudeAccountSwitchRefusal/noClaudeSession``.
+    /// The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
     /// shell once it reports a prompt. A resume that cannot be typed, or must not be because the
@@ -130,7 +132,9 @@ extension Workspace {
         // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
         // detached would keep writing this session while the resumed Claude continues it.
         // Checked before the transcript is copied, so a refused switch changes nothing.
-        guard claudeAccountSwitchAgentsOwnedByPane(panelId) != nil else { return .agentNotOwnedByPane }
+        guard let agentsBeforeCopy = claudeAccountSwitchAgentsOwnedByPane(panelId) else {
+            return .agentNotOwnedByPane
+        }
 
         let sync = ClaudeTranscriptAccountSync()
         let request = ClaudeTranscriptAccountSyncRequest(
@@ -158,6 +162,12 @@ extension Workspace {
 
         // Checked again with the agents recorded now: they may have changed during the copy.
         guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId) else { return .agentNotOwnedByPane }
+        // A Claude that started in the pane during the copy is not the session planned above, and
+        // the restart would kill it to resume the old one. Compared by process generation: the
+        // index learns the new session only at its SessionStart.
+        guard replacedAgents.startedProcesses(since: agentsBeforeCopy).isEmpty else {
+            return .refused(.noClaudeSession)
+        }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
             plan: plan,
             workspaceEnvironment: workspaceEnvironment,
