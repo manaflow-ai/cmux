@@ -96,6 +96,9 @@ async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
     assert!(!replay);
     let (next, _, _) = session.prepare_turn("p3", Some(1)).await.unwrap();
     assert_ne!(next, abandoned);
+    assert!(session.prepare_turn("stale", Some(0)).await.is_err());
+    let (fresh, _, _) = session.prepare_turn("fresh", Some(2)).await.unwrap();
+    assert_ne!(fresh, next, "new generation clears old reservations");
 }
 
 #[tokio::test]

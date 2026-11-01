@@ -302,16 +302,22 @@ impl Session {
     }
 
     pub(crate) async fn prepare_turn(&self, prompt_id: &str, generation: Option<u64>) -> anyhow::Result<(String, bool, bool)> {
+        let requested_generation = generation;
         if let Some(generation) = generation {
             let current = self.cloud_generation.load(Ordering::SeqCst);
             anyhow::ensure!(generation >= current, "cloud generation is stale");
             if generation > current {
+                anyhow::ensure!(self.turn().is_none(), "cannot replace generation during active turn");
                 self.cloud_generation.store(generation, Ordering::SeqCst);
                 self.prepared.lock().unwrap_or_else(|e| e.into_inner()).clear();
                 self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).clear();
             }
         }
         loop {
+            if let Some(expected) = requested_generation {
+                let current = self.cloud_generation.load(Ordering::SeqCst);
+                anyhow::ensure!(current == expected, "cloud generation changed while preparing turn");
+            }
             let notified = self.queue_moved.notified();
             {
                 let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
@@ -326,7 +332,11 @@ impl Session {
                     return Ok((done.turn_id, done.queued, true));
                 }
                 if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
-                    if existing.abandoned {
+                    if existing.abandoned
+                        && self.turn().is_none()
+                        && self.queue().iter().all(|q| q.held)
+                        && self.queued() == 0
+                    {
                         return Ok((existing.turn_id.clone(), existing.queued, false));
                     }
                     if pending.iter().find(|p| !p.abandoned).is_some_and(|p| p.prompt_id == prompt_id)
