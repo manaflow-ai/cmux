@@ -294,7 +294,9 @@ export function EnvironmentSection({
               <span className="acpmux-session-info-row__name">{pending.repo}</span>
               <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">
                 {pending.phase ?? "Attaching…"}
-                {pending.progress?.total_objects ? ` · ${pending.progress.objects ?? 0}/${pending.progress.total_objects}` : ""}
+                {pending.progress?.total_objects
+                  ? ` · ${pending.progress.objects ?? 0}/${pending.progress.total_objects}`
+                  : ""}
               </span>
             </li>
           ))}
