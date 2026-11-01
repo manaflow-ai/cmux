@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextCompat
 public import CmuxNextRemoteView
 public import CmuxVNC
 import CmuxVNCDemoServer
@@ -14,7 +15,7 @@ public final class RemoteVNCSession {
     public let source = RemoteVNCSource()
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
-    private let store = RemoteVNCCredentialStore()
+    private let store: RemoteVNCCredentialStore
     /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
     private let makeTransport: (@Sendable () -> any RFBTransport)?
     private var demo: VNCDemoServer?
@@ -25,9 +26,11 @@ public final class RemoteVNCSession {
     /// Stop (a hidden tab) until the next connect: a queued loss reconnects nothing meanwhile.
     private var stopped = false
 
-    /// `demoHost`: the reserved host name served by the loopback demo desktop.
-    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
+    /// `demoHost`: the reserved host name served by the loopback demo desktop; `loginKeychain`, the
+    /// app's one guard of the Keychain UI switch, reads the saved sign-in.
+    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String, loginKeychain: LoginKeychain) {
         self.record = record
+        store = RemoteVNCCredentialStore(loginKeychain: loginKeychain)
         makeTransport = nil
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
@@ -37,8 +40,9 @@ public final class RemoteVNCSession {
     }
 
     /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`.
-    public init(cloudRecord record: RemoteViewTabRecord, makeTransport: @escaping @Sendable () -> any RFBTransport) {
+    public init(cloudRecord record: RemoteViewTabRecord, loginKeychain: LoginKeychain, makeTransport: @escaping @Sendable () -> any RFBTransport) {
         self.record = record
+        store = RemoteVNCCredentialStore(loginKeychain: loginKeychain)
         self.makeTransport = makeTransport
         endpoint = VNCEndpoint(host: record.host, port: 5901)
         // A lost path to a Cloud desktop reconnects by itself (the tunnel or the machine's link

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions
 import CmuxVNC
@@ -126,7 +127,7 @@ struct RemoteVNCReconnectTests {
     @Test(.timeLimit(.minutes(1))) func manualReconnectCancelsStaleAutomaticRetry() async throws {
         let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
         let attempts = AttemptCounter()
-        let session = RemoteVNCSession(cloudRecord: record) {
+        let session = RemoteVNCSession(cloudRecord: record, loginKeychain: LoginKeychain()) {
             attempts.increment()
             return ConnectedRFBTransport()
         }
@@ -155,7 +156,7 @@ struct RemoteVNCReconnectTests {
     @Test(.timeLimit(.minutes(1))) func queuedLossAfterManualReconnectSchedulesNoRetry() async throws {
         let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
         let attempts = AttemptCounter()
-        let session = RemoteVNCSession(cloudRecord: record) {
+        let session = RemoteVNCSession(cloudRecord: record, loginKeychain: LoginKeychain()) {
             attempts.increment()
             return ConnectedRFBTransport()
         }
@@ -180,7 +181,7 @@ struct RemoteVNCReconnectTests {
     @Test(.timeLimit(.minutes(1))) func queuedLossAfterStopSchedulesNoRetry() async throws {
         let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
         let transports = TransportBox()
-        let session = RemoteVNCSession(cloudRecord: record) {
+        let session = RemoteVNCSession(cloudRecord: record, loginKeychain: LoginKeychain()) {
             let transport = ConnectedRFBTransport()
             transports.add(transport)
             return transport
