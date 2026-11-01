@@ -9,6 +9,7 @@ import SwiftUI
 /// workspace and tab, newest at the top. Selecting a cell opens that tab's chat.
 public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
+    let reconnect: @MainActor () async -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
     /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
@@ -16,6 +17,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var swipe = FeedSwipeCoordinator()
     /// Why Clear All Notifications failed, shown once.
     @State private var clearFailure: String?
+    /// Why Mark All Notifications as Read failed on a Mac, shown once.
+    @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
@@ -24,17 +27,20 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 2)
     }
 
     public var body: some View {
         NavigationStack(path: $path) {
-            // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
+            // Keep the SwiftUI overlay coordinate space inside the safe area while the
+            // UIKit collection itself extends under the navigation and tab bars.
             Color.clear
                 .background {
+                    // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
                     FeedCollection(
                         items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
                         header: AnyView(header), headerSignature: AnyHashable(headerSignature),
@@ -49,13 +55,18 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure) }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure) }
             }
             .agentChatDestinations()
             .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(clearFailure ?? "")
+            }
+            .alert("Couldn't mark notifications as read", isPresented: Binding(get: { markFailure != nil }, set: { if !$0 { markFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(markFailure ?? "")
             }
         }
         .onAppear {
@@ -75,7 +86,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
                     // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
                     // the reply was never sent, so it must not read as sent.
-                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                    return .failed("Open this chat in cmux on the Mac to answer it.")
                 }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
                 let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
@@ -173,6 +184,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(message).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 8)
+            RetryButton { await store.retry(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.retry")
             Button {
                 store.clearRefreshError()
             } label: {
@@ -201,6 +214,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
@@ -223,7 +237,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
-            Text(store.filter == .all ? "Nothing yet" : "No matching events").font(.headline)
+            Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -274,6 +288,8 @@ private struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
+    /// Why Mark All Notifications as Read failed (the screen's alert).
+    @Binding var markFailure: String?
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
@@ -282,6 +298,21 @@ private struct FeedFilterMenu: View {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.inline)
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Section {
+                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
+                    store.markAllRead()
+                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+                    Task {
+                        do { _ = try await mark() } catch {
+                            markFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                        }
+                    }
+                }
+                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+                .accessibilityIdentifier("feed.markAllRead")
+            }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Section {

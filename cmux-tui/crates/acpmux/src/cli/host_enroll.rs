@@ -11,6 +11,7 @@ use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
 use crate::harness_health::channel::quote as shell_quote;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,6 +38,9 @@ pub(crate) struct Plan {
     pub remote_binary: String,
     /// Run `peer-back` (`--reverse`); off by default, it is reported `skip`.
     pub reverse: bool,
+    /// `host enroll` (Add Machine): this Mac lends the machine its GitHub login
+    /// (`github_broker.rs`). `host doctor` never changes what a peer is lent.
+    pub lends_github: bool,
 }
 
 impl Plan {
@@ -55,6 +59,7 @@ impl Plan {
             harnesses,
             remote_binary,
             reverse,
+            lends_github: true,
         }
     }
 }
@@ -111,7 +116,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         let result = match gate(step, &done) {
             Some(skip) => skip,
             None => match step {
-                Step::Peer => host_peering::peer(&client, &t, fix).await,
+                Step::Peer => host_peering::peer(&client, &t, fix, plan.lends_github).await,
                 Step::PeerBack if !plan.reverse => peer_back_off(),
                 Step::PeerBack => host_peering::peer_back(&t, fix).await,
                 Step::Approvals => {
@@ -138,7 +143,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         if let Some(step) = report.steps.iter().find(|step| step.state == StepState::Fail) {
             let mut data = step.data.clone().unwrap_or_else(|| json!({}));
             if let Some(reason) = step.reason {
-                data["reason"] = json!(reason);
+                data.set("reason", json!(reason));
             }
             error = error.with_data(data);
         }

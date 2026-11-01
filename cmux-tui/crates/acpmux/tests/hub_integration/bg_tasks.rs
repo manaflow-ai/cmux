@@ -7,7 +7,10 @@
 use super::session_hibernate::{Rig, alive, rig};
 use super::*;
 
-const RUNNER: &str = env!("CARGO_BIN_EXE_acpmux");
+/// The background-task runner: this hermetic process starts it with its own environment.
+fn runner() -> std::path::PathBuf {
+    crate::daemon_env::bin().into()
+}
 
 async fn start(r: &mut Rig, id: &str, command: &str) -> Value {
     let params = json!({"sessionId": id, "command": command});
@@ -46,7 +49,7 @@ fn state(r: &Rig, id: &str, task: &str) -> String {
 #[tokio::test]
 async fn a_background_task_outlives_hibernation_and_the_woken_agent_reads_it() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "server").await;
     r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
     let ticks = "i=0; while :; do i=$((i+1)); echo tick-$i; sleep 0.1; done";
@@ -83,7 +86,7 @@ async fn a_background_task_outlives_hibernation_and_the_woken_agent_reads_it() {
 async fn a_task_that_writes_past_the_cap_keeps_its_newest_output() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
     const CAP: u64 = 1024;
-    r.hub.set_bg_runner(RUNNER.into(), CAP);
+    r.hub.set_bg_runner(runner(), CAP);
     let id = new_session(&mut r.c, "noisy").await;
     let lines = "i=0; while [ $i -lt 2000 ]; do echo line-$i; i=$((i+1)); done";
     let task_id = start(&mut r, &id, lines).await["id"].as_str().unwrap().to_owned();
@@ -120,7 +123,7 @@ async fn a_task_that_writes_past_the_cap_keeps_its_newest_output() {
 async fn a_task_is_its_chats_only_and_a_stopped_chat_starts_none() {
     use base64::Engine;
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "owner").await;
     let task_id =
         start(&mut r, &id, "printf '\\377\\000ok'").await["id"].as_str().unwrap().to_owned();
@@ -173,7 +176,7 @@ fn text(r: &Rig, id: &str, task: &str) -> String {
 #[tokio::test]
 async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_folder() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "late").await;
     let late = start(&mut r, &id, "(sleep 0.5; echo late) & echo early").await;
     let late = late["id"].as_str().unwrap().to_owned();
@@ -203,9 +206,11 @@ async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_fo
 #[tokio::test]
 async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "quiet").await;
-    let quiet = "(trap '' TERM; echo child-$BASHPID; exec >/dev/null 2>&1; \
+    // The subshell's own pid, also in macOS's /bin/bash 3.2, which has no $BASHPID: the
+    // substitution's process becomes `sh`, whose parent is the subshell.
+    let quiet = "(trap '' TERM; echo child-$(exec sh -c 'echo $PPID'); exec >/dev/null 2>&1; \
         while :; do sleep 0.1; done) & wait";
     let task = start(&mut r, &id, quiet).await["id"].as_str().unwrap().to_owned();
     r.until("the child never said its pid", || text(&r, &id, &task).ends_with('\n')).await;
@@ -223,7 +228,7 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
 #[tokio::test]
 async fn a_task_sees_the_agents_environment() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "env").await;
     for launched in [false, true] {
         if launched {
@@ -242,7 +247,7 @@ async fn a_task_sees_the_agents_environment() {
 #[tokio::test]
 async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "generations").await;
     let task = start(&mut r, &id, "true").await["id"].as_str().unwrap().to_owned();
     r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
@@ -264,7 +269,7 @@ async fn a_record_from_an_earlier_folder_of_the_id_is_not_the_chats() {
 #[tokio::test]
 async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "stubborn-purge").await;
     let task = start(&mut r, &id, "trap '' TERM; echo ready; while :; do sleep 0.1; done").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
@@ -290,7 +295,7 @@ async fn a_purge_does_not_wait_for_a_stubborn_task_and_clears_its_files_after() 
 #[tokio::test]
 async fn a_purge_stops_a_task_whose_record_is_unreadable() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "unreadable").await;
     let task = start(&mut r, &id, "sleep 600").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
@@ -308,7 +313,7 @@ async fn a_purge_stops_a_task_whose_record_is_unreadable() {
 #[tokio::test]
 async fn a_purge_never_stops_a_runner_of_another_generation() {
     let mut r = rig(PermissionPolicy::ApproveAll).await;
-    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    r.hub.set_bg_runner(runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "other-generation").await;
     let task = start(&mut r, &id, "sleep 600").await;
     let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());

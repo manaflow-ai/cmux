@@ -7,11 +7,14 @@ public import AppKit
 /// and moves with the window. The host owns what every popup shares:
 ///
 /// - placement: below the anchor or above it on the screen (``PopupPlacement``);
-/// - motion: opens in one frame by default; an explicit entrance grows out of the anchor and
-///   shrinks back toward it on the card's layer (``NSWindow/openPopup(pivot:entrance:)``);
+/// - motion: opens in one frame and shrinks back toward the anchor on close
+///   (``NSWindow/openPopup(pivot:)``);
 /// - dismiss rules: a click outside the popup (``keepsOpen`` lists the clicks that do not count),
 ///   Escape in the popup, the app going inactive, the window moving, resizing, closing or
 ///   minimizing, and for a ``NativePopupPanel`` the popup losing the keys.
+/// - children: a menu opened from inside the popup (a picker's, a context menu) and a window
+///   parented under the panel are part of it. While one is up, its keys, clicks and Escape belong
+///   to it: a click, Escape or a pick closes only the inner menu, and the popup takes the keys back.
 ///
 /// The content (native rows, controls, SwiftUI) is the owner's.
 @MainActor
@@ -22,7 +25,7 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
-    /// The control the popup opened from (screen), which it grows from and shrinks toward.
+    /// The control the popup opened from (screen), which it closes toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
     public private(set) var isClosing = false
@@ -30,31 +33,108 @@ public final class NativePopupHost {
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
     private var monitors: [Any] = []
+    /// The menus opened from inside the popup that are tracking now (their top menus).
+    private var childMenus: Set<ObjectIdentifier> = []
+    /// Where the host observes the app's and windows' notices (tests inject their own).
+    private let center: NotificationCenter
 
-    public init(panel: NSPanel) {
+    public init(panel: NSPanel, notificationCenter: NotificationCenter = .default) {
         self.panel = panel
+        center = notificationCenter
         if let keyed = panel as? NativePopupPanel {
-            keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
-                guard let self, let keyed else { return }
-                // A press on the control that toggles the popup makes its window key first; the
-                // control closes the popup itself, so that key loss is not a dismiss.
+            keyed.onLostKeys = { [weak self] elsewhere in
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
-                if let press, press.window !== keyed, keepsOpen(press) { return }
-                // Shown without the keys, a window of the app took them without a press (Cmd-Tab
-                // into the app, a focus request): the popup takes them over, as a popup shown with
-                // the app active has them; it never takes them while the app is inactive
-                // (ActiveAppKeyPanel). A press elsewhere closes it through the click monitor.
-                if elsewhere, press == nil, isShown {
-                    keyed.makeKey()
-                    return
-                }
-                dismiss()
+                self?.lostKeys(elsewhere: elsewhere, press: press)
             }
         }
     }
 
+    /// The panel lost the keys (``NativePopupPanel/onLostKeys``) during `press`, the mouse-down
+    /// being handled then (nil for none).
+    func lostKeys(elsewhere: Bool, press: NSEvent?) {
+        guard let keyed = panel as? NativePopupPanel else { return }
+        // A menu or window opened from inside the popup took the keys: the popup stays, and takes
+        // them back when the menu closes.
+        if hasOpenChild { return }
+        // A press on the control that toggles the popup makes its window key first; the control
+        // closes the popup itself, so that key loss is not a dismiss.
+        if let press, press.window !== keyed, keepsOpen(press) { return }
+        // A press inside the popup lost it the keys before a menu it opened began tracking (AppKit
+        // may resign the panel first). Once the press is handled (the menu's tracking, which
+        // starts inside it, is noted synchronously) the popup closes unless a child took them.
+        if let press, contains(press.window) {
+            let showing = generation
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { // main-proof: DispatchQueue.main
+                    guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
+                    self.dismiss()
+                }
+            }
+            return
+        }
+        // Shown without the keys, a window of the app took them without a press (Cmd-Tab into the
+        // app, a focus request): the popup takes them over, as a popup shown with the app active
+        // has them; it never takes them while the app is inactive (ActiveAppKeyPanel). A press
+        // elsewhere closes it through the click monitor.
+        if elsewhere, press == nil, isShown {
+            keyed.makeKey()
+            return
+        }
+        dismiss()
+    }
+
     /// The popup is on screen and not closing.
     public var isShown: Bool { panel.isVisible && !isClosing }
+
+    /// A menu opened from inside the popup is tracking, or the key window is one parented under it.
+    var hasOpenChild: Bool {
+        if !childMenus.isEmpty { return true }
+        guard let key = NSApp.keyWindow, key !== panel else { return false }
+        return contains(key)
+    }
+
+    /// `window` is the panel or a window parented under it.
+    private func contains(_ window: NSWindow?) -> Bool {
+        var window = window
+        while let current = window {
+            if current === panel { return true }
+            window = current.parent
+        }
+        return false
+    }
+
+    /// `menu` (a top menu) opened from inside the popup: it belongs to a view in the panel (a
+    /// pop-up button's, a view's context menu), or the event that opened it was in the popup.
+    /// The menu bar's menus never are.
+    private func opensFromPopup(_ menu: NSMenu) -> Bool {
+        if let main = NSApp.mainMenu, menu === main { return false }
+        if let root = panel.contentView, Self.view(in: root, owns: menu) { return true }
+        return contains(NSApp.currentEvent?.window)
+    }
+
+    private static func view(in view: NSView, owns menu: NSMenu) -> Bool {
+        if view.menu === menu { return true }
+        return view.subviews.contains { Self.view(in: $0, owns: menu) }
+    }
+
+    private static func topMenu(_ menu: NSMenu) -> NSMenu {
+        var top = menu
+        while let parent = top.supermenu { top = parent }
+        return top
+    }
+
+    private func menuBegan(_ menu: NSMenu) {
+        let top = Self.topMenu(menu)
+        guard isShown, opensFromPopup(top) else { return }
+        childMenus.insert(ObjectIdentifier(top))
+    }
+
+    private func menuEnded(_ menu: NSMenu) {
+        guard childMenus.remove(ObjectIdentifier(Self.topMenu(menu))) != nil, childMenus.isEmpty, isShown else { return }
+        // The menu gave the keys up: they come back to the popup (only while the app is active,
+        // for an ActiveAppKeyPanel).
+        if !panel.isKeyWindow { panel.makeKey() }
+    }
 
     /// The card's frame (screen), without the shadow band.
     public var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: panel.frame) }
@@ -62,12 +142,14 @@ public final class NativePopupHost {
     /// Shows (or moves) the popup with a card of `size` at `anchor` (screen) over `window`.
     /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
-    /// active). `entrance` false shows it in one frame, with no grow or fade in (its close still
-    /// fades). Returns the card frame and the side it took, or nil when it cannot show.
+    /// active). The popup shows in one frame, with no grow or fade in; its close still fades.
+    /// `tooltipEntrance` is for a page tooltip only (``WebPopupHost``): it fades and grows in
+    /// (``NSWindow/openTooltipWithEntrance(pivot:)``). Menus and popovers never pass it.
+    /// Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     entrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     tooltipEntrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
                                                  centered: centered, screen: screen.visibleFrame)
@@ -86,7 +168,8 @@ public final class NativePopupHost {
         if opening, !panel.isVisible { panel.alphaValue = 0 }
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
         if opening {
-            if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor), entrance: true) } else { panel.showPopupAtOnce() }
+            let pivot = panel.popupPivot(toward: anchor)
+            if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
         watch(window)
         return (frame, side)
@@ -116,6 +199,14 @@ public final class NativePopupHost {
         }
     }
 
+    /// Closes the popup and its panel for good (its owner is going away): ``hide()`` only orders
+    /// the panel out, so it would stay in the app's window list. A later ``show`` opens it again.
+    public func closePanel() {
+        hide()
+        panel.parent?.removeChildWindow(panel)
+        panel.close()
+    }
+
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
     public func dismiss() {
         guard isShown else { return unwatch() }
@@ -125,7 +216,7 @@ public final class NativePopupHost {
 
     private func watch(_ window: NSWindow) {
         guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
+        let center = self.center
         let names: [(NSNotification.Name, AnyObject?)] = [
             (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
             (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
@@ -136,14 +227,30 @@ public final class NativePopupHost {
                 Task { @MainActor in self?.dismiss() }
             }
         }
+        // A menu opened from inside the popup, noted as AppKit posts it (no queue: delivered at
+        // once on the posting thread, inside the press that opens the menu) so a key loss checked
+        // after the press sees it.
+        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
+            guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
+            // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
+            nonisolated(unsafe) let menu = tracked
+            MainActor.assumeIsolated { self?.menuBegan(menu) } // main-proof: guarded by Thread.isMainThread above
+        })
+        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
+            guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
+            // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
+            nonisolated(unsafe) let menu = tracked
+            MainActor.assumeIsolated { self?.menuEnded(menu) } // main-proof: guarded by Thread.isMainThread above
+        })
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            guard let self, event.window !== self.panel, !self.keepsOpen(event) else { return event }
+            guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
             self.dismiss()
             return event
         }
-        // Escape in the popup closes it (a text field in it would otherwise take it as cancel).
+        // Escape in the popup closes it (a text field in it would otherwise take it as cancel);
+        // with a menu of the popup open, Escape closes only that menu.
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self, event.window === self.panel, event.keyCode == 53, self.isShown else { return event }
+            guard let self, event.window === self.panel, event.keyCode == 53, self.isShown, self.childMenus.isEmpty else { return event }
             self.dismiss()
             return nil
         }
@@ -151,10 +258,11 @@ public final class NativePopupHost {
     }
 
     private func unwatch() {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.forEach(center.removeObserver)
         observers = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        childMenus = []
     }
 }
 

@@ -197,20 +197,20 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small).tint(Color.cmuxMobileOnAccent)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(canSend || failed ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary.opacity(0.35)))
+                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.35)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
-            // ↑ (send) is the primary action: glass tinted with the accent;
-            // empty, plain glass (classic's accent and quiet fills, as glass).
+            // ↑ (send) is the primary action: glass tinted with the
+            // monochrome accent, never blue (design/ios.md); empty, plain glass.
             // Empty (disabled): plain glass that does not react to a touch.
             .glassEffect(failed ? .regular.tint(.red).interactive()
-                         : canSend || model.isUploading ? .regular.tint(Color(uiColor: .systemBlue)).interactive()
+                         : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
             .animation(.smooth(duration: 0.2), value: canSend)
         }
@@ -287,36 +287,33 @@ struct TerminalComposer: View {
 
     /// Copied files, as Files would attach them (uploaded on send).
     private func loadPastedFiles(_ providers: [NSItemProvider]) async {
-        let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
-        if let name = pasted.tooLarge.first { model.attachmentError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+        let pasted = await ComposerPastedFiles.load(providers)
         if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
         for file in pasted.files {
-            let image = file.type.conforms(to: .image) ? UIImage(data: file.data) : nil
+            let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
             let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
             model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
-                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: file.data))
+                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: file.byteCount, data: file.data, fileURL: file.fileURL))
         }
     }
 
-    /// Files are read now, while the picker's security scope is open.
+    /// Files of any size keep their URL, and each later reader reopens the
+    /// picker's security scope (`ScopedFile`): the preview while it is open,
+    /// the upload while it streams. The thumbnail and size are read now, in scope.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let access = ScopedFile(url).open()
+            defer { access.close() }
             let type = UTType(filenameExtension: url.pathExtension) ?? .data
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
             let kind: ComposerAttachment.Kind = type.conforms(to: .image) ? .image : type.conforms(to: .movie) ? .video : .file
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                model.attachmentError = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
-                continue
-            }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 model.attachmentError = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, data: data))
+            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail,
+                                                   byteCount: size, fileURL: url))
         }
     }
 

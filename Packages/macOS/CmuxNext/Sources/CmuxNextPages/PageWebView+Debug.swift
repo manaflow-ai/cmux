@@ -249,6 +249,48 @@ extension PageWebView {
         return true
     }
 
+    /// The next file input this page opens in WebKit takes `files` instead of showing the panel.
+    public func debugQueueFiles(_ files: [URL]) { fileChooser?.debugAnswer = files }
+
+    /// Gives the file input `selector` matches on a Chromium page the files at `paths`, as a person's pick in
+    /// Chromium's own open panel does (DevTools `DOM.setFileInputFiles`: the page gets `input` and `change`).
+    /// Nil when it took them, else why not; a WebKit page answers its file input with ``PageOpenPanel``.
+    public func debugSetFiles(selector: String, paths: [String]) async -> String? {
+        guard let page = chromiumSession?.page else { return "the page does not show in Chromium" }
+        guard let selectorJSON = String(data: (try? JSONSerialization.data(withJSONObject: selector, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8),
+              let json = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.querySelector(\(selectorJSON))"]),
+              let object = ChromiumPageHostWire.object(json), let id = (object["result"] as? [String: Any])?["objectId"] as? String else {
+            return "no element matches \(selector)"
+        }
+        return (try? await page.devTools("DOM.setFileInputFiles", params: ["files": paths, "objectId": id])) == nil ? "DevTools refused the files" : nil
+    }
+
+    /// A trusted DevTools left-button drag on a Chromium page, in CSS pixels: press at `from`,
+    /// `steps` moves to `to`, release, each sent once Chromium answered the one before. The
+    /// page's pointer handlers (capture, a reorder's drop) see a person's drag, and the release
+    /// counts as the person's input as a real one does; a capture slot's window never activates,
+    /// so no AppKit event reaches it. False on a WebKit page or when DevTools refuses an event.
+    public func debugDrag(from: CGPoint, to: CGPoint, steps: Int = 16) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        func send(_ type: String, _ point: CGPoint, buttons: Int) async -> Bool {
+            (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": point.x, "y": point.y, "button": "left", "buttons": buttons, "clickCount": 1, "modifiers": 0,
+            ])) != nil
+        }
+        guard await send("mousePressed", from, buttons: 1) else { return false }
+        let count = max(1, steps)
+        for step in 1...count {
+            let t = Double(step) / Double(count)
+            let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            guard await send("mouseMoved", point, buttons: 1) else { return false }
+        }
+        // The host counts a real release on a Chromium page as the person's input
+        // (`CEFLinkClickTracker`); DevTools input never passes AppKit, so the release is noted here,
+        // and only the release: a drag's save then rests on the release alone.
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        return await send("mouseReleased", to, buttons: 0)
+    }
+
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
     /// first 120 characters of text (a list's order and row state as the page draws it).
     public func debugQuery(_ selector: String) async -> JSONValue {

@@ -28,11 +28,13 @@ struct RapidWorkspaceCreateTests {
     private static func name(_ press: Int) -> String { String(format: "race-%02d", press) }
 
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
-    static func wait(within limit: Duration, until done: () -> Bool) async {
+    @discardableResult
+    static func wait(within limit: Duration, until done: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + limit
         while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        return done()
     }
 
     /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.
@@ -54,13 +56,37 @@ struct RapidWorkspaceCreateTests {
 
     /// `sessionEvents`: the connection follows `session.events`, as the app's does (the sidebar document's items and
     /// the personal rows and groups come on it).
-    static func launch(sessionEvents: Bool = false) async throws -> Launched {
+    static func launch(sessionEvents: Bool = false, preseedWorkspaceNames: [String] = []) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        if !preseedWorkspaceNames.isEmpty {
+            let owner = try await launcher.ensure()
+            let seed = DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                                        endpointProvider: launcher.endpointProvider)
+            do {
+                _ = try await seed.start()
+                for name in preseedWorkspaceNames {
+                    _ = try await seed.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+                }
+            } catch {
+                // No Launched comes back to stop it: end the daemon `ensure` spawned here, by its pid when the seed
+                // connection never learned its identity, and remove the fixture state.
+                if let identity = await seed.identity {
+                    _ = try? await seed.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                timeout: .seconds(10))
+                } else {
+                    kill(owner.pid, SIGTERM)
+                }
+                await seed.close()
+                try? FileManager.default.removeItem(at: root)
+                throw error
+            }
+            await seed.close()
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)

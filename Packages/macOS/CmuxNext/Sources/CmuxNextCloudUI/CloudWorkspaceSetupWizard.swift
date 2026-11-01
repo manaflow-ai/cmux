@@ -64,18 +64,22 @@ public struct CloudWorkspaceSetupWizard {
         public var environment: String?
         /// The environment to save first, for ``Source/newEnvironment``.
         public var newEnvironment: NewEnvironment?
+        /// The size the person picked (``SizeOption``); nil keeps the plan's default size.
+        public var memoryMb: Int?
 
-        public init(source: Source, repository: CloudMachineRepo? = nil, environment: String? = nil, newEnvironment: NewEnvironment? = nil) {
+        public init(source: Source, repository: CloudMachineRepo? = nil, environment: String? = nil, newEnvironment: NewEnvironment? = nil,
+                    memoryMb: Int? = nil) {
             self.source = source
             self.repository = repository
             self.environment = environment
             self.newEnvironment = newEnvironment
+            self.memoryMb = memoryMb
         }
 
         /// The existing machine creation request for this starting point. A new environment's id is
         /// set by the caller once it is saved.
         public var request: CloudMachineRequest {
-            var request = CloudMachineRequest(repo: repository)
+            var request = CloudMachineRequest(memoryMb: memoryMb, repo: repository)
             request.environment = environment
             return request
         }
@@ -129,22 +133,34 @@ public struct CloudWorkspaceSetupWizard {
     }
 
     /// Presents the starting-point choice; dismissal has no side effects.
+    /// `suggested`: the repository of the chat it was asked from (``CloudWorkPick/repo``), offered
+    /// as the starting point; the person may still pick an empty VM or another repository.
     /// `environments` and `supportsEnvironments`: the team's Cloud environments, on the cmux-next
     /// Cloud path only (the classic path has none and its answers never name one).
+    /// `sizes`: the plan's machine sizes (``SizeOption/options(limits:machines:)``), offered with the
+    /// smallest selected; none shows no size choice and the plan picks it. `autosized`: the chat sizes
+    /// its own repository's machine, offered first.
     public func choosePlan(availability: CredentialAvailability,
                            scopeIsCurrent: () -> Bool,
                            supportsRepository: Bool = true,
+                           suggested: CloudMachineRepo? = nil,
                            environments: [EnvironmentOption] = [],
                            supportsEnvironments: Bool = false,
+                           sizes: [SizeOption] = [],
+                           autosized: Bool = false,
                            present: (CmuxDialogSpec) async -> CmuxDialogAnswer) async throws -> Plan? {
-        let answer = await present(Self.setupDialogSpec(availability: availability, supportsRepository: supportsRepository,
-                                                        environments: environments, supportsEnvironments: supportsEnvironments))
+        let suggestion = supportsRepository ? suggested : nil
+        let answer = await present(Self.setupDialogSpec(availability: availability, source: suggestion == nil ? .empty : .repository,
+                                                        repository: suggestion?.spec ?? "", supportsRepository: supportsRepository,
+                                                        environments: environments, supportsEnvironments: supportsEnvironments,
+                                                        sizes: sizes, autosized: autosized))
         guard scopeIsCurrent(), answer.button == "create", !answer.isDismissal,
               let choice = answer.text(Field.source) else { return nil }
-        let plan: Plan
+        var plan: Plan
         do { plan = try Plan.make(choice: choice, repositoryText: answer.text(Field.repository) ?? "", setupScript: answer.text(Field.setupScript) ?? "") }
         catch let error as CloudMachineRepo.Invalid { throw RepositoryFailure(error: error) }
         catch is UnknownChoice { return nil }
+        plan.memoryMb = Self.memoryMb(answer: answer.text(Self.sizeFieldID), sizes: sizes)
         switch plan.source {
         case .empty: return plan
         case .repository: return supportsRepository ? plan : nil
@@ -167,7 +183,8 @@ public struct CloudWorkspaceSetupWizard {
     /// The production setup dialog, also used by the native gallery.
     public static func setupDialogSpec(availability: CredentialAvailability = .available,
                                 source: Source = .empty, repository: String = "", supportsRepository: Bool = true,
-                                environments: [EnvironmentOption] = [], supportsEnvironments: Bool = false) -> CmuxDialogSpec {
+                                environments: [EnvironmentOption] = [], supportsEnvironments: Bool = false,
+                                sizes: [SizeOption] = [], autosized: Bool = false) -> CmuxDialogSpec {
         var options = [
             CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.emptyChoice, value: Source.empty.rawValue),
             CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.repositoryChoice, value: Source.repository.rawValue, isEnabled: supportsRepository),
@@ -188,6 +205,7 @@ public struct CloudWorkspaceSetupWizard {
         if supportsEnvironments {
             fields.append(.text(Field.setupScript, label: CloudWorkspaceSetupWizardStrings.setupScriptLabel, placeholder: CloudWorkspaceSetupWizardStrings.setupScriptPlaceholder))
         }
+        if let size = sizeField(sizes, autosized: autosized) { fields.append(size) }
         return CmuxDialogSpec(
             title: CloudWorkspaceSetupWizardStrings.title,
             lines: [summary, CloudWorkspaceSetupWizardStrings.credentialsNote(availability)],

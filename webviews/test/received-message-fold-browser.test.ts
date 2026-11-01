@@ -2,9 +2,9 @@
 // Another agent's message opened or closed never moves the reader's view (Leo 2026-10-21: "it
 // shouldnt move your scroll or whatever, just expand the area at the bottom and you're in the same
 // place ... also these all need animations for expand and collapse!"), in a real layout: the line
-// clicked (the message's line, or its Details) stays on the pixel it was clicked at through every
-// frame, a cut card slides open to its whole height and back below it, Details folds in and out,
-// and under Reduce Motion they change at once, still in place.
+// clicked (the message's one disclosure line, or its Details) stays on the pixel it was clicked at
+// through every frame, the panel with the whole message folds open below it and back, Details folds
+// in and out, and under Reduce Motion they change at once, still in place.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -65,8 +65,8 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     row(`t${index}-answer`, "assistant", paragraphs(2)),
   ];
   const done = Array.from({ length: 8 }, (_, index) => turn(index)).flat();
-  /// Another agent's message: long enough to be cut to six lines, and that opening it whole reaches
-  /// past the view's end, with the envelope it came in behind Details.
+  /// Another agent's message: long enough that opening it whole reaches past the view's end, with
+  /// the envelope it came in behind Details.
   const messageText = paragraphs(6);
   const received = row("msg", "user", messageText, {
     incoming: {
@@ -175,15 +175,14 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.waitForFunction(() => "__showRows" in window);
     return page;
   };
-  const LINE = '[data-row-id="msg"] .cv-received__toggle';
+  const LINE = '[data-row-id="msg"] .cv-disclosure__toggle';
   const DETAILS = '[data-row-id="msg"] .cv-received__more';
-  const BODY = '[data-row-id="msg"] .cv-received__body';
-  const isCut = (page: Page) => page.locator(BODY).evaluate((body) => body.hasAttribute("data-cut"));
+  const PANEL = '[data-row-id="msg"] .cv-disclosure__panel';
   /// Puts the message's line `y` px down the view, away from the transcript's end.
   const lineAt = (page: Page, y: number) =>
     page.evaluate((down) => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-received__toggle')!;
+      const line = document.querySelector<HTMLElement>('[data-row-id="msg"] .cv-disclosure__toggle')!;
       scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - down;
     }, y);
 
@@ -194,7 +193,7 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(await atLatest(page)).toBe(true);
     await probe(page, LINE);
     expect(await expanded(page)).toBe("false");
-    expect(await isCut(page)).toBe(true);
+    expect(await page.locator(PANEL).count()).toBe(0);
 
     const opened = await clickAndWatch(page);
     expect(await expanded(page)).toBe("true");
@@ -241,23 +240,54 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     expect(closed.moved).toBeLessThanOrEqual(1);
     await settle(page);
     expect(Math.abs((await probedTop(page)) - closed.top)).toBeLessThanOrEqual(1);
-    expect(await isCut(page)).toBe(true);
+    expect(await page.locator(PANEL).count()).toBe(0);
     expect(await page.locator(DETAILS).count()).toBe(0);
     await page.close();
   });
 
-  test("a click on the cut card opens it in place", async () => {
-    const page = await open("no-preference");
-    await show(page, [...done, received, after]);
-    await settle(page);
-    await lineAt(page, 200);
-    await settle(page);
-    await probe(page, BODY);
-    const opened = await clickAndWatch(page);
-    expect(await isCut(page)).toBe(false);
-    expect(opened.folded).toBe(true);
-    expect(opened.moved).toBeLessThanOrEqual(1);
-    await page.close();
+  // The name sits before the line's toggle, outside it (Leo, 2026-10-29: "make the left side
+  // identifier like it was before and you can click it to go to that session"); this sender is no
+  // chat, so the name opens nothing, and the line's toggle opens and closes the message.
+  test("the sender's name and the line's toggle never become a gap selection", async () => {
+    const page = await open("reduce");
+    try {
+      await show(page, [...done, received, after]);
+      await settle(page);
+      await lineAt(page, 100);
+      await settle(page);
+      const chip = page.locator('[data-row-id="msg"] .cv-received__sender .cv-received__from');
+      const toggle = page.locator('[data-row-id="msg"] .cv-disclosure__toggle');
+      await chip.evaluate((node) => {
+        node.addEventListener("pointerdown", (event) => {
+          document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
+        });
+        document.addEventListener("pointermove", (event) => {
+          if (event.buttons === 1) document.body.dataset.senderMovePrevented = String(event.defaultPrevented);
+        });
+      });
+      for (const open of [true, false]) {
+        await chip.click({ position: { x: 2, y: 2 } });
+        expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
+          open ? null : "true",
+        );
+        await toggle.click({ position: { x: 2, y: 2 } });
+        expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
+          open ? "true" : null,
+        );
+        expect(await page.locator("body").getAttribute("data-sender-press-prevented")).toBe("false");
+        expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+      }
+      const box = (await chip.boundingBox())!;
+      await page.mouse.move(box.x + 2, box.y + 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width + 60, box.y + box.height + 50, { steps: 6 });
+      expect(await page.locator("body").getAttribute("data-sender-press-prevented")).toBe("false");
+      expect(await page.locator("body").getAttribute("data-sender-move-prevented")).toBe("false");
+      expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+    } finally {
+      await page.mouse.up();
+      await page.close();
+    }
   });
 
   test("under Reduce Motion the message opens and closes at once, and stays on its pixel", async () => {

@@ -84,9 +84,12 @@ def daemon_tests_run(outputs, takeover="true", unmarked="false", ref="refs/heads
     expr = re.sub(r"needs\.tree-preflight\.outputs\.(\w+)", lambda m: repr(values.get(m.group(1), "")), expr)
     expr = expr.replace("needs.tree-owner-wait.outputs.takeover", repr(takeover))
     expr = expr.replace("needs.tree-owner-wait.outputs.unmarked", repr(unmarked))
+    expr = expr.replace("needs.tree-preflight.result", repr("success"))
+    expr = expr.replace("needs.tree-owner-wait.result", repr("success"))
+    expr = expr.replace("cancelled()", "False")
     expr = expr.replace("github.ref", repr(ref)).replace("&&", " and ").replace("||", " or ")
     expr = re.sub(r"!(?!=)", " not ", expr)
-    return eval(expr, {"__builtins__": {}})
+    return eval(" ".join(expr.split()), {"__builtins__": {}})
 
 
 def preflight(ref, event="push", **fake):

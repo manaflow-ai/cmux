@@ -6,12 +6,14 @@ import { AgentMark } from "../NewTabPage";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
+import "./chatCardsLoading.css";
 
 /// "Chats" with "All Chats >" and the recent chats as cards: age, title and the last reply, or
 /// the state when the chat needs the user or dropped. Routines join as a second tab once the
 /// automations ops exist (hidden until then, plans/cmux-next/new-tab.md section 4).
 export function ChatCards({
   cards,
+  pending = false,
   variant = "cards",
   title,
   onOpen,
@@ -19,6 +21,8 @@ export function ChatCards({
   onShowAll,
 }: {
   cards: ChatCard[];
+  /** The first session-list read has not settled; populated cards stay visible. */
+  pending?: boolean;
   /// Cards in a grid, or one line per chat (the Threads and Console templates).
   variant?: "cards" | "list";
   /// The section's name; "Chats" when unset.
@@ -91,7 +95,22 @@ export function ChatCards({
           </button>
         )}
       </header>
-      {cards.length === 0 ? (
+      {cards.length === 0 && pending ? (
+        <div className="nt-cards nt-cards-loading" data-variant={variant} aria-busy="true" aria-label={nt("chats")}>
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="nt-card" aria-hidden="true">
+              <span className="nt-card-meta">
+                <svg className="nt-card-placeholder nt-card-placeholder-icon" width="16" height="16" />
+                <span className="nt-card-age nt-card-placeholder">&nbsp;</span>
+              </span>
+              <span className="nt-card-title nt-card-placeholder">&nbsp;</span>
+              <span className="nt-card-message">
+                <span className="nt-card-placeholder">&nbsp;</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
         <div ref={list} className="nt-cards" data-variant={variant}>

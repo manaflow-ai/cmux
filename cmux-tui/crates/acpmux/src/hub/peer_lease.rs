@@ -59,6 +59,7 @@ impl Hub {
             )));
         }
         let pc = crate::config::PeerConfig {
+            wireguard: None,
             url: url.to_owned(),
             token: Some(token),
             peer_token,
@@ -139,6 +140,7 @@ mod tests {
         cfg.peers.insert(
             "box".into(),
             crate::config::PeerConfig {
+                wireguard: None,
                 url: "ssh://box".into(),
                 token: None,
                 peer_token: None,

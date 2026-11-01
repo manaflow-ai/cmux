@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
+#[path = "agent_session_folders.rs"]
+mod agent_session_folders;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -30,9 +32,11 @@ mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
@@ -456,6 +460,8 @@ pub(crate) enum Refusal {
     Limit,
     Timeout,
     Refused,
+    /// acpmux's session list could not be read whole (`LinkError::BadList`).
+    BadList,
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
@@ -497,6 +503,7 @@ impl Refusal {
             Self::Limit => "agent_session.limit",
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
+            Self::BadList => "agent_session.bad_list",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
@@ -525,6 +532,7 @@ impl Refusal {
             Self::Limit => "too many attached agent tabs",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux's session list could not be read whole",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
             Self::AcpmuxUnavailable => {
@@ -559,6 +567,7 @@ impl Refusal {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }
@@ -606,6 +615,9 @@ pub(super) fn try_handle(
     }
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
+    }
+    if cmd == "agent-session-folders" {
+        return Some(folders(mux, client, id, object, writer));
     }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
@@ -684,6 +696,24 @@ fn trust(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_trust::trust(mux, id, socket, params, writer)
+}
+
+/// `agent-session-folders` (agent_session_folders.rs), with the same checks
+/// as `agent-session-trust` (no acpmux needed).
+fn folders(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    agent_session_folders::folders(mux, id, params, writer)
 }
 
 /// The page router's owner `agent_session.trust` (page_router.rs).
@@ -905,6 +935,10 @@ mod media;
 #[path = "agent_session_proxy.rs"]
 mod proxy;
 use media::media;
+pub use proxy::shares::room::start_link_share_bridge;
+pub(crate) use proxy::shares::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+};
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -1260,5 +1294,15 @@ impl Mux {
     /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
+    }
+
+    /// True when `agent-session-start` starts any agent here on the
+    /// caller's owner word: this machine reads as a Cloud VM with no team
+    /// evidence. A Mac, an SSH host and a team VM never advertise
+    /// `agent-session-start-owner-cloud-v1`, so the app never lets a Codex
+    /// or opencode chat send to a session there.
+    pub(crate) fn serves_owner_cloud_start(&self) -> bool {
+        self.serves_agent_session_start()
+            && self.control_clients.agent_sessions.starts.owner_cloud(true)
     }
 }

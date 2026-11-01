@@ -5,14 +5,14 @@
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
-//   - another agent's message: its line, then its glass card cut to RECEIVED_LINES lines;
+//   - another agent's message: its one disclosure line, however long the message;
 //   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
 //     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows, RECEIVED_LINES } from "./model";
+import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -256,27 +256,18 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its 26px line in 2px margins, its card cut to eight lines, and the 8px message gap", () => {
-  const row = (text: string) => ({
-    id: "m",
+test("another agent's message is its one 26px line in 2px margins and the 8px message gap, however long", () => {
+  const row = (id: string, text: string) => ({
+    id,
     version: 1,
     at: 0,
     kind: "user",
     text,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
-  const { lineHeight } = currentChatMetrics();
-  // The card: 4px above, 8px padding each side and 6px below its text.
-  const [short] = heightsOf([row("Draft is up.")]);
-  expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
-  // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
-  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
-  const estimated = layoutConversation(rows as never, 720);
-  const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
-  const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));
-  expect(estimated.heights[0]).toBe(renderedHeight);
-  expect(rendered.tops[1]).toBe(estimated.tops[1]);
-  expect(rendered.totalHeight).toBe(estimated.totalHeight);
+  const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
+  expect(short).toBe(2 + 26 + 2 + 8);
+  expect(long).toBe(short);
 });
 
 test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
@@ -372,4 +363,57 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   const placed = placeRows(estimate, (index) => (index === 0 ? 0 : undefined));
   expect(placed.heights[0]).toBe(0);
   expect(placed.tops[1]).toBe(0);
+});
+
+test("a status row between two replies is estimated in the middle of the gap", () => {
+  // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
+  // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
+  // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
+  // run's 2px top margin (conversation.css --cv-status-gap).
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const before = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [reply, step] = heightsOf([before, run, after]);
+  const [alone] = heightsOf([before]);
+  const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
+  if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
+    expect(step).toBe(2 + 22 + 30);
+    // The same reply over a prompt: its own action row, then the message gap.
+    expect(reply).toBe(overPrompt! - 8);
+  } else {
+    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
+    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    expect(step).toBe(2 + 22 + 12);
+    expect(reply).toBe(overPrompt! + 2);
+  }
+  expect(alone).toBeGreaterThan(0);
+});
+
+test("a status row under a prompt keeps its own spacing over the reply", () => {
+  // Only a status row between two replies takes the centred room: a turn that starts with a tool
+  // (prompt, tool, reply) would otherwise get 30px under the tool and its prompt gap over it.
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "List it." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [, step] = heightsOf([prompt, run, after]);
+  const [, alone] = heightsOf([prompt, run]);
+  expect(step).toBe(alone);
+  expect(statusEdge(run as AcpmuxRow, after as AcpmuxRow, prompt as AcpmuxRow)).toBeUndefined();
+  // Between two replies the room under the run is read from the reply above, as the room over it
+  // is, so the two match whatever the reply below is (a folded copy, a settled one).
+  const reply = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." } as AcpmuxRow;
+  const over = statusEdge(reply, run as AcpmuxRow, undefined);
+  const under = over === "before-status" ? "before-reply" : "before-reply-plain";
+  for (const below of [after, { ...after, settled: true }, { ...after, settled: true, foldedReply: true }])
+    expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
 });

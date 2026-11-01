@@ -56,8 +56,12 @@ export function useNeedsYou({
   /// Another chat's ask: the app shows that chat's tab or opens it in this chat's side pane on the
   /// right (`chat.asks.open`, AgentPaneAskOpen). Never `chat.select`, which replaced the chat on
   /// screen in its own tab (Leo 2026-10-21). A host that opens none leaves this chat as it is.
-  const openElsewhere = (item: NeedsYouItem) =>
-    callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  const openElsewhere = (item: NeedsYouItem) => {
+    // Peer sessions stay in the header list; they are not local chats that this pane can open.
+    const target = sessions.find((session) => session.sessionId === item.sessionId);
+    if (target?.peer) return Promise.resolve();
+    return callNative("chat.asks.open", { sessionId: item.sessionId }).catch(() => undefined);
+  };
   const goTo = (item: NeedsYouItem) => {
     const reveal = () => {
       if (item.turnId) void revealTurnWhenShown(item.turnId);
@@ -96,9 +100,14 @@ export function useNeedsYou({
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
   // The pill speaks for this chat and the chats it started only (JumpPill.tsx `pillAsks`); the
-  // header's list keeps every ask.
+  // header's list keeps every ask. Peer and missing sessions remain header-only.
   const ours = useMemo(
-    () => (pillOn ? pillAsks(items, sessions, sessionId) : []),
+    () =>
+      (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
+        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        if (target?.peer) return false;
+        return item.sessionId === sessionId || target !== undefined;
+      }),
     [pillOn, items, sessions, sessionId],
   );
   const elsewhere = ours.filter((item) => item.sessionId !== sessionId).length;

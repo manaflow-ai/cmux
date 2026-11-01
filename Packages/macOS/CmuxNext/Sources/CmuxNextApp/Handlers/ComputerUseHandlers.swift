@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextComputerUse
 
 /// Focus Computer Use, Focus Calling Terminal and Stop Computer Use (File
 /// menu, `cmux agent focus-computer-use|focus-calling-terminal|stop-computer-use`).

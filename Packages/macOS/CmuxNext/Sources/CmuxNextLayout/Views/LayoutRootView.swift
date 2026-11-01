@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDesign
 import Observation
 
@@ -41,6 +42,21 @@ public final class LayoutRootView: NSView {
     var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// Asks a web page whether it keeps a Command scroll (`layout.pagesHandleCommandScroll`); nil:
+    /// every Command scroll is the layout's.
+    let pageCommandScroll: (any PageCommandScrollArbiter)?
+    /// The Command scroll from a page window held while its page is asked (`LayoutRootView+PageScroll`).
+    var pageProbe: PageProbe?
+    /// The task that asks the page for ``pageProbe``; tests await it.
+    var pageProbeTask: Task<Void, Never>?
+    /// Stops waiting for the page at ``pageProbeDeadline``, on the layout's injected clock.
+    let pageProbeTimer: DemandTimer
+    /// How long a held Command scroll waits for its page's answer before the columns take it. A
+    /// page that is not stuck answers within a frame or two.
+    let pageProbeDeadline: Duration = .milliseconds(120)
+    var pageProbeGeneration: UInt64 = 0
+    /// The last wheel answer of a page window, reused for the notches of one spin.
+    var wheelPageAnswer: WheelPageAnswer?
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
     /// only when the pointer enters another pane, so a keyboard move is not undone by a
     /// small pointer twitch inside the pane it left.
@@ -132,15 +148,20 @@ public final class LayoutRootView: NSView {
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
-    /// tests inject a manual clock.
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline and the wait for a
+    /// page's Command scroll answer; tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
+    /// `pageCommandScroll` asks a web page whether it keeps a Command scroll
+    /// (`layout.pagesHandleCommandScroll`); nil gives every Command scroll to the layout.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
-                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
+                pageCommandScroll: (any PageCommandScrollArbiter)? = nil) {
         self.model = model
         self.scrollFocusSignals = scrollFocusSignals
+        self.pageCommandScroll = pageCommandScroll
+        self.pageProbeTimer = DemandTimer(owner: "layout.page-command-scroll", clock: scrollbarClock)
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -154,10 +175,6 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -228,6 +245,14 @@ public final class LayoutRootView: NSView {
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
+        return view.navigationFrames
+    }
+
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
         return view.navigationFrames
     }
 
@@ -438,7 +463,10 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
+        if needsFrames { driver.start() }
+        // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
+        // frame (shortcut hint chips) hears it here, as it would from the tick.
+        else if snapshot.gestureActive { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

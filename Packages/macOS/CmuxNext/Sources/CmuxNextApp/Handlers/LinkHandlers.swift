@@ -40,11 +40,13 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         })
-        registry.bind("palette.copyWorkspaceLink", run: { invocation in
-            context.copy(try services.link(workspace: try context.workspace(invocation).model))
+        // Every selected row, one link per line, as classic's Copy Workspace Links (#27709).
+        registry.bindEffect("palette.copyWorkspaceLink", requires: nil, effect: { invocation in
+            context.copy(try WindowMembershipHandlers.rowTargets(invocation, context).map { try services.link(workspace: $0) }.joined(separator: "\n"))
+            return .done
         })
         registry.bind("palette.copyPaneLink", run: { invocation in
             guard let pane = context.daemonPane(invocation) else { return }

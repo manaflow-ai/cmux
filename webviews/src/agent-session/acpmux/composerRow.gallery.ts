@@ -47,7 +47,7 @@ const modes = {
     { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
     { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
     { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
   ],
 };
 
@@ -157,6 +157,15 @@ export default agentPaneEntry({
   variants: {
     "claude-auto": {
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
+      snapshot: row(),
+    },
+    "grid-running": {
+      note: "Grid measurement: running with the steer / queue placeholder and no draft.",
+      snapshot: row({ isWorking: true }),
+    },
+    "grid-draft": {
+      note: "Grid measurement: a single plain text line and Send.",
+      ready: { draft: "Check the grid lines" },
       snapshot: row(),
     },
     "long-model": {

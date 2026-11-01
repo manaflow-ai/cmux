@@ -105,7 +105,17 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
             range.selectNodeContents(label);
             const text = range.getBoundingClientRect();
             const mark = check.getBoundingClientRect();
+            // A model's detail ("1M context"): in the row, after its name, on the name's line.
+            const value = row.querySelector(".acpmux-quick-value")?.getBoundingClientRect();
             return {
+              name: label.textContent,
+              detail: value
+                ? {
+                    inRow: value.left >= text.right && value.right <= box.right + 0.5,
+                    inMenu: value.right <= menuBox.right + 0.5,
+                    sameLine: Math.abs(value.top + value.height / 2 - (text.top + text.height / 2)) <= 2,
+                  }
+                : null,
               checked: row.getAttribute("aria-checked") === "true",
               fontSize: parseFloat(getComputedStyle(label).fontSize),
               height: box.height,
@@ -119,27 +129,60 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
           const more = [...menu.querySelectorAll('[role="menuitem"]')].some((item) =>
             item.textContent?.includes("More models"),
           );
-          // The composer's model menu's text size and row height (modelPicker.css .acpmux-quick-menu,
-          // #26071: the menu matches the composer's text size): the prompt's content size.
+          // The composer's model menu's text size and row height (modelPicker.css .acpmux-quick-menu):
+          // a native menu's 13px chrome type, never the prompt's content size (Leo 2026-10-28: "AND
+          // I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED IT'S FUCKING TONKA TOYS").
           const probe = document.createElement("span");
-          probe.style.fontSize = "var(--text-content)";
+          probe.style.fontSize = "var(--text-body)";
           menu.append(probe);
           const content = parseFloat(getComputedStyle(probe).fontSize);
           probe.remove();
-          const rowHeight = parseFloat(getComputedStyle(menu).getPropertyValue("--ui-row-height"));
+          // The row height token is a calc() of the interface scale; a probe resolves it.
+          const tall = document.createElement("div");
+          tall.style.height = "var(--ui-row-height)";
+          menu.append(tall);
+          const rowHeight = tall.getBoundingClientRect().height;
+          tall.remove();
           return { rows, titles, more, content, rowHeight };
         });
         expect(geometry.titles).toEqual(["Retry with another model"]);
         expect(geometry.more, "older models fold under More models").toBe(true);
         for (const row of geometry.rows) {
-          expect(row.fontSize, "the composer menu's text size").toBe(geometry.content);
+          expect(row.fontSize, "the menu's chrome text size").toBe(geometry.content);
           expect(row.height, "a menu row's height").toBeLessThanOrEqual(geometry.rowHeight);
           expect(row.inset, "the label is inset in its row").toBeGreaterThanOrEqual(6);
           expect(row.fromMenu, "rows are inset from the menu's edge").toBeGreaterThanOrEqual(3);
         }
         expect(new Set(geometry.rows.map((row) => row.labelLeft)).size, "every label starts at the same x").toBe(1);
+        // An unchecked row's detail stays in the label's cell, never the check column, so it never runs
+        // past the menu's edge (the gallery's "Fable 5.1 · 1M context" drew "1M" over the edge).
+        const details = geometry.rows.filter((row) => row.detail);
+        expect(details.length, "the fixture has a row with a detail").toBeGreaterThan(0);
+        for (const row of details)
+          expect(row.detail, `${row.name}: its detail sits in the row, after the name, on its line`).toEqual({
+            inRow: true,
+            inMenu: true,
+            sameLine: true,
+          });
         const chosen = geometry.rows.find((row) => row.checked)!;
         expect(chosen.checkGap, "the check sits in its own column, clear of the name").toBeGreaterThanOrEqual(6);
         await page.close();
+      });
+  for (const [engine] of engines)
+    for (const theme of ["Catppuccin Mocha", "Apple System Colors Light"])
+      test(`${engine}, ${theme}: Retry stays revealed until its menu closes`, async () => {
+        const page = await open(engine, 560, theme);
+        try {
+          await page.mouse.move(4, 4);
+          await eased(page);
+          const button = page.locator('button[aria-label="Retry with another model"]');
+          expect(await button.getAttribute("data-popup-open")).toBe("");
+          expect(await page.locator(".cv-user__actions").evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
+          await page.keyboard.press("Escape");
+          await page.waitForFunction(() => !document.querySelector(".cv-turn-retry-menu[data-popup-open]"));
+          expect(await button.getAttribute("data-popup-open")).toBeNull();
+        } finally {
+          await page.close();
+        }
       });
 });

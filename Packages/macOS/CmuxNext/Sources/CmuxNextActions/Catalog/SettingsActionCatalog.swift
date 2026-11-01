@@ -63,6 +63,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it on one menu).
+            ActionDescriptor(
+                id: "settings.customizeMenus",
+                title: String(localized: "action.settings.customizeMenus", defaultValue: "Customize Right-Click Menus…", bundle: .module),
+                keywords: ["context menu", "right click", "menu", "customize", "reorder", "hide", "more"], category: .settings,
+                symbol: "contextualmenu.and.cursorarrow", surfaces: [.palette, .menu], cliName: "settings customize-menus", mainMenu: .app
+            ),
             // The Keyboard Shortcuts editor (R59), a React page tab; no
             // default key (defaults do not change, K1).
             ActionDescriptor(

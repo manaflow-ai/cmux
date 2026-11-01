@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -49,13 +50,38 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
         "pinned": tab["pinned"].as_bool().unwrap_or(false),
     });
     if let Some(page) = tab["conversation"]["page"].as_str() {
-        public["page"] = json!(page);
+        public.set("page", json!(page));
+    }
+    // Keep the canonical agent-tab identity in closed history so clients can
+    // still recognize a New Tab that became a chat. Host/install metadata is
+    // daemon-owned and stays private; the public record carries only the
+    // session id and harness type needed to identify the chat.
+    if let Some(agent) = tab
+        .get("conversation")
+        .and_then(|conversation| conversation.get("agent_session"))
+        .and_then(Value::as_object)
+    {
+        public.set("kind", json!(super::conversation_tabs_store::CONVERSATION_KIND));
+        let string_or_null = |key: &str| {
+            agent
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map_or(Value::Null, |value| json!(value))
+        };
+        public.set(
+            "agent_session",
+            json!({
+                "session": string_or_null("session"),
+                "harness": string_or_null("harness"),
+            }),
+        );
     }
     if reopens_empty(tab) {
-        public["empty"] = json!(true);
+        public.set("empty", json!(true));
     }
     if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
-        public["scrollback_not_kept"] = json!(true);
+        public.set("scrollback_not_kept", json!(true));
     }
     public
 }
@@ -145,12 +171,14 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
         .into_iter()
         .find_map(|field| record.get(field).filter(|group| group.is_object()));
     if let Some(group) = ungrouped {
-        item["workspace_id"] = group["workspace_id"].clone();
+        item.set("workspace_id", group["workspace_id"].clone());
     }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
-        item["group"] =
-            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+        item.set(
+            "group",
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group),
+        );
     }
     item
 }
@@ -354,8 +382,8 @@ pub(crate) fn keep_members(
     members: Vec<Value>,
 ) -> anyhow::Result<Value> {
     let kind = super::closed_history_store::group_kind(&members);
-    record["kind"] = json!(kind);
-    record["members"] = Value::Array(members);
+    record.set("kind", json!(kind));
+    record.set("members", Value::Array(members));
     transaction.execute(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
@@ -363,6 +391,43 @@ pub(crate) fn keep_members(
     let evicted =
         crate::workspace_registry::terminal_archive_store::evicted_terminals(transaction)?;
     Ok(public_item_in(&record, &evicted))
+}
+
+/// The newest group whose workspace member recorded closed workspace
+/// `workspace` (a `ws_` id), and that member's index. None when no group
+/// holds it (live, closed before its id was recorded, or deleted from the
+/// history). For `closed.reopen {workspace}` (durable-links-DESIGN.md).
+pub(crate) fn group_member_holding_workspace(
+    connection: &Connection,
+    workspace: &str,
+) -> anyhow::Result<Option<(String, usize)>> {
+    // A `ws_` id is hex after its prefix. Its `_` is a LIKE wildcard, so LIKE only narrows the
+    // candidates; the exact `closed_workspace_id` check below decides.
+    let Some(suffix) = workspace.strip_prefix("ws_") else {
+        return Ok(None);
+    };
+    if !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT closed_id, record_json FROM closed_groups
+         WHERE record_json LIKE '%' || ?1 || '%' ORDER BY seq DESC",
+    )?;
+    let rows = statement
+        .query_map([workspace], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    for row in rows {
+        let (closed_id, record) = row?;
+        let record: Value = serde_json::from_str(&record)?;
+        let members = record.get("members").and_then(Value::as_array).cloned().unwrap_or_default();
+        let holds = |member: &Value| {
+            member["kind"] == "workspace"
+                && member["closed_workspace_id"].as_str() == Some(workspace)
+        };
+        if let Some(index) = members.iter().position(holds) {
+            return Ok(Some((closed_id, index)));
+        }
+    }
+    Ok(None)
 }
 
 /// The newest group that holds tab `tab` (a `tab_` id) and the index of its

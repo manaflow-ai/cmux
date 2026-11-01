@@ -24,6 +24,8 @@ tree scripts/ci/macos-stubs
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.
 tree first-party-apps/cloud/server
+# `cmux vm` links the cmux VM API CLI crates (workers/cmux-vm/cli) in process.
+tree workers/cmux-vm/cli
 # Files cmux-tui crates compile in with include_str!/include_bytes! (cx-t3e5,
 # 2026-10-08). scripts/ci/check_cmux_tui_tree_inputs.py fails when a crate
 # embeds a file this list does not cover and prints the line to add. A blob a

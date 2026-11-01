@@ -27,6 +27,9 @@ public struct WorkspaceSpawn: Sendable {
     public var browserProfile: String?
     public var slot: WorkspaceSlot?
     public var placesBySetting = true
+    /// False places a section create at the setting's top or bottom without inheriting the
+    /// current workspace's group. The after-current setting still uses the current workspace.
+    public var placesFromCurrent = true
     public var onListed: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
     public var opensNewTabPage = false
     public var firstChat: AgentPaneSeed?

@@ -138,6 +138,31 @@ approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
 the tab keeps it; the agent's clear, a browser tab's navigation to another
 URL, or the tab's close clears it.
 
+`tab-attention-request-id-v1` adds `extra.attention.request_id`: an opaque
+32-byte lowercase hexadecimal string issued by the owning daemon for each
+new mark, including identical reasons at the same time. It is persisted with
+the mark; clients compare equality only. `at_ms` is display time, never an
+identity or ordering guarantee. Existing valid tokenless marks receive an
+identity once when the store opens. Clearing, closing, reissuing, restarting,
+and clock rollback cannot reuse a prior identity (128 random bits; entropy
+failure aborts the write).
+
+A client acknowledging a captured request sends `tab.update` with
+`attention:null` and `attention_request_id` equal to the captured token. The
+daemon compares inside the write transaction. A mismatch or absent mark is a
+successful no-op; the result is the current tab snapshot, and unrelated fields
+still update. Null, malformed tokens, or a token without `attention:null` are
+validation errors. The legacy clear without a token remains unconditional for
+existing callers. New clients must require both this capability and a valid
+token; if either is absent, disable guarded actions rather than falling back
+to time matching or unconditional clearing. Older daemons do not advertise
+this capability. Older builds can still read the additive JSON; if they replace
+it without a token, the next upgrade issues a fresh identity. No FFI ABI change
+is needed: native consumers must use a daemon release containing this capability
+before enabling their actions. These core/protocol files are outside the derived
+CCmuxAppFFI inputs, so this change needs no app FFI release or binary-target repin.
+
+
 `workspace-description-v1` adds `description` (string, 1-4096 characters, line
 breaks allowed; null clears it) to `workspace.update` and, while set,
 `description` to the workspace's `extra`. `workspace-status-v1` adds

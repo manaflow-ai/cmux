@@ -36,6 +36,14 @@ enum ArtifactThumbnail: Equatable {
         case .quickLook(let url):
             let request = QLThumbnailGenerator.Request(fileAt: url, size: pixelSize, scale: 1, representationTypes: .thumbnail)
             return (try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)).map { .picture($0.uiImage) }
+        case .ownedFile(let file, let isVideo):
+            // Async thumbnail generators retain a URL, not the file's owner.
+            defer { withExtendedLifetime(file) {} }
+            if isVideo {
+                return await videoFrame(file.url).map(ArtifactThumbnail.picture)
+            }
+            let request = QLThumbnailGenerator.Request(fileAt: file.url, size: pixelSize, scale: 1, representationTypes: .thumbnail)
+            return (try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)).map { .picture($0.uiImage) }
         case .web, .directory, .binary:
             // Links are remote pages (no fetch for a thumbnail); folders and binaries have no picture.
             return nil

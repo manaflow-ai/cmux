@@ -122,7 +122,7 @@ async function mountLongChat() {
       modes: {
         availableModes: [
           { id: "default", name: "Normal" },
-          { id: "bypassPermissions", name: "Full access" },
+          { id: "bypassPermissions", name: "Bypass permissions" },
         ],
         currentModeId: "bypassPermissions",
       },

@@ -6,7 +6,7 @@
 // section lists them under the chat's own subagents (summary/SubagentStatusList.tsx), and the
 // transcript's sub-session cards (conversation/SubsessionCallCard.tsx) read one's state live from
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
@@ -17,6 +17,8 @@ export type SubsessionState = "working" | "input" | "failed" | "done";
 
 export type SubsessionInfo = {
   sessionId: string;
+  /// Its harness identity, used by every session list and card.
+  harness?: string;
   /// Its short name, else its title.
   name: string;
   state: SubsessionState;
@@ -86,6 +88,7 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
   return {
     sessionId: entry.sessionId,
+    ...(entry.harness ? { harness: entry.harness } : {}),
     name: entry.shortName || entry.displayTitle || entry.title || entry.sessionId,
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
@@ -295,6 +298,23 @@ const EMPTY = new SubsessionStore();
 export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.get(sessionId) : undefined);
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/// A group's children from the same store as useSubsessionInfo. Keep the snapshot stable when
+/// unrelated sessions change; subscribe once even when a group gains another start call.
+export function useSubsessionInfos(
+  sessionIds: readonly (string | undefined)[],
+): readonly (SubsessionInfo | undefined)[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const read = useMemo(() => {
+    let previous: readonly (SubsessionInfo | undefined)[] = [];
+    return () => {
+      const next = sessionIds.map((id) => (id ? store.get(id) : undefined));
+      if (next.length !== previous.length || next.some((info, index) => info !== previous[index])) previous = next;
+      return previous;
+    };
+  }, [store, sessionIds]);
   return useSyncExternalStore(store.subscribe, read, read);
 }
 

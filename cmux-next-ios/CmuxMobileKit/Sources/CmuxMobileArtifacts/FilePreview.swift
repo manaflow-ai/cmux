@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 
 /// A file the phone already holds (a composer or message attachment), as a
@@ -8,7 +9,8 @@ public struct LocalFile: Hashable, Sendable {
     public var data: Data?
     /// A photo (decoded as an image whatever its name says).
     public var isImage: Bool
-    /// A local copy, when the bytes live on disk (a picked video).
+    /// The file on disk when its bytes are not held: a picked video's local
+    /// copy, or a picked file (security-scoped; its preview opens the scope).
     public var fileURL: URL?
 
     public init(id: String, name: String, data: Data?, isImage: Bool, fileURL: URL? = nil) {
@@ -43,20 +45,51 @@ public struct LocalFileArtifactSource: ArtifactSource {
     let fallback: any ArtifactSource
     /// Reads the bytes of a file the phone names but does not hold (a recorded prompt's image).
     let fetch: (@Sendable (LocalFile) async -> Data?)?
+    let scope: any SecurityScope
+    /// Scopes open for files on disk, held as long as this source (the open
+    /// preview): Quick Look, the player and Share read the file after `load`.
+    private let accesses = OpenAccesses()
 
     public init(files: [LocalFile], fallback: any ArtifactSource = UnavailableArtifactSource(),
-                fetch: (@Sendable (LocalFile) async -> Data?)? = nil) {
+                fetch: (@Sendable (LocalFile) async -> Data?)? = nil,
+                scope: any SecurityScope = SystemSecurityScope()) {
         var byReference: [String: LocalFile] = [:]
         for file in files { byReference[file.reference] = file }
         self.files = byReference
         self.fallback = fallback
         self.fetch = fetch
+        self.scope = scope
     }
+
+    /// Decoding budget only: larger files still open from disk and upload in full.
+    static let inMemoryPreviewBytes = 24 << 20
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
         guard let file = files[artifact.reference] else { return try await fallback.load(artifact) }
         if let url = file.fileURL, file.data == nil {
-            return artifact.kind == .video ? .file(url) : .quickLook(url)
+            // A picked file is the picked file itself, never a copy of its bytes:
+            // its scope opens here and stays open while the preview is.
+            guard accesses.open(ScopedFile(url, scope: scope), for: artifact.reference) else {
+                throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.")
+            }
+            switch artifact.kind {
+            case .text, .code, .markdown, .html, .image, .pdf:
+                // Keep the custom rendered/source previews for small picked files.
+                // Read at most the preview budget plus one byte, even if the file grows.
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                let limit = Self.inMemoryPreviewBytes
+                if try handle.seekToEnd() <= UInt64(limit) {
+                    try handle.seek(toOffset: 0)
+                    let bytes = try handle.read(upToCount: limit + 1) ?? Data()
+                    if bytes.count <= limit {
+                        return try LinkFileArtifactSource.content(for: artifact, data: bytes)
+                    }
+                }
+                return .quickLook(url)
+            case .video: return .file(url)
+            default: return .quickLook(url)
+            }
         }
         var data = file.data
         if data == nil, let fetch {
@@ -66,6 +99,29 @@ public struct LocalFileArtifactSource: ArtifactSource {
         }
         guard let data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
         return try LinkFileArtifactSource.content(for: artifact, data: data)
+    }
+}
+
+/// The security scopes a `LocalFileArtifactSource` holds open, one per file;
+/// each closes when the source (the preview) is released.
+private final class OpenAccesses: @unchecked Sendable {
+    private let lock = NSLock()
+    /// Only touched under `lock`.
+    private var byReference: [String: ScopedFile.Access] = [:]
+
+    /// Opens `file`'s scope for `reference` (again: the one already open) and
+    /// says whether the file can be read; one that can't is closed at once.
+    func open(_ file: ScopedFile, for reference: String) -> Bool {
+        let access = lock.withLock { () -> ScopedFile.Access in
+            if let open = byReference[reference] { return open }
+            let open = file.open()
+            byReference[reference] = open
+            return open
+        }
+        if (try? access.url.checkResourceIsReachable()) == true { return true }
+        lock.withLock { if byReference[reference] === access { byReference[reference] = nil } }
+        access.close()
+        return false
     }
 }
 

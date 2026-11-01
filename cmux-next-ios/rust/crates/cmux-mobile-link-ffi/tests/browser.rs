@@ -74,7 +74,6 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -219,7 +218,6 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -327,7 +325,6 @@ async fn the_shown_tab_takes_the_media_lane_back(
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -441,7 +438,6 @@ async fn real_host_over_the_track() {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -553,7 +549,6 @@ async fn surface_over(transport: Transport, video_lane: bool) {
         chief_socket: None,
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
-        upload_max_bytes: 1024 * 1024,
         pairing: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
