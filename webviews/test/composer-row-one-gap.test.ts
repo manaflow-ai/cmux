@@ -262,7 +262,9 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
           controls: measured.controls.filter(({ name }) => ["model", "mic", "send"].includes(name)),
         };
         expect(row?.controls.map(({ name }) => name)).toEqual(["model", "mic", "send"]);
-        expect(check(`codex New Tab ${width}`, row, { insets: false, flex: false })).toEqual([]);
+        // New Tab's +, mic and Send are one 28 px control (composer-plus-geometry.test.ts), so Send's
+        // 18 px glyph stands 5 px in: the gaps are even, not the tokens' exact width.
+        expect(check(`codex New Tab ${width}`, row, { insets: false, flex: false, unit: false })).toEqual([]);
       } finally {
         await tab.context.close();
       }

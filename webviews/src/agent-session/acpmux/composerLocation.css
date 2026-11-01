@@ -273,7 +273,9 @@
    as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
    shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
-  padding-inline: var(--acpmux-row-edge);
+  /* The row's edge less its inset, as its bottom padding (composerLook.css): + and Send's hit boxes
+     stand 6 px off the sides and the bottom, their glyphs --acpmux-row-edge in. */
+  padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {

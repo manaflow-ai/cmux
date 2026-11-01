@@ -53,11 +53,6 @@
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-composer-actions {
   gap: var(--acpmux-row-group-gap);
 }
-/* New Tab's mic and Send draw an 18 px glyph (newtab/screen.css): their hit boxes keep the inset too. */
-.nt-composer[data-composer-look="codex"] .nt-pickers :is(.acpmux-mic, .acpmux-send) {
-  width: calc(18px + 2 * var(--acpmux-row-inset));
-  height: calc(18px + 2 * var(--acpmux-row-inset));
-}
 /* The ring's hit box keeps the row's inset around its glyph, as every icon button's does. */
 :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-context-ring {
   width: calc(var(--acpmux-context-glyph-size) + 2 * var(--acpmux-row-inset));
