@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.transcriptView": {
+      "comment": "Settings > Agent Chat > Transcript View: how much of each turn a chat shows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaz transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transskriptvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista de la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage de la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプト表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkripsjonsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Widok transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização da transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вид стенограммы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вигляд стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话记录视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話記錄檢視"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.transcriptView.help": {
+      "comment": "Settings > Agent Chat > Transcript View help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مقدار ما تعرضه المحادثة من كل دور. يطوي «عادي» التفكير ومخرجات الأدوات؛ ويفتح «التفكير» التفكير؛ ويفتح «مفصّل» مخرجات الأدوات أيضًا. تغيّر قائمة ··· في المحادثة عرضها الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koliko svakog koraka razgovor prikazuje. Normalno skuplja razmišljanje i izlaz alata; Razmišljanje otvara razmišljanje; Detaljno otvara i izlaz alata. Meni ··· razgovora mijenja njegov vlastiti prikaz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor meget af hver tur en chat viser. Normal folder tænkning og værktøjsoutput sammen; Tænkning åbner tænkning; Detaljeret åbner også værktøjsoutput. En chats ···-menu ændrer dens egen visning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie viel ein Chat von jedem Schritt zeigt. Normal klappt Denken und Werkzeugausgaben ein; Denken öffnet das Denken; Ausführlich öffnet auch Werkzeugausgaben. Das ···-Menü eines Chats ändert seine eigene Ansicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuánto muestra un chat de cada turno. Normal pliega el razonamiento y la salida de las herramientas; Razonamiento abre el razonamiento; Detallado también abre la salida de las herramientas. El menú ··· de un chat cambia su propia vista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quantité de chaque tour affichée par une discussion. Normal replie la réflexion et la sortie des outils ; Réflexion ouvre la réflexion ; Détaillé ouvre aussi la sortie des outils. Le menu ··· d'une discussion change son propre affichage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto di ogni turno mostra una chat. Normale comprime il ragionamento e l'output degli strumenti; Ragionamento apre il ragionamento; Dettagliato apre anche l'output degli strumenti. Il menu ··· di una chat cambia la sua vista."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットが各ターンをどこまで表示するか。標準は思考とツール出力を折りたたみ、思考は思考を開き、詳細はツール出力も開きます。チャットの ··· メニューでそのチャットの表示を変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំនួននៃវេននីមួយៗដែលការជជែកបង្ហាញ។ ធម្មតាបត់ការគិត និងលទ្ធផលឧបករណ៍; ការគិតបើកការគិត; លម្អិតបើកលទ្ធផលឧបករណ៍ផងដែរ។ ម៉ឺនុយ ··· នៃការជជែកប្ដូរទិដ្ឋភាពរបស់វាផ្ទាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 각 턴을 얼마나 보여 줄지 정합니다. 보통은 생각과 도구 출력을 접고, 생각은 생각을 펼치며, 자세히는 도구 출력도 펼칩니다. 채팅의 ··· 메뉴에서 해당 채팅의 보기를 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor mye av hver tur en chat viser. Normal folder sammen tenkning og verktøyutdata; Tenkning åpner tenkning; Detaljert åpner også verktøyutdata. En chats ···-meny endrer dens egen visning."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ile z każdej tury pokazuje czat. Normalny zwija myślenie i wyniki narzędzi; Myślenie rozwija myślenie; Szczegółowy rozwija także wyniki narzędzi. Menu ··· czatu zmienia jego własny widok."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto de cada turno um chat mostra. Normal recolhe o raciocínio e a saída das ferramentas; Raciocínio abre o raciocínio; Detalhado também abre a saída das ferramentas. O menu ··· de um chat muda a visualização dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сколько каждого хода показывает чат. «Обычный» сворачивает размышления и вывод инструментов; «Размышления» раскрывает размышления; «Подробный» раскрывает и вывод инструментов. Меню ··· чата меняет его собственный вид."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปริมาณที่แชทแสดงในแต่ละรอบ ปกติจะพับการคิดและผลลัพธ์ของเครื่องมือ การคิดจะเปิดการคิด แบบละเอียดจะเปิดผลลัพธ์ของเครื่องมือด้วย เมนู ··· ของแชทเปลี่ยนมุมมองของแชทนั้นเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sohbetin her turdan ne kadarını gösterdiği. Normal düşünmeyi ve araç çıktısını katlar; Düşünme düşünmeyi açar; Ayrıntılı araç çıktısını da açar. Bir sohbetin ··· menüsü kendi görünümünü değiştirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скільки кожного ходу показує чат. «Звичайний» згортає міркування й вивід інструментів; «Міркування» розгортає міркування; «Детальний» розгортає також вивід інструментів. Меню ··· чату змінює його власний вигляд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mức độ cuộc trò chuyện hiển thị mỗi lượt. Bình thường thu gọn phần suy nghĩ và đầu ra công cụ; Suy nghĩ mở phần suy nghĩ; Chi tiết mở cả đầu ra công cụ. Menu ··· của cuộc trò chuyện thay đổi chế độ xem của riêng nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天显示每一轮的多少内容。标准会折叠思考和工具输出；思考会展开思考；详细还会展开工具输出。聊天的 ··· 菜单可更改它自己的视图。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天顯示每一輪的多少內容。標準會摺疊思考和工具輸出；思考會展開思考；詳細還會展開工具輸出。聊天的 ··· 選單可更改它自己的檢視。"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewNormal": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking and tool output folded",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewThinking": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewVerbose": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking and tool output open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفصّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausführlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detallado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détaillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자세히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegółowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Детальний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        }
+      }
+    },
     "settings.sidebarSection.lookAndFeel": {
       "extractionState": "manual",
       "localizations": {
@@ -7584,6 +8244,168 @@
         }
       }
     },
+    "settings.choice.cloudFolderEmpty": {
+      "comment": "Settings > Machines > New Cloud Workspaces Start In: start in the machine's empty folder.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Empty Folder"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مجلد فارغ"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prazan folder"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tom mappe"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Leerer Ordner"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta vacía"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier vide"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella vuota"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "空のフォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតទទេ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "빈 폴더"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tom mappe"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pusty folder"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta vazia"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пустая папка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ว่าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Boş Klasör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Порожня папка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục trống"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "空文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "空資料夾"}}
+      }
+    },
+    "settings.choice.cloudFolderInherit": {
+      "comment": "Settings > Machines > New Cloud Workspaces Start In: copy the current folder to the machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Current Folder"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المجلد الحالي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trenutni folder"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Aktuel mappe"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aktueller Ordner"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta actual"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier actuel"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella attuale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "現在のフォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតបច្ចុប្បន្ន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "현재 폴더"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjeldende mappe"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bieżący folder"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta atual"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Текущая папка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ปัจจุบัน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Geçerli Klasör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Поточна папка"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục hiện tại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当前文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "目前資料夾"}}
+      }
+    },
+    "settings.cloud.newWorkspaceFolder": {
+      "comment": "Settings > Machines: title of the choice of what folder a new Cloud workspace starts in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "New Cloud Workspaces Start In"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تبدأ مساحات العمل السحابية الجديدة في"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Novi Cloud radni prostori počinju u"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Nye Cloud-arbejdsområder starter i"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Neue Cloud-Arbeitsbereiche starten in"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Los nuevos espacios de trabajo en la nube empiezan en"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Les nouveaux espaces de travail Cloud démarrent dans"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "I nuovi workspace Cloud iniziano in"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいクラウドワークスペースの開始フォルダ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការ Cloud ថ្មីចាប់ផ្ដើមនៅក្នុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 클라우드 워크스페이스 시작 위치"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Nye Cloud-arbeidsområder starter i"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nowe obszary robocze w chmurze zaczynają w"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Novos espaços de trabalho na nuvem começam em"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Новые облачные рабочие области начинаются в"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซคลาวด์ใหม่เริ่มต้นใน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni bulut çalışma alanları şurada başlar"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Нові хмарні робочі області починаються в"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không gian làm việc đám mây mới bắt đầu tại"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新云工作区的起始位置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新雲端工作區的起始位置"}}
+      }
+    },
+    "settings.cloud.newWorkspaceFolder.help": {
+      "comment": "Settings > Machines: help for the New Cloud Workspaces Start In choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يقوم «المجلد الحالي» بنسخ المجلد الذي تعمل فيه (نسخة git العاملة بالكامل) إلى الجهاز الجديد. يبدأ «مجلد فارغ» في المجلد الفارغ الخاص بالجهاز."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trenutni folder kopira folder u kojem radiš (cijelu git radnu kopiju) na novu mašinu. Prazan folder počinje u vlastitom praznom folderu mašine."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Aktuel mappe kopierer den mappe, du arbejder i (hele dens git-arbejdskopi), til den nye maskine. Tom mappe starter i maskinens egen tomme mappe."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aktueller Ordner kopiert den Ordner, in dem du arbeitest (seine gesamte Git-Arbeitskopie), auf die neue Maschine. Leerer Ordner startet im eigenen leeren Ordner der Maschine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta actual copia la carpeta en la que trabajas (toda su copia de trabajo de git) a la nueva máquina. Carpeta vacía empieza en la carpeta vacía propia de la máquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier actuel copie le dossier dans lequel vous travaillez (toute sa copie de travail git) sur la nouvelle machine. Dossier vide démarre dans le dossier vide propre à la machine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Cartella attuale copia la cartella in cui lavori (l'intera copia di lavoro git) sulla nuova macchina. Cartella vuota inizia nella cartella vuota della macchina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「現在のフォルダ」は作業中のフォルダ（git の作業コピー全体）を新しいマシンにコピーします。「空のフォルダ」はマシン自身の空のフォルダで始まります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតបច្ចុប្បន្ន ចម្លងថតដែលអ្នកកំពុងធ្វើការ (ច្បាប់ចម្លងការងារ git ទាំងមូល) ទៅម៉ាស៊ីនថ្មី។ ថតទទេ ចាប់ផ្ដើមនៅក្នុងថតទទេរបស់ម៉ាស៊ីនផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "현재 폴더는 작업 중인 폴더(git 작업 사본 전체)를 새 머신에 복사합니다. 빈 폴더는 머신 자체의 빈 폴더에서 시작합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjeldende mappe kopierer mappen du jobber i (hele git-arbeidskopien) til den nye maskinen. Tom mappe starter i maskinens egen tomme mappe."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bieżący folder kopiuje folder, w którym pracujesz (całą kopię roboczą git), na nową maszynę. Pusty folder zaczyna w pustym folderze maszyny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pasta atual copia a pasta em que você trabalha (toda a cópia de trabalho do git) para a nova máquina. Pasta vazia começa na pasta vazia da própria máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "«Текущая папка» копирует папку, в которой вы работаете (всю рабочую копию git), на новую машину. «Пустая папка» начинает в собственной пустой папке машины."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ปัจจุบันจะคัดลอกโฟลเดอร์ที่คุณทำงานอยู่ (สำเนาการทำงาน git ทั้งหมด) ไปยังเครื่องใหม่ โฟลเดอร์ว่างจะเริ่มในโฟลเดอร์ว่างของเครื่องเอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Geçerli Klasör, çalıştığınız klasörü (tüm git çalışma kopyasını) yeni makineye kopyalar. Boş Klasör, makinenin kendi boş klasöründe başlar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "«Поточна папка» копіює папку, у якій ви працюєте (усю робочу копію git), на нову машину. «Порожня папка» починає у власній порожній папці машини."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục hiện tại sao chép thư mục bạn đang làm việc (toàn bộ bản sao làm việc git) sang máy mới. Thư mục trống bắt đầu trong thư mục trống của chính máy đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“当前文件夹”会将你正在使用的文件夹（整个 git 工作副本）复制到新机器。“空文件夹”从机器自己的空文件夹开始。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「目前資料夾」會將你正在使用的資料夾（整個 git 工作副本）複製到新機器。「空資料夾」從機器自己的空資料夾開始。"}}
+      }
+    },
+    "settings.cloud.newWorkspacesInCloud": {
+      "comment": "Settings > Machines: title of the toggle that sends each new workspace to its own new Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Run New Workspaces in Cloud"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل مساحات العمل الجديدة في السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pokreni nove radne prostore u Cloudu"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kør nye arbejdsområder i Cloud"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Neue Arbeitsbereiche in der Cloud ausführen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ejecutar nuevos espacios de trabajo en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Exécuter les nouveaux espaces de travail dans le Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Esegui i nuovi workspace nel Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペースをクラウドで実行"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការកន្លែងធ្វើការថ្មីនៅលើ Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 워크스페이스를 클라우드에서 실행"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kjør nye arbeidsområder i Cloud"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Uruchamiaj nowe obszary robocze w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Executar novos espaços de trabalho na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Запускать новые рабочие области в облаке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เรียกใช้เวิร์กสเปซใหม่บนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni çalışma alanlarını bulutta çalıştır"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Запускати нові робочі області в хмарі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chạy không gian làm việc mới trên đám mây"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端运行新工作区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端執行新工作區"}}
+      }
+    },
+    "settings.cloud.newWorkspacesInCloud.help": {
+      "comment": "Settings > Machines: help for the Run New Workspaces in Cloud toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تحصل كل مساحة عمل جديدة (Cmd-N، أو + في الشريط الجانبي) على جهاز سحابي جديد خاص بها. تعمل محادثات الوكلاء التي تبدأها فيها على ذلك الجهاز."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Svaki novi radni prostor (Cmd-N, + na bočnoj traci) dobija svoju novu Cloud mašinu. Agent četovi koje u njemu pokreneš rade na toj mašini."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvert nyt arbejdsområde (Cmd-N, sidepanelets +) får sin egen nye Cloud-maskine. Agentchats, du starter i det, kører på den maskine."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Jeder neue Arbeitsbereich (Cmd-N, das + der Seitenleiste) erhält eine eigene neue Cloud-Maschine. Agent-Chats, die du darin startest, laufen auf dieser Maschine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Cada nuevo espacio de trabajo (Cmd-N, el + de la barra lateral) obtiene su propia máquina nueva en la nube. Los chats de agentes que inicies en él se ejecutan en esa máquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Chaque nouvel espace de travail (Cmd-N, le + de la barre latérale) obtient sa propre nouvelle machine Cloud. Les chats d'agents que vous y lancez s'exécutent sur cette machine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ogni nuovo workspace (Cmd-N, il + della barra laterale) ottiene una propria nuova macchina Cloud. Le chat con gli agenti avviate al suo interno vengono eseguite su quella macchina."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペース（Cmd-N、サイドバーの +）ごとに新しいクラウドマシンが作られます。その中で始めたエージェントチャットはそのマシンで実行されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការថ្មីនីមួយៗ (Cmd-N, + នៃរបារចំហៀង) ទទួលបានម៉ាស៊ីន Cloud ថ្មីផ្ទាល់ខ្លួន។ ការជជែកជាមួយភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមនៅក្នុងនោះ ដំណើរការលើម៉ាស៊ីននោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 워크스페이스(Cmd-N, 사이드바의 +)마다 새 클라우드 머신이 하나씩 생깁니다. 그 안에서 시작한 에이전트 채팅은 해당 머신에서 실행됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvert nytt arbeidsområde (Cmd-N, sidefeltets +) får sin egen nye Cloud-maskin. Agentchatter du starter i det, kjører på den maskinen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Każdy nowy obszar roboczy (Cmd-N, + na pasku bocznym) dostaje własną nową maszynę w chmurze. Czaty z agentami rozpoczęte w nim działają na tej maszynie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Cada novo espaço de trabalho (Cmd-N, o + da barra lateral) ganha sua própria máquina nova na nuvem. Os chats de agentes que você iniciar nele rodam nessa máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Каждая новая рабочая область (Cmd-N, + на боковой панели) получает собственную новую облачную машину. Чаты с агентами, начатые в ней, работают на этой машине."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซใหม่แต่ละอัน (Cmd-N, ปุ่ม + ในแถบด้านข้าง) จะได้เครื่องคลาวด์ใหม่ของตัวเอง แชทเอเจนต์ที่คุณเริ่มในนั้นจะทำงานบนเครื่องนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her yeni çalışma alanı (Cmd-N, kenar çubuğundaki +) kendi yeni bulut makinesini alır. İçinde başlattığınız ajan sohbetleri o makinede çalışır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кожна нова робоча область (Cmd-N, + на бічній панелі) отримує власну нову хмарну машину. Чати з агентами, розпочаті в ній, працюють на цій машині."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mỗi không gian làm việc mới (Cmd-N, nút + ở thanh bên) có máy đám mây mới của riêng nó. Các cuộc trò chuyện với tác tử bạn bắt đầu trong đó sẽ chạy trên máy đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "每个新工作区（Cmd-N、侧边栏的 +）都会获得一台自己的新云端机器。在其中开始的智能体聊天在该机器上运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "每個新工作區（Cmd-N、側邊欄的 +）都會取得一台自己的新雲端機器。在其中開始的代理程式聊天會在該機器上執行。"}}
+      }
+    },
     "settings.group.chiefEngine": {
       "comment": "Settings > Chief: group title of the Engine row (which Chief Home opens: this Mac's or the cloud-hosted one).",
       "extractionState": "manual",
@@ -7714,6 +8536,33 @@
             "value": "引擎"
           }
         }
+      }
+    },
+    "settings.group.cloudWorkspaces": {
+      "comment": "Settings > Machines: group of the Cloud toggle settings (#26062).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Workspaces"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مساحات العمل السحابية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Cloud radni prostori"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Cloud-arbejdsområder"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Cloud-Arbeitsbereiche"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Espacios de trabajo en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Espaces de travail Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Workspace Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウドワークスペース"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងធ្វើការ Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "클라우드 워크스페이스"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Cloud-arbeidsområder"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Obszary robocze w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaços de trabalho na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Облачные рабочие области"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เวิร์กสเปซบนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bulut çalışma alanları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Хмарні робочі області"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không gian làm việc trên đám mây"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "云工作区"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "雲端工作區"}}
       }
     },
     "settings.home.chiefEngine": {
@@ -26536,6 +27385,532 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "密度預設值"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Preview in Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでのライブプレビュー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينة مباشرة في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled uživo u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-forhåndsvisning i chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Vorschau im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa en directo en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu en direct dans le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima dal vivo nella chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅의 실시간 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkteforhåndsvisning i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd na żywo w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prévia ao vivo no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой просмотр в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างสดในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbette canlı önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий перегляд у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的实时预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的即時預覽"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the app an agent uses in its chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが使うアプリをそのチャットに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser den app, en agent bruger, i dens chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra la app que usa un agente en su chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche l'app qu'un agent utilise dans son chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra l'app che un agente usa nella sua chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 사용하는 앱을 채팅에 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser appen en agent bruker, i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje w czacie aplikację, której używa agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra no chat o app que um agente usa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает в чате приложение, с которым работает агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує в чаті застосунок, з яким працює агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中显示代理使用的应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中顯示代理使用的 App"
+          }
+        }
+      }
+    },
+    "settings.default.neverDiscard": {
+      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Discard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "破棄しない"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدم التجاهل أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nikad ne odbacuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kassér aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie verwerfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No descartar nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne jamais décharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non scartare mai"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំបោះចោលឡើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제 안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forkast aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nigdy nie odrzucaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca descartar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не выгружать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ทิ้งเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Asla atma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вивантажувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bao giờ loại bỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从不丢弃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永不捨棄"
           }
         }
       }
@@ -91619,6 +92994,534 @@
         }
       }
     },
+    "settings.agentPane.newChatsIn": {
+      "comment": "Settings > Agent Chat: the row that picks where a new chat runs, on this Mac or on the person's Cloud machine",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء المحادثات الجديدة في"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni nove chatove na"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start nye chats på"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Chats starten auf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start New Chats In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar chats nuevos en"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer les nouvelles discussions sur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia nuove chat su"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいチャットの開始場所"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមការជជែកថ្មីនៅ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 채팅 시작 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start nye chatter på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozpoczynaj nowe czaty w"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar novos chats em"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускать новые чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มแชตใหม่ที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sohbetleri başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускати нові чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu cuộc trò chuyện mới ở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天的开始位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天的開始位置"
+          }
+        }
+      }
+    },
+    "settings.agentPane.newChatsIn.help": {
+      "comment": "Settings > Agent Chat > Start New Chats In: what the row does",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكان تشغيل المحادثة الجديدة. يبدؤها السحاب على جهازك السحابي، مع نسخ مشروعك إليه. يمكن لمحرر المحادثة الجديدة تغيير ذلك لتلك المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje se novi chat pokreće. Cloud ga pokreće na vašoj Cloud mašini, s kopijom vašeg projekta. Polje za pisanje novog chata to može promijeniti za taj chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en ny chat kører. Cloud starter den på din egen Cloud-maskine med dit projekt kopieret derhen. Den nye chats skrivefelt kan ændre det for den chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo ein neuer Chat läuft. Cloud startet ihn auf deiner eigenen Cloud-Maschine und kopiert dein Projekt dorthin. Das Eingabefeld des neuen Chats kann das für diesen Chat ändern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde se ejecuta un chat nuevo. Cloud lo inicia en tu propia máquina Cloud, con tu proyecto copiado allí. El editor del chat nuevo puede cambiarlo para ese chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où s'exécute une nouvelle discussion. Cloud la démarre sur ta propre machine Cloud, avec ton projet copié dessus. Le champ de saisie de la nouvelle discussion peut le changer pour cette discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove viene eseguita una nuova chat. Cloud la avvia sulla tua macchina Cloud, con il progetto copiato lì. Il compositore della nuova chat può cambiarlo per quella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいチャットを実行する場所。Cloud を選ぶと、プロジェクトをコピーした自分の Cloud マシンで開始します。新しいチャットの入力欄でそのチャットだけ変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែលការជជែកថ្មីដំណើរការ។ Cloud ចាប់ផ្តើមវានៅលើម៉ាស៊ីន Cloud របស់អ្នក ដោយចម្លងគម្រោងរបស់អ្នកទៅទីនោះ។ ប្រអប់សរសេររបស់ការជជែកថ្មីអាចប្តូរវាសម្រាប់ការជជែកនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 채팅이 실행되는 곳입니다. Cloud는 프로젝트를 복사한 내 Cloud 머신에서 시작합니다. 새 채팅의 입력창에서 해당 채팅만 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor en ny chat kjører. Cloud starter den på din egen Cloud-maskin, med prosjektet ditt kopiert dit. Skrivefeltet i den nye chatten kan endre det for den chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdzie działa nowy czat. Cloud uruchamia go na Twojej maszynie Cloud, z kopią projektu. Pole tworzenia nowego czatu może to zmienić dla tego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde um novo chat é executado. Cloud o inicia na sua própria máquina Cloud, com seu projeto copiado para lá. O editor do novo chat pode mudar isso para aquele chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Где запускается новый чат. Cloud запускает его на вашей машине Cloud и копирует туда проект. В поле ввода нового чата это можно изменить для этого чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งที่แชตใหม่ทำงาน Cloud จะเริ่มแชตบนเครื่อง Cloud ของคุณพร้อมคัดลอกโปรเจกต์ไปที่นั่น ช่องพิมพ์ของแชตใหม่เปลี่ยนค่านี้ได้สำหรับแชตนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni bir sohbetin çalıştığı yer. Cloud, projeni kopyalayarak sohbeti kendi Cloud makinende başlatır. Yeni sohbetin yazma alanı bunu o sohbet için değiştirebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Де працює новий чат. Cloud запускає його на вашій машині Cloud і копіює туди проєкт. Поле введення нового чату може змінити це для цього чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nơi cuộc trò chuyện mới chạy. Cloud khởi động nó trên máy Cloud của bạn, với dự án được sao chép sang đó. Ô soạn của cuộc trò chuyện mới có thể đổi điều này cho cuộc trò chuyện đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天的运行位置。Cloud 会在你自己的 Cloud 机器上启动它，并把项目复制过去。新聊天的输入框可以为该聊天更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天的執行位置。Cloud 會在你自己的 Cloud 機器上啟動它，並把專案複製過去。新聊天的輸入框可以為該聊天更改。"
+          }
+        }
+      }
+    },
+    "settings.choice.newChatsInLocal": {
+      "comment": "Settings > Agent Chat > Start New Chats In choice: on this Mac",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.choice.newChatsInCloud": {
+      "comment": "Settings > Agent Chat > Start New Chats In choice: on the person's own Cloud machine",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oblak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sky"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クラウド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sky"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chmura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облако"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмара"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端"
+          }
+        }
+      }
+    },
     "settings.agentPane.attachmentView": {
       "comment": "Settings > Agent Chat: the row that picks how attachments show in the composer and in sent messages",
       "extractionState": "manual",
@@ -91879,6 +93782,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "圖片和檔案在輸入框及已傳送訊息中的顯示方式。「內嵌」會將每個附件放在你加入它的文字位置；「橫條」會將它們排成一列顯示。訊息及其順序保持不變。"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatAttachmentBoth": {
+      "comment": "Settings > Agent Chat > Attachment View choice: attachments show in the text where they were added and also together in one row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضمن النص وشريط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U tekstu i traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten og bånd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Text und Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline and Strip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el texto y tira"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans le texte et bandeau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel testo e striscia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インラインとストリップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងអត្ថបទ និងឆ្នូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인라인 및 스트립"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten og stripe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tekście i pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No texto e faixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В тексте и лента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบรรทัดและแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır İçi ve Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У тексті й стрічка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nội dòng và dải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内嵌和横条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內嵌和橫條"
           }
         }
       }
@@ -118798,6 +120833,534 @@
         }
       }
     },
+    "settings.choice.chiefPetMascot.fox-arctic": {
+      "comment": "Chief pet character: the fox in arctic silver-blue (Arctic Fox), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arctic Fox"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثعلب قطبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arktička lisica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polarræv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polarfuchs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zorro ártico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renard polaire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volpe artica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホッキョクギツネ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ជ្រោងតំបន់ប៉ូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "북극여우"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjellrev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lis polarny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raposa-do-ártico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песец"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จิ้งจอกอาร์กติก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kutup tilkisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песець"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cáo Bắc Cực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "北极狐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "北極狐"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-violet": {
+      "comment": "Chief pet character: the leaf-eared robot in violet (Violet Machine), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Violet Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة بنفسجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ljubičasta mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Violet maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Violette Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina violeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine violette"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina viola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バイオレットマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌ស្វាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "바이올렛 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fiolett maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fioletowa maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina violeta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фиолетовая машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีม่วง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mor makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фіолетова машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy tím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫罗兰机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紫羅蘭機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.machine-gold": {
+      "comment": "Chief pet character: the leaf-eared robot in gold (Gold Machine), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gold Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آلة ذهبية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zlatna mašina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guldmaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Goldene Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dorada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine dorée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina dorata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ゴールドマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពណ៌មាស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "골드 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gullmaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Złota maszyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina dourada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Золотая машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องจักรสีทอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altın makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Золота машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy vàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金色机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "金色機器"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPetMascot.moon-rose": {
+      "comment": "Chief pet character: the moon moth with rose wings (Rose Moon), Series 2.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rose Moon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قمر وردي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ružičasti mjesec"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosamåne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosenmond"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna rosa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lune rose"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luna rosa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ローズムーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ព្រះចន្ទពណ៌ផ្កាឈូក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로즈 문"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rosemåne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Różany księżyc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lua rosa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розовая луна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พระจันทร์สีชมพู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pembe ay"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рожевий місяць"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trăng hồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰月亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玫瑰月亮"
+          }
+        }
+      }
+    },
     "settings.home.channelsEnabled": {
       "comment": "Settings > Appearance > Sidebar: toggle that shows the Channels entry after Home.",
       "extractionState": "manual",
@@ -120368,6 +122931,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "釘選分頁的寬度。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabFontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Text Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの文字サイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم نص علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina teksta kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse for faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textgröße der Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño del texto de las pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille du texte des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del testo delle schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំអក្សរផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 텍스트 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse for faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar tekstu kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho do texto das abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер текста вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดข้อความแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme metni boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір тексту вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ chữ của tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页文字大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁文字大小"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabFontSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text size of tab titles. Unset, tabs follow the interface size."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブタイトルの文字サイズ。未設定の場合はインターフェイスのサイズに従います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم نص عناوين علامات التبويب. إذا لم يُعيَّن، تتبع علامات التبويب حجم الواجهة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina teksta naslova kartica. Ako nije postavljeno, kartice prate veličinu interfejsa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse for fanetitler. Hvis den ikke er angivet, følger fanerne grænsefladens størrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textgröße der Tab-Titel. Ohne Wert folgen die Tabs der Oberflächengröße."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño del texto de los títulos de las pestañas. Si no se define, las pestañas siguen el tamaño de la interfaz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille du texte des titres d’onglets. Si elle n’est pas définie, les onglets suivent la taille de l’interface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del testo dei titoli delle schede. Se non è impostata, le schede seguono la dimensione dell’interfaccia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំអក្សរនៃចំណងជើងផ្ទាំង។ បើមិនកំណត់ ផ្ទាំងនឹងតាមទំហំចំណុចប្រទាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 제목의 텍스트 크기입니다. 설정하지 않으면 탭은 인터페이스 크기를 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse for fanetitler. Hvis den ikke er angitt, følger fanene grensesnittstørrelsen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar tekstu tytułów kart. Gdy nie jest ustawiony, karty używają rozmiaru interfejsu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho do texto dos títulos das abas. Sem valor definido, as abas seguem o tamanho da interface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер текста заголовков вкладок. Если не задан, вкладки следуют размеру интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดข้อความของชื่อแท็บ หากไม่ได้ตั้งค่า แท็บจะใช้ขนาดอินเทอร์เฟซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme başlıklarının metin boyutu. Ayarlanmazsa sekmeler arayüz boyutunu izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір тексту заголовків вкладок. Якщо не задано, вкладки відповідають розміру інтерфейсу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ chữ của tiêu đề tab. Nếu không đặt, tab theo cỡ giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页标题的文字大小。未设置时，标签页跟随界面大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁標題的文字大小。未設定時，分頁會跟隨介面大小。"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabFontSize.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスのサイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم الواجهة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina interfejsa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grænsefladens størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oberflächengröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño de la interfaz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille de l’interface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione dell’interfaccia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំចំណុចប្រទាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "인터페이스 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grensesnittstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar interfejsu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho da interface"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер интерфейса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดอินเทอร์เฟซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arayüz boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір інтерфейсу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "界面大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "介面大小"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabStripHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーの高さ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina trake kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanelinjens højde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Höhe der Tableiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de la barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur de la barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza della barra delle schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់របារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 막대 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyde på fanelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość paska kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura da barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота панели вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงของแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme çubuğu yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота панелі вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏高度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列高度"
+          }
+        }
+      }
+    },
+    "settings.tabs.tabStripHeight.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Height of a pane's tab bar. Its tabs grow and shrink with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのタブバーの高さ。タブもそれに合わせて大きさが変わります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع شريط علامات التبويب في اللوحة. تكبر علامات التبويب وتصغر معه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina trake kartica u panelu. Kartice rastu i smanjuju se s njom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højden på et panels fanelinje. Fanerne bliver større og mindre med den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Höhe der Tableiste eines Bereichs. Die Tabs wachsen und schrumpfen mit ihr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de la barra de pestañas de un panel. Sus pestañas crecen y se reducen con ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur de la barre d’onglets d’un panneau. Ses onglets s’agrandissent et rétrécissent avec elle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza della barra delle schede di un riquadro. Le schede si ingrandiscono e si riducono con essa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់របារផ្ទាំងរបស់ផ្ទាំងក្រឡា។ ផ្ទាំងនានាធំឡើង និងតូចចុះតាមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창의 탭 막대 높이입니다. 탭도 함께 커지고 작아집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyden på fanelinjen i et panel. Fanene vokser og krymper med den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość paska kart panelu. Karty rosną i maleją razem z nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura da barra de abas de um painel. As abas aumentam e diminuem com ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота панели вкладок области. Вкладки увеличиваются и уменьшаются вместе с ней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงของแถบแท็บในบานหน้าต่าง แท็บจะขยายและหดตามไปด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir bölmenin sekme çubuğunun yüksekliği. Sekmeler onunla birlikte büyür ve küçülür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота панелі вкладок області. Вкладки збільшуються та зменшуються разом із нею."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao thanh tab của một ngăn. Các tab to lên và nhỏ lại theo nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格标签栏的高度。标签页随之变大或变小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格分頁列的高度。分頁會隨之變大或變小。"
           }
         }
       }
@@ -179326,6 +182544,666 @@
         }
       }
     },
+    "settings.workspaceColors.indicatorStyle": {
+      "comment": "Settings > Appearance > Sidebar: how a workspace's color shows on its row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط لون مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil boje radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil for arbejdsområdefarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil der Workspace-Farbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Color Style"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo del color del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style de couleur de l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile colore dell’area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色の表示方法"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មពណ៌កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 색상 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil for arbeidsområdefarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl koloru obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo da cor do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль цвета рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบสีของพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı rengi stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль кольору робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu màu không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色樣式"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.indicatorStyle.help": {
+      "comment": "Settings > Appearance > Sidebar: help for the workspace color style choice",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف يظهر لون مساحة العمل في الشريط الجانبي: نقطة قبل اسمها، أو شريط على حافة الصف، أو الصف كله مملوء باللون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se boja radnog prostora prikazuje na bočnoj traci: tačka ispred imena, traka uz rub reda ili cijeli red ispunjen bojom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sådan vises et arbejdsområdes farve i sidepanelet: en prik før navnet, en streg langs rækkens kant eller hele rækken fyldt med farven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie die Farbe eines Workspace in der Seitenleiste erscheint: ein Punkt vor dem Namen, ein Balken am Rand der Zeile oder die ganze Zeile in der Farbe gefüllt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se muestra el color de un espacio de trabajo en la barra lateral: un punto antes del nombre, una barra en el borde de la fila o toda la fila rellena con el color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment la couleur d’un espace de travail apparaît dans la barre latérale : un point devant son nom, une barre le long du bord de la ligne ou toute la ligne remplie de la couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come appare il colore di un’area di lavoro nella barra laterale: un punto prima del nome, una barra lungo il bordo della riga o l’intera riga riempita con il colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーでのワークスペースの色の表示方法：名前の前の点、行の端に沿ったバー、または行全体をその色で塗りつぶします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលពណ៌កន្លែងធ្វើការបង្ហាញនៅក្នុងរបារចំហៀង៖ ចំណុចមួយនៅមុខឈ្មោះ របារមួយតាមគែមជួរ ឬជួរទាំងមូលបំពេញដោយពណ៌។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 워크스페이스 색상을 표시하는 방식: 이름 앞의 점, 행 가장자리의 막대, 또는 행 전체를 색상으로 채우기."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slik vises fargen til et arbeidsområde i sidefeltet: en prikk foran navnet, en strek langs radens kant eller hele raden fylt med fargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak kolor obszaru roboczego wyświetla się na pasku bocznym: kropka przed nazwą, pasek wzdłuż krawędzi wiersza lub cały wiersz wypełniony kolorem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como a cor de um espaço de trabalho aparece na barra lateral: um ponto antes do nome, uma barra na borda da linha ou a linha inteira preenchida com a cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как цвет рабочего пространства показан на боковой панели: точка перед названием, полоса по краю строки или вся строка, залитая цветом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีแสดงสีของพื้นที่ทำงานในแถบด้านข้าง: จุดหน้าชื่อ แถบตามขอบแถว หรือเติมสีทั้งแถว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir çalışma alanının renginin kenar çubuğunda nasıl görüneceği: adının önünde bir nokta, satırın kenarında bir çubuk veya renkle doldurulmuş satırın tamamı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як колір робочого простору показано на бічній панелі: крапка перед назвою, смуга вздовж краю рядка або весь рядок, залитий кольором."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách màu của không gian làm việc hiển thị ở thanh bên: một chấm trước tên, một thanh dọc mép hàng, hoặc tô màu cả hàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色在边栏中的显示方式：名称前的圆点、沿行边缘的竖条，或用该颜色填充整行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色在側邊欄中的顯示方式：名稱前的圓點、沿列邊緣的直條，或以該顏色填滿整列。"
+          }
+        }
+      }
+    },
+    "settings.choice.workspaceColorDot": {
+      "comment": "Workspace Color Style choice: a colored dot before the workspace name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tačka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punkt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dot"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "점"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kropka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nokta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крапка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chấm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圓點"
+          }
+        }
+      }
+    },
+    "settings.choice.workspaceColorLeftRail": {
+      "comment": "Workspace Color Style choice: a colored bar down the row's leading edge",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط جانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lijeva traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre streg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linker Balken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Rail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左端のバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារខាងឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre strek"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lewy pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra à esquerda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sol çubuk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh bên trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左侧竖条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側直條"
+          }
+        }
+      }
+    },
+    "settings.choice.workspaceColorFill": {
+      "comment": "Workspace Color Style choice: the whole sidebar row filled with the workspace color",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعبئة الصف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispuni red"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fyld rækken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeile füllen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fill Row"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rellenar fila"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplir la ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riempi riga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を塗りつぶす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំពេញជួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행 채우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fyll raden"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wypełnij wiersz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preencher linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заливка строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เติมทั้งแถว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satırı doldur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заливка рядка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tô cả hàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填充整行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填滿整列"
+          }
+        }
+      }
+    },
     "settings.sidebar.showColors": {
       "extractionState": "manual",
       "localizations": {
@@ -187412,532 +191290,6 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
-      }
-    },
-    "settings.computerUse.livePreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Live Preview in Chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットでのライブプレビュー"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "معاينة مباشرة في الدردشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pregled uživo u chatu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-forhåndsvisning i chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-Vorschau im Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vista previa en directo en el chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aperçu en direct dans le chat"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anteprima dal vivo nella chat"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "채팅의 실시간 미리보기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Direkteforhåndsvisning i chat"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podgląd na żywo w czacie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prévia ao vivo no chat"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Живой просмотр в чате"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวอย่างสดในแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbette canlı önizleme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Живий перегляд у чаті"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "聊天中的实时预览"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "聊天中的即時預覽"
-          }
-        }
-      }
-    },
-    "settings.computerUse.livePreview.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
-          }
-        }
-      }
-    },
-    "settings.computerUse.livePreview.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows the app an agent uses in its chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントが使うアプリをそのチャットに表示"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser den app, en agent bruger, i dens chat"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Muestra la app que usa un agente en su chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Affiche l'app qu'un agent utilise dans son chat"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra l'app che un agente usa nella sua chat"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 사용하는 앱을 채팅에 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser appen en agent bruker, i chatten"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokazuje w czacie aplikację, której używa agent"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra no chat o app que um agente usa"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывает в чате приложение, с которым работает агент"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показує в чаті застосунок, з яким працює агент"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在聊天中显示代理使用的应用"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在聊天中顯示代理使用的 App"
-          }
-        }
-      }
-    },
-    "settings.default.neverDiscard": {
-      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Never Discard"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "破棄しない"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عدم التجاهل أبدًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nikad ne odbacuj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kassér aldrig"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie verwerfen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No descartar nunca"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne jamais décharger"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non scartare mai"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កុំបោះចោលឡើយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제 안 함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Forkast aldri"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nigdy nie odrzucaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nunca descartar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не выгружать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ทิ้งเลย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Asla atma"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вивантажувати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không bao giờ loại bỏ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "从不丢弃"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "永不捨棄"
-          }
-        }
       }
     },
     "settings.sidebar.controlsOnHover": {

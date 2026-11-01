@@ -6,6 +6,8 @@
 
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
+#[path = "durable_agents/bg_caller_restart.rs"]
+mod bg_caller_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -494,6 +496,33 @@ async fn a_subagents_tool_call_across_a_restart_is_not_its_parent_turns() {
     assert!(entry["lane"]["stalledSince"].is_null(), "its own call runs: {entry}");
     assert_eq!(entry["turn"]["activity"], "Own build", "{entry}");
     ends_its_turn(&daemon, &session, &gate);
+}
+
+/// A subagent that runs across a restart is still the chat's subagent once the next daemon adopts
+/// its host: its next line is tagged with its session id and the summary still counts it. The
+/// adopting daemon started with no subagents, so the child's line after `host_adopted` reached
+/// clients untagged and read as the chat's own call (Leo: "why does it say you're still running
+/// grep" after a finished turn).
+#[tokio::test]
+async fn a_subagent_running_across_a_restart_keeps_its_tag_after_adoption() {
+    let (daemon, session, gate, entry) = adopted_after("adopt-sub", "child-gate", |e| {
+        e["kind"] == "tool_call" && e["msg"].pointer("/params/_meta/acpmux/subagent").is_some()
+    })
+    .await;
+    assert_eq!(entry["subagentsRunning"], 1, "its subagent still runs: {entry}");
+    assert_eq!(entry["subagentNames"], json!(["Child"]), "{entry}");
+    std::fs::write(&gate, b"go").unwrap();
+    let update = daemon.wait_event(&session, "the child's call ending", |e| {
+        e["kind"] == "tool_call_update"
+            && e["msg"].pointer("/params/update/toolCallId") == Some(&json!("cg-1"))
+    });
+    assert_eq!(
+        update["msg"].pointer("/params/_meta/acpmux/subagent"),
+        Some(&json!("child-1")),
+        "the subagent's line after adoption is tagged with its session: {update}"
+    );
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
 }
 
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
@@ -2210,6 +2239,57 @@ async fn an_unadoptable_host_ends_under_mdm_off_though_its_log_asks() {
     assert!(
         gone_within(harness_pid, Duration::from_secs(10)),
         "an unadoptable host ran on under the managed off"
+    );
+}
+
+/// A chat whose agent asks, stopped with its host left running, and a next daemon that cannot
+/// speak to that host (`ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX`: every host refuses it, as a host of
+/// a build it cannot speak to does): the daemon (not started), the chat and the harness's pid.
+async fn left_incompatible(tag: &str) -> (Daemon, String, i64) {
+    let mut daemon = Daemon::new(tag, "ask");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    daemon.env.push(("ACPMUX_TEST_CONTROLLER_PROTOCOL_MAX".into(), "0".into()));
+    (daemon, session, harness_pid)
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: a host a restart left that refuses this
+/// build's protocol is never adopted, so its replay is never read, and what it moved to while no
+/// daemon was attached is unknown though its log asks. Under MDM's off it ends (its nonce proves
+/// it) instead of running on unjudged.
+#[tokio::test]
+async fn an_incompatible_host_ends_under_mdm_off_though_its_log_asks() {
+    let (mut daemon, _session, harness_pid) = left_incompatible("mdmincompat").await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on unjudged under the managed off"
+    );
+}
+
+/// https://github.com/manaflow-ai/cmux/issues/26337: with MDM unset, a host this build cannot speak
+/// to runs on, unadoptable, as before. An off pushed later still ends it (the adoption hold it
+/// left is cut, and nothing this daemon read says what it runs).
+#[tokio::test]
+async fn an_incompatible_host_runs_on_with_mdm_unset_and_ends_when_mdm_turns_it_off() {
+    let (mut daemon, session, harness_pid) = left_incompatible("mdmincompatpush").await;
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/status", json!({})).await;
+    daemon.wait_event(&session, "host_unadoptable", |e| e["kind"] == "host_unadoptable");
+    assert!(alive(harness_pid), "with MDM unset the next daemon ended the agent");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host this build cannot speak to ran on after MDM turned full access off"
     );
 }
 

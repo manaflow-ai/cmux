@@ -91,6 +91,8 @@ on:
       - scripts/lint-ios-package-conventions.sh
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-ratchet.txt
+      - scripts/lint-namespace-types-baseline.txt
+      - scripts/lint-ios-package-conventions-baseline.txt
       - backend/catalog/cloud-operations.json
       - backend/packages/protocol/scripts/export-client.ts
       - backend/packages/protocol/scripts/export-rust-client.ts

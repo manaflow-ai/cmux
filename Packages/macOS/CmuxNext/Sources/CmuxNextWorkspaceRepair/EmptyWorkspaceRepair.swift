@@ -296,7 +296,16 @@ public final class EmptyWorkspaceRepair {
                     if let populatedEpoch, populatedEpoch == epoch(), populated[key] == nil {
                         populated[key] = populatedEpoch
                     }
-                    if populated[key] == epoch() { retries.insert(key) }
+                    // A reconnect can replace the workspace model while this close is in
+                    // flight, so its pane flip may not reach the old watcher. The failed close
+                    // still proves that this workspace had a terminal before it emptied; carry
+                    // that evidence into the current epoch for the retry.
+                    if populated[key] != epoch() { populated[key] = epoch() }
+                    // Pane changes observed while the close was owned by this task were
+                    // intentionally ignored. Re-examine the workspace on the next store change
+                    // even when a reconnect replaced its evidence; a populated workspace is a
+                    // no-op, while an empty one gets the close it missed.
+                    retries.insert(key)
                 }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }

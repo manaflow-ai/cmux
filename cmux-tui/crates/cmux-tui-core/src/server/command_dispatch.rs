@@ -210,7 +210,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
+            cmd_terminal_io::wait_for(mux, writer, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             cmd_terminal_io::run(

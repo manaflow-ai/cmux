@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// each tab's name draws in the theme's primary text, and its path in the theme's secondary text
 /// (the token the card's facts use), not a washed-out tertiary grey on the glass (review of the
 /// #24785 dark capture; the list landed in #28897).
-@MainActor @Suite(.serialized) struct WorkspaceTabHoverCardContrastTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceTabHoverCardContrastTests {
     private struct Mounted {
         let window: NSWindow
         let scope: ThemeScope
@@ -18,13 +19,13 @@ import Testing
 
     private static func mount(_ body: NSView, recolor: @escaping () -> Void) throws -> Mounted {
         _ = NSApplication.shared
+        let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(try #require(ThemeSpec("Tab Card Dark")), input: input, animated: false)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 260), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
-        let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
-        let scope = ThemeScope(level: .room)
-        scope.setOverride(try #require(ThemeSpec("Tab Card Dark")), input: input, animated: false)
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 260))
         window.contentView = root
         scope.root(root)
@@ -90,7 +91,7 @@ import Testing
             SidebarTab(id: TabID("t2"), title: "shell", kind: .terminal, folder: "~", state: .success),
         ])
         let mounted = try Self.mount(card) { [weak card] in card?.applyColors() }
-        defer { mounted.window.close() }
+        defer { mounted.window.closeAfterTest() }
         let primary = try #require(Self.rgb(mounted.scope.perform { Palette.textPrimary }))
         let secondary = try #require(Self.rgb(mounted.scope.perform { Palette.textSecondary }))
         let byText = Dictionary(Self.labels(in: card).map { ($0.stringValue, $0) }, uniquingKeysWith: { a, _ in a })
@@ -117,6 +118,7 @@ import Testing
             let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 460, height: 640), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            defer { window.closeAfterTest() }
             window.appearance = NSAppearance(named: .darkAqua)
             let input = ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
             let scope = ThemeScope(level: .room)
@@ -140,7 +142,6 @@ import Testing
                 out[label.stringValue] = Self.brightestInk(label, in: host, rep: rep)
                 report.append("\(label.stringValue): color=\(String(describing: Self.rgb(label.textColor))) ink=\(out[label.stringValue] ?? -1)")
             }
-            window.close()
             return out
         }
         let inks = try measure(host)

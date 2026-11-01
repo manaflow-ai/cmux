@@ -57,11 +57,11 @@ enum SidebarStyle {
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
     /// Where a workspace row's title starts, from its icon and session tree depth.
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
         let side: CGFloat
         let swatch: Bool
         switch icon {
-        case nil: side = 0; swatch = false
+        case nil: side = reservesColorRail ? dotSize + Metrics.space1 : 0; swatch = reservesColorRail
         case .swatch: side = dotSize + Metrics.space1; swatch = true
         case .symbol, .emoji, .favicon: side = iconBox; swatch = false
         }
@@ -89,6 +89,9 @@ enum SidebarStyle {
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
     static var dotSize: CGFloat { Metrics.space3 }
+    /// The blue unread dot on a workspace row, an icon or a tile: 8 pt, as Claude's and ChatGPT's unread dot
+    /// (Leo 2026-10-31: "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). The one token every unread dot reads.
+    static var unreadDotSize: CGFloat { Metrics.space4 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }

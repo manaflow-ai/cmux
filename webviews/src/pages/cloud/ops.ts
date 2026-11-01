@@ -258,6 +258,10 @@ export interface CloudMachine {
   last_active_at?: number | null;
   idle_policy?: { idle_seconds?: number | null } | null;
   error?: { code: string; message?: string | null; at?: number | null } | null;
+  /** US dollars an hour while running, from the server's rate table (display only; no rates here). */
+  hourly_rate_usd?: number | null;
+  /** Epoch milliseconds the machine last started running; null unless it is running. */
+  running_since?: number | null;
   /** The record's own revision: a decimal string that only grows. */
   revision: string;
 }

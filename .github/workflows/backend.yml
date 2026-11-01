@@ -80,7 +80,7 @@ env:
 jobs:
   test:
     if: github.event.action != 'closed'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -396,6 +396,21 @@ jobs:
         run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
       - name: Smoke
         run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
+      # cmux-platform-staging serves NEXT Cloud for staging (cmux#29488) and signs and checks the same
+      # tokens as this Worker, so it needs the same JWT_PRIVATE_JWK. This environment holds the only
+      # copy, so every staging deploy puts it there too (stdin, never logged); a rotation here reaches
+      # both Workers. Runs from $RUNNER_TEMP so wrangler reads no wrangler.jsonc.
+      - name: Keep cmux-platform-staging's JWT_PRIVATE_JWK equal to this Worker's
+        working-directory: ${{ runner.temp }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          WRANGLER: ${{ github.workspace }}/backend/apps/api/node_modules/.bin/wrangler
+        run: |
+          set -euo pipefail
+          if [ -z "$JWT_PRIVATE_JWK" ]; then echo "::error title=No JWT_PRIVATE_JWK::cmux-next-staging has no JWT_PRIVATE_JWK"; exit 1; fi
+          printf '%s' "$JWT_PRIVATE_JWK" | "$WRANGLER" secret put JWT_PRIVATE_JWK --name cmux-platform-staging
 
   # Development (cmux-api-development) follows feat-cmux-next. It ships code only: the job sends no
   # secrets (the Worker keeps its own). Before deploying it compares the serving version's vars

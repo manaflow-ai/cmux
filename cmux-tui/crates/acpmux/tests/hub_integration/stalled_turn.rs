@@ -165,7 +165,7 @@ async fn a_turn_quiet_inside_an_open_tool_call_gets_four_periods() {
     assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 240_000, "{ended:?}");
 }
 
-/// A turn that failed over to its fallback profile (a usage limit) and whose fallback then went
+/// A turn that failed over to its fallback profile (an authentication failure) and whose fallback then went
 /// quiet still ends: the fallback's prompt takes the forced end too.
 #[tokio::test]
 async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
@@ -183,7 +183,7 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
         policy: None,
     };
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[]));
+    agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[("FAKE_AUTH_FAIL", "1")]));
     // The fallback loads the chat, and its replayed history holds a tool call that never
     // ended: not this turn's, so it gives no grace.
     let pool_env = [("FAKE_FALLBACK", "1"), ("FAKE_LOAD_REPLAY_TOOL", "1")];

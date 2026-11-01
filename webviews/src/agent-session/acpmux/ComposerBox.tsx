@@ -1,5 +1,6 @@
-import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
-import { type ComposerAttachment, inlineTokenIds } from "./attachments";
+import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
 import {
   AttachmentStrip,
@@ -62,6 +63,9 @@ export type ComposerBoxProps = {
   onReorderAttachment?(id: string, index: number): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
   onPasteFile?(file: MadeFile): void;
+  /// Attaches files pasted from the pasteboard at the caret, as the intake's own paste does: a copy of
+  /// a composer's text and attachments pasted back in its order (composer/composerCopy.ts).
+  onPasteFiles?(files: File[]): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -79,7 +83,8 @@ export type ComposerBoxProps = {
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
   ring?: React.ReactNode;
-  /// The actions before Codex's bolt and the mic (steer, and Stop with the plain footer).
+  /// The one send control (Send or Stop) where Claude's look draws it, before the mic, which keeps
+  /// the right edge; Codex's look puts it last (`trailing`).
   actionsLead?: React.ReactNode;
   /// The mic, which keeps every width (composerRowFit.ts).
   accessory?: React.ReactNode;
@@ -118,6 +123,7 @@ export function ComposerBox({
   originalFailures,
   onReorderAttachment,
   onPasteFile,
+  onPasteFiles,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -190,6 +196,20 @@ export function ComposerBox({
   );
   const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;
+  // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
+  // all in composer which also selects all the attachments as the copy as well"): those placed in
+  // the text are in its selection (composer/inlineNode.ts); the strip's show as selected while the
+  // whole draft is, and go with its copy, cut and delete.
+  const [whole, setWhole] = useState(false);
+  const staged = () => (attachmentsRef ?? ownAttachments).current;
+  /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
+  const dropStrip = () => {
+    for (const chip of staged().filter((each) => !placed.has(each.id))) {
+      inline.remove(chip.id);
+      onRemoveAttachment(chip.id);
+    }
+    if (onCancelAttachment) for (const chip of pending ?? []) if (!placed.has(chip.id)) inline.cancel(chip.id);
+  };
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
   // input card is the text area. The text keeps its own press (caret, selection), and the card's
@@ -238,6 +258,7 @@ export function ComposerBox({
             inline.remove(id);
             onRemoveAttachment(id);
           }}
+          selected={whole}
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           {...(originalFailures ? { originalFailures } : {})}
@@ -256,6 +277,33 @@ export function ComposerBox({
             }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            onWholeSelection={setWhole}
+            onCopy={(copy, cut) => {
+              const made = composerCopy(copy.parts, copy.whole, staged());
+              // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
+              if (!made) {
+                forgetCopy();
+                return false;
+              }
+              writeComposerCopy(made);
+              if (cut && copy.whole) dropStrip();
+              return true;
+            }}
+            onPasteFirst={(event) => {
+              const plan = pastePlan(event.clipboardData, inline.known);
+              if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
+              pastesPlaced.add(event);
+              for (const part of plan) {
+                if ("text" in part) prompt.current?.insertText(part.text);
+                // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
+                else if ("id" in part)
+                  prompt.current?.insertInline([
+                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
+                  ]);
+                else onPasteFiles?.([part.file]);
+              }
+              return true;
+            }}
             onChange={(markdown, caret) => {
               inline.edited(markdown);
               field.onChange(markdown, caret);
@@ -272,6 +320,18 @@ export function ComposerBox({
               // Every key belongs to the input method while it composes.
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Delete over the whole draft takes the strip's attachments with its text.
+              if (
+                !composing &&
+                whole &&
+                (event.key === "Backspace" || event.key === "Delete") &&
+                !event.ctrlKey &&
+                !event.altKey
+              ) {
+                dropStrip();
+                onKeyDown?.(event);
+                return;
+              }
               // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
               const backspaced = composing
                 ? undefined

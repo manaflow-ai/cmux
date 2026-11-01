@@ -191,6 +191,31 @@ test("a staged image whose original failed shows Retry beside its preview", () =
   expect(noFailure).not.toContain("acpmux-attachment-original-retry");
 });
 
+// Leo, 2026-10-31: "video attachments (big attachments?) still sucks", over a strip of empty tiles
+// that each showed only an underlined "Retry". A failed tile keeps its shape and kind and shows one
+// small retry glyph button (why is in its tooltip); a streaming one shows how far it got.
+test("a failed tile shows its kind and one retry glyph button; a streaming one shows its progress", () => {
+  const html = renderToStaticMarkup(
+    <AttachmentStrip
+      attachments={[]}
+      pending={[
+        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out." },
+        { id: "shot", name: "shot.png", image: true, failed: "The disk is full." },
+        { id: "big", name: "big.mp4", image: false, uploading: true, progress: 0.42 },
+      ]}
+      onRemove={() => {}}
+      onCancel={() => {}}
+      onRetry={() => {}}
+    />,
+  );
+  // The file's name stays on its tile; each failed tile has exactly one retry button, a glyph.
+  expect(html).toContain("Screen Recording.mov");
+  expect(html.match(/class="acpmux-attachment-retry"/g)?.length).toBe(2);
+  expect(html).not.toMatch(/class="acpmux-attachment-retry"[^>]*>Retry</);
+  expect(html).toContain('title="The upload timed out."');
+  expect(html).toMatch(/<progress[^>]*value="42"/);
+});
+
 type Intake = ReturnType<typeof useAttachmentIntake>;
 function Harness({ options, handle }: { options: AttachmentIntakeOptions; handle: Ref<Intake> }) {
   const intake = useAttachmentIntake(options);

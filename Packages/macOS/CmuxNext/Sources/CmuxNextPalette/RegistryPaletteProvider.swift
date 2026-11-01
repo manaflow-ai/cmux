@@ -79,7 +79,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
             guard entry.isBound || override != nil || includeUnbound else { continue }
             // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
             let paletteReason = override == nil ? registry.action(for: descriptor.id)?.paletteUnavailableReason?() : nil
-            let isEnabled = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
+            let runs = override != nil || (registry.canPerform(descriptor.id) && paletteReason == nil)
+            // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
+            let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
+            let isEnabled = runs || recovery != nil
             let fallback = defaultEffect(for: descriptor)
             let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
@@ -88,7 +91,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
                 title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
-                subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID) ?? paletteReason,
+                subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: actionID) ?? paletteReason),
                 accessory: entry.isBound || override != nil ? nil : unbound,
                 // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
                 symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,

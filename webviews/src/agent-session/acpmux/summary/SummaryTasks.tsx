@@ -1,7 +1,7 @@
-// The summary card's Background tasks (SummaryBody.tsx), with the Inspector off (Debug Settings
-// `agent.inspector`; on, the Inspector's TasksSection.tsx lists them): the chat's background
-// commands (inspector/processes.ts `backgroundCommands`), running ones first and newest first, each
-// with its description, state, elapsed time and a Stop button (inspector/TasksSection.tsx
+// The summary card's Background tasks (SummaryBody.tsx), with Session Info off (Debug Settings
+// `agent.inspector`; on, Session Info's TasksSection.tsx lists them): the chat's background
+// commands (session-info/processes.ts `backgroundCommands`), running ones first and newest first, each
+// with its description, state, elapsed time and a Stop button (session-info/TasksSection.tsx
 // `StopButton`). Finished work stays visible as compact cards so a completed or failed task does
 // not disappear behind an aggregate count. Long lists remain in the card and can be opened in
 // Session Info with the final row.
@@ -16,8 +16,8 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
-import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../inspector/processes";
-import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
+import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../session-info/processes";
+import { COMMAND_STATE, StopButton } from "../session-info/TasksSection";
 
 const ROW_ICON = rowIconSize(12);
 export function SummaryTasks({

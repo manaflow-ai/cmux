@@ -98,6 +98,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               probe.remove();
               return {
                 box: bounds(box),
+                composer: bounds(composer),
                 controls,
                 bar: bounds(bar),
                 dots: dots ? bounds(dots) : null,
@@ -122,6 +123,11 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               const axis = geometry.controls[0]!.cy;
               for (const control of geometry.controls) expect(Math.abs(control.cy - axis)).toBeLessThanOrEqual(0.5);
               expect(geometry.box.bottom - geometry.bar.bottom).toBeLessThanOrEqual(0.5);
+              // The box stands a 12 px floor over the composer's bottom, never on it (Leo 2026-11-01:
+              // "so there's not so much uncomfortable tangent line at the bottom"), and the row is 44 px
+              // with + as far off the box's left as off its bottom.
+              expect(Math.abs(geometry.composer.bottom - geometry.box.bottom - 12)).toBeLessThanOrEqual(0.5);
+              expect(Math.abs(geometry.bar.bottom - geometry.bar.top - 44)).toBeLessThanOrEqual(0.5);
               // Every control fits the box, none over another, at a split pane's width too (review of
               // #28901: the plain footer's infinite fit width kept the full labels at 280 px).
               const row = [...geometry.controls].sort((a, b) => a.left - b.left);
@@ -156,7 +162,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
 
   // New Tab's Codex look keeps its chips in the box's row too; a narrow pane steps their labels down
   // rather than wrapping the mic and Send or clipping the model (review of #28901).
-  for (const width of [720, 420, 400, 280])
+  for (const width of [1200, 720, 480, 440, 420, 400, 280])
     test(`codex New Tab ${width}: one row inside the box, nothing overlapping`, async () => {
       const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
       try {
@@ -189,8 +195,28 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             const r = el.getBoundingClientRect();
             return [{ selector, left: r.left, right: r.right, cy: (r.top + r.bottom) / 2 }];
           });
+          // The permission mode's label is drawn whole or not at all: never cut by the trigger's
+          // clip (Leo 2026-10-31, New Tab read "s pern" for "Bypass permissions": "STUPID").
+          const trigger = row.querySelector<HTMLElement>(".acpmux-access-trigger");
+          const label = trigger?.querySelector<HTMLElement>(".acpmux-mode-text");
+          const labelStyle = label ? getComputedStyle(label) : undefined;
+          const labelShown =
+            !!labelStyle &&
+            labelStyle.display !== "none" &&
+            labelStyle.visibility === "visible" &&
+            labelStyle.position !== "absolute";
+          const access = trigger
+            ? {
+                labelShown,
+                text: label?.textContent ?? "",
+                trigger: (({ left, right }) => ({ left, right }))(trigger.getBoundingClientRect()),
+                label: label ? (({ left, right }) => ({ left, right }))(label.getBoundingClientRect()) : undefined,
+                overflow: trigger.scrollWidth - trigger.clientWidth,
+              }
+            : undefined;
           return {
             modelShown,
+            access,
             box: { left: box.left, right: box.right },
             parts,
             foot: !!document.querySelector(".nt-composer .acpmux-composer-foot"),
@@ -201,6 +227,16 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           .screenshot({ path: path.join(out, `codex-newtab-${width}.png`), animations: "disabled", caret: "hide" });
         expect(geometry.foot).toBe(false);
         expect(geometry.modelShown).toBe(true);
+        expect(geometry.access).toBeDefined();
+        const access = geometry.access!;
+        // Wide enough for the label it shows; at every width a shown label is whole.
+        if (width >= 720) expect(access.labelShown).toBe(true);
+        if (access.labelShown) {
+          expect(access.overflow).toBeLessThanOrEqual(0);
+          expect(access.text.length).toBeGreaterThan(0);
+          expect(access.label!.left).toBeGreaterThanOrEqual(access.trigger.left - 0.5);
+          expect(access.label!.right).toBeLessThanOrEqual(access.trigger.right + 0.5);
+        }
         expect(geometry.parts.map((p) => p.selector)).toEqual([
           ".acpmux-access",
           ".acpmux-model",

@@ -36,7 +36,48 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
+  source?: AttachmentSource;
 };
+
+/// The app an attachment came from (AttachmentSource.swift): its name ("Google Chrome",
+/// "Screenshot", "cmux"), the bundle id its icon is read by, and for a download the site's host.
+export type AttachmentSource = { name: string; bundleId?: string; site?: string };
+
+const BUNDLE_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+$/;
+const SITE = /^[a-z0-9.-]+$/;
+
+/// A source the host sent (or acpmux kept), its fields checked as the host makes them; undefined
+/// for anything else.
+export function attachmentSource(value: unknown): AttachmentSource | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { name, bundleId, site } = value as Record<string, unknown>;
+  if (typeof name !== "string") return undefined;
+  const trimmed = name.trim();
+  if (!trimmed || Array.from(trimmed).length > 64) return undefined;
+  if (bundleId !== undefined && (typeof bundleId !== "string" || bundleId.length > 255 || !BUNDLE_ID.test(bundleId)))
+    return undefined;
+  if (site !== undefined && (typeof site !== "string" || site.length > 253 || !SITE.test(site))) return undefined;
+  return {
+    name: trimmed,
+    ...(bundleId !== undefined ? { bundleId: bundleId as string } : {}),
+    ...(site !== undefined ? { site: site as string } : {}),
+  };
+}
+
+/// Files the page made that already know their source (a capture cmux took): their chips wear it.
+const fileSources = new WeakMap<File, AttachmentSource>();
+
+/// `file`, known to come from `source`.
+export function withSource(file: File, source: AttachmentSource | undefined): File {
+  if (source) fileSources.set(file, source);
+  return file;
+}
+
+/// The source a file the page made was given (`withSource`).
+export function sourceOfFile(file: File): AttachmentSource | undefined {
+  return fileSources.get(file);
+}
 
 export type AttachmentError = {
   name: string;
@@ -555,8 +596,11 @@ export function promptBlocks(
 export type LinkItem = { path: string; folder: boolean };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
-/// (`chat.attach.dropped`): a drop on the page, or a paste.
-export type DroppedKind = "drop" | "paste";
+/// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
+export type DroppedKind = "drop" | "paste" | "choose";
+/// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
+export type SourceKind = DroppedKind;
 
 /// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
 /// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.

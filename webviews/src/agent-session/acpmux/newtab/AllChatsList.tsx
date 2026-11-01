@@ -665,7 +665,9 @@ export function AllChatsList({
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />
                   </span>
-                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-title" title={chat.title}>
+                    {chat.title}
+                  </span>
                   <span className="nt-all-state">{chat.label}</span>
                 </button>
               </ContextMenu>

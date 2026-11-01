@@ -97,6 +97,10 @@ export default componentEntry<Props>({
   styles: () => import("./styles.css"),
   load: async () => GalleryTrustAsk,
   variants: {
+    "grid-ask": {
+      note: "Grid measurement: unanswered folder trust bar.",
+      props: { initialAsk: ask("ask") },
+    },
     ask: { note: "A folder outside any repository.", props: { initialAsk: ask("ask") }, play: trustFolder },
     "ask-repo": {
       note: "A folder inside a repository: Trust repo (every worktree), Only this folder, Not now.",

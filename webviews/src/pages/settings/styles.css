@@ -2120,3 +2120,11 @@ button.menu-disclosure {
   color: var(--danger);
   font-size: var(--text-detail);
 }
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
+}

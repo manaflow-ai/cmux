@@ -92,6 +92,14 @@ public actor CloudMachineLink {
         Task { @MainActor in ownership.publish(owns, link: link) }
     }
 
+    /// Ends the running link so the next ``socketPath()`` starts a fresh one, which asks the Cloud
+    /// API again for its attach answer (a chat share just made the caller the machine's `owner`).
+    /// The connection on it reconnects as after any dropped link. A stopped link stays stopped.
+    public func renew() {
+        guard !stopped else { return }
+        invalidate()
+    }
+
     /// Parks the link while its machine is paused. Unlike `stop`, parking is
     /// reversible: a later resume can start a fresh attach endpoint and socket
     /// on the same session.

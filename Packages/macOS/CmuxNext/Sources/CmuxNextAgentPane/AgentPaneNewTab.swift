@@ -4,6 +4,18 @@ public import Foundation
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
 public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendable {
     case terminal, browser, agent
+
+    /// The right-column placement kind for the two tools that can reuse an existing pane.
+    public var rightColumnKind: RightColumnPlacement.Kind? {
+        switch self {
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agent: nil
+        }
+    }
+
+    /// Terminal and browser picks leave an agent chat's dock; an agent pick stays in it.
+    public var opensBesideChat: Bool { self != .agent }
 }
 
 /// A tab opened as the new tab page (#16620): one field and a kind switch,

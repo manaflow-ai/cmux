@@ -656,9 +656,9 @@ async function flowChat(page: Page): Promise<void> {
   await page.waitForSelector(composerEditor);
   await page.waitForFunction(() => !document.querySelector(".nt-screen"));
   await page.keyboard.press("Escape");
-  if (await page.$("aside.acpmux-chat-inspector")) {
+  if (await page.$("aside.acpmux-session-info")) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+    await page.waitForSelector("aside.acpmux-session-info", { state: "detached" });
   }
   await clearComposer(page);
   await quiet(page);
@@ -789,15 +789,15 @@ const flowActions: LatencyAction[] = [
       await flowChat(page);
       if (!open) {
         await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-        await page.waitForSelector("aside.acpmux-chat-inspector[data-presence='shown']");
+        await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
         await quiet(page);
       }
       return open
-        ? shown("aside.acpmux-chat-inspector[data-presence='shown']")
-        : `document.querySelector("aside.acpmux-chat-inspector") === null`;
+        ? shown("aside.acpmux-session-info[data-presence='shown']")
+        : `document.querySelector("aside.acpmux-session-info") === null`;
     },
     async input(page) {
-      await page.click("button.acpmux-chat-inspector-toggle");
+      await page.click("button.acpmux-session-info-toggle");
     },
     settle: quiet,
   })),
@@ -808,7 +808,7 @@ const flowActions: LatencyAction[] = [
     requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
-      return shown("aside.acpmux-chat-inspector[data-presence='shown']");
+      return shown("aside.acpmux-session-info[data-presence='shown']");
     },
     async input(page) {
       // The same bridge used by the native palette, with native command lookup/IPC excluded.
@@ -927,7 +927,7 @@ const railState = (page: Page) =>
         ticks: document.querySelectorAll("[data-tick]").length,
         list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
         card: !!document.querySelector(".acpmux-minimap__card"),
-        inspector: !!document.querySelector("aside.acpmux-chat-inspector"),
+        sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
       });
     })
     .catch((error: unknown) => `unreadable: ${String(error)}`);
@@ -945,9 +945,9 @@ async function railRestTick(page: Page, above = 0): Promise<RailTick> {
   try {
     // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
     // every build draws the rail beside the text, so every arm measures the same rail.
-    if (await page.$("aside.acpmux-chat-inspector")) {
+    if (await page.$("aside.acpmux-session-info")) {
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached", timeout: 5_000 });
+      await page.waitForSelector("aside.acpmux-session-info", { state: "detached", timeout: 5_000 });
     }
     await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
     await page.evaluate((selector) => {

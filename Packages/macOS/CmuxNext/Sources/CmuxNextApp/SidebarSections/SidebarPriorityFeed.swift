@@ -19,7 +19,11 @@ extension SidebarPriorityFeed {
                                rowAction: { [weak services] action in
                                    if let services { SidebarPriorityRowActions.perform(action, in: services.registry) }
                                },
-                               toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) }),
+                               toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) },
+                               openedSessions: { [weak services] in
+                                   guard let tabs = services?.agentTabs else { return [] }
+                                   return Set(tabs.listTabs().compactMap { tabs.sessions[$0.key] ?? $0.record.session })
+                               }),
                   chats: .app)
     }
 

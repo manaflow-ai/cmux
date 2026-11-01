@@ -2,16 +2,18 @@
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents (an `acpmux send` among them) and calls to the cmux-subsessions tools as cards,
 // and everything else as its own row.
-import { pathKey, type AcpmuxActivity } from "../model";
+import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
-import { agentMessage, messageDelivery, type AgentMessage } from "./agentMessages";
+import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
+import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
+import { isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -37,68 +39,9 @@ export type ToolGroup =
     }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
-  /// Two or more messages to other agents in a row (a SendMessage, an `acpmux send`, a sub-session's
-  /// send_message, in any mix): one line that sums them up over a card with a row per message
-  /// (MessageGroupRow.tsx). `items` are the members' calls, in order.
-  | { type: "messages"; members: MessageEntry[]; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-
-/// One message to another agent, as `toolGroups` draws it on its own: what a `messages` group lists.
-export type MessageEntry =
-  | Extract<ToolGroup, { type: "message" | "send" }>
-  | { type: "subsession"; item: AcpmuxActivity; call: Extract<SubsessionCall, { tool: "send" }> };
-
-/// Whether an entry is one message to another agent, which groups with the messages next to it.
-export function isMessageEntry(group: ToolGroup): group is MessageEntry {
-  return (
-    group.type === "message" || group.type === "send" || (group.type === "subsession" && group.call.tool === "send")
-  );
-}
-
-/// A message that did not go out, or whose call ended without saying it went: it draws on its own,
-/// with its own failed or not-delivered status, never summed up under "Messaged …". A sub-session
-/// call that failed is no sub-session call at all (subsessionCalls.ts), so it never gets here.
-function messageWentOut(entry: MessageEntry): boolean {
-  switch (entry.type) {
-    case "send":
-      return entry.send.state === "sending" || entry.send.state === "sent";
-    case "message":
-      return messageDelivery(entry.item.tool!, entry.message) !== "failed";
-    case "subsession":
-      return true;
-  }
-}
-
-/// Consecutive messages to other agents as one `messages` group, from two (Leo 2026-10-29, on
-/// Claude desktop's "Messaged agent 3 times": "this would be decent ui for cmux-next"). One pass
-/// over the run's entries, so it adds no work beyond the grouping itself. A message that failed ends
-/// the run and keeps its own row (`messageWentOut`).
-function withMessageGroups(groups: ToolGroup[]): ToolGroup[] {
-  const out: ToolGroup[] = [];
-  let members: MessageEntry[] = [];
-  const close = () => {
-    if (members.length >= 2) out.push({ type: "messages", members, items: members.map((member) => member.item) });
-    else out.push(...members);
-    members = [];
-  };
-  for (const group of groups) {
-    if (isMessageEntry(group) && messageWentOut(group)) members.push(group);
-    else {
-      close();
-      out.push(group);
-    }
-  }
-  close();
-  return out;
-}
-
-/// A `messages` group's disclosure key, shared by its row (TurnRows.tsx) and the live line
-/// (turns.ts `ownRow`).
-export function messageGroupKey(items: readonly AcpmuxActivity[], rowId: string, at: number): string {
-  return `group:messages:${items[0]?.tool?.id || `${rowId}:${at}`}`;
-}
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
 /// are commands; an MCP call can also say "execute". An edit still waiting for its permission
@@ -209,7 +152,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
-    const key = call && mcpKey(call);
+    // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
+    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
@@ -332,7 +276,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   }
   close();
   flushLead();
-  return withMessageGroups(groups);
+  return groups;
 }
 
 /// The id a group is known by: its first call's, since thoughts that led into the run may come
@@ -442,4 +386,53 @@ export function toolDuration(t: Translate, tool: Tool): string | undefined {
 /// The last path component, for "Edited App.tsx".
 export function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+/// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
+/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
+/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
+/// more than one entry, so one card never leaves the whole run spread out as a list
+/// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
+/// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
+
+export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+  const stretches: RunStretch[] = [];
+  let current: RunStretch | undefined;
+  const close = () => {
+    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
+    current = undefined;
+  };
+  groups.forEach((group, at) => {
+    const items = "items" in group ? group.items : [group.item];
+    if (row.foldRun === true && staysInSight(group)) {
+      close();
+      stretches.push({ from: at, groups: [group], items, fold: false });
+      return;
+    }
+    if (!current) stretches.push((current = { from: at, groups: [], items: [], fold: false }));
+    current.groups.push(group);
+    current.items.push(...items);
+  });
+  close();
+  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
+  return stretches;
+}
+
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
+/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
+/// collapsing i mean"); the turn's edited-files card lists them once it ends.
+export function staysInSight(group: ToolGroup): boolean {
+  if (
+    group.type === "message" ||
+    group.type === "send" ||
+    group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
+    group.type === "dispatch"
+  )
+    return true;
+  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
+  // stays in sight all the same.
+  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }

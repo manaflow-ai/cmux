@@ -356,6 +356,19 @@ pub enum SubStatus {
     Reported,
 }
 
+/// What opens a subagent's workspace later (`control show`): the key it
+/// opens under, its sidebar group and its terminal's folder on this machine.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSlot {
+    /// The key it opens under: at first the one its session carries as
+    /// CMUX_WORKSPACE_ID; a fresh one after `control hide` closed it (the
+    /// daemon replays a mutation id it has seen, so a closed key never
+    /// opens again).
+    pub key: String,
+    pub group: String,
+    pub cwd: std::path::PathBuf,
+}
+
 /// One subagent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubRecord {
@@ -367,6 +380,10 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Where `control show` opens its workspace while it has none (hidden,
+    /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_slot: Option<WorkspaceSlot>,
     /// That workspace's public id (`ws_…`), when its place can name it: its
     /// report's work is shown there (show.rs `block_in`).
     #[serde(
@@ -676,6 +693,10 @@ pub struct Item {
     /// that is cut again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cut: Vec<String>,
+    /// A host note (a watch that fired, a wake, another Chief's message): a
+    /// turn it woke and a restart cut runs again, as for a human message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub note: bool,
 }
 
 /// A cut turn to run again (`HostState::resumes`).

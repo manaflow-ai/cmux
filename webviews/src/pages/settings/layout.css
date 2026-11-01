@@ -751,6 +751,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;

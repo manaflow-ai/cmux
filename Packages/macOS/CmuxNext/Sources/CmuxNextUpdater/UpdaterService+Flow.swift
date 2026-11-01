@@ -16,6 +16,7 @@ extension UpdaterService {
         // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
+        if let cancelledDownloadCard { return cancelledDownloadCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -46,6 +47,7 @@ extension UpdaterService {
     /// repeated or late press (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
             return
@@ -189,6 +191,7 @@ extension UpdaterService {
         let clickedInstall = flow.installRequested
         let previous = flow.phase
         send(.sparkle(phase))
+        followCancelledDownload(phase)
         carryInstallClick(phase)
         followNewestFetch(phase, previous: previous)
         followInstall(phase)

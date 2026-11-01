@@ -7,7 +7,7 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
@@ -129,7 +129,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::BUILD.to_owned(),
+        host_build: crate::hub::build().to_owned(),
         socket: spec.socket.clone(),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
@@ -244,17 +244,45 @@ fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
 /// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Encoded frames to one connection's writer (`super::encode_frame`).
+#[derive(Clone)]
+struct FrameTx(mpsc::UnboundedSender<Arc<[u8]>>);
+
+impl FrameTx {
+    /// Encodes and sends `frame`; an error when the connection is gone or the frame is
+    /// over the limit (the writer used to stop at such a frame; the owner is dropped).
+    fn send(&self, frame: HostFrame) -> Result<(), ()> {
+        self.send_encoded(super::encode_frame(&frame).ok_or(())?)
+    }
+
+    fn send_encoded(&self, bytes: Arc<[u8]>) -> Result<(), ()> {
+        self.0.send(bytes).map_err(|_| ())
+    }
+}
+
 struct Controller {
     id: u64,
-    tx: mpsc::UnboundedSender<HostFrame>,
+    tx: FrameTx,
     /// Entries flow only after `Resume`.
     resumed: bool,
+}
+
+/// One retained entry ([`State::push`]).
+struct Retained {
+    h: u64,
+    /// The entry's frame, as sent.
+    bytes: Arc<[u8]>,
+    weight: usize,
+    /// A next daemon needs it in its log (`orphan::needs_a_daemon`).
+    needed: bool,
 }
 
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
-    entries: VecDeque<(u64, Entry, usize)>,
+    /// Retained entries as their encoded frames: encoded once in `push`, sent as is
+    /// (live and on resume), weighed by their size.
+    entries: VecDeque<Retained>,
     weight: usize,
     next_h: u64,
     acked_h: u64,
@@ -264,7 +292,7 @@ struct State {
     stderr_done: bool,
     leader_code: Option<Option<i32>>,
     /// Connections that have not said `Hello` yet.
-    pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
+    pending_conns: Vec<(u64, FrameTx)>,
     controller: Option<Controller>,
     /// Unbounded: a harness that stops reading never blocks the loop; what
     /// waits here is bounded by the controller, which waits for answers.
@@ -614,10 +642,11 @@ impl Started {
                     let (mut rd, mut wr) = stream.into_split();
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
-                    let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
+                    let (tx, mut rx) = mpsc::unbounded_channel::<Arc<[u8]>>();
+                    let tx = FrameTx(tx);
                     tokio::spawn(async move {
-                        while let Some(frame) = rx.recv().await {
-                            if write_frame(&mut wr, &frame).await.is_err() {
+                        while let Some(bytes) = rx.recv().await {
+                            if wr.write_all(&bytes).await.is_err() || wr.flush().await.is_err() {
                                 break;
                             }
                         }
@@ -694,6 +723,38 @@ impl Started {
     }
 }
 
+/// Entry `h` as the frame it is sent and kept as (encoded once), and whether a next daemon
+/// needs it (`orphan::needs_a_daemon`). An entry over the frame limit (a writer stop would
+/// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
+/// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
+/// None only if even the note cannot be encoded.
+fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
+    let encode = |e: &Entry| {
+        super::encode_frame_within(&super::EntryFrame::Entry { h, e }, max)
+            .map(|bytes| (bytes, orphan::needs_a_daemon(e)))
+    };
+    encode(entry)
+        .or_else(|| encode(&over_frame_limit(h, entry)))
+        .or_else(|| encode(&over_frame_limit_note(h)))
+}
+
+/// What is kept in place of entry `h` when its frame is over the limit: an answer becomes
+/// an error answer with its id, so the request it answers is not left waiting; anything
+/// else becomes a stderr note.
+fn over_frame_limit(h: u64, entry: &Entry) -> Entry {
+    if let Entry::In { msg } = entry
+        && let Some(id) = msg.get("id").filter(|id| !id.is_null() && msg.get("method").is_none())
+    {
+        let err = crate::rpc::RpcError::internal("agent answer was over the frame limit");
+        return Entry::In { msg: Message::err(id.clone(), err).into_value() };
+    }
+    over_frame_limit_note(h)
+}
+
+fn over_frame_limit_note(h: u64) -> Entry {
+    Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -708,19 +769,26 @@ impl State {
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
         self.orphan.note_entry(&entry);
-        self.next_h += 1;
-        let h = self.next_h;
-        let weight = entry.weight();
+        let h = self.next_h + 1;
+        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
+        // serialized to weigh it, copied to send it and serialized again to write it).
+        let Some((bytes, needed)) = encode_entry(h, &entry, super::MAX_FRAME) else {
+            // Not even a one-line note fits a frame: nothing to number, send or keep.
+            tracing::warn!(h, "an agent host entry and its note are over the frame limit");
+            return;
+        };
+        self.next_h = h;
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
+        let weight = bytes.len().saturating_add(32);
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
-            && c.tx.send(HostFrame::Entry { h, e: entry.clone() }).is_err()
+            && c.tx.send_encoded(bytes.clone()).is_err()
         {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back((h, entry, weight));
+        self.entries.push_back(Retained { h, bytes, weight, needed });
         self.weight += weight;
     }
 
@@ -744,9 +812,9 @@ impl State {
             return;
         }
         self.acked_h = h.min(self.next_h);
-        while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
-            if let Some((_, _, w)) = self.entries.pop_front() {
-                self.weight -= w;
+        while self.entries.front().is_some_and(|e| e.h <= self.acked_h) {
+            if let Some(e) = self.entries.pop_front() {
+                self.weight -= e.weight;
             }
         }
     }
@@ -756,7 +824,7 @@ impl State {
     async fn end_background_shells(&mut self) {
         if let Some(tr) = self.translator.clone() {
             for m in tr.end_background_shells().await {
-                self.push(Entry::In { msg: m.to_value() });
+                self.push(Entry::In { msg: m.into_value() });
             }
         }
     }
@@ -835,14 +903,14 @@ impl State {
             } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.to_value() });
+                        self.push(Entry::In { msg: m.into_value() });
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
             {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
-                self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
+                self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
             }
             return;
         }
@@ -858,7 +926,7 @@ impl State {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
                     msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
-                        .to_value(),
+                        .into_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -866,7 +934,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             match Message::parse(&line) {
-                Ok(m) => self.push(Entry::In { msg: m.to_value() }),
+                Ok(m) => self.push(Entry::In { msg: m.into_value() }),
                 Err(_) => self.push(Entry::Err { line: format!("[non-json stdout] {line}") }),
             }
             return;
@@ -879,16 +947,18 @@ impl State {
             }
         };
         // Keep the raw Claude line in the log under its own kind.
+        // Translated first, so the raw line moves into its record instead of being
+        // copied; the raw record still comes first.
+        let translated = tr.inbound(&raw).await;
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: crate::claude_stdio::logged_line(&raw).to_value(),
+            msg: crate::claude_stdio::logged_line_owned(raw).into_value(),
         });
-        let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {
             self.write_claude_line(l);
         }
         for m in translated {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: m.into_value() });
         }
     }
 
@@ -1041,14 +1111,11 @@ impl State {
             ControllerFrame::Resume { after } => {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
-                let backlog: Vec<HostFrame> = self
-                    .entries
-                    .iter()
-                    .map(|(h, e, _)| HostFrame::Entry { h: *h, e: e.clone() })
-                    .collect();
+                let backlog: Vec<Arc<[u8]>> =
+                    self.entries.iter().map(|e| e.bytes.clone()).collect();
                 let Some(c) = self.controller.as_mut() else { return };
-                for frame in backlog {
-                    if c.tx.send(frame).is_err() {
+                for bytes in backlog {
+                    if c.tx.send_encoded(bytes).is_err() {
                         self.controller = None;
                         return;
                     }
@@ -1068,7 +1135,8 @@ impl State {
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
-                self.orphan.unwritten += usize::from(receipt.is_some());
+                self.orphan.unwritten =
+                    self.orphan.unwritten.saturating_add(usize::from(receipt.is_some()));
                 if let Some(receipt) = receipt
                     && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
                 {
@@ -1217,5 +1285,51 @@ mod tests {
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+
+    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
+    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
+    /// does not need.
+    #[test]
+    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
+        use super::{Entry, encode_entry};
+        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
+        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
+        assert!(!needed, "a stderr note keeps no orphaned host waiting");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["h"], 5);
+        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
+
+        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
+        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
+        assert!(needed, "an answer is logged by a next daemon");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
+        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
+
+        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
+    }
+
+    /// An entry too big for one frame is replaced, not dropped with its connection: an
+    /// answer by an error answer to the same id, anything else by a stderr note.
+    #[test]
+    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
+        use super::{Entry, TapDir, over_frame_limit};
+        let answer =
+            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
+        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
+        assert_eq!(msg["id"], 7);
+        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
+        assert!(msg.get("result").is_none());
+
+        let update =
+            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
+        for entry in [
+            Entry::In { msg: update },
+            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
+        ] {
+            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
+            assert_eq!(line, "[entry 4 over the frame limit dropped]");
+        }
     }
 }

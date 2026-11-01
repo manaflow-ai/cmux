@@ -35,6 +35,11 @@ const load = (path: string): Workflow => {
   return parseWorkflow(text, path);
 };
 
+// Repository workflows resolve their Linux pool from this required variable.
+// Keep the fixture explicit so trigger planning models an enrolled repository
+// instead of treating the unset test environment as a production outage.
+const DEFAULT_VARS: Readonly<Record<string, string>> = { RUNNER_POOLS: '{"linux":"fleet-linux"}' };
+
 const eventsFor = (workflow: Workflow): Array<{ event: RunEvent; inputs?: ValueObject }> => {
   const out: Array<{ event: RunEvent; inputs?: ValueObject }> = [];
   if ("push" in workflow.on) out.push({ event: pushEvent({ repository: REPOSITORY, ref: "refs/heads/main", sha: SHA_A }) });
@@ -111,7 +116,7 @@ describe.each(workflowPaths())("%s", (path) => {
   it("plans every consumed trigger without errors", () => {
     const workflow = load(path);
     for (const { event, inputs } of eventsFor(workflow)) {
-      const simulation = simulateRun(workflow, inputs === undefined ? { event, files: workingTree } : { event, inputs, files: workingTree });
+      const simulation = simulateRun(workflow, inputs === undefined ? { event, vars: DEFAULT_VARS, files: workingTree } : { event, inputs, vars: DEFAULT_VARS, files: workingTree });
       expect(simulation.errors, event.name).toEqual([]);
       for (const job of simulation.jobs.filter((item) => item.status === "run")) {
         const resolved = job.label !== null || (job.detail ?? "").startsWith("runs-on waits for needs outputs");
@@ -162,7 +167,7 @@ describe("fixture coverage", () => {
       const workflow = load(path);
       for (const { event, inputs } of eventsFor(workflow)) {
         totals.plans += 1;
-        const simulation = simulateRun(workflow, inputs === undefined ? { event, files: workingTree } : { event, inputs, files: workingTree });
+        const simulation = simulateRun(workflow, inputs === undefined ? { event, vars: DEFAULT_VARS, files: workingTree } : { event, inputs, vars: DEFAULT_VARS, files: workingTree });
         for (const job of simulation.jobs) {
           totals.jobs += 1;
           if (job.status === "run") {

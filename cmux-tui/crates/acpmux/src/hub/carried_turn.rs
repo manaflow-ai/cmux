@@ -26,6 +26,8 @@ use std::sync::atomic::Ordering;
 pub(super) struct SteerSent {
     pub(super) client: String,
     pub(super) text: String,
+    /// The line it leaves on the summary as the turn it starts (`prompt_line.rs`).
+    pub(super) line: String,
     pub(super) control: Control,
     /// What a continuation of the turn it starts needs (`auto_resume.rs`).
     pub(super) continues: Continues,
@@ -109,6 +111,7 @@ impl NextTurn {
             "turnId": t.turn_id,
             "promptId": t.prompt_id,
             "prompt": t.prompt_preview,
+            "promptLine": t.masked_preview,
             "client": t.client,
             "control": control.as_str(),
             "trustGate": self.continues.trust_gate,
@@ -131,8 +134,12 @@ impl NextTurn {
         let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
         let (client, prompt) =
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
-        let next =
+        let mut next =
             TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
+        // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
+        if let Some(line) = text("promptLine") {
+            next.show(&line);
+        }
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
         let continues =
             Continues { from: None, trust_gate: flag("trustGate"), reports: flag("reportsOnly") };
@@ -202,17 +209,19 @@ impl Hub {
             Some(s) => s.control,
             None => from_control,
         };
-        let (client, text, continues) = match sent {
-            Some(s) => (s.client, s.text, s.continues),
+        let (client, text, line, continues) = match sent {
+            Some(s) => (s.client, s.text, s.line, s.continues),
             None => (
                 from.map(|t| t.client.clone()).unwrap_or_default(),
+                String::new(),
                 String::new(),
                 Continues::default(),
             ),
         };
         let continues = Continues { reports, ..continues };
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        (TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control), continues)
+        let turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
+        (turn.shown_as(&line), continues)
     }
 
     /// After `finish_turn` put `turn` in place of `from`: the turn starts, and its task runs it.
@@ -305,6 +314,7 @@ impl Hub {
         continues: &Continues,
     ) -> u64 {
         self.clear_deferred_unread(session);
+        self.end_foreground_subagents(session);
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;
@@ -317,6 +327,7 @@ impl Hub {
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
+            "promptLine": turn.masked_preview,
             "client": turn.client,
             "promptId": turn.prompt_id,
             "turnId": turn.turn_id,
@@ -406,6 +417,10 @@ impl Hub {
                         turn_id,
                         control: turn.control,
                         trust_gate: c.trust_gate,
+                        not_before: super::auto_resume::reset_hint::error_reset_at(
+                            e.data.as_ref(),
+                            super::now_ms(),
+                        ),
                         error: super::turn_errors::continuation_error(
                             agent_error.as_deref(),
                             &e.message,
@@ -616,6 +631,24 @@ mod tests {
         assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
     }
 
+    /// A restart reads a carried turn from its record with the line it showed (`prompt_line.rs`),
+    /// never the envelope of the message it carried; an older record without one, its client's.
+    #[test]
+    fn a_carried_turns_record_keeps_the_line_it_showed() {
+        let envelope = "[cmux agent message] from coord-deputy (acp:abc)\nMessage id: m1\n---\nMerged #1\n--- end of message m1 ---";
+        let mut t = TurnInfo::prompted("cmux", envelope, "t-2", "p-2", Control::Local);
+        t.show("coord-deputy: Merged #1");
+        let next = NextTurn {
+            carried: Carried { seq: 1, prompt_ids: vec!["p-2".into()] },
+            next: t,
+            continues: Continues::default(),
+        };
+        let back = NextTurn::from_record(&next.record(Control::Local)).unwrap();
+        assert_eq!(back.next.masked_preview, "coord-deputy: Merged #1");
+        let old = json!({"turnId": "t-3", "promptId": "p-3", "prompt": "[coord] Fix it", "client": "acpmux-cli#1", "seq": 2});
+        assert_eq!(NextTurn::from_record(&old).unwrap().next.masked_preview, "coord: Fix it");
+    }
+
     /// A carried turn whose steers were all lane reports runs on reports only: it reports
     /// nothing upward (`lane_reports.rs`), as a prompt's turn on reports does. One with any
     /// other steer, or with none named, does.
@@ -625,6 +658,7 @@ mod tests {
         let sent = |reports| SteerSent {
             client: "test".into(),
             text: "steer".into(),
+            line: "steer".into(),
             control: Control::Local,
             continues: Continues { reports, ..Continues::default() },
         };

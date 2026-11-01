@@ -28,9 +28,11 @@ extension Color {
     public static let cmuxMobileFill = dynamic(dark: rgba(0xFFFFFF, 0.08), light: rgba(0x000000, 0.05))
     public static let cmuxMobileFillSelected = dynamic(dark: rgba(0xFFFFFF, 0.16), light: rgba(0x000000, 0.09))
     public static let cmuxMobileFillPressed = dynamic(dark: rgba(0xFFFFFF, 0.22), light: rgba(0x000000, 0.13))
-    /// The neutral accent as a concrete color (`Color.primary` turns vibrant gray inside glass).
-    public static let cmuxMobileAccent = dynamic(dark: rgba(0xFFFFFF), light: rgba(0x000000))
-    public static let cmuxMobileOnAccent = dynamic(dark: rgba(0x000000), light: rgba(0xFFFFFF))
+    /// The user's accent (Settings > Appearance > Accent color, `CmuxMobileAccentTheme`) as a
+    /// concrete color (`Color.primary` turns vibrant gray inside glass). Read in a view's body,
+    /// the view redraws when the choice changes. Never hard-code a hue in its place.
+    public static var cmuxMobileAccent: Color { CmuxMobileAccentTheme.shared.accent.accent.color }
+    public static var cmuxMobileOnAccent: Color { CmuxMobileAccentTheme.shared.accent.onAccent.color }
     public static let cmuxMobileSuccess = dynamic(dark: rgba(0x30D158), light: rgba(0x34C759))
     public static let cmuxMobileDanger = dynamic(dark: rgba(0xFF453A), light: rgba(0xFF3B30))
     public static let cmuxMobileWarning = dynamic(dark: rgba(0xFFD60A), light: rgba(0xFFCC00))
@@ -63,8 +65,9 @@ extension UIColor {
     public static let cmuxMobileFill = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF, 0.08) : Color.rgba(0x000000, 0.05) }
     public static let cmuxMobileFillSelected = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF, 0.16) : Color.rgba(0x000000, 0.09) }
     public static let cmuxMobileFillPressed = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF, 0.22) : Color.rgba(0x000000, 0.13) }
-    public static let cmuxMobileAccent = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFFFFF) : Color.rgba(0x000000) }
-    public static let cmuxMobileOnAccent = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x000000) : Color.rgba(0xFFFFFF) }
+    /// The user's accent: resolved from the current choice each time a trait collection resolves it.
+    public static let cmuxMobileAccent = UIColor { CmuxMobileAccentTheme.shared.accent.accent.uiColor.resolvedColor(with: $0) }
+    public static let cmuxMobileOnAccent = UIColor { CmuxMobileAccentTheme.shared.accent.onAccent.uiColor.resolvedColor(with: $0) }
     public static let cmuxMobileSuccess = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0x30D158) : Color.rgba(0x34C759) }
     public static let cmuxMobileDanger = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFF453A) : Color.rgba(0xFF3B30) }
     public static let cmuxMobileWarning = UIColor { $0.userInterfaceStyle == .dark ? Color.rgba(0xFFD60A) : Color.rgba(0xFFCC00) }
