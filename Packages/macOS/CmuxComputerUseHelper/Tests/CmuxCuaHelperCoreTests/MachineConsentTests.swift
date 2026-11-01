@@ -333,6 +333,7 @@ import Testing
 
     @Test func onlyAMainCmuxAppIdentifierIsAHost() {
         for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
+                           "com.cmuxterm.app.nightly.cmux-next-stable",
                            "com.cmuxterm.app.rc", "com.cmuxterm.app.debug", "com.cmuxterm.app.staging",
                            "com.cmuxterm.app.debug.next", "com.cmuxterm.app.debug.my.tag2", "com.cmuxterm.app.staging.x1"] {
             #expect(CmuxAppCodeCheck.isMainApp(identifier), "\(identifier)")

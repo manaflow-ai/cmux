@@ -37,6 +37,7 @@ import concurrent.futures
 import datetime as dt
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -53,6 +54,9 @@ UPLOADER = HERE / "upload-r2-object.py"
 GUARD = HERE / "nightly-next-guard.py"
 GITHUB_PREFIX = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
+FEED_PREFIXES = {b"sparkle": SPARKLE_NS.encode(), b"cmux": CMUX_NS.encode()}
+RSS_OPEN = re.compile(rb"<rss\b[^>]*>")
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 FEED_CACHE = "no-cache, no-store, must-revalidate"
 CONFLICT = 3
@@ -60,6 +64,7 @@ CONFLICT = 3
 KEEP_BUILDS = 2
 ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit(?:\s+[^>]*)?>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
 ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
 NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
@@ -209,7 +214,8 @@ def rewrite(feed: Path, names: set[str], if_public: bool) -> int:
 
 
 def newest_build(xml: bytes) -> int:
-    root = ET.fromstring(xml)
+    # The live feed may predate bind_feed_prefixes (11-01: an unbound cmux: prefix).
+    root = ET.fromstring(bind_feed_prefixes(xml))
     builds = [0]
     for element in root.iter():
         if element.tag == f"{{{SPARKLE_NS}}}version" and (element.text or "").strip().isdigit():
@@ -227,6 +233,183 @@ def item_builds(xml: bytes) -> list[tuple[re.Match, int]]:
         if version is not None:
             found.append((match, int(version.group(1))))
     return found
+
+
+def item_source(xml: bytes, build: int) -> str | None:
+    """The source commit attached to the item's build, if the feed has one."""
+    for match, item_build in item_builds(xml):
+        if item_build != build:
+            continue
+        source = ITEM_SOURCE.search(match.group(0))
+        return source.group(1).decode("ascii").lower() if source else None
+    return None
+
+
+def add_source(xml: bytes, source_sha: str) -> bytes:
+    """Attach the authenticated build source so later writers can order by source."""
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError(f"invalid source SHA {source_sha!r}")
+    build = newest_build(xml)
+    matches = [(match, value) for match, value in item_builds(xml) if value == build]
+    if len(matches) != 1:
+        raise ValueError(f"feed must have exactly one newest item for source {source_sha}")
+    match, _ = matches[0]
+    item = match.group(0)
+    source_line = ('            <cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">'
+                   f"{source_sha}</cmux:sourceCommit>\n").encode()
+    if ITEM_SOURCE.search(item):
+        item = ITEM_SOURCE.sub(source_line.strip(), item, count=1)
+    else:
+        item = item.replace(b"</item>", source_line + b"        </item>", 1)
+    return bind_feed_prefixes(xml[:match.start()] + item + xml[match.end():])
+
+
+def bind_feed_prefixes(xml: bytes) -> bytes:
+    """Declare on the <rss> root every feed prefix (sparkle:, cmux:) the feed uses.
+
+    Items are copied between feeds as bytes. An item that relied on its old feed's
+    root declaration (a bare <cmux:sourceCommit>) has an unbound prefix in a feed
+    whose root lacks it, and no XML parser reads that feed. An inline declaration
+    on some other item does not bind it, so the check is on the root tag alone.
+    """
+    root = RSS_OPEN.search(xml)
+    if root is None:
+        return xml
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix + rb":[A-Za-z_]", xml) is not None
+        if used and re.search(rb"\sxmlns:" + prefix + rb"\s*=", opening) is None:
+            opening = opening[:-1] + b" xmlns:" + prefix + b'="' + uri + b'">'
+    return xml[:root.start()] + opening + xml[root.end():]
+
+
+def source_order(live_source: str, candidate_source: str) -> bool:
+    """Whether candidate_source is live_source or a descendant of it.
+
+    The feed's build number is a run id, not a source ordering. GitHub's
+    compare status is authenticated by the workflow token and is checked on
+    every CAS read, so a late run of an older source cannot win by having a
+    larger run id.
+    """
+    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repository or not os.environ.get("GH_TOKEN") and not os.environ.get("GITHUB_TOKEN"):
+        raise RuntimeError("cannot compare nightly-next source commits without an authenticated GitHub token")
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repository}/compare/{live_source}...{candidate_source}", "--jq", ".status"],
+        check=False, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "GitHub compare failed").strip()
+        raise RuntimeError(f"could not compare live source {live_source} with candidate {candidate_source}: {detail}")
+    status = result.stdout.strip().lower()
+    if status not in {"ahead", "identical", "behind", "diverged"}:
+        raise RuntimeError(f"GitHub compare returned unknown status {status!r}")
+    return status in {"ahead", "identical"}
+
+
+def signed_notes_source(build: int) -> str | None:
+    """Read the exact live build's signed notes as a markerless-feed fallback."""
+    base = os.environ.get("NIGHTLY_NEXT_FEED_BASE", "").strip().rstrip("/")
+    public_key = os.environ.get("NIGHTLY_NEXT_CONTENT_PUBLIC_KEY", "").strip()
+    if not base or not public_key:
+        return None
+    with tempfile.TemporaryDirectory(prefix="nightly-next-notes-") as scratch:
+        notes = Path(scratch) / f"{build}.json"
+        signature = Path(scratch) / f"{build}.json.sig"
+        for path, suffix in ((notes, f"notes/{build}.json"), (signature, f"notes/{build}.json.sig")):
+            request = urllib.request.Request(f"{base}/{suffix}", headers={"User-Agent": "cmux-nightly-next-r2/1"})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    path.write_bytes(response.read())
+            except urllib.error.HTTPError as error:
+                if error.code == 404:
+                    return None
+                raise RuntimeError(f"could not read signed notes for live build {build}: HTTP {error.code}") from error
+            except (urllib.error.URLError, OSError) as error:
+                raise RuntimeError(f"could not read signed notes for live build {build}: {error}") from error
+        verifier = Path(os.environ.get("PUBLISH_TOOLING", "")) / "cmux-next/release-notes.py"
+        if not verifier.is_file():
+            verifier = HERE.parent / "cmux-next/release-notes.py"
+        checked = subprocess.run(
+            [sys.executable, str(verifier), "verify", "--public-key", public_key, str(notes)],
+            check=False, capture_output=True, text=True,
+        )
+        if checked.returncode != 0:
+            detail = (checked.stderr or checked.stdout or "signature verification failed").strip()
+            raise RuntimeError(f"signed notes for live build {build} failed verification: {detail}")
+        try:
+            payload = json.loads(notes.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise RuntimeError(f"signed notes for live build {build} are not valid JSON: {error}") from error
+        if str(payload.get("build", "")) != str(build):
+            raise RuntimeError(f"signed notes identify build {payload.get('build')!r}, not live build {build}")
+        source = str(payload.get("head", "")).strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{40}", source):
+            raise RuntimeError(f"signed notes for live build {build} have no full source head")
+        return source
+
+
+def provenance_json(path: str, token: str) -> dict:
+    """One bounded authenticated read; migration never waits on a quota reset."""
+    request = urllib.request.Request("https://api.github.com/" + path, headers={
+        "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+        "User-Agent": "cmux-nightly-next-source/1",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.load(response)
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise RuntimeError(f"could not read compiled-source provenance: {type(error).__name__}") from error
+
+
+def compiled_artifact_source(build: int) -> str | None:
+    """Migrate markerless recovered feeds using their original compiler receipt.
+
+    As in resume-unsigned-nightly.py, the dSYM artifact name records the resolved
+    source; the workflow head may be ahead of it. Only authenticated metadata
+    from that build's successful protected producer attempt is accepted.
+    """
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("NIGHTLY_NEXT_PROVENANCE_TOKEN", "")
+    encoded = str(build)
+    if repository != "manaflow-ai/cmux" or not token or len(encoded) <= 2 or int(encoded[-2:]) < 1:
+        return None
+    run_id, attempt = int(encoded[:-2]), int(encoded[-2:])
+    prefix = f"repos/{repository}/actions/runs/{run_id}"
+    run = provenance_json(f"{prefix}/attempts/{attempt}", token)
+    job_list = provenance_json(f"{prefix}/attempts/{attempt}/jobs?per_page=100", token)
+    artifact_list = provenance_json(f"{prefix}/artifacts?per_page=100", token)
+    if job_list.get("total_count", 101) > 100 or artifact_list.get("total_count", 101) > 100:
+        raise RuntimeError("compiled-source lookup exceeds its bounded metadata page")
+    identity = run.get("repository", {})
+    if not (run.get("id") == run_id and run.get("run_attempt") == attempt and
+            identity.get("full_name") == repository and isinstance(identity.get("id"), int) and
+            run.get("head_repository", {}).get("full_name") == repository and
+            run.get("path") == ".github/workflows/nightly.yml" and
+            run.get("head_branch") == "nightly-next" and run.get("event") in {"push", "workflow_dispatch"}):
+        raise RuntimeError("compiled-source run is not the exact protected nightly producer")
+    jobs = [job for job in job_list.get("jobs", []) if job.get("name") == "build-nightly-app" and
+            job.get("run_attempt") == attempt and job.get("conclusion") == "success"]
+    if len(jobs) != 1 or not jobs[0].get("started_at") or not jobs[0].get("completed_at"):
+        raise RuntimeError("compiled-source build has no unique successful producer attempt")
+    job = jobs[0]
+    sources = []
+    for artifact in artifact_list.get("artifacts", []):
+        name = re.fullmatch(r"nightly-next-dsyms-([0-9a-f]{40})", artifact.get("name", ""))
+        if not name or artifact.get("expired") is not False or not (
+                job["started_at"] <= artifact.get("created_at", "") <= job["completed_at"]):
+            continue
+        origin = artifact.get("workflow_run", {})
+        if not (origin.get("id") == run_id and origin.get("head_sha") == run.get("head_sha") and
+                origin.get("head_branch") == "nightly-next" and
+                origin.get("repository_id") == origin.get("head_repository_id") == identity["id"] and
+                isinstance(artifact.get("id"), int) and artifact["id"] > 0 and
+                re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", ""))):
+            raise RuntimeError("compiled-source artifact identity does not match its producer")
+        sources.append(name.group(1))
+    if len(sources) != 1:
+        raise RuntimeError("compiled-source build has no unique unexpired source receipt")
+    return sources[0]
 
 
 def nightly_item(item: bytes) -> bool:
@@ -294,10 +477,13 @@ def read_live(key: str) -> bytes | None:
         raise
 
 
-def write_feed(feed: Path, github_output: str | None, same_build: bool = False, attempts: int = 5) -> int:
+def write_feed(feed: Path, github_output: str | None, same_build: bool = False, attempts: int = 5,
+               source_sha: str | None = None) -> int:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + feed.name
     guard_key(key)
-    original = feed.read_bytes()
+    original = bind_feed_prefixes(feed.read_bytes())
+    if source_sha:
+        original = add_source(original, source_sha.lower())
     ours = newest_build(original)
     for _ in range(attempts):
         live = read_live(key)
@@ -306,15 +492,48 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             return 0
         if live is not None:
             theirs = newest_build(live)
+            if not same_build and theirs == ours and source_sha:
+                live_source = item_source(live, theirs) or signed_notes_source(theirs) or compiled_artifact_source(theirs)
+                if live_source == source_sha.lower():
+                    # The CAS may have succeeded before a later handoff failed.
+                    # Retry metadata publication from the bytes already accepted.
+                    feed.write_bytes(live)
+                    if github_output:
+                        with open(github_output, "a", encoding="utf-8") as out:
+                            out.write("feed_written=false\nfeed_current=true\n")
+                    print(f"{feed.name}: this exact build and source are already live; reusing the live feed")
+                    return 0
             if (theirs != ours) if same_build else (theirs >= ours):
                 print(f"{feed.name}: the live feed serves build {theirs}, this feed's newest is {ours}; "
                       "left as it is")
                 if github_output:
                     with open(github_output, "a", encoding="utf-8") as out:
-                        out.write("feed_written=false\n")
+                        out.write("feed_written=false\npublication_refused=true\n")
                 return 0
+            if source_sha and not same_build:
+                live_source = item_source(live, theirs)
+                if live_source is None:
+                    live_source = signed_notes_source(theirs) or compiled_artifact_source(theirs)
+                if live_source is None:
+                    raise RuntimeError(
+                        f"{feed.name}: live build {theirs} has no source metadata and no verified signed "
+                        "notes head or compiled-source receipt; refusing an unsafe overwrite"
+                    )
+                if not source_order(live_source, source_sha.lower()):
+                    print(f"{feed.name}: live source {live_source} is newer than candidate source {source_sha}; left it as is")
+                    if github_output:
+                        with open(github_output, "a", encoding="utf-8") as out:
+                            out.write("feed_written=false\npublication_refused=true\n")
+                    return 0
             mode = ["--replace-sha256", hashlib.sha256(live).hexdigest(), "--conflict-exit-code", str(CONFLICT)]
             merged = keep_earlier_builds(original, live)
+            # Delta artifacts predate the source marker added by the initial CAS.
+            # Keep the live item's provenance when revising that exact build.
+            if same_build:
+                live_source = item_source(live, ours) or item_source(merged, ours)
+                if live_source:
+                    merged = add_source(merged, live_source)
+            merged = bind_feed_prefixes(merged)
             if merged != original:
                 kept = sorted({b for _, b in item_builds(merged)} - {b for _, b in item_builds(original)}, reverse=True)
                 print(f"{feed.name}: keeps the live feed's build {', '.join(map(str, kept))} beside {ours}, "
@@ -323,12 +542,16 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
         else:
             feed.write_bytes(original)
             mode = ["--write-once", "--conflict-exit-code", str(CONFLICT)]
+        try:  # never publish a feed an XML reader refuses
+            ET.fromstring(feed.read_bytes())
+        except ET.ParseError as error:
+            raise RuntimeError(f"{feed.name}: refusing to publish a feed that does not parse: {error}") from error
         result = subprocess.run(uploader_args(feed, key, FEED_CACHE, "application/xml") + mode)
         if result.returncode == 0:
             print(f"{feed.name}: build {ours} is live at {public_base()}{feed.name}")
             if github_output:
                 with open(github_output, "a", encoding="utf-8") as out:
-                    out.write("feed_written=true\n")
+                    out.write("feed_written=true\nfeed_current=true\n")
             return 0
         if result.returncode != CONFLICT:
             return result.returncode
@@ -350,6 +573,7 @@ def main(argv: list[str]) -> int:
     wf.add_argument("--feed", type=Path, required=True)
     wf.add_argument("--github-output")
     wf.add_argument("--same-build", action="store_true")
+    wf.add_argument("--source-sha", help="full source commit for this feed's newest item")
     args = parser.parse_args(argv)
     if args.command == "upload":
         return upload(args.file)
@@ -357,7 +581,7 @@ def main(argv: list[str]) -> int:
         if not args.name and not args.if_public:
             parser.error("rewrite needs --name or --if-public")
         return rewrite(args.feed, set(args.name), args.if_public)
-    return write_feed(args.feed, args.github_output, args.same_build)
+    return write_feed(args.feed, args.github_output, args.same_build, source_sha=args.source_sha)
 
 
 if __name__ == "__main__":

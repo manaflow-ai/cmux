@@ -40,12 +40,15 @@ COUNT_FILE="$WORK/count" FAILS=0 SENTRY_CLI="$WORK/sentry-cli" SENTRY_AUTH_TOKEN
   || { echo "FAIL: no token must skip quietly"; exit 1; }
 [ ! -e "$WORK/count" ] || { echo "FAIL: no token must not call sentry-cli"; exit 1; }
 
+# nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
+NIGHTLY_TEXT="$WORK/nightly-expanded.yml"
+python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$NIGHTLY_TEXT"
 if ! awk '
   /^      - name: Upload dSYMs to Sentry/ { in_step=1; next }
   in_step && /^      - name:/ { in_step=0 }
   in_step && /scripts\/upload-sentry-dsyms\.sh/ { saw=1 }
   END { exit !saw }
-' "$ROOT_DIR/.github/workflows/nightly.yml"; then
+' "$NIGHTLY_TEXT"; then
   echo "FAIL: the nightly dSYM upload must go through scripts/upload-sentry-dsyms.sh"
   exit 1
 fi

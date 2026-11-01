@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { LASTING_MS } from "../src/ui/lasting";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -126,6 +127,8 @@ test("a lost host says so once, in the page's words, not again in a banner above
   const store = new storeModule.HistoryStore(provider, { newKey: () => "k" });
   const strings = createStrings(tableModule.default, ["en"]);
   act(() => root?.unmount());
+  // The page's subscribe starts the store, so the grace's clock is the test's before it renders.
+  jest.useFakeTimers();
   root = createRoot(host);
   await act(async () => {
     root!.render(
@@ -134,9 +137,16 @@ test("a lost host says so once, in the page's words, not again in a banner above
       </UiProvider>,
     );
   });
+  jest.useFakeTimers();
   await act(async () => store.start());
 
   expect(store.getSnapshot().connection).toBe("disconnected");
+  // Within the grace (a launch, a daemon restart) the page shows nothing (ui/lasting.ts; Leo,
+  // 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD")...
+  expect(host.querySelector(".history-empty")).toBeNull();
+  expect(host.querySelector(".history-error")).toBeNull();
+  // ...and once the link stays down past it, says so. The test moves the grace's clock.
+  await act(async () => void jest.advanceTimersByTime(LASTING_MS));
   expect(host.querySelector(".history-empty")?.textContent).toBe(strings.t("page.disconnected"));
   expect(host.querySelector(".history-error")).toBeNull();
   // The page's own words are announced in place of the banner's alert: `output` is the status
@@ -147,6 +157,7 @@ test("a lost host says so once, in the page's words, not again in a banner above
     (button) => button.textContent === strings.t("page.clear"),
   );
   expect(clear?.disabled).toBe(true);
+  jest.useRealTimers();
 });
 
 test("a host that comes back drops the lost link's error before it re-reads", async () => {

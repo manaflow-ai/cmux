@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <pattern id="stripes" width="64" height="64" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+      <rect width="32" height="64" fill="#ffffff"/>
+      <rect x="32" width="32" height="64" fill="#101010"/>
+    </pattern>
+    <pattern id="checks" width="80" height="80" patternUnits="userSpaceOnUse">
+      <rect width="40" height="40" fill="#ffe600"/>
+      <rect x="40" y="40" width="40" height="40" fill="#ffe600"/>
+      <rect x="40" width="40" height="40" fill="#0047ff"/>
+      <rect y="40" width="40" height="40" fill="#0047ff"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#stripes)"/>
+  <rect x="980" y="0" width="620" height="460" fill="url(#checks)"/>
+  <circle cx="360" cy="320" r="230" fill="#ff2d55"/>
+  <circle cx="360" cy="320" r="130" fill="#000000"/>
+  <circle cx="1180" cy="760" r="260" fill="#00e0a4"/>
+  <rect x="560" y="560" width="420" height="300" fill="#ffffff"/>
+  <rect x="610" y="610" width="320" height="24" fill="#000000"/>
+  <rect x="610" y="660" width="260" height="24" fill="#000000"/>
+  <rect x="610" y="710" width="300" height="24" fill="#000000"/>
+  <path d="M0 1000 L420 520 L700 1000 Z" fill="#ff8a00"/>
+</svg>

@@ -22,7 +22,7 @@ export type ChatFontPreset = "system" | "serif" | "mono";
 export type ChatFontChoice = ChatFontPreset | "markdown";
 /// The Session Info chip setting a cmux.json may still hold (Left, Right, Off). The chat header no
 /// longer draws a machine · folder label (Leo, 2026-10-26: "i thought we said to remove this?"), so
-/// every value is accepted and none draws one; the Inspector's Environment says where a chat runs.
+/// every value is accepted and none draws one; Session Info's Environment says where a chat runs.
 export type EnvironmentPlacement = "left" | "right" | "off";
 
 export interface ChatDisplay {
@@ -38,12 +38,12 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
-  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) floats
+  /// Where Session Info goes when open (session-info/SessionInfo.tsx): `overlay` (the default) floats
   /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  inspector: "push" | "overlay";
+  sessionInfo: "push" | "overlay";
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -56,8 +56,9 @@ export interface ChatDisplay {
   environmentPlacement: EnvironmentPlacement;
 }
 
-/// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
-export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
+/// The saved settings key keeps its old `inspector` name, so a saved Push or Overlay choice survives.
+export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.inspector.placement";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -68,6 +69,26 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+
+/// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
+/// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
+/// itself; the rows it opens measure as they draw.
+export const TRANSCRIPT_VIEW_KEY = "agentPane.display.transcriptView";
+/// Normal: the compact transcript. Thinking: thoughts open. Verbose: tool output open too.
+export type TranscriptView = "normal" | "thinking" | "verbose";
+export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking", "verbose"];
+export const isTranscriptView = (value: unknown): value is TranscriptView =>
+  value === "normal" || value === "thinking" || value === "verbose";
+
+/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
+/// complete transcript or the Messages-style bubble view with tool rows hidden.
+export const PRESENTATION_KEY = "agentPane.display.presentation";
+export type Presentation = "transcript" | "messages";
+export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
+export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -97,7 +118,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
   codeScale: null,
-  inspector: "overlay",
+  sessionInfo: "overlay",
   railSide: "left",
   minimal: false,
   environmentPlacement: "left",
@@ -160,7 +181,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
-    inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
@@ -230,6 +251,9 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
+let transcriptView: TranscriptView = "normal";
+let presentation: Presentation = "transcript";
+let featureTipsOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -246,10 +270,26 @@ export function setChatDisplay(value: unknown): void {
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);
+  const stored = raw[TRANSCRIPT_VIEW_KEY];
+  const view = isTranscriptView(stored) ? stored : "normal";
+  const storedPresentation = raw[PRESENTATION_KEY];
+  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
+  const tips = raw[FEATURE_TIPS_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
-  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
+  if (
+    same &&
+    minimap === minimapOn &&
+    threadMinimap === threadMinimapArm &&
+    view === transcriptView &&
+    nextPresentation === presentation &&
+    tips === featureTipsOn
+  )
+    return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
+  transcriptView = view;
+  presentation = nextPresentation;
+  featureTipsOn = tips;
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -309,10 +349,24 @@ const subscribe = (listener: () => void) => {
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
+const transcriptViewSnapshot = () => transcriptView;
+const presentationSnapshot = () => presentation;
+/// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
+export const defaultTranscriptView = (): TranscriptView => transcriptView;
+export const useDefaultTranscriptView = (): TranscriptView =>
+  useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
+/// The presentation setting for a chat without its own (conversation/presentation.ts).
+export const defaultPresentation = (): Presentation => presentation;
+export const useDefaultPresentation = (): Presentation =>
+  useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
+const featureTipsSnapshot = () => featureTipsOn;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
+/// Whether feature tips may show (FEATURE_TIPS_KEY).
+export const useFeatureTipsOn = (): boolean =>
+  useSyncExternalStore(subscribe, featureTipsSnapshot, featureTipsSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);

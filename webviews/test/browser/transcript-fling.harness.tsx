@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { createAcpmuxDebug, type AcpmuxDebug } from "../../src/agent-session/acpmux/debug";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { received } from "../../src/agent-session/acpmux/incomingFixture";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
@@ -68,4 +69,39 @@ createRoot(root).render(<Transcript />);
     show(rows);
   },
   rowCount: () => current.length,
+});
+
+// Synthetic reproduction of a received card collapsing while the last reply keeps streaming.
+let foldStreamVersion = 0;
+Object.assign(window, {
+  __seedFoldStream() {
+    if (current.length !== 9000) throw new Error("seed the unchanged 3000-turn fixture first");
+    const at = current.length - 9;
+    current = [...current];
+    current[at] = received("gap-incoming", current[at]!.at, {
+      id: "synthetic-gap-message",
+      thread: "synthetic-gap-thread",
+      sender: "cli",
+      name: "synthetic-render-probe",
+      body: Array.from(
+        { length: 32 },
+        (_, index) => `Synthetic received line ${index}: row boxes remain adjacent.`,
+      ).join("\n\n"),
+    });
+    show(current);
+  },
+  __stepFoldStream() {
+    foldStreamVersion += 1;
+    const at = current.length - 2;
+    current = [...current];
+    current[at] = {
+      ...current[at]!,
+      version: foldStreamVersion + 1,
+      streaming: true,
+      text:
+        `Streaming synthetic reply ${foldStreamVersion}. ` +
+        "The received card can collapse while this reply changes. ".repeat(4),
+    };
+    show(current);
+  },
 });

@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
 import Testing
 
 /// Leo 2026-10-26: "also chief chats we need multiplayer". Who else has the Chief chat open shows
 /// as faces beside the header's name pill, from the owner's presence, never with this user's own.
-@MainActor @Suite(.serialized) struct HomeChatPresenceFacesTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct HomeChatPresenceFacesTests {
     let conv = ConversationID("conv_faces")
     let me = ParticipantID("user_me")
 

@@ -17,6 +17,10 @@ struct Fake {
     peers: RefCell<Vec<Value>>,
     /// Whether a peer the local daemon adds or reconnects connects.
     local_connects: bool,
+    /// Whether the local daemon's wait for that attempt ran out first, the peer in its handshake.
+    local_waits_out: bool,
+    /// Whether that peer stopped (was removed) before its attempt settled.
+    local_stops: bool,
     tailnet: Option<&'static str>,
     user: Option<&'static str>,
     /// The remote's peers (`daemon status`); `None`: no daemon runs there.
@@ -34,6 +38,8 @@ impl Default for Fake {
         Self {
             peers: RefCell::new(Vec::new()),
             local_connects: true,
+            local_waits_out: false,
+            local_stops: false,
             tailnet: Some(TAILNET),
             user: Some("leo"),
             remote_peers: RefCell::new(Some(Vec::new())),
@@ -66,6 +72,16 @@ impl Io for Fake {
                 }
             }
             other => return Err(anyhow!("unexpected rpc {other}")),
+        }
+        if self.local_waits_out && method != "_acpmux/peers" {
+            let peer =
+                json!({"name": name, "connected": false, "handshaking": true, "error": null});
+            let wait = json!({"settled": false, "waitedMs": 30_000, "peer": peer});
+            return Ok(json!({"peers": *peers, "wait": wait}));
+        }
+        if self.local_stops && method != "_acpmux/peers" {
+            let wait = json!({"settled": false, "stopped": true, "waitedMs": 0, "peer": null});
+            return Ok(json!({"peers": *peers, "wait": wait}));
         }
         Ok(json!({"peers": *peers}))
     }
@@ -154,15 +170,28 @@ fn names_and_destinations_refuse_option_like_values() {
 #[test]
 fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
     let argv = probe_argv("huge-blue", "leo@cosmic-gray.tail9.ts.net").unwrap();
-    assert_eq!(&argv[..5], ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--"]);
-    assert_eq!(argv[5], "huge-blue");
     assert_eq!(
-        crate::cli::hosts::script_of(&argv[6]).unwrap(),
+        &argv[..9],
+        [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=10",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-o",
+            "ConnectTimeout=15",
+            "--"
+        ]
+    );
+    assert_eq!(argv[9], "huge-blue");
+    assert_eq!(
+        crate::cli::hosts::script_of(&argv[10]).unwrap(),
         format!(
             "if ssh -o BatchMode=yes -o ConnectTimeout=8 -- 'leo@cosmic-gray.tail9.ts.net' true </dev/null; then echo {BACK_OK}; else echo {BACK_FAILED}; fi"
         )
     );
-    assert_eq!(argv.len(), 7);
+    assert_eq!(argv.len(), 11);
     let add = remote_add_script("cosmic", "leo@100.64.0.1").unwrap();
     assert!(add.starts_with(REMOTE_CLI));
     assert!(add.ends_with("\"$@\" --json host add 'cosmic' 'ssh://leo@100.64.0.1'"));
@@ -240,6 +269,24 @@ async fn peer_adds_only_with_fix_and_then_connects() {
     );
     let r = peer_with(&fake, &target(None), false).await;
     assert_eq!(r.state, StepState::Ok);
+}
+
+/// A wait the local daemon gave up on says how far the attempt got, not "does not connect".
+#[tokio::test]
+async fn peer_reports_an_attempt_still_running_when_the_wait_ran_out() {
+    let fake = Fake { local_connects: false, local_waits_out: true, ..Fake::default() };
+    let r = peer_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Fail);
+    assert_eq!(r.detail, "hb at ssh://huge-blue is still in its handshake after 30s");
+}
+
+/// A peer that stopped before its attempt settled is not "still connecting after 0s".
+#[tokio::test]
+async fn peer_reports_a_peer_that_stopped_before_it_connected() {
+    let fake = Fake { local_connects: false, local_stops: true, ..Fake::default() };
+    let r = peer_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Fail);
+    assert_eq!(r.detail, "hb at ssh://huge-blue stopped before it connected");
 }
 
 #[tokio::test]

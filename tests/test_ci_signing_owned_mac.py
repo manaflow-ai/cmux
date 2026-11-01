@@ -8,8 +8,12 @@ Blacksmith macOS last. On an owned Mac a signing job must:
 
 1. reach it only through scripts/ci/signing_runner.py, the picker that offers a
    drained mini (no busy runner) and only while vars.CI_SIGN_OWNED is 1, and
-   only on attempt 1 (`github.run_attempt == 1 && <owned pick> && fromJSON(...)`),
-   so a re-run leaves the fleet. Every picker output a signing job's runs-on
+   only on the attempt that ran the pick (`github.run_attempt == 1 && <owned
+   pick> && fromJSON(...)`, or `needs.<picker>.outputs.attempt ==
+   github.run_attempt && ...` with the picker's `attempt` output its own
+   github.run_attempt), so a re-run of failed jobs, which keeps an older pick,
+   leaves the fleet; a re-run that picks again may take an owned Mac
+   (nightly.yml's legacy sign, 2026-10-30). Every picker output a signing job's runs-on
    reads comes from that script or from nightly_sign_runner.py, which prints
    Blacksmith labels only; any other source fails here;
 2. claim the whole Mac before any credential is in reach: its first step is
@@ -36,6 +40,14 @@ Blacksmith macOS last. On an owned Mac a signing job must:
 4. make its keychain with scripts/ci/signing-keychain.sh create (the
    certificate is decoded to a private temporary file that create itself
    removes, and delete removes again) and delete it in an `if: always()` step.
+
+A job that holds a Sparkle private key (SPARKLE_KEY) is a signing job too: the key signs every update a feed
+serves, so on a shared mini any other job could read it from the environment. It makes no keychain, so only rule 4
+does not apply to it. A signing job whose runs-on has no ephemeral route (owned_only: no blacksmith-* or ubuntu-*
+label and no EPHEMERAL_RUNNER_VARIABLES variable, which nightlies never use) runs on an owned Mac however it reaches
+it, so rules 1 to 4 apply to it even when it reads no owned pick. nightly.yml's generate-nightly-deltas held the
+nightly-next Sparkle key on an owned mini beside other jobs (glaeda's isolated class; run 41180899369 on
+cmux14-glaeda-2, 2026-10-31) with no claim gate.
 
 The claim script and the drained-mini pick are tested here too.
 """
@@ -68,8 +80,11 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
-    ("nightly.yml", "sign-nightly-identity-legacy"), ("release.yml", "build-sign-notarize"),
-    ("repair-v0-64-25-helper-rpaths.yml", "repair"), ("cmux-next-dev-daily.yml", "sign"),
+    ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
+    ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    ("nightly.yml", "publish-nightly-next-github-names"),
+    ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
+    ("cmux-next-dev-daily.yml", "sign"),
 }
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
@@ -108,6 +123,8 @@ if [ -n "$owned" ]; then
 fi
 """
 TWIN_SUFFIX = "-blacksmith"
+# A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
+ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 # Signing jobs whose twin also signs when the owned attempt passed its claim and then failed, with the condition that
 # says it failed. sign-nightly-identity-legacy runs with continue-on-error, so its result reads success after a failed
 # step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
@@ -115,11 +132,9 @@ TWIN_SUFFIX = "-blacksmith"
 # 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
 # published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
 # publish from inside the signing job, so a second signer after a failed one could publish twice.
-FALLBACK_ON_FAILURE = {
-    ("nightly.yml", "sign-nightly-identity-legacy"):
-        "needs.{name}.outputs.signed_ok != 'true' && needs.{name}.outputs.skip != 'true' && "
-        "needs.{name}.outputs.pending != 'true'",
-}
+FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
+# Nightly workflows have no Blacksmith twin at all (twin_failures).
+NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
@@ -137,6 +152,11 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
+# A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...).
+SPARKLE_KEY = re.compile(r"secrets\.\w*SPARKLE\w*PRIVATE_KEY", re.IGNORECASE)
+# A fork's own runner (`github.repository_owner != 'manaflow-ai' && 'macos-26' ||`): never this repository's.
+FORK_ROUTE = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*'[^']*'\s*\|\|")
+LABEL_LITERAL = re.compile(r"'([^']*)'")
 
 
 def dotted(value: Any) -> Any:
@@ -159,11 +179,36 @@ def workflows() -> dict[str, dict]:
     return out
 
 
-def signing_job(job: dict) -> bool:
+def keychain_job(job: dict) -> bool:
     """A job that holds the Developer ID certificate or makes a signing keychain."""
     text = json.dumps(keychain_guard.inline_step_scripts(job))
     return "APPLE_CERTIFICATE_BASE64" in text or bool(keychain_guard.CREATE.search(text)) or any(
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
+
+
+def signing_job(job: dict) -> bool:
+    """A keychain job, or a job that holds a Sparkle private key (read in dot form, after dotted())."""
+    return keychain_job(job) or bool(SPARKLE_KEY.search(json.dumps(keychain_guard.inline_step_scripts(job))))
+
+
+def owned_only(runs_on: str) -> bool:
+    """runs-on gives this repository no ephemeral runner, so the job runs on an owned Mac: past the fork route, no
+    blacksmith-*, ubuntu-* or GitHub-hosted macos-* label and no EPHEMERAL_RUNNER_VARIABLES variable, and an owned
+    label or a variable to take one from."""
+    text = FORK_ROUTE.sub("", runs_on)
+    # The nightly release-pool Linux picker validates RUNNER_POOLS.linux against
+    # the three trusted Blacksmith Linux labels before exposing its output. It
+    # is an ephemeral route even though it is not one of the scalar signing
+    # variables below.
+    if "fromJSON(vars.RUNNER_POOLS).linux" in text and "blacksmith-" in text:
+        return False
+    if any(keychain_guard.EPHEMERAL_LABEL.match(label) or label.startswith("macos-")
+           for label in LABEL_LITERAL.findall(text)):
+        return False
+    if any(re.search(rf"\bvars\.{name}\b", text, re.IGNORECASE)
+           for name in keychain_guard.EPHEMERAL_RUNNER_VARIABLES):
+        return False
+    return "glaeda-" in text or "vars." in text
 
 
 def picker_ref_failures(name: str, job: dict) -> list[str]:
@@ -191,12 +236,25 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
         if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
-            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned(?:_pool)?\b", value) is not None
             found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
         else:
             found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
                          else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
+
+
+def attempt_clauses(jobs: dict, read: str) -> list[str]:
+    """The conditions that hold an owned pick `read` (needs.<picker>.outputs.<x>) to the attempt that made it.
+
+    `github.run_attempt == 1`, or the picker's own attempt when its `attempt` output is exactly its run_attempt: a
+    re-run of failed jobs keeps the older pick, and the clause is then false, so the job takes Blacksmith."""
+    picker = read.split(".")[1]
+    clauses = ["github.run_attempt == 1"]
+    attempt = str(((jobs.get(picker) or {}).get("outputs") or {}).get("attempt", "")).strip()
+    if attempt == ATTEMPT_OUTPUT:
+        clauses.append(f"needs.{picker}.outputs.attempt == github.run_attempt")
+    return clauses
 
 
 def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str = "") -> list[str]:
@@ -205,8 +263,12 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str =
     A twin in FALLBACK_ON_FAILURE also signs after a failed owned attempt, so each reader takes the twin's outputs
     whenever the twin ran, (needs.<twin>.result == 'skipped' && needs.<job>.outputs.X || needs.<twin>.outputs.X): the
     failed attempt's outputs never mix into the twin's."""
-    failed = FALLBACK_ON_FAILURE.get((workflow, name), "").format(name=name)
     twin_name = name + TWIN_SUFFIX
+    if NIGHTLY_WORKFLOW.search(workflow):
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): no Blacksmith twin; a refused or failed owned
+        # attempt is retried by a later nightly run (or the owned-pool rescue's re-run), on owned Macs only.
+        return [f"{twin_name}: nightly workflows never take Blacksmith, so no Blacksmith twin"] if twin_name in jobs else []
+    failed = FALLBACK_ON_FAILURE.get((workflow, name), "").format(name=name)
     job, twin = jobs[name], jobs.get(twin_name)
     if str((job.get("outputs") or {}).get("claim", "")).strip() != f"${{{{ steps.{CLAIM_GATE_ID}.outputs.claim }}}}":
         return [f"its outputs must carry claim: ${{{{ steps.{CLAIM_GATE_ID}.outputs.claim }}}}, which its twin reads"]
@@ -226,9 +288,13 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str =
     if own != ([first] if isinstance(first, str) else list(first)):
         failures.append(f"{twin_name} needs must be {name}'s needs, then {name}")
     condition = re.sub(r"\s+", " ", str(twin.get("if", "")))
+    runs_on_job = str(job.get("runs-on", ""))
     for read in owned_reads:
         refused = f"needs.{name}.outputs.claim != 'owned'"
-        want = (f"!cancelled() && github.run_attempt == 1 && {read} != '' && needs.{name}.result != 'skipped' && "
+        # The twin's attempt clause is the one the signing job's runs-on uses (the first form, if it uses none).
+        clauses = attempt_clauses(jobs, read)
+        attempt = next((clause for clause in reversed(clauses) if f"{clause} && {read}" in runs_on_job), clauses[0])
+        want = (f"!cancelled() && {attempt} && {read} != '' && needs.{name}.result != 'skipped' && "
                 f"needs.{name}.result != 'cancelled' && " + (f"({refused} || {failed})" if failed else refused))
         if condition != want:
             failures.append(f"{twin_name} if must be exactly: {want}")
@@ -270,6 +336,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             runs_on = str(job.get("runs-on", ""))
             owned_reads = []
             for needed, output in dict.fromkeys(NEEDS_OUTPUT.findall(runs_on)):
+                if str(((jobs.get(needed) or {}).get("outputs") or {}).get(output, "")).strip() == ATTEMPT_OUTPUT:
+                    continue  # the picker's own attempt number (attempt_clauses()), not a runner label
                 scripts = picker_scripts(jobs, needed, output)
                 for script in scripts:
                     if script == OWNED_PICKER:
@@ -279,7 +347,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                                         f"signing job's runner comes from {OWNED_PICKER} or {BLACKSMITH_PICKER} only")
             if not owned_reads and DYNAMIC_INDEX.search(runs_on):
                 failures.append(f"{label}: runs-on indexes needs or outputs with an expression the guard cannot read")
-            if not owned_reads:
+            # A job with no ephemeral route is on an owned Mac whether or not it reads the owned pick.
+            if not owned_reads and not owned_only(runs_on):
                 continue
             if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
                 failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
@@ -290,18 +359,44 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
                                 "SIGNING_JOBS, which gives it the whole mini)")
             for read in owned_reads:
-                if not re.search(r"github\.run_attempt\s*==\s*1\s*&&\s*" + re.escape(read) + r"\s*&&\s*fromJSON\(\s*"
-                                 + re.escape(read) + r"\s*\)", runs_on):
-                    failures.append(f"{label}: reads {read} other than as `github.run_attempt == 1 && {read} && "
-                                    f"fromJSON({read})`, so a re-run could stay on the fleet")
+                clauses = attempt_clauses(jobs, read)
+                if read.endswith(".owned_pool") or read.endswith("_owned_pool"):
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" +
+                                             re.escape(read), runs_on) for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read}"
+                else:
+                    route_ok = any(re.search(re.escape(clause).replace(r"\ ", r"\s*") + r"\s*&&\s*" + re.escape(read)
+                                             + r"\s*&&\s*fromJSON\(\s*" + re.escape(read) + r"\s*\)", runs_on)
+                                   for clause in clauses)
+                    route_shape = f"{' or '.join(clauses)} && {read} && fromJSON({read})"
+                if not route_ok:
+                    failures.append(f"{label}: reads {read} other than as `{route_shape}`, so a re-run could stay on the fleet")
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
-            gate = steps[0] if steps else {}
-            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell", "id"}
-                    or str(gate.get("shell", "bash")) != "bash" or gate.get("id") != CLAIM_GATE_ID):
-                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
-                                f"for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error, before the "
-                                "checkout's token")
+            publication = workflow == "nightly.yml" and name in {
+                "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"
+            }
+            gate_index = next((index for index, step in enumerate(steps)
+                               if str(step.get("id", "")) == CLAIM_GATE_ID), None)
+            gate = steps[gate_index] if gate_index is not None else {}
+            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+                       and not (set(gate) - {"name", "run", "shell", "id"})
+                       and str(gate.get("shell", "bash")) == "bash"
+                       and gate.get("id") == CLAIM_GATE_ID)
+            if not gate_ok:
+                if publication:
+                    failures.append(f"{label}: the claim gate ({CLAIM_GATE_NAME}) must copy CLAIM_GATE word for word, "
+                                    f"id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+                else:
+                    failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}); CLAIM_GATE "
+                                    f"word for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error")
+            elif not publication and gate_index != 0:
+                failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}) before the checkout's token")
+            elif publication:
+                checkout_index = next((index for index, step in enumerate(steps)
+                                       if "actions/checkout@" in str(step.get("uses", ""))), None)
+                if checkout_index is None or gate_index <= checkout_index:
+                    failures.append(f"{label}: publication claim gate must run after checkout and before release credentials")
             failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
@@ -314,7 +409,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
-                for index, step in enumerate(steps[1:], 1):
+                for index, step in enumerate(steps, 0):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
@@ -325,7 +420,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             text = json.dumps(steps)
             if "security import" in text:
                 failures.append(f"{label}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
-            if not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
+            # Rule 4 is the keychain's; a job that only holds a Sparkle key makes none.
+            if keychain_job(job) and not any("always()" in str(step.get("if", "")) and KEYCHAIN_DELETE.search(str(step.get("run", "")))
                        for step in steps):
                 failures.append(f"{label}: routed to owned Macs without an `if: always()` step that runs "
                                 "scripts/ci/signing-keychain.sh delete")
@@ -355,14 +451,15 @@ def started(job: str, seconds_ago: float) -> dict:
     return {"job": job, "started_at": (NOW - dt.timedelta(seconds=seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
-    """nightly.yml's legacy-identity twin signs and publish reads it when the owned sign failed after its claim.
+class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
+    """A re-run of nightly.yml whose pickers run again routes the legacy sign to an owned Mac first.
 
-    Run 40920248555 (2026-10-29): sign-nightly-identity-legacy passed its claim on a mini, failed codesign
-    (errSecInternalComponent), and read as success to every later job (continue-on-error); its twin skipped, and the
-    old feed got nothing."""
+    Runs 41077184190 and 41094107023 (2026-10-30): after the owned sign was refused on attempt 1, every later attempt
+    (the rescue's re-runs, up to attempt 4) sent sign-nightly-identity-legacy to Blacksmith macOS, which was stalled,
+    because its owned route and its twin read the pick on attempt 1 only and the picker was skipped on a re-run that
+    built nothing. The old feed got no build from either run."""
 
-    OWNED, TWIN = "sign-nightly-identity-legacy", "sign-nightly-identity-legacy-blacksmith"
+    SIGN, PICK = "sign-nightly-identity-legacy", "pick-nightly-sign-runner"
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -371,42 +468,62 @@ class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
         cls.parse, cls.evaluate = staticmethod(parse_expression), staticmethod(evaluate)
         cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
 
-    def run_twin(self, **owned: str) -> bool:
-        context = {"github.run_attempt": 1, "needs.pick-nightly-sign-runner.outputs.sign_owned": '["x"]',
-                   f"needs.{self.OWNED}.result": "success"}
-        context.update({f"needs.{self.OWNED}.outputs.{key}": value for key, value in owned.items()})
-        condition = str(self.jobs[self.TWIN]["if"]).replace("!cancelled() && ", "", 1)
-        return bool(self.evaluate(self.parse(condition), context))
+    def value(self, job: str, field: str, context: dict) -> Any:
+        source = str(self.jobs[job][field]).strip().removeprefix("${{").removesuffix("}}").strip()
+        source = source.replace("!cancelled() && ", "", 1)
+        base = {"github.repository_owner": "manaflow-ai", "github.ref": "refs/heads/nightly-next",
+                "needs.legacy-identity-target.outputs.sign_alternate": "blacksmith-12vcpu-macos-26",
+                "needs.legacy-identity-target.outputs.sign_runner": "blacksmith-6vcpu-macos-26",
+                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}
+        return self.evaluate(self.parse(source), {**base, **context})
 
-    def test_the_twin_signs_after_a_refused_or_a_failed_owned_attempt(self) -> None:
-        self.assertTrue(self.run_twin(), "a refused claim (no outputs)")
-        # The 2026-10-29 failure: claimed, then a failed step; the job's result still reads success.
-        self.assertTrue(self.run_twin(claim="owned", skip="false", signed_ok="false"))
-        # Failed between the claim and the old-feed check (no skip or signed_ok yet).
-        self.assertTrue(self.run_twin(claim="owned"))
+    def test_a_re_run_that_picked_again_takes_the_owned_mac(self) -> None:
+        for attempt in (1, 2, 3):
+            picked = {"github.run_attempt": attempt, "needs.pick-nightly-sign-runner.outputs.attempt": str(attempt),
+                      "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
+            with self.subTest(attempt=attempt):
+                self.assertEqual(self.value(self.SIGN, "runs-on", picked), ["glaeda-runner-m"])
 
-    def test_the_twin_stays_off_after_a_good_or_needless_owned_attempt(self) -> None:
-        self.assertFalse(self.run_twin(claim="owned", skip="false", signed_ok="true"))
-        # Still in Apple's queue counts as signed (signed_ok true), so the pending submission is not repeated.
-        self.assertFalse(self.run_twin(claim="owned", skip="false", signed_ok="true", pending="true"))
-        self.assertFalse(self.run_twin(claim="owned", skip="true"), "the old feed already has the build")
-        # Apple holds the submission but a later step (an upload, the record) failed: never submit it again.
-        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true", signed_ok="false"))
-        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true"))
+    def test_a_re_run_of_failed_jobs_keeps_the_old_pick_off_the_fleet(self) -> None:
+        stale = {"github.run_attempt": 2, "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                 "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
+        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): a stale pick falls to the owned nightly slot.
+        self.assertEqual(self.value(self.SIGN, "runs-on", stale), "glaeda-nightly-std-xcode-26.6")
+        self.assertNotIn(self.SIGN + "-blacksmith", self.jobs, "nightlies never use Blacksmith: no twin")
 
-    def test_readers_take_the_twins_outputs_whenever_it_ran(self) -> None:
-        env = self.jobs["verify-nightly-identity-legacy"]["env"]
-        expression = str(env["STAPLED_APP_FALLBACK_ID"]).strip().removeprefix("${{").removesuffix("}}")
-        node = self.parse(expression)
-        owned = {f"needs.{self.OWNED}.outputs.stapled_app_fallback_id": "owned-submission"}
-        twin_ran = {**owned, f"needs.{self.TWIN}.result": "success"}
-        self.assertEqual(self.evaluate(node, twin_ran), "", "the failed owned attempt's id leaked into the twin's")
-        self.assertEqual(self.evaluate(node, {**twin_ran, f"needs.{self.TWIN}.outputs.stapled_app_fallback_id": "t"}),
-                         "t")
-        self.assertEqual(self.evaluate(node, {**owned, f"needs.{self.TWIN}.result": "skipped"}), "owned-submission")
+    def test_the_picker_runs_when_only_the_legacy_sign_does(self) -> None:
+        # A full re-run of a published build: no app build, so prepare-nightly-variant is skipped.
+        legacy_only = {"needs.prepare-nightly-variant.result": "skipped", "needs.decide.result": "success"}
+        self.assertTrue(self.value(self.PICK, "if", legacy_only))
+        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"}))
+        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "github.ref": "refs/heads/main"}))
+        self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
+        outputs = self.jobs[self.PICK]["outputs"]
+        self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
+        # Any attempt's pick stands (attempt 1 of a push, or once the sweeper's marker is up), as `owned` does.
+        self.assertEqual(str(outputs["sign_owned"]).replace("sign-owned", "owned"), str(outputs["owned"]))
+        self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
 
 
 class SigningOwnedMacTests(unittest.TestCase):
+    def test_owned_pool_label_drops_the_runner_pin(self) -> None:
+        self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-26.6", "glaeda-runner-cmux12-glaeda-nightly"]'),
+                         "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(signing_runner.owned_pool_label(""), "")
+        self.assertEqual(signing_runner.owned_pool_label("not-json"), "")
+
+    def test_publication_pool_output_fails_closed_without_controller_evidence(self) -> None:
+        runners = [runner("cmux12-glaeda", [SIDE])]
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "OWNED_LABELS": SIDE}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"],
+                                lambda token, repo: runners, lambda path: {"jobs": []},
+                                lambda token, repo: {}, NOW)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["owned_pool"], "")
+
     def test_workflows(self) -> None:
         failures, owned_jobs = check(workflows())
         self.assertEqual(failures, [])
@@ -503,6 +620,32 @@ class SigningOwnedMacTests(unittest.TestCase):
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": paired(other, "build-sign-notarize", good)}})
         self.assertTrue(any("signing job's runner comes from" in failure for failure in failures), failures)
+
+    def test_an_owned_only_job_with_a_sparkle_key_holds_the_whole_mac(self) -> None:
+        """nightly.yml's generate-nightly-deltas (2026-10-31): the Sparkle key on an owned mini with no claim."""
+        key = {"env": {"NEXT_SPARKLE_PRIVATE_KEY": "${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}"},
+               "run": "./scripts/ci/generate-nightly-deltas.sh"}
+        owned = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || " \
+                "'glaeda-std-xcode-26.6' }}"
+        bare = {"runs-on": owned, "steps": [{"uses": "actions/checkout@v6"}, key]}
+        # A job SIGNING_JOBS does not name, so every finding shows.
+        failures, owned_jobs = check({"other-nightly.yml": {"jobs": {"deltas": bare}}})
+        self.assertEqual(owned_jobs, 1, failures)
+        for needle in ("not in SIGNING_JOBS", "the first step must be the claim gate", "without a step that runs"):
+            with self.subTest(needle):
+                self.assertTrue(any(needle in failure for failure in failures), failures)
+        in_job_env = {"runs-on": owned, "env": key["env"], "steps": [{"run": "true"}]}
+        failures, _ = check({"other-nightly.yml": {"jobs": {"deltas": in_job_env}}})
+        self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
+        # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
+        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
+                                            {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
+        self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
+        # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
+        for runs_on in ("${{ vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}", "blacksmith-6vcpu-macos-26",
+                        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.MACOS_RUNNER_26 }}"):
+            with self.subTest(runs_on=runs_on):
+                self.assertEqual(check({"nightly.yml": {"jobs": {"publish": {**bare, "runs-on": runs_on}}}}), ([], 0))
 
     def test_drained_runner_takes_only_a_mini_running_nothing(self) -> None:
         runners = [
@@ -627,6 +770,42 @@ class SigningOwnedMacTests(unittest.TestCase):
                 self.assertEqual(labels, "", f"{300 - ran} s left is past the horizon: {why}")
                 self.assertIn("frees up within 120 s (0 of 1 with a busy runner whose remaining time is unknown)", why)
 
+    def test_drain_anyway_drains_the_soonest_mini_instead_of_blacksmith(self) -> None:
+        """DRAIN_ANYWAY (nightly.yml's legacy sign, Leo 2026-10-30): past the horizon, or with no estimate, the nightly
+        slot on the mini that frees up soonest is still offered; known waits come before unknown ones, then the fewest
+        busy runners. Without it the horizon still sends the job to Blacksmith."""
+        slot = "glaeda-nightly-std-xcode-26.6"
+        runners = [runner("cmux12-glaeda", [SIDE], busy=True),
+                   runner("cmux12-glaeda-2", [SIDE], busy=True),
+                   runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"]),
+                   runner("cmux13-glaeda", [SIDE], busy=True),
+                   runner("cmux13-glaeda-nightly", [slot, "glaeda-runner-cmux13-glaeda-nightly"])]
+        self.assertEqual(signing_runner.drained_runner(runners, [slot], running=None, model=MODEL, now=NOW)[0], "")
+        labels, why = signing_runner.drained_runner(runners, [slot], running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"],
+                         f"no estimate anywhere: the mini with the fewest busy runners: {why}")
+        self.assertIn("to drain anyway", why)
+        self.assertIn("remaining time unknown", why)
+        running = {"cmux12-glaeda": started("macOS / Shell regressions (1)", 0),  # 300 s left
+                   "cmux12-glaeda-2": started("macOS / Shell regressions (2)", 0)}  # 300 s left
+        labels, why = signing_runner.drained_runner(runners, [slot], running=running, model=MODEL, now=NOW,
+                                                    drain_anyway=True)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux12-glaeda-nightly"],
+                         f"a known wait past the horizon beats an unknown one: {why}")
+        self.assertIn("about 300 s", why)
+        self.assertEqual(signing_runner.drained_runner(runners, [SIDE], running=None, model=MODEL, now=NOW,
+                                                       drain_anyway=True)[0], "",
+                         "a side label alone is still never drained for")
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "o/r", "OWNED_LABELS": slot, "DRAIN_ANYWAY": "1"}
+        labels, why = signing_runner.owned_pick(env, lambda token, repo: runners, lambda url: {"jobs": []},
+                                                lambda token, repo: {}, now=NOW, sleep=lambda seconds: None)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"], why)
+        jobs = workflows()["nightly.yml"]["jobs"]
+        step = next(s for s in jobs["pick-nightly-sign-runner"]["steps"] if s.get("id") == "sign-owned")
+        self.assertEqual(step["env"].get("DRAIN_ANYWAY"), "1", "the legacy sign drains a mini before Blacksmith")
+
     def test_owned_pick_drains_only_from_a_fresh_pool_snapshot(self) -> None:
         """owned_pick reads `running` from the queue janitor's pool snapshot (no new GitHub polling) and passes it on
         only when it is at most DRAIN_SNAPSHOT_MAX_MINUTES old; an older or unreadable one leaves every busy runner
@@ -679,6 +858,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         for change in ({"ENABLED": ""}, {"ENABLED": "0"}, {"GITHUB_RUN_ATTEMPT": "2"}, {"ROUTE_TOKEN": ""}):
             with self.subTest(change):
                 self.assertEqual(signing_runner.owned_pick({**env, **change}, read, jobs)[0], "")
+        # A workflow that picks again on a re-run and reads it only there (nightly.yml's legacy sign) opts in.
+        self.assertTrue(signing_runner.owned_pick({**env, "GITHUB_RUN_ATTEMPT": "3", "PICK_ON_RERUN": "1"}, read,
+                                                  jobs)[0])
+        self.assertEqual(signing_runner.owned_pick({**env, "GITHUB_RUN_ATTEMPT": "3", "PICK_ON_RERUN": "0"}, read,
+                                                   jobs)[0], "")
         self.assertEqual(signing_runner.owned_pick(env, read)[0], "", "no actions: read token: no owned Mac")
 
         def broken(token: str, repo: str) -> list:
@@ -696,6 +880,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE]  # publication controls use the shared pool label, without a runner pin
+        owned, why = signing_runner.owned_pick(env, read, jobs)
+        self.assertEqual(owned, "", why)
+        self.assertIn("already hold an owned Mac", why)
+        held[0]["labels"] = [SIDE, "glaeda-runner-cmux13-glaeda-3"]
         for status in ("waiting", "pending", "requested"):  # every unfinished run status a started run can have
             with self.subTest(run_status=status):
                 run_status[0] = status
@@ -779,7 +968,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\n')
+            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool=\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)
@@ -915,6 +1104,69 @@ class SearchListTests(unittest.TestCase):
             (state / "search-list").write_text(f"{tmp}/gone.keychain-db\n")
             self.assertEqual(self.delete(tmp), [f"list-keychains -d user -s {login}"], "nothing it saw is left")
             self.assertEqual(self.delete(tmp), [], "no create in this job: the list is left alone")
+
+
+class TrustAgentRefreshTests(unittest.TestCase):
+    """create restarts the user's trustd agent after the signing keychain joins the search list. An agent running since
+    boot never reads a keychain added later, and codesign then fails with errSecInternalComponent ("unable to build
+    chain to self-signed root"; two owned minis, every sign-nightly-identity-legacy job, 2026-10-31)."""
+
+    def create(self, tmp: Path, launchctl_script: str) -> tuple[subprocess.CompletedProcess, list[str]]:
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        stubs = {
+            # find-certificate -p: the two Developer ID intermediates import-apple-developer-id-intermediates.sh counts
+            "security": '#!/bin/sh\necho "security $*" >> "$CALLS"\n'
+                        'case "$1" in find-certificate) printf "%s\\n%s\\n" "-----END CERTIFICATE-----" '
+                        '"-----END CERTIFICATE-----";; esac\nexit 0\n',
+            "launchctl": launchctl_script,
+            "uuidgen": "#!/bin/sh\necho 00000000-0000-0000-0000-000000000000\n",
+        }
+        for name, body in stubs.items():
+            (bin_dir / name).write_text(body)
+            (bin_dir / name).chmod(0o755)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": os.fspath(tmp), "CALLS": os.fspath(tmp / "calls"),
+               "CMUX_SECURITY_TOOL": os.fspath(bin_dir / "security"),
+               "CMUX_LAUNCHCTL_TOOL": os.fspath(bin_dir / "launchctl"),
+               "CMUX_KEYCHAIN_DIR": os.fspath(tmp / "keychains"),
+               "CMUX_SIGNING_KEYCHAIN_STATE_DIR": os.fspath(tmp / "state"), "RUNNER_TEMP": os.fspath(tmp),
+               "APPLE_CERTIFICATE_BASE64": "cDEy", "APPLE_CERTIFICATE_PASSWORD": "pw"}
+        done = subprocess.run(["bash", os.fspath(ROOT / "scripts/ci/signing-keychain.sh"), "create"], env=env,
+                              capture_output=True, text=True, timeout=30, check=False)
+        calls = (tmp / "calls").read_text().splitlines() if (tmp / "calls").exists() else []
+        (tmp / "calls").unlink(missing_ok=True)
+        return done, calls
+
+    def test_the_agent_restarts_after_the_keychain_joins_the_search_list(self) -> None:
+        uid = os.getuid()
+        service = f"user/{uid}/com.apple.trustd.agent"
+        with tempfile.TemporaryDirectory() as raw:
+            done, calls = self.create(Path(raw), '#!/bin/sh\necho "launchctl $*" >> "$CALLS"\nexit 0\n')
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn(f"launchctl kickstart -k {service}", calls)
+            self.assertLess(calls.index("security list-keychains -d user -s build.keychain"),
+                            calls.index(f"launchctl kickstart -k {service}"),
+                            "the agent must start again after the search list names the signing keychain")
+            self.assertIn("Restarted the trustd agent", done.stdout)
+        with tempfile.TemporaryDirectory() as raw:
+            # kickstart refused: the pid launchd reports for the label is stopped, and launchd starts it again
+            sleeper = subprocess.Popen(["sleep", "30"])
+            try:
+                script = ('#!/bin/sh\necho "launchctl $*" >> "$CALLS"\n'
+                          '[ "$1" = kickstart ] && exit 150\n'
+                          f'[ "$1" = print ] && printf "\\tstate = running\\n\\tpid = {sleeper.pid}\\n"\nexit 0\n')
+                done, calls = self.create(Path(raw), script)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(sleeper.wait(timeout=10), -15, "the agent launchd names gets SIGTERM")
+                self.assertIn(f"pid {sleeper.pid}", done.stdout)
+            finally:
+                if sleeper.poll() is None:
+                    sleeper.kill()
+        with tempfile.TemporaryDirectory() as raw:
+            done, calls = self.create(Path(raw), '#!/bin/sh\nexit 1\n')
+            self.assertEqual(done.returncode, 0, "best effort: a refusal never fails the signing step")
+            self.assertIn("could not restart the trustd agent", done.stderr)
+            self.assertIn("Signing keychain build.keychain is ready", done.stdout)
 
 
 class ClaimGateTests(unittest.TestCase):

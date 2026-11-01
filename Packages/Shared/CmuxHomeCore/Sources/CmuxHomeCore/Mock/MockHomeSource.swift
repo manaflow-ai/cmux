@@ -493,6 +493,21 @@ public actor MockHomeSource: HomeSource {
         return true
     }
 
+    /// `reader` reads `conversation` up to its newest message, as the owner moves another
+    /// member's read cursor ("Read" under my message); nothing when it already has.
+    ///
+    /// - Parameters:
+    ///   - reader: The member whose read cursor moves (the Chief, a teammate).
+    ///   - conversation: The conversation they read.
+    public func markRead(by reader: ParticipantID, in conversation: ConversationID) {
+        guard var summary = conversations[conversation], (summary.readCursors[reader] ?? 0) < summary.lastSeq else { return }
+        summary.readCursors[reader] = summary.lastSeq
+        summary.readCursorTimes[reader] = Date()
+        summary.rev += 1
+        conversations[conversation] = summary
+        publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())

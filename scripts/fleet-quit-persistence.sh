@@ -160,18 +160,22 @@ cli terminal list --json >"$out/pre-term.json"
 rpc_ok debug.windows '{}' >"$out/pre-windows.json"
 snapshot pre
 
-# 5. Cmd-Q (keep, no question: cx-7vu) -------------------------------------------
-# A quit asks nothing about sessions: terminals and agents keep running in
-# their daemons, so Cmd-Q quits at once with Keep.
+# 5. Cmd-Q (asks how to quit; Keep Sessions is the default: QUIT P0) --------
+# With local terminals, Cmd-Q asks Keep Sessions / End Sessions, Keep Layout /
+# End Everything / Cancel. Return (the default) keeps the terminals and agents
+# running in their daemons.
 rpc_ok debug.quit '{"open":true}' >"$out/quit-open.json"
 asked=no
 for i in $(seq 1 15); do
   alive "$APP_PID" || break
-  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && asked=yes
-  rpc debug.dialog '{}' 2 2>/dev/null | grep -q '"identifier": *"cmux.dialog.quit"' && asked=yes
+  if rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true'; then
+    asked=yes
+    rpc debug.quit '{"press":"keep"}' 5 >/dev/null 2>&1 || true
+    break
+  fi
   sleep 1
 done
-check quit-no-prompt "$(cond test "$asked" = no)" "$(tr -d '\n' <"$out/quit-open.json" | cut -c1-200)"
+check quit-asks "$(cond test "$asked" = yes)" "$(tr -d '\n' <"$out/quit-open.json" | cut -c1-200)"
 check app-quits-on-keep "$(cond wait_exit "$APP_PID" 15)"
 
 # 6. Survive the reap grace -----------------------------------------------------
@@ -209,8 +213,14 @@ rpc_ok action.run '{"id":"selectWorkspaceByNumber","args":{"index":1}}' >/dev/nu
 snapshot post-terminal
 
 # 9. Variants (on the live app) ---------------------------------------------------
-# A second Cmd-Q while the first completes is ignored; the first already keeps.
+# A second Cmd-Q while the quit dialog shows answers its default (Keep). It is
+# sent once the dialog shows: before that the quit is still reading its facts.
 rpc_ok debug.quit '{"open":true}' >/dev/null
+for i in $(seq 1 15); do
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && break
+  alive "$APP_PID" || break
+  sleep 1
+done
 rpc_ok debug.quit '{"open":true}' >/dev/null || true
 check second-quit-keeps "$(cond wait_exit "$APP_PID" 15)" "app quit"
 check second-quit-daemon-alive "$(cond alive "$TUI_PID")" "daemon $TUI_PID"

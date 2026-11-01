@@ -3,13 +3,12 @@
 //! packetize with FEC, NACK history, recovery, exactly-once input) is the shared
 //! engine, cmux-rd-engine (rd change C7 step 2).
 
+use crate::carrier::{Carrier, Incoming};
 use crate::clock::now_ns;
 use crate::desktop::Desktop;
 use crate::fdwait::wait_readable;
 use crate::upstream::{UpstreamSink, Upstreams};
-use crate::wire::{
-    write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
-};
+use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
@@ -17,9 +16,6 @@ use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, Output};
 use std::collections::VecDeque;
-use std::io;
-use std::net::{IpAddr, TcpStream, UdpSocket};
-use std::os::fd::AsRawFd;
 
 #[derive(Clone)]
 pub struct SessionCfg {
@@ -62,9 +58,6 @@ pub struct MediaSession {
     engine: MediaEngine,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
-    out: DatagramOut,
-    /// Where the viewer's datagrams come from (UDP carrier); `None` on the stream carrier.
-    peer_udp: Option<std::net::SocketAddr>,
     deferred_error: Option<String>,
     stats_frames_sent: u64,
     encode_ms: VecDeque<f64>,
@@ -76,8 +69,6 @@ pub struct MediaSession {
 
 /// No feedback for this long ends the session.
 const LIVENESS_NS: u64 = 3_000_000_000;
-/// UDP datagrams read per wake.
-const MAX_UDP_PER_WAKE: usize = 64;
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -104,8 +95,6 @@ impl MediaSession {
     pub fn open(
         cfg: &SessionCfg,
         max_datagram: usize,
-        out: DatagramOut,
-        _peer_ip: IpAddr,
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
@@ -125,17 +114,11 @@ impl MediaSession {
             },
             now_us(),
         );
-        let peer_udp = match &out {
-            DatagramOut::Udp { peer, .. } => Some(*peer),
-            DatagramOut::Stream => None,
-        };
         Ok(Self {
             desktop,
             au: Vec::new(),
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
-            out,
-            peer_udp,
             deferred_error: None,
             stats_frames_sent: 0,
             encode_ms: VecDeque::new(),
@@ -155,21 +138,19 @@ impl MediaSession {
         self.desktop.encoder_name()
     }
 
-    /// Runs until the viewer stops, the host stops the session, or the connection fails.
+    /// Runs until the viewer stops, the host stops the session, or the carrier fails.
     pub fn run(
         &mut self,
-        stream: &mut TcpStream,
-        reader: &mut FrameReader,
-        udp: &UdpSocket,
+        carrier: &mut dyn Carrier,
         table: &mut SessionTable,
         session: SessionId,
         viewer: &Principal,
     ) -> String {
         let mut damage = Vec::new();
-        let mut buf = vec![0u8; 65536];
+        let mut incoming = Vec::new();
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
-            if let Err(e) = self.encode(stream, &req) {
+            if let Err(e) = self.encode(carrier, &req) {
                 return format!("encode/send failed: {e}");
             }
         }
@@ -186,7 +167,7 @@ impl MediaSession {
             }
             let now = now_us();
             if let Some(req) = self.engine.poll(now) {
-                if let Err(e) = self.encode(stream, &req) {
+                if let Err(e) = self.encode(carrier, &req) {
                     return format!("encode/send failed: {e}");
                 }
             }
@@ -195,56 +176,31 @@ impl MediaSession {
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
             let timeout = Some(timeout.max(1_000_000));
-            if let Err(e) =
-                wait_readable(&[self.desktop.fd(), stream.as_raw_fd(), udp.as_raw_fd()], timeout)
-            {
+            let mut fds = carrier.fds();
+            fds.push(self.desktop.fd());
+            if let Err(e) = wait_readable(&fds, timeout) {
                 return format!("wait failed: {e}");
             }
-            // Control and stream-carried datagrams.
-            if let Err(e) = reader.fill(stream) {
-                return format!("viewer closed: {e}");
+            incoming.clear();
+            if let Err(reason) = carrier.receive(&mut incoming) {
+                return reason;
             }
-            loop {
-                match reader.next() {
-                    Ok(Some((FRAME_CONTROL, payload))) => {
-                        match serde_json::from_slice::<Control>(&payload) {
-                            Ok(Control::Stop) => return "stopped by viewer".into(),
-                            Ok(control) => {
-                                let may_control = table.may_inject_input(session, viewer);
-                                if let Some(answer) = self.upstreams.on_control(
-                                    &mut self.engine,
-                                    &control,
-                                    may_control,
-                                ) {
-                                    if let Err(e) = write_control(stream, &answer) {
-                                        return format!("control write failed: {e}");
-                                    }
-                                }
+            for item in incoming.drain(..) {
+                match item {
+                    Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
+                    Incoming::Control(control) => {
+                        let may_control = table.may_inject_input(session, viewer);
+                        if let Some(answer) =
+                            self.upstreams.on_control(&mut self.engine, &control, may_control)
+                        {
+                            if let Err(e) = carrier.send_control(&answer) {
+                                return format!("control write failed: {e}");
                             }
-                            Err(_) => {}
                         }
                     }
-                    Ok(Some((FRAME_DATAGRAM, payload))) => {
-                        self.on_datagram(stream, &payload, table, session, viewer)
+                    Incoming::Datagram(datagram) => {
+                        self.on_datagram(carrier, &datagram, table, session, viewer)
                     }
-                    Ok(Some(_)) => {}
-                    Ok(None) => break,
-                    Err(e) => return format!("bad frame: {e}"),
-                }
-            }
-            // UDP datagrams, only from the viewer's own socket, at most 64 per wake.
-            for _ in 0..MAX_UDP_PER_WAKE {
-                if self.peer_udp.is_none() {
-                    break;
-                }
-                match udp.recv_from(&mut buf) {
-                    Ok((n, from)) if Some(from) == self.peer_udp => {
-                        let datagram = buf[..n].to_vec();
-                        self.on_datagram(stream, &datagram, table, session, viewer);
-                    }
-                    Ok(_) => {}
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return format!("udp failed: {e}"),
                 }
             }
             // Damage from the desktop.
@@ -258,7 +214,7 @@ impl MediaSession {
                 let req = self.engine.damage(0, r, now_us());
                 trace(&format!("damage {r:?} -> {req:?}"));
                 if let Some(req) = req {
-                    if let Err(e) = self.encode(stream, &req) {
+                    if let Err(e) = self.encode(carrier, &req) {
                         return format!("encode/send failed: {e}");
                     }
                 }
@@ -267,17 +223,17 @@ impl MediaSession {
             if !may_inject {
                 // Control ended: the viewer's microphone and camera stop with it.
                 for closed in self.upstreams.close_all(&mut self.engine) {
-                    let _ = write_control(stream, &Control::StreamClose { stream: closed });
+                    let _ = carrier.send_control(&Control::StreamClose { stream: closed });
                 }
             }
             let out = self.engine.tick(may_inject, now_us());
-            self.apply(stream, out, table, session, viewer);
+            self.apply(carrier, out, table, session, viewer);
             // Acks, NACKs and arrivals for the viewer's upstream senders.
             while let Some(datagram) = self.engine.upstream_feedback(now_us()) {
-                let _ = self.out.send(stream, &datagram);
+                let _ = carrier.send_datagram(&datagram);
             }
             if now_ns() >= self.next_stats_ns {
-                self.send_stats(stream);
+                self.send_stats(carrier);
             }
         }
     }
@@ -301,7 +257,7 @@ impl MediaSession {
         Ok(())
     }
 
-    fn encode(&mut self, stream: &mut TcpStream, req: &EncodeRequest) -> Res<()> {
+    fn encode(&mut self, carrier: &mut dyn Carrier, req: &EncodeRequest) -> Res<()> {
         self.desktop.capture(req.damage)?;
         let t_capture_us = now_us();
         self.desktop.set_bitrate(req.target_kbps);
@@ -319,7 +275,7 @@ impl MediaSession {
             self.desktop.set_bitrate(self.desktop.kbps() / 2);
         }
         for datagram in &out.datagrams {
-            self.out.send(stream, datagram)?;
+            carrier.send_datagram(datagram)?;
         }
         Ok(())
     }
@@ -328,14 +284,14 @@ impl MediaSession {
     /// requested frame.
     fn apply(
         &mut self,
-        stream: &mut TcpStream,
+        carrier: &mut dyn Carrier,
         out: Output,
         table: &SessionTable,
         session: SessionId,
         viewer: &Principal,
     ) {
         for datagram in &out.datagrams {
-            let _ = self.out.send(stream, datagram);
+            let _ = carrier.send_datagram(datagram);
         }
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
@@ -345,7 +301,7 @@ impl MediaSession {
             self.inject(event, table, session, viewer);
         }
         if let Some(req) = out.encode {
-            if let Err(e) = self.encode(stream, &req) {
+            if let Err(e) = self.encode(carrier, &req) {
                 self.deferred_error = Some(e.to_string());
             }
         }
@@ -353,7 +309,7 @@ impl MediaSession {
 
     fn on_datagram(
         &mut self,
-        stream: &mut TcpStream,
+        carrier: &mut dyn Carrier,
         datagram: &[u8],
         table: &SessionTable,
         session: SessionId,
@@ -361,7 +317,7 @@ impl MediaSession {
     ) {
         let may_inject = table.may_inject_input(session, viewer);
         let out = self.engine.on_datagram(datagram, may_inject, now_us());
-        self.apply(stream, out, table, session, viewer);
+        self.apply(carrier, out, table, session, viewer);
     }
 
     fn inject(
@@ -394,7 +350,7 @@ impl MediaSession {
         self.engine.reset_input();
     }
 
-    fn send_stats(&mut self, stream: &mut TcpStream) {
+    fn send_stats(&mut self, carrier: &mut dyn Carrier) {
         let now = now_ns();
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
         // Stats only while frames flow: an idle session sends nothing.
@@ -418,6 +374,6 @@ impl MediaSession {
             encode_ms_p50,
             loss_pct: stats.loss * 100.0,
         };
-        let _ = write_control(stream, &stats);
+        let _ = carrier.send_control(&stats);
     }
 }

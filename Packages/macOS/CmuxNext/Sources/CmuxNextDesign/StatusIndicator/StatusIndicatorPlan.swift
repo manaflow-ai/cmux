@@ -80,6 +80,14 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
+    /// Agent work's spinner (the agent working-state mark): the macOS activity indicator's spokes,
+    /// stepping round one spoke at a time on the shared clock. It replaced a 3/4 arc turning
+    /// smoothly (Leo 2026-11-01: "who even decided to put that 3/4 circle"); loading (a page, a
+    /// command) keeps its arc.
+    public static func working(tint: Tint) -> StatusIndicatorPlan {
+        StatusIndicatorPlan(glyph: .native, animation: .step, tint: tint)
+    }
+
     /// The plan for `state` in `style`. `animates` is false while the host
     /// is off screen or occluded, and under Reduce Motion or loops off
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
@@ -100,7 +108,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
             // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc;
             // the working dot stays a dot.
-            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == .arc { plan.glyph = .mark(.vector(.idle)) }
+            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == .native { plan.glyph = .mark(.vector(.idle)) }
         }
         return plan
     }

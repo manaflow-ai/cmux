@@ -45,8 +45,10 @@ pub trait CloudVms: Send + Sync {
 }
 
 /// The VM command the pool tool names: `~/.config/cloud-subagents/vm-cmd`
-/// holds the path of cmuxterm-hq `tools/cloud-subagents/deploy.sh`, which
-/// `deploy.sh up` writes. No file: VMs are left as they are.
+/// holds the path of `~/.local/bin/cloud-subagents-deploy`, which runs
+/// cmuxterm-hq main's `tools/cloud-subagents/deploy.sh` from the installed hq
+/// tools (never a task worktree's copy); `deploy.sh up` and
+/// `deploy.sh install-vm-cmd` write both. No file: VMs are left as they are.
 pub struct CommandVms {
     /// The file that names the command.
     pub file: PathBuf,

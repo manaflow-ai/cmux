@@ -73,7 +73,7 @@ extension AppControl {
     /// The signed-in cmux.com client (``CodeRouterClient`` authenticates any `/api/*` call as the user).
     nonisolated private static func billingClient(_ services: AppServices) async throws -> CodeRouterClient {
         try await MainActor.run {
-            if let refusal = Self.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
+            if let refusal = ControlError.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: BillingStrings.unavailable) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn) }
             return client

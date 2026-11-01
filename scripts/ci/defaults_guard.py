@@ -96,8 +96,6 @@ REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 GUARD_FILES = (
     "scripts/ci/defaults_guard.py",
     OWNERS,
-    ".github/workflows/cmux-next-defaults-guard.yml",
-    ".github/workflows/cmux-next-defaults-guard-review.yml",
 )
 
 # AppKit's function-key characters, as the catalog export writes them.
@@ -124,6 +122,11 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # Repository roles that trust a receipt's author whose association reads as untrusted: a member who
 # keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
 WRITER_ROLES = ("admin", "maintain", "write")
+# GitHub returns the App slug as `cmux-bot` in some GraphQL connections and the
+# REST-normalized `cmux-bot[bot]` form in others. Both are the same actor only
+# when paired with this immutable node id; a name alone is never sufficient.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -648,16 +651,23 @@ def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
 def receipt_verdict(pull: Mapping[str, object], head: str,
                     writers: Iterable[str] = ()) -> tuple[str, str] | None:
     """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. A user
-    whose association reads as untrusted is trusted when listed in `writers` (repository write
-    access, looked up by `repo_writers`)."""
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
+    cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
+    A user whose association reads as untrusted is trusted when listed in `writers` (repository
+    write access, looked up by `repo_writers`)."""
     writers = {w.lower() for w in writers}
     found = []
     for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User":
-            continue
-        if item.get("authorAssociation") not in TRUSTED and str(author.get("login") or "").lower() not in writers:
+        if author.get("__typename") == "Bot":
+            trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+        elif author.get("__typename") == "User":
+            trusted = (item.get("authorAssociation") in TRUSTED
+                       or str(author.get("login") or "").lower() in writers)
+        else:
+            trusted = False
+        if not trusted:
             continue
         line = receipt_line(item, head)
         if line:
@@ -731,8 +741,8 @@ query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
-      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
+      reviews(last: 100) { nodes { author { login __typename ... on Bot { id } } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename ... on Bot { id } } } }
     }
   }
 }
@@ -915,7 +925,9 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except (SystemExit, RuntimeError, OSError) as error:  # comment failures never change the verdict
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1

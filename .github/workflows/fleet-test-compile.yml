@@ -22,11 +22,19 @@ name: fleet test-compile
 # (one over an hour). Unset, a plan skips this job and nothing queues.
 #
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
-# its base) is the CmuxNext test targets that depend on a changed target in
-# the SwiftPM target graph, and the macOS package lane's packages whose
-# sources or path dependencies changed. An empty plan passes on a Linux runner
-# in seconds and queues no Mac; a plan runs `package-test-lane.sh
-# compile-tests BASE` as a light fleet step.
+# its base) is the macOS package lane's packages whose sources or path
+# dependencies changed. An empty plan passes on a Linux runner in seconds and
+# queues no Mac; a plan runs `package-test-lane.sh compile-tests BASE
+# --skip-package=Packages/macOS/CmuxNext` as a light fleet step.
+#
+# CmuxNext is skipped here (SKIP below): cmux-next.yml's swift test job runs
+# `swift build --build-tests` on every same-repository pull request whose
+# change reaches a CmuxNext test target, from the same route, so this check
+# compiled those targets a second time. Over 24 hours to 2026-10-30 that was
+# 650 fleet compile-tests steps (about 55 Mac worker hours) and about 65 hours
+# of gateway runner time, for PRs whose plan was CmuxNext alone. The tip
+# compile (cmux-next-tip-test-compile.yml) keeps CmuxNext: push CI skips
+# swift test.
 
 on:
   pull_request:
@@ -40,6 +48,10 @@ on:
 
 permissions: {}
 
+env:
+  # The package the swift test job of cmux-next.yml already compiles the tests of.
+  SKIP: Packages/macOS/CmuxNext
+
 concurrency:
   group: fleet-test-compile-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -50,7 +62,7 @@ jobs:
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions:
       contents: read
     timeout-minutes: 5
@@ -71,7 +83,7 @@ jobs:
           set -euo pipefail
           base="$(git rev-parse HEAD^1)"
           git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
-          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/plan.txt"
+          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" --skip-package "$SKIP" > "$RUNNER_TEMP/plan.txt"
           {
             echo "### fleet test-compile plan"
             echo
@@ -84,6 +96,8 @@ jobs:
             else
               echo "The change reaches no test target: nothing to compile, no Mac queued."
             fi
+            echo
+            echo "\`$SKIP\` is left out: cmux-next.yml's swift test job builds its test targets."
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/plan.txt"
           echo "base=$base" >> "$GITHUB_OUTPUT"
@@ -126,7 +140,7 @@ jobs:
           log="$RUNNER_TEMP/test-compile.log"
           status=0
           "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
-            --arg=compile-tests --arg="$BASE" \
+            --arg=compile-tests --arg="$BASE" --arg="--skip-package=$SKIP" \
             --timeout 1500 --queue-timeout 1200 2>&1 | tee "$log" || status=$?
           if [[ "$status" -eq 0 ]]; then
             echo "Every planned test target compiled."

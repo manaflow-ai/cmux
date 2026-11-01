@@ -174,6 +174,7 @@ impl Hub {
                             SessionStatus::Idle | SessionStatus::Closed
                         );
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
+                    tap_hub.end_background_turn(&tap_session, "exit");
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -204,6 +205,11 @@ impl Hub {
                         return true;
                     }
                     if method.starts_with("claude.") {
+                        // A turn the person did not start: its records go before its lines
+                        // (`background_turn.rs`).
+                        if !muted && let Some(line) = params.as_ref() {
+                            tap_hub.background_turn_line(&tap_session, method, line);
+                        }
                         // Claude Code's turn, its own ones too (`Session::harness_turn`).
                         if method == "claude.system.init" {
                             tap_session.harness_turn.store(true, Ordering::SeqCst);
@@ -218,9 +224,11 @@ impl Hub {
                             tap_hub.observe_task_line(&tap_session, line);
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
-                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
+                        // its assistant and user lines the bodies those messages carry.
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
+                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
                         return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
@@ -268,25 +276,36 @@ impl Hub {
                 super::drop_display_lines(params);
             }
             let mut subagent = None;
+            // Whether this update changed which background subagents run: a root learned late
+            // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
+            let mut background_changed = false;
+            // Whether it changed how many subagents run (`subagents_running`, the hover card's count).
+            let mut running_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
                 // The chat's own thread is never one of its subagents. Seed the
-                // native root before handling updates so echoed root activity cannot
+                // native roots (the current one and the earlier ones a daemon restart
+                // forgot) before handling updates so echoed root activity cannot
                 // create a phantom child; replay keeps live/background semantics.
-                let own = tap_session
-                    .meta
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .agent_session_id
-                    .clone();
+                let (own, retired) = {
+                    let meta = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    (meta.agent_session_id.clone(), meta.retired_agent_session_ids.clone())
+                };
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
-                if let Some(root) = own.as_deref() {
-                    tree.set_root(root);
-                }
+                let before = tree.background_running();
+                let running_before = tree.running_count();
+                tree.set_roots(own.iter().chain(&retired).map(String::as_str));
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
+                background_changed = tree.background_running() != before;
+                running_changed = tree.running_count() != running_before;
+                drop(tree);
+                // The chat's own words in a turn the person did not start (`background_turn.rs`).
+                if subagent.is_none() && !muted && !kind.ends_with(".replay") {
+                    tap_hub.background_turn_update(&tap_session, &params["update"]);
+                }
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -320,8 +339,19 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
-            if subagent_events {
+            if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
+            }
+            // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
+            if running_changed {
+                let count =
+                    tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
+                tap_hub.append(
+                    &tap_session,
+                    "mux",
+                    super::views::SUBAGENTS_RUNNING,
+                    json!({"count": count}),
+                );
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
@@ -356,3 +386,7 @@ fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "tap_bodies_tests.rs"]
+mod bodies_tests;

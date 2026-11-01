@@ -207,6 +207,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
     /// and `columns[].dock`: the agent chat column.
     case dockColumnRole = "dock-column-role-v1"
+    /// Split Down of a pane in the agent chat dock adds a pane below it there (#29848);
+    /// every other new pane in the dock is still refused.
+    case dockColumnSplitDown = "dock-column-split-down-v1"
     /// Pinned dock columns (the Home dock): `set-column-dock` takes `pinned`,
     /// and the daemon keeps a pinned column's first tab and refuses other
     /// tabs into it unless its `allow_tabs` is on (`dock-column-pinned`).
@@ -222,8 +225,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// place left or right in one commit. Without it only a one-pane column
     /// moves, through `swap-pane`.
     case columnMove = "column-move-v1"
-    /// `new-pane-right {side: "left"}`: New Column Left opens the column before the pane's
-    /// column. Without it New Column Left is refused.
     case columnLeft = "column-left-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
@@ -283,6 +284,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     case agentSessionTabs = "agent-session-tabs-v1"
+    /// Canonical conversation kinds in closed history; live support alone is insufficient.
+    case closedConversationTabs = "closed-conversation-tabs-v1"
     /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
@@ -295,6 +298,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
     /// the app asks to update that machine's cmux-tui, never starts on this Mac.
     case agentSessionStart = "agent-session-start-v1"
+    /// `agent-session-start` accepts an omitted cwd and creates a Cloud chat folder.
+    case agentSessionStartNoCwd = "agent-session-start-no-cwd-v1"
     /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
     /// Trust answer for a folder there, recorded in that machine's acpmux.
     case agentSessionTrust = "agent-session-trust-v1"
@@ -302,23 +307,23 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
-    /// `agent-session-start` takes `vm_kind`: the Cloud API's `vmKind` for this app on its link to
-    /// that machine. A Cloud VM's daemon then starts a chat only on `vm_kind: "owner"`, never on
-    /// its own `owner` record (the agents there keep sudo).
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
-    /// `agent-session-start` takes an optional model for the first session/new request.
     case agentSessionStartModel = "agent-session-start-model-v1"
-    /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
-    /// records folder trust only on `vm_kind: "owner"`.
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
+    /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
+    /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
+    case agentSessionFolders = "agent-session-folders-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
-    /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event:
-    /// who is in an attached chat (chat multiplayer, hq#4389). Without it a chat of that machine
-    /// shows no one else, and the person's typing and view stay on this Mac.
     case agentSessionPresence = "agent-session-presence-v1"
+    /// `agent-session-set-model`, `-set-mode` and `-set-config`: the person's model, mode and
+    /// option picks in a chat on that machine. Without it those picks say to update its cmux-tui.
+    case agentSessionSettings = "agent-session-settings-v1"
+    /// `agent-session-login`: a Cloud chat's own sign-in on that machine (the failed turn's
+    /// sign-in card), as acpmux's `_acpmux/agent_login/*` on the tab's own session.
+    case agentSessionLogin = "agent-session-login-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -516,15 +521,14 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
+             .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
-             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
-             .agentSessionChildren, .agentSessionPresence, .pageTabs,
-             .pageTabRoute, .appScreens,
+             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
+             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -583,8 +587,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
-    /// `agentSessionPresence` only from the connection that draws an attached chat's presence
-    /// (`AgentSessionAttachClient`), never from every connection.
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
 

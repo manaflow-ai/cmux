@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextResources
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -11,7 +12,7 @@ import CmuxNextWakeupsTestSupport
 /// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
 /// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
 /// clock the test moves.
-@MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
         let window: NSWindow
@@ -36,6 +37,7 @@ import CmuxNextWakeupsTestSupport
 
         func tearDown() {
             coordinator.dismiss(.action)
+            coordinator.panel?.closeAfterTest()
             window.contentView = nil
             window.close()
         }

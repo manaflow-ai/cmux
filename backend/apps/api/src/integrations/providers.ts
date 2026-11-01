@@ -83,8 +83,9 @@ export const forgetInstallationToken = (installation: number, token: string) => 
 
 /** Comment mutations use a separate cache: a repository-list token must never supply a write. */
 const commentTokens = new Map<string, { token: string; expires_at: number }>()
+const commentTokenKey = (installation: number, repo: string) => `${installation}:${repo.toLowerCase()}:issues:write`
 const commentToken = async (env: Env, http: Http, installation: number, repo: string) => {
-  const key = `${installation}:${repo.toLowerCase()}:issues:write`
+  const key = commentTokenKey(installation, repo)
   const cached = commentTokens.get(key)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
@@ -173,7 +174,14 @@ export const github: ProviderImpl = {
         body: JSON.stringify({ body: params.body })
       })
     )
-    if (!res.ok) throw failed("github", res, "comment", true)
+    if (!res.ok) {
+      const error = failed("github", res, "comment", true)
+      // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
+      // and the failed effect is still returned to the ledger, never retried here.
+      const key = commentTokenKey(credential.installation_id, String(params.repo))
+      if (error.code === "needs_reauth" && commentTokens.get(key)?.token === token) commentTokens.delete(key)
+      throw error
+    }
     const b = await json(res)
     const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
     const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()

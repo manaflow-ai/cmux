@@ -95,6 +95,18 @@ import Testing
         await child.exit()
     }
 
+    @Test func aProcessGroupStopsDescendantsThatOutliveTheirGitLeader() async throws {
+        let marker = FileManager.default.temporaryDirectory.appending(path: "async-process-group-\(UUID().uuidString)").path
+        defer { unlink(marker) }
+        // The leader ignores TERM and waits for a descendant. The descendant records TERM and exits;
+        // a direct-pid stop leaves it running, while the process-group stop reaches it atomically.
+        let script = "trap '' TERM; /bin/sh -c 'trap \"echo term > \\(marker); exit 0\" TERM; while :; do sleep 1; done' & wait"
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: .seconds(1),
+                                     killGrace: .milliseconds(200), terminationScope: .processGroup)
+        await #expect(throws: ProcessFailure.timedOut) { try await processes.run(request) }
+        #expect(FileManager.default.fileExists(atPath: marker))
+    }
+
     @Test func aFinishRequestRunsToItsEndThoughItsCallerIsCancelled() async throws {
         // The child waits on a fifo that only the test writes, after its cancel: it is surely running then.
         let fifo = FileManager.default.temporaryDirectory.appending(path: "async-process-\(UUID().uuidString)").path

@@ -30,6 +30,7 @@ mkdir -p "$work/toolchain/bin"
 cat >"$work/toolchain/bin/cargo" <<'S'
 #!/usr/bin/env bash
 echo "cargo $*" >>"$CALLS"
+echo "toolchain=${RUSTUP_TOOLCHAIN:-unset} cargo $*" >>"$CALLS.env"
 S
 # The step's checkout has empty submodules (2026-10-05, step ee99e05f:
 # ghostty-vt-sys found no build.zig in ghostty-next).
@@ -38,10 +39,14 @@ cat >"$work/bin/git" <<'S'
 echo "git $*" >>"$CALLS"
 exit "${GIT_RC:-0}"
 S
-chmod +x "$work/bin/"* "$work/toolchain/bin/cargo"
+# The pinned rustc (warm_target_guard runs rustc -vV): never the host's rustup
+# proxy, which would auto-install the toolchain RUSTUP_TOOLCHAIN names.
+printf '#!/usr/bin/env bash\necho "rustc 1.95.0 (stub)"\n' >"$work/toolchain/bin/rustc"
+chmod +x "$work/bin/"* "$work/toolchain/bin/cargo" "$work/toolchain/bin/rustc"
 export TOOLCHAIN_BIN="$work/toolchain/bin"
 run() { # rc out
   : >"$work/calls"
+  : >"$work/calls.env"
   set +e
   out="$(cd "$work/src" && CALLS="$work/calls" PATH="$work/bin:$PATH" CMUX_CI_STEP_KEY=test "$@" 2>&1)"
   rc=$?
@@ -69,4 +74,19 @@ RUSTUP_RC=1 run "$script" fmt
 [[ $rc -ne 0 ]] || fail "a failed component install must fail the step"
 ! grep -q "cargo " "$work/calls" || fail "cargo ran after a failed component install"
 
-echo "ok: 3 rust-check cases"
+# optchat-chief has no rust-toolchain.toml of its own: its cargo-clippy and
+# cargo-fmt proxies must resolve the pinned toolchain the component add
+# covered, never the step RUSTUP_HOME's default (2026-10-29, step 7a7dfb66 on
+# aws-m4pro-3: default `stable` had no clippy or rustfmt; both failed in 0 s).
+mkdir -p "$work/src/Native/OptChat/optchat-chief"
+run "$script" optchat-chief
+[[ $rc -eq 0 ]] || fail "optchat-chief: rc=$rc"
+for sub in "clippy --all-targets -- -D warnings" "fmt --check"; do
+  grep -qxF "toolchain=1.95.0-aarch64-apple-darwin cargo $sub" "$work/calls.env" ||
+    fail "optchat-chief cargo $sub did not run under the pinned toolchain: $(cat "$work/calls.env")"
+done
+# cmux-tui itself keeps selecting its toolchain through its toolchain file.
+run "$script" fmt
+grep -qxF "toolchain=unset cargo fmt --all --check" "$work/calls.env" || fail "cmux-tui fmt: $(cat "$work/calls.env")"
+
+echo "ok: 5 rust-check cases"

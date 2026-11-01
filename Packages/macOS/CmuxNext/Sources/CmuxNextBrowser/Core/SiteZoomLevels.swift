@@ -16,7 +16,7 @@ public final class SiteZoomLevels {
     /// Levels in files under `directory` (nil: in memory), an incognito profile's in memory.
     ///
     /// - Parameters:
-    ///   - directory: One JSON file per profile; ``BrowserSharedStores/application()`` passes
+    ///   - directory: One JSON file per profile; ``BrowserSharedStores/application(loginKeychain:)`` passes
     ///     `<Application Support>/<bundle id>/SiteZoom/` (tagged DEV builds have their own bundle id).
     ///   - offTheRecord: The App's incognito profiles (``BrowserSharedStores``).
     public init(directory: URL?, offTheRecord: OffTheRecordProfiles) {

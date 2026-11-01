@@ -4,12 +4,13 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// `browser.page.mouse|wheel|insert_text|key`: raw input at a point or on the focused element of
 /// an app browser tab, which daemon `browser.input.mouse|wheel|text|key` route to for a page the
 /// app draws (WebKit or CEF). The scripts run in a real WebKit page here; the page's listeners
 /// record what it saw.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageRawInputTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageRawInputTests {
     static let html = """
     <!doctype html><html><head><style>
       body { margin: 0; font: 14px sans-serif; }
@@ -138,6 +139,7 @@ import WebKit
 
     @Test func aMouseDownAndUpOnAButtonClicksIt() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("btn")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y)]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y)]).get()
@@ -150,6 +152,7 @@ import WebKit
 
     @Test func aDoubleClickCountsTwoAndFiresDblclick() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y), "click_count": 2]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y), "click_count": 2]).get()
@@ -159,6 +162,7 @@ import WebKit
 
     @Test func theRightButtonOpensAContextMenuEventAndClicksNothing() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("btn")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y), "button": "right"]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y), "button": "right"]).get()
@@ -170,6 +174,7 @@ import WebKit
 
     @Test func aMoveHoversTheElementUnderThePoint() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "move", "x": .number(at.x), "y": .number(at.y)]).get()
         #expect(try await page.events("mouseover").first?["id"] == "target")
@@ -181,6 +186,7 @@ import WebKit
 
     @Test func mouseEventsCarryTheirModifiers() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y),
                                              "modifiers": ["shift", "meta"]]).get()
@@ -192,6 +198,7 @@ import WebKit
 
     @Test func aWheelAtAPointScrollsTheBoxUnderIt() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let list = try await page.center("list")
         _ = try await call(router, "wheel", ["x": .number(list.x), "y": .number(list.y), "dx": 0, "dy": 120]).get()
         #expect(try await page.events("wheel").first?["deltaY"] == 120)
@@ -203,6 +210,7 @@ import WebKit
 
     @Test func insertTextGoesIntoTheFocusedField() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "insert_text", ["text": "hello"]).get()
         _ = try await call(router, "insert_text", ["text": " world"]).get()
@@ -217,12 +225,14 @@ import WebKit
 
     @Test func insertTextWithNoFocusedFieldIsRefused() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await page.json("(document.activeElement && document.activeElement.blur(), 0)")
         #expect(await call(router, "insert_text", ["text": "x"]).failure?.code == "not_editable")
     }
 
     @Test func keyDownAndUpAreSeparateAndCarryModifiers() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "key", ["key": "k", "kind": "down", "modifiers": ["meta"]]).get()
         let down = try #require(try await page.events("keydown").first)
@@ -236,6 +246,7 @@ import WebKit
 
     @Test func aShiftedKeyPressTypesItsCharacter() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "key", ["key": "A", "kind": "press", "modifiers": ["shift"]]).get()
         #expect(try await page.read("document.getElementById('name').value") == "A")
@@ -243,7 +254,8 @@ import WebKit
     }
 
     @Test func badParamsAreRefused() async throws {
-        let (router, _) = await install()
+        let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         #expect(await call(router, "mouse", ["kind": "down", "y": 1]).failure?.code == "invalid_params")
         #expect(await call(router, "mouse", ["kind": "drag", "x": 1, "y": 1]).failure?.code == "invalid_params")
         #expect(await call(router, "mouse", ["kind": "down", "x": 1, "y": 1, "button": "thumb"]).failure?.code == "invalid_params")

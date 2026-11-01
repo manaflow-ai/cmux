@@ -14,7 +14,8 @@ public struct DiffFileScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var viewportWidth: CGFloat = 400
-    @State private var horizontalOffset: CGFloat = 0
+    /// The rows, texts and heights, prepared off the main thread once per (file, options, style).
+    @State private var renderer = DiffRenderer()
     /// Next / Previous Hunk: the change the last jump went to (this file).
     @State private var hunkLine: Int?
     /// Search in the file (the Mac's Diff: Search): the bar, what is typed, the match shown.
@@ -22,14 +23,8 @@ public struct DiffFileScreen: View {
     @State private var query = ""
     @State private var matchIndex = 0
     @FocusState private var queryFocused: Bool
-    /// The line a jump scrolls to (`line-<index>`), with a serial so the same line can be
-    /// scrolled to again.
-    @State private var scrollTarget: ScrollTarget?
-
-    struct ScrollTarget: Equatable {
-        var line: Int
-        var serial: Int
-    }
+    /// The line a jump scrolls to, with a serial so the same line can be scrolled to again.
+    @State private var scrollTarget: DiffScrollTarget?
 
     init(state: DiffViewerState, fileID: String) {
         _state = State(initialValue: state)
@@ -50,21 +45,44 @@ public struct DiffFileScreen: View {
         DiffLayout.allowsSplit(width: viewportWidth) ? state.layout : .unified
     }
 
-    private var codeFont: UIFont { UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular) }
+    /// What the list shows and how: a change prepares a new render model.
+    private var renderKey: DiffRenderKey {
+        let layout = layout
+        let wrap = state.wrapLines
+        let split = layout == .split
+        return DiffRenderKey(
+            fileID: file.id, contentHash: file.contentHash,
+            options: DiffRows.Options(hideWhitespace: state.hideWhitespace, split: split, expanded: expanded[file.id] ?? []),
+            // Unwrapped unified rows do not depend on the width (the layout fills it).
+            style: DiffRenderStyle(codeSize: codeSize, wrap: wrap, split: split, width: wrap || split ? viewportWidth.rounded() : 0,
+                                   search: searching ? query.trimmingCharacters(in: .whitespacesAndNewlines) : "")
+        )
+    }
 
     public var body: some View {
-        let isViewed = state.viewed.contains(file.id)
-        ScrollViewReader { proxy in
-            content(isViewed: isViewed)
-                .onChange(of: scrollTarget) { _, target in
-                    guard let target else { return }
-                    // After the update that unfolds a folded line, so its row exists.
-                    Task { @MainActor in
-                        await Task.yield()
-                        withAnimation(.cmuxMobileSmooth) { proxy.scrollTo(Self.lineAnchor(target.line), anchor: UnitPoint(x: 0, y: 0.25)) }
-                    }
+        let isViewed = state.isViewed(file)
+        let file = file
+        let renderKey = renderKey
+        Group {
+            if isViewed {
+                ScrollView {
+                    Label("Viewed. Tap Viewed to show the diff again.", systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity)
                 }
+                .scrollEdgeEffectStyle(.hard, for: .top)
+            } else if let model = renderer.model, model.key.fileID == file.id {
+                DiffCodeList(model: model, currentLine: currentMatchLine, scrollTarget: scrollTarget) { expand($0) }
+                    .ignoresSafeArea(.container, edges: .bottom)
+                    .transition(.opacity)
+            } else {
+                Color(uiColor: .systemBackground)
+            }
         }
+        .task(id: renderKey) { await renderer.update(file: file, key: renderKey) }
         .onChange(of: fileID) {
             hunkLine = nil
             matchIndex = 0
@@ -80,36 +98,6 @@ public struct DiffFileScreen: View {
             matchIndex = 0
             if let first = matches.first { scroll(to: first) }
         }
-    }
-
-    private func content(isViewed: Bool) -> some View {
-        Group {
-            if isViewed {
-                ScrollView {
-                    Label("Viewed. Tap Viewed to show the diff again.", systemImage: "checkmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .transition(.opacity)
-                }
-            } else if layout == .unified && !state.wrapLines {
-                pinnedGutterBody
-            } else {
-                ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(segments) { segment in
-                            segmentView(segment)
-                        }
-                    }
-                    .padding(.bottom, 24)
-                    .transition(.opacity)
-                }
-            }
-        }
-        // Layout changes rebuild the rows (cached row views otherwise keep the old layout).
-        .id("\(file.id)|\(layout.rawValue)|\(state.wrapLines)|\(isViewed)")
-        .scrollEdgeEffectStyle(.hard, for: .top)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -117,7 +105,6 @@ public struct DiffFileScreen: View {
                 if searching { findBar(isViewed: isViewed) }
             }
         }
-        .environment(\.diffSearchQuery, searching ? query : "")
         .navigationTitle(file.fileName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -162,143 +149,13 @@ public struct DiffFileScreen: View {
         #endif
     }
 
-    // MARK: Unified, unwrapped: pinned gutter + one shared horizontal scroll
-
-    /// Rows as a flat list with fixed heights, so the gutter column and the code column
-    /// line up without measuring (GitHub mobile: the numbers and ± stay put while the
-    /// code pans).
-    enum FlatRow: Identifiable {
-        case line(Int)
-        case header(id: Int, text: String)
-        case collapsed(ClosedRange<Int>)
-        case gap(Int)
-
-        var id: String {
-            switch self {
-            case .line(let index): "l\(index)"
-            case .header(let id, _): "h\(id)"
-            case .collapsed(let range): "c\(range.lowerBound)"
-            case .gap(let index): "g\(index)"
-            }
-        }
-    }
-
-    private var flatRows: [FlatRow] {
-        segments.flatMap { segment -> [FlatRow] in
-            switch segment {
-            case .header(let id, let text): [.header(id: id, text: text)]
-            case .collapsed(let range): [.collapsed(range)]
-            case .gap(let index): [.gap(index)]
-            case .lines(let range): range.map { FlatRow.line($0) }
-            }
-        }
-    }
-
-    private var pinnedGutterBody: some View {
-        let lines = lines
-        let rows = flatRows
-        let current = currentMatchLine
-        let rowHeight = DiffLayout.rowHeight(lineHeight: codeFont.lineHeight)
-        let codeViewport = DiffLayout.codeViewport(width: viewportWidth)
-        let contentWidth = DiffLayout.codeContentWidth(lines: lines, charWidth: codeFont.advancement, viewport: viewportWidth)
-        return ScrollView(.vertical) {
-            HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows) { row in
-                        gutterCell(row, lines: lines, rowHeight: rowHeight, current: current)
-                    }
-                }
-                .frame(width: DiffLayout.gutterWidth)
-                .background(Color(uiColor: .systemBackground))
-                .zIndex(1)
-                ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(rows) { row in
-                            codeCell(row, lines: lines, rowHeight: rowHeight, codeViewport: codeViewport)
-                        }
-                    }
-                    .frame(width: contentWidth, alignment: .leading)
-                }
-                .scrollIndicators(.visible, axes: .horizontal)
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, offset in
-                    horizontalOffset = max(0, offset)
-                }
-            }
-            .padding(.bottom, 24)
-        }
-    }
-
-    @ViewBuilder
-    private func gutterCell(_ row: FlatRow, lines: [DiffLine], rowHeight: CGFloat, current: Int?) -> some View {
-        switch row {
-        case .line(let index):
-            let line = lines[index]
-            UnifiedGutter(line: line, isCurrentMatch: current == index)
-                .frame(height: rowHeight)
-                .id(Self.lineAnchor(index))
-        case .header, .gap:
-            Color.cmuxMobileDiffHunk.frame(height: DiffLayout.headerRowHeight)
-                .accessibilityHidden(true)
-        case .collapsed(let range):
-            Button { expand(range) } label: {
-                Image(systemName: "arrow.up.and.down")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: DiffLayout.headerRowHeight)
-                    .background(Color.cmuxMobileDiffHunk)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
-        }
-    }
-
-    @ViewBuilder
-    private func codeCell(_ row: FlatRow, lines: [DiffLine], rowHeight: CGFloat, codeViewport: CGFloat) -> some View {
-        switch row {
-        case .line(let index):
-            UnifiedCode(line: lines[index])
-                .font(.system(size: codeSize, design: .monospaced))
-                .frame(height: rowHeight)
-        case .header(_, let text):
-            pinnedLabel(Text(text).font(.system(size: 11, design: .monospaced)), codeViewport: codeViewport)
-        case .gap:
-            pinnedLabel(Text("⋯").font(.system(size: 11, design: .monospaced)), codeViewport: codeViewport)
-        case .collapsed(let range):
-            Button { expand(range) } label: {
-                pinnedLabel(Text(range.count > 40 ? "Expand 20 lines" : "Expand \(range.count) lines").font(.footnote), codeViewport: codeViewport)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Expand \(range.count) hidden lines"))
-        }
-    }
-
-    /// A full-width band whose label stays in view while the code pans.
-    private func pinnedLabel(_ label: Text, codeViewport: CGFloat) -> some View {
-        label
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(width: max(0, codeViewport - 8), alignment: .leading)
-            .padding(.leading, 8)
-            .offset(x: horizontalOffset)
-            .frame(maxWidth: .infinity, minHeight: DiffLayout.headerRowHeight, maxHeight: DiffLayout.headerRowHeight, alignment: .leading)
-            .background(Color.cmuxMobileDiffHunk)
-            .clipped()
-    }
-
     #if DEBUG
     private func runDemoCommand() {
         switch DemoDirector.shared.command {
         case .diffSetSplit(let split)?:
             withAnimation(.cmuxMobileSmooth) { state.layout = split ? .split : .unified }
         case .diffExpandFirst?:
-            if let first = segments.first(where: { if case .collapsed = $0 { return true }; return false }),
-               case .collapsed(let range) = first {
-                expand(range)
-            }
+            if let range = renderer.model?.rows.firstCollapsed { expand(range) }
         case .diffMarkViewed?:
             withAnimation(.cmuxMobileSmooth) { state.toggleViewed(file) }
         case .navigateBack?:
@@ -316,7 +173,8 @@ public struct DiffFileScreen: View {
     static let previousHunkTitle = "Previous Hunk"
     static let searchTitle = "Search in File"
 
-    static func lineAnchor(_ index: Int) -> String { "line-\(index)" }
+    /// The file's lines as shown (Hide Whitespace drops blank-only changes), as `DiffRows` shows them.
+    private var lines: [DiffLine] { DiffNavigation.visibleLines(file.lines, hideWhitespace: state.hideWhitespace) }
 
     private var matches: [Int] { searching ? DiffNavigation.matches(query, in: lines) : [] }
 
@@ -340,25 +198,16 @@ public struct DiffFileScreen: View {
 
     /// Shows line `index` (unfolding its context when it is folded) and scrolls to it.
     private func scroll(to index: Int) {
-        let shown = segments.contains { segment in
+        let lines = lines
+        let shown = DiffRows.segments(lines: lines, hasFullContext: file.hasFullContext, expanded: expanded[file.id] ?? []).contains { segment in
             if case .lines(let range) = segment { return range.contains(index) }
             return false
         }
         if !shown, file.hasFullContext {
             expanded[file.id, default: []].append(DiffNavigation.reveal(index, lineCount: lines.count))
         }
-        scrollTarget = ScrollTarget(line: anchorLine(for: index), serial: (scrollTarget?.serial ?? 0) + 1)
-    }
-
-    /// The line whose row carries the scroll anchor of line `index`: itself, or in Split the first
-    /// line of the row that shows it (an added line beside a removed one shares its row).
-    private func anchorLine(for index: Int) -> Int {
-        guard layout == .split else { return index }
-        let lines = lines
-        for case .lines(let range) in segments where range.contains(index) {
-            return splitRows(Array(lines[range]), from: range.lowerBound).first { $0.lineIndices.contains(index) }?.firstLine ?? index
-        }
-        return index
+        // The list scrolls once its rows show the line (after the unfold lands).
+        scrollTarget = DiffScrollTarget(line: index, serial: (scrollTarget?.serial ?? 0) + 1)
     }
 
     /// The find bar under the file header: the field, "2 of 5", previous and next, Done.
@@ -474,260 +323,15 @@ public struct DiffFileScreen: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    // MARK: Segments
-
-    enum Segment: Identifiable {
-        case header(id: Int, text: String)
-        case lines(ClosedRange<Int>)
-        case collapsed(ClosedRange<Int>)
-        case gap(Int)
-
-        var id: String {
-            switch self {
-            case .header(let id, _): "h\(id)"
-            case .lines(let range): "l\(range.lowerBound)"
-            case .collapsed(let range): "c\(range.lowerBound)"
-            case .gap(let index): "g\(index)"
-            }
-        }
-    }
-
-    private var lines: [DiffLine] { DiffNavigation.visibleLines(file.lines, hideWhitespace: state.hideWhitespace) }
-
-    private var segments: [Segment] {
-        let lines = lines
-        guard !lines.isEmpty else { return [] }
-        guard file.hasFullContext else {
-            // Parsed diff: hunk lines with gap markers.
-            var result: [Segment] = []
-            var start = 0
-            for (offset, line) in lines.enumerated() where line.isGap {
-                if offset > start { result.append(.lines(start...offset - 1)) }
-                result.append(.gap(offset))
-                start = offset + 1
-            }
-            if start < lines.count { result.append(.lines(start...lines.count - 1)) }
-            return result
-        }
-        var visible = DiffFile(path: file.path, status: file.status, lines: lines, hasFullContext: true).hunks().map(\.range)
-        if visible.isEmpty { visible = [0...lines.count - 1] }
-        // Expanded ranges index the lines as they were (Hide Whitespace changes the count).
-        let last = lines.count - 1
-        visible += (expanded[file.id] ?? []).compactMap { range in
-            range.lowerBound <= last ? range.lowerBound...min(range.upperBound, last) : nil
-        }
-        visible.sort { $0.lowerBound < $1.lowerBound }
-        var merged: [ClosedRange<Int>] = []
-        for range in visible {
-            if let last = merged.last, range.lowerBound <= last.upperBound + 1 {
-                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, range.upperBound)
-            } else {
-                merged.append(range)
-            }
-        }
-        var result: [Segment] = []
-        var cursor = 0
-        for range in merged {
-            if range.lowerBound > cursor {
-                result.append(.collapsed(cursor...range.lowerBound - 1))
-            }
-            if range.lowerBound > 0 || cursor == 0 {
-                let hunk = DiffFile(path: file.path, status: file.status, lines: lines, hasFullContext: true).hunks(context: 0)
-                    .first { range.contains($0.range.lowerBound) }
-                if let hunk, range.lowerBound > 0 || result.isEmpty {
-                    result.append(.header(id: range.lowerBound, text: headerText(for: range, lines: lines, fallback: hunk.header)))
-                }
-            }
-            result.append(.lines(range))
-            cursor = range.upperBound + 1
-        }
-        if cursor < lines.count {
-            result.append(.collapsed(cursor...lines.count - 1))
-        }
-        return result
-    }
-
-    private func headerText(for range: ClosedRange<Int>, lines: [DiffLine], fallback: String) -> String {
-        let slice = lines[range]
-        let oldStart = slice.first { $0.oldNumber != nil }?.oldNumber ?? 0
-        let newStart = slice.first { $0.newNumber != nil }?.newNumber ?? 0
-        let suffix = fallback.components(separatedBy: " @@").dropFirst().joined(separator: " @@")
-        return "@@ -\(oldStart),\(slice.count { $0.kind != .added }) +\(newStart),\(slice.count { $0.kind != .removed }) @@\(suffix)"
-    }
-
-    @ViewBuilder
-    private func segmentView(_ segment: Segment) -> some View {
-        switch segment {
-        case .header(_, let text):
-            hunkHeader(text)
-        case .gap:
-            hunkHeader("⋯")
-        case .collapsed(let range):
-            Button {
-                expand(range)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.up.and.down").font(.footnote)
-                    Text(range.count > 40 ? "Expand 20 lines" : "Expand \(range.count) lines").font(.footnote)
-                    Spacer()
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
-                .frame(height: 32)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.cmuxMobileDiffHunk)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Expand \(range.count) hidden lines"))
-        case .lines(let range):
-            let lines = lines
-            let current = currentMatchLine
-            if layout == .split {
-                ForEach(splitRows(Array(lines[range]), from: range.lowerBound)) { row in
-                    SplitDiffRow(row: row, codeSize: codeSize, wrap: state.wrapLines, columnWidth: (viewportWidth - 1) / 2)
-                        .id(Self.lineAnchor(row.firstLine))
-                }
-            } else {
-                ForEach(range, id: \.self) { index in
-                    UnifiedDiffRow(line: lines[index], codeSize: codeSize, wrap: state.wrapLines, codeWidth: DiffLayout.codeViewport(width: viewportWidth) - DiffLayout.codeTrailingPadding,
-                                   isCurrentMatch: current == index)
-                        .id(Self.lineAnchor(index))
-                        .transition(.opacity)
-                }
-            }
-        }
-    }
-
-    private func hunkHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 16)
-            .frame(height: 32)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.cmuxMobileDiffHunk)
-    }
-
     private func expand(_ range: ClosedRange<Int>) {
         let chunk: ClosedRange<Int> = range.count > 40 ? range.lowerBound...range.lowerBound + 19 : range
         withAnimation(.cmuxMobileSmooth) {
             expanded[file.id, default: []].append(chunk)
         }
     }
-
-    // MARK: Split pairing
-
-    struct SplitRow: Identifiable {
-        let id: Int
-        let left: DiffLine?
-        let right: DiffLine?
-        /// The file's index of the first line this row shows (a jump's anchor).
-        var firstLine = 0
-        /// The file's indices of the lines this row shows (a context row shows one line on both sides).
-        var lineIndices: [Int] = []
-    }
-
-    private func splitRows(_ slice: [DiffLine], from start: Int = 0) -> [SplitRow] {
-        var rows: [SplitRow] = []
-        var dels: [(Int, DiffLine)] = []
-        var adds: [(Int, DiffLine)] = []
-        func flush() {
-            for i in 0..<max(dels.count, adds.count) {
-                let indices = [dels[safe: i]?.0, adds[safe: i]?.0].compactMap(\.self)
-                rows.append(SplitRow(id: rows.count, left: dels[safe: i]?.1, right: adds[safe: i]?.1,
-                                     firstLine: indices.min() ?? start, lineIndices: indices))
-            }
-            dels = []
-            adds = []
-        }
-        for (offset, line) in slice.enumerated() {
-            switch line.kind {
-            case .removed:
-                if !adds.isEmpty { flush() }
-                dels.append((start + offset, line))
-            case .added: adds.append((start + offset, line))
-            case .context:
-                flush()
-                rows.append(SplitRow(id: rows.count, left: line, right: line, firstLine: start + offset, lineIndices: [start + offset]))
-            }
-        }
-        flush()
-        return rows
-    }
-}
-
-extension UIFont {
-    var advancement: CGFloat {
-        ("M" as NSString).size(withAttributes: [.font: self]).width
-    }
-}
-
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
-}
-
-extension EnvironmentValues {
-    /// What Search in File looks for: every match in the shown code is highlighted.
-    @Entry var diffSearchQuery = ""
-}
-
-/// The background of a Search in File match.
-let diffSearchMatch = Color.yellow.opacity(0.45)
-
-/// Code text with word-level highlights (tabs expanded, see `DiffLayout.display`), and the
-/// matches of `search`.
-func diffText(_ line: DiffLine, dropping prefix: Int = 0, search: String = "") -> AttributedString {
-    diffText(DiffLayout.display(line), kind: line.kind, dropping: prefix, search: search)
-}
-
-func diffText(_ display: DiffLayout.DisplayLine, kind: DiffLine.Kind, dropping prefix: Int = 0, search: String = "") -> AttributedString {
-    let characters = Array(display.text.dropFirst(prefix))
-    var text = AttributedString(characters.isEmpty ? " " : String(characters))
-    guard !characters.isEmpty else { return text }
-    func paint(_ ranges: [Range<Int>], _ color: Color) {
-        for range in ranges {
-            let lower = max(0, range.lowerBound - prefix)
-            let upper = min(characters.count, range.upperBound - prefix)
-            guard lower < upper else { continue }
-            let start = text.index(text.startIndex, offsetByCharacters: lower)
-            let end = text.index(text.startIndex, offsetByCharacters: upper)
-            text[start..<end].backgroundColor = color
-        }
-    }
-    paint(display.highlights, kind == .added ? .cmuxMobileDiffAddWord : .cmuxMobileDiffDelWord)
-    paint(DiffNavigation.ranges(of: search, in: display.text), diffSearchMatch)
-    return text
 }
 
 extension DiffLine {
-    var markerColor: Color {
-        switch kind {
-        case .added: .cmuxMobileDiffAddText
-        case .removed: .cmuxMobileDiffDelText
-        case .context: .secondary
-        }
-    }
-
-    var rowColor: Color {
-        switch kind {
-        case .added: .cmuxMobileDiffAddRow
-        case .removed: .cmuxMobileDiffDelRow
-        case .context: .clear
-        }
-    }
-
-    var gutterColor: Color {
-        switch kind {
-        case .added: .cmuxMobileDiffAddGutter
-        case .removed: .cmuxMobileDiffDelGutter
-        case .context: .clear
-        }
-    }
-
     /// VoiceOver's reading of the row. A snippet edit has no line numbers (where it sits in
     /// the file is unknown): it reads without one, never "line 0" (full verify D6).
     var accessibilityText: String {
@@ -740,170 +344,4 @@ extension DiffLine {
     }
 }
 
-/// The pinned part of an unwrapped unified row: old and new numbers and the ± marker.
-struct UnifiedGutter: View {
-    let line: DiffLine
-    /// The line Search in File shows now: an accent bar at the leading edge.
-    var isCurrentMatch = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            number(line.oldNumber)
-            number(line.newNumber)
-            Text(line.marker)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(line.markerColor)
-                .frame(width: DiffLayout.markerWidth)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(line.rowColor)
-        .background(Color(uiColor: .systemBackground))
-        .overlay(alignment: .leading) {
-            line.gutterColor.frame(width: (DiffLayout.numberWidth + DiffLayout.numberTrailingPadding) * 2)
-                .allowsHitTesting(false)
-        }
-        .overlay(alignment: .leading) {
-            if isCurrentMatch { Color.accentColor.frame(width: 3).allowsHitTesting(false) }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func number(_ value: Int?) -> some View {
-        Text(value.map(String.init) ?? "")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(Color(uiColor: .tertiaryLabel))
-            .lineLimit(1)
-            .frame(width: DiffLayout.numberWidth, alignment: .trailing)
-            .padding(.trailing, DiffLayout.numberTrailingPadding)
-    }
-}
-
-/// The scrolled part of an unwrapped unified row: the whole line on one line, never clipped.
-struct UnifiedCode: View {
-    let line: DiffLine
-    @Environment(\.diffSearchQuery) private var search
-
-    var body: some View {
-        Text(diffText(line, search: search))
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.leading, 2)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(line.rowColor)
-            .contextMenu {
-                Button("Copy Line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
-                Button("Copy with Line Number", systemImage: "number") {
-                    UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
-                }
-            }
-            .accessibilityElement()
-            .accessibilityLabel(Text(line.accessibilityText))
-    }
-}
-
-/// A unified row in wrap mode: the height comes from the laid-out text, and wrapped
-/// continuations hang at the line's indentation.
-struct UnifiedDiffRow: View {
-    let line: DiffLine
-    let codeSize: CGFloat
-    let wrap: Bool
-    var codeWidth: CGFloat = 300
-    var isCurrentMatch = false
-    @Environment(\.diffSearchQuery) private var search
-
-    var body: some View {
-        let display = DiffLayout.display(line)
-        let font = UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
-        let indent = DiffLayout.hangingIndent(display, charWidth: font.advancement, codeWidth: codeWidth)
-        let dropped = min(display.indent, Int((indent / max(font.advancement, 1)).rounded(.down)))
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            gutter(line.oldNumber)
-            gutter(line.newNumber)
-            Text(line.marker)
-                .frame(width: DiffLayout.markerWidth)
-                .foregroundStyle(line.markerColor)
-            Text(diffText(display, kind: line.kind, dropping: dropped, search: search))
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, indent)
-                .padding(.trailing, DiffLayout.codeTrailingPadding)
-        }
-        .font(.system(size: codeSize, design: .monospaced))
-        .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .leading) {
-            line.gutterColor.frame(width: (DiffLayout.numberWidth + DiffLayout.numberTrailingPadding) * 2)
-        }
-        .background(line.rowColor)
-        .overlay(alignment: .leading) {
-            if isCurrentMatch { Color.accentColor.frame(width: 3).allowsHitTesting(false) }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .contextMenu {
-            Button("Copy Line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
-            Button("Copy with Line Number", systemImage: "number") {
-                UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel(Text(line.accessibilityText))
-    }
-
-    private func gutter(_ number: Int?) -> some View {
-        Text(number.map(String.init) ?? "")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(Color(uiColor: .tertiaryLabel))
-            .frame(width: DiffLayout.numberWidth, alignment: .trailing)
-            .padding(.trailing, DiffLayout.numberTrailingPadding)
-    }
-}
-
-struct SplitDiffRow: View {
-    let row: DiffFileScreen.SplitRow
-    let codeSize: CGFloat
-    let wrap: Bool
-    let columnWidth: CGFloat
-    @Environment(\.diffSearchQuery) private var search
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            side(row.left, number: row.left?.oldNumber)
-            Divider()
-            side(row.right, number: row.right?.newNumber)
-        }
-        .font(.system(size: codeSize, design: .monospaced))
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func side(_ line: DiffLine?, number: Int?) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            Text(number.map(String.init) ?? "")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color(uiColor: .tertiaryLabel))
-                .frame(width: 32, alignment: .trailing)
-                .padding(.trailing, 6)
-                .padding(.top, 2)
-            if let line {
-                Text(diffText(line, search: search))
-                    .lineLimit(wrap ? nil : 1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Spacer()
-            }
-        }
-        .frame(width: columnWidth, alignment: .leading)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(background(line))
-    }
-
-    private func background(_ line: DiffLine?) -> Color {
-        guard let line else { return Color.cmuxMobileFill }
-        switch line.kind {
-        case .added: return .cmuxMobileDiffAddRow
-        case .removed: return .cmuxMobileDiffDelRow
-        case .context: return .clear
-        }
-    }
-}
 #endif

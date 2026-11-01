@@ -25,12 +25,19 @@ WEBHOOK_DESCRIPTION="cmux billing (webhook-driven entitlements)"
 EVENTS=(
   "checkout.session.completed"
   "checkout.session.async_payment_succeeded"
+  "checkout.session.async_payment_failed"
   "checkout.session.expired"
   "customer.subscription.created"
   "customer.subscription.updated"
   "customer.subscription.deleted"
+  "customer.subscription.paused"
+  "customer.subscription.resumed"
+  "customer.subscription.pending_update_applied"
+  "customer.subscription.pending_update_expired"
   "invoice.paid"
   "invoice.payment_failed"
+  "invoice.payment_action_required"
+  "invoice.marked_uncollectible"
   "charge.refunded"
 )
 
@@ -172,6 +179,9 @@ canonical_product() {
   local monthly_lookup_key="$1"
   local name="$2"
   local plan="$3"
+  # A product renamed in the catalog keeps its Stripe object: the previous
+  # name still proves identity, and the run renames it in place.
+  local previous_name="${4:-}"
   local response product_json product_id
 
   response="$(
@@ -188,7 +198,12 @@ canonical_product() {
   fi
 
   product_json="$(jq -c '.data[0].product' <<<"$response")"
-  if ! product_matches_catalog_identity "$product_json" "$name" "$plan"; then
+  if [[ -n "$previous_name" ]] &&
+    product_matches_catalog_identity "$product_json" "$previous_name" "$plan"; then
+    stripe_post "/products/${product_id}" \
+      --data-urlencode "name=${name}" >/dev/null
+    echo "Renamed product ${previous_name} to ${name}: ${product_id}" >&2
+  elif ! product_matches_catalog_identity "$product_json" "$name" "$plan"; then
     echo "Price ${monthly_lookup_key} belongs to an unexpected product: ${product_id}" >&2
     exit 1
   fi
@@ -451,7 +466,10 @@ echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
 go_product_id="$(canonical_product "cmux-go-monthly-10" "cmux Go" "go")"
-echo "Resolved Go product." >&2
+echo "Resolved legacy Go product." >&2
+# cmux Plus was first provisioned as cmux Starter; its lookup key keeps that name.
+plus_product_id="$(canonical_product "cmux-starter-monthly-15" "cmux Plus" "go" "cmux Starter")"
+echo "Resolved Plus product." >&2
 max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
@@ -469,6 +487,7 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
+ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
 ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
 ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
@@ -476,7 +495,8 @@ ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
-# Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
+# Plus is monthly only; the original Go price stays active for subscribers.
+ensure_price "$plus_product_id" "cmux-starter-monthly-15" "1500" "month" "cmux Plus Monthly"
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
 # Max is sold monthly or yearly at the same 20% annual discount as Pro.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"

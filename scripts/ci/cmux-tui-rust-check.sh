@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
-# cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
+# cmux-tui's Rust checks on a fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --arg MODE [--arg TEST_FILTER]
+#     --os linux|macos --arg MODE [--arg TEST_FILTER]
+# --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
+# cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
+# needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
+# panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
+# (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
+# --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
+# against scripts/cmux-next/rust-panic-baseline.json before it lands. Linux only: the baseline holds
+# Linux counts, and on macOS clippy also sees the macOS-only code and misses the Linux-only code (a
+# false red or a false green), so off Linux it refuses (exit 2, no cargo). No TEST_FILTER. The clippy
+# JSON is .build/artifacts/panic-clippy.jsonl, which the workflow uploads; a fleet step fetches it with
+# `--os linux --artifact .build/artifacts/panic-clippy.jsonl` (the Linux route returns that one file after a
+# passing run, hq#5957; a failed or red step returns none, so a failed clippy prints its errors);
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
@@ -40,17 +52,37 @@
 # ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
 # the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
 # gate for a terminal change (cmux-next-terminal.yml).
+# api-compat: cmux-tui-spec.yml's api-compat job, the same command (`cargo run --locked
+# -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
+# or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
+# api-compat-write: the same with --write (it refuses while a break lacks a rule), which
+# rewrites the snapshot cmux-tui/spec/api-compat.surface.json and, where the crate has the
+# wire ledger, cmux-tui/spec/api-compat.wire.json. The step packs every api-compat file
+# --write may write into .build/artifacts/api-compat-spec.tar (never empty) and prints the
+# diff stat; fetch it with --artifact, run `tar -xf FILE` at your checkout root and commit
+# what changed there. Neither
+# takes a TEST_FILTER or checks out ghostty-next (cmux-api-compat's Cargo.lock closure has
+# no Ghostty crate: tests/test_zig_free_step_lockfiles.py), and neither commits or pushes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
 cmux-tui-rust-check.sh runs cargo and runs only as a fleet step:
-  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --arg all
+  cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY --os linux --arg all
+  (--os macos for a test that runs only on macOS)
 MSG
   exit 2
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic ) && -n "$filter" ]]; then
+  echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
+if [[ "$mode" == panic && "$(uname -s)" != Linux ]]; then
+  echo "error: the panic mode runs only on Linux (rust-panic-baseline.json holds Linux counts; macOS compiles other cfg code): no verdict here. Run it on a Linux fleet step, an rbx lane or a Testbox." >&2
+  exit 2
+fi
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -104,8 +136,11 @@ fi
 # shell integration since 0c9d74bc3ea).
 # A synced copy without the gitlink (rbx lanes have their own snapshot repository)
 # already holds ghostty-next's files: use them.
-ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
-if [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
+ghostty_next_status=""
+[[ "$mode" == api-compat* ]] || ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
+if [[ "$mode" == api-compat* ]]; then
+  echo "ghostty-next: not needed by $mode (cmux-api-compat builds only serde)"
+elif [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
   echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"
 elif ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
   echo "error: git submodule update --init ghostty-next failed; no cargo command ran" >&2
@@ -125,8 +160,18 @@ if ! rustup component add clippy rustfmt; then
   echo "error: rustup component add clippy rustfmt failed; no cargo command ran" >&2
   exit 3
 fi
-echo "rust toolchain: $(rustup show active-toolchain)"
+active_toolchain="$(rustup show active-toolchain)" || { echo "error: rustup show active-toolchain failed; no cargo command ran" >&2; exit 3; }
+echo "rust toolchain: $active_toolchain"
 rustup component list --installed
+# The toolchain cmux-tui/rust-toolchain.toml pins, the one the component add
+# above covers. A mode whose workspace has no toolchain file of its own
+# (optchat-chief, screen) runs under it through RUSTUP_TOOLCHAIN
+# (use_pinned_toolchain). Without it the cargo-clippy and cargo-fmt proxies there
+# fell back to the step RUSTUP_HOME's default, which differs by host
+# (2026-10-29, step 7a7dfb66 on aws-m4pro-3: a minimal `stable` with no
+# clippy or rustfmt; clippy and fmt failed in 0 s).
+pinned_toolchain="${active_toolchain%% *}"
+use_pinned_toolchain() { export RUSTUP_TOOLCHAIN="$pinned_toolchain"; }
 # Run the pinned toolchain's own cargo, whose bin dir also holds cargo-fmt and
 # cargo-clippy. The cargo on the step's PATH is not always the rustup proxy;
 # then `cargo fmt` looks for cargo-fmt on PATH only (2026-10-05: step fafed265
@@ -191,6 +236,11 @@ first_rc=0
 step_rows=()
 no_fail_fast=(--no-fail-fast)
 [[ "$fail_fast" != 1 ]] || no_fail_fast=()
+# The same for the workspace clippy: --keep-going lints every crate after a red
+# one, so one run lists every error (2026-10-29: four fleet rounds each showed
+# only the next crate's errors).
+keep_going=(--keep-going)
+[[ "$fail_fast" != 1 ]] || keep_going=()
 step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
   local name="$1" t0 rc=0
   shift
@@ -727,6 +777,7 @@ if [[ "$mode" == optchat-chief ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
   cd "$root/Native/OptChat/optchat-chief"
+  use_pinned_toolchain
   warm_target_guard
   # Its tests bind Unix sockets under the temp dir; the step's own TMPDIR is
   # longer than SUN_LEN (step b1563a89: "path must be shorter than SUN_LEN").
@@ -799,6 +850,7 @@ if [[ "$mode" == screen ]]; then
   fi
   export CARGO_TARGET_DIR="$root/.build/cmux-screen-target"
   cd "$root/cmux-screen"
+  use_pinned_toolchain
   warm_target_guard
   step "screen go" ensure_screen_go
   step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -838,13 +890,68 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli artifact" copy_vm_cli
   finish
 fi
+# The files --write may write: the shape snapshot, and the wire ledger where the crate has one.
+api_compat_files=(cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json)
+# Packs those files (the ones present) into the step's artifact and says what --write changed.
+api_compat_pack() {
+  local files=() f stat
+  for f in "${api_compat_files[@]}"; do [[ ! -f "$root/$f" ]] || files+=("$f"); done
+  [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
+  mkdir -p "$root/.build/artifacts"
+  # No AppleDouble ._* entries from a macOS worker (bsdtar); GNU tar ignores the variable.
+  COPYFILE_DISABLE=1 tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
+  if [[ -n "$stat" ]]; then
+    echo "api-compat-write: changed: $stat"
+  else
+    echo "api-compat-write: ${files[*]} unchanged (already current)"
+  fi
+  echo "api-compat-write: .build/artifacts/api-compat-spec.tar holds ${files[*]}; run tar -xf on it at your checkout root"
+}
+if [[ "$mode" == api-compat ]]; then
+  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check
+  finish
+fi
+if [[ "$mode" == api-compat-write ]]; then
+  # A warm slot keeps .build: never hand back an older step's files.
+  rm -f "$root/.build/artifacts/api-compat-spec.tar"
+  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
+  [[ "$first_rc" -ne 0 ]] || step "api-compat pack" api_compat_pack
+  finish
+fi
+# panic: cmux-tui.yml's "Rust panic ratchet" step (Linux lint job), the same commands from the same
+# directory (cmux-tui): production targets only, every workspace crate against its baseline.
+panic_ratchet() {
+  local flags rc=0 json="$root/.build/artifacts/panic-clippy.jsonl"
+  read -r -a flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+  ((${#flags[@]})) || { echo "error: rust_panic_ratchet.py --flags printed no flags" >&2; return 3; }
+  mkdir -p "$root/.build/artifacts"
+  cargo clippy --workspace --lib --bins --locked --message-format=json -- "${flags[@]}" >"$json" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    # --message-format=json sends the compiler's errors to the file only: print them, so the log says why.
+    echo "panic ratchet: cargo clippy failed (exit $rc) before the ratchet could count; its errors:" >&2
+    python3 -c 'import json, sys
+for line in open(sys.argv[1], errors="replace"):
+    try: m = json.loads(line)
+    except ValueError: continue
+    msg = m.get("message") or {}
+    if m.get("reason") == "compiler-message" and msg.get("level") in ("error", "error: internal compiler error"):
+        sys.stderr.write(msg.get("rendered") or msg.get("message") or "")' "$json" || true
+    return "$rc"
+  fi
+  python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$json"
+}
+if [[ "$mode" == panic ]]; then
+  step "panic ratchet" panic_ratchet
+  finish
+fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
   # lint may fail it (its own [lints] allow everything; `-D warnings` here would override them).
-  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
+  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked ${keep_going[@]+"${keep_going[@]}"} -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red

@@ -35,7 +35,7 @@ mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -207,11 +207,71 @@ struct LogState {
     /// Full mode: bytes not yet in a segment file, from `pending_start`.
     pending: Vec<u8>,
     pending_start: u64,
+    /// The terminal's primary-screen resident bytes at its last
+    /// measurement, as counted in [`OutputStore::resident_total`].
+    resident: u64,
+    /// History rows at the last measurement of `resident`; `None` before the
+    /// first one.
+    measured_rows: Option<u64>,
+    /// History rows grew past the re-measure step since the last
+    /// measurement: the writer measures this terminal on its next wake.
+    measure_due: bool,
+    /// The log left the store (`OutputStore::forget`): no measurement may
+    /// add to the total for it any more.
+    forgotten: bool,
 }
 
 impl LogState {
     fn next_offset(&self) -> u64 {
         self.tail_start + self.tail.len() as u64
+    }
+
+    /// The first byte not yet in a segment file (full mode), else the end.
+    fn unflushed_start(&self) -> u64 {
+        if self.pending.is_empty() { self.next_offset() } else { self.pending_start }
+    }
+
+    /// Extend a window read from the segment files with the bytes memory
+    /// holds right after it, within `budget`. Nothing changes when memory
+    /// does not reach back to the window's end.
+    fn continue_window(&self, window: &mut OutputWindow, budget: usize) {
+        let room = budget.saturating_sub(window.bytes.len());
+        if room == 0 {
+            return;
+        }
+        let rest = self.memory_window(window.next_offset, room);
+        if rest.start_offset != window.next_offset || rest.bytes.is_empty() {
+            return;
+        }
+        window.bytes.extend_from_slice(&rest.bytes);
+        window.next_offset = rest.next_offset;
+        window.truncated = rest.truncated;
+    }
+
+    /// Kept bytes at or after `after`, at most `budget`, from memory.
+    fn memory_window(&self, after: u64, budget: usize) -> OutputWindow {
+        let end = self.next_offset();
+        // Unflushed bytes (full mode) can reach further back than the tail;
+        // they always end at the stream end.
+        let from_pending = !self.pending.is_empty()
+            && self.pending_start < self.tail_start
+            && self.pending_start + self.pending.len() as u64 == end;
+        let source_start = if from_pending { self.pending_start } else { self.tail_start };
+        let start = after.clamp(source_start, end);
+        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
+        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
+        let take = available.min(budget);
+        let bytes = if from_pending {
+            self.pending.get(skip..skip.saturating_add(take)).unwrap_or_default().to_vec()
+        } else {
+            self.tail.iter().skip(skip).take(take).copied().collect()
+        };
+        OutputWindow {
+            start_offset: start,
+            next_offset: start + take as u64,
+            bytes,
+            truncated: take < available,
+        }
     }
 }
 
@@ -219,6 +279,41 @@ impl LogState {
 pub(crate) struct TerminalLog {
     terminal_id: TerminalPublicId,
     state: Mutex<LogState>,
+}
+
+/// A terminal's history size, read in O(1) under its parser lock: the
+/// growth signal of the scrollback budget (`memory_budget.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HistoryRows {
+    /// Rows in the primary screen's scrollback.
+    pub(crate) rows: u64,
+    /// Rows on the screen (the smallest re-measure step).
+    pub(crate) screen_rows: u64,
+}
+
+impl HistoryRows {
+    /// Re-measure after history moves by 1/16 of what it held at the last
+    /// measurement, at least one screen: a terminal's resident bytes are
+    /// then known to within about 1/16 (Ghostty allocates history in whole
+    /// pages, so a page walk per screen of rows would be wasted work), and
+    /// a terminal growing from empty to its limit is measured O(log) times.
+    const STEP_DIVISOR: u64 = 16;
+
+    /// `None` on the alternate screen: its rows are not the primary
+    /// screen's history the budget measures (and a full-screen program does
+    /// not grow history), so it never asks for a measurement.
+    pub(crate) fn of(terminal: &ghostty_vt::Terminal) -> Option<Self> {
+        (terminal.active_screen() != ghostty_vt::Screen::Alternate).then(|| Self {
+            rows: u64::try_from(terminal.scrollback_rows()).unwrap_or(u64::MAX),
+            screen_rows: u64::from(terminal.rows()),
+        })
+    }
+
+    fn moved_past_step(self, measured: Option<u64>) -> bool {
+        let Some(measured) = measured else { return true };
+        let step = (measured / Self::STEP_DIVISOR).max(self.screen_rows).max(1);
+        self.rows.abs_diff(measured) >= step
+    }
 }
 
 /// A window of retained output after a cursor.
@@ -249,8 +344,31 @@ pub(crate) struct OutputStore {
     /// that are no longer in the session.
     prune_pending: std::sync::atomic::AtomicBool,
     memory_budget: memory_budget::MemoryBudget,
+    /// Scrollback RAM of every terminal at its last measurement (the sum of
+    /// the logs' `resident`, changed only under each log's lock). Growth
+    /// keeps it current (`append` marks a measurement due when a terminal's
+    /// history grew), so the budget pass starts when the growth crosses the
+    /// budget, not on the writer's snapshot timer (P-AUSTIN B8).
+    resident_total: std::sync::atomic::AtomicU64,
+    /// Above this total the next output asks the writer for a budget pass:
+    /// the budget, or where the last pass had to leave the total when every
+    /// terminal was at its floor (a pass would free nothing more). Set by
+    /// each pass; `u64::MAX` until the writer runs.
+    resident_trigger: std::sync::atomic::AtomicU64,
     /// Stream ends the snapshots recorded, by terminal: (generation, end).
     resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
+    /// Stored segment stream ends, by terminal and generation key (full
+    /// mode; read once at start).
+    segment_resume: Mutex<HashMap<(TerminalPublicId, String), u64>>,
+    /// Terminals of incognito (ephemeral) workspaces: memory only in every
+    /// mode, whatever `terminal.persistence.mode` says (design/spaces.md
+    /// "Incognito": nothing kept). Kept here because the workspace's flag
+    /// row goes when it closes, before its terminals' exits are recorded.
+    private: Mutex<HashSet<TerminalPublicId>>,
+    /// Terminals known to be normal (not incognito), so the write pass does
+    /// not ask the registry again. A terminal never moves between an
+    /// incognito and a normal workspace.
+    public: Mutex<HashSet<TerminalPublicId>>,
 }
 
 impl OutputStore {
@@ -269,7 +387,12 @@ impl OutputStore {
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
+            resident_total: std::sync::atomic::AtomicU64::new(0),
+            resident_trigger: std::sync::atomic::AtomicU64::new(u64::MAX),
             resume: Mutex::new(HashMap::new()),
+            segment_resume: Mutex::new(HashMap::new()),
+            private: Mutex::new(HashSet::new()),
+            public: Mutex::new(HashSet::new()),
         }
     }
 
@@ -294,6 +417,7 @@ impl OutputStore {
             policy.max_total_bytes
         );
         self.cache_policy(policy);
+        self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
         {
             let _pass = self.lock_pass();
@@ -301,6 +425,10 @@ impl OutputStore {
         }
         *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
             snapshot::stream_ends(directory);
+        if policy.mode == PersistenceMode::Full {
+            *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
+                segments::all_stream_ends(directory);
+        }
         self.writer.start(Arc::downgrade(mux))
     }
 
@@ -310,14 +438,26 @@ impl OutputStore {
             return log.clone();
         }
         // A terminal this daemon re-adopted continues its stream where the
-        // last snapshot left it (a client's cursor stays meaningful).
-        let start = self
+        // last snapshot or stored segment frame left it (a client's cursor
+        // stays meaningful, and no stored offset is used twice). Segments
+        // flush more often than snapshots, and a snapshot can be gone (the
+        // total cap) while its segments stay. Both were read at start: no
+        // IO here.
+        let snapshot_end = self
             .resume
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id)
             .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
-            .map_or(0, |(_, end)| end);
+            .map(|(_, end)| end);
+        let segment_end = {
+            let mut ends = self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner);
+            segments::keys_of(generation)
+                .into_iter()
+                .filter_map(|key| ends.remove(&(terminal_id.clone(), key)))
+                .max()
+        };
+        let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
             state: Mutex::new(LogState {
@@ -331,6 +471,10 @@ impl OutputStore {
                 last_output: Instant::now(),
                 pending: Vec::new(),
                 pending_start: start,
+                resident: 0,
+                measured_rows: None,
+                measure_due: false,
+                forgotten: false,
             }),
         });
         logs.insert(terminal_id.clone(), log.clone());
@@ -338,18 +482,31 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path.
+    /// IO and no syscall on this path (resume offsets were read at start).
+    /// `history` is the terminal's history size after the parser took
+    /// `bytes` (O(1) reads under the parser lock; `None` when the caller has
+    /// no terminal). When the history grew by a step since the terminal's
+    /// last measurement, the writer is asked to measure it
+    /// (`memory_budget.rs`); this path never walks its pages.
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &Arc<str>,
         bytes: &[u8],
+        history: Option<HistoryRows>,
     ) {
         if bytes.is_empty() {
             return;
         }
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(history) = history
+            && !state.measure_due
+            && history.moved_past_step(state.measured_rows)
+        {
+            state.measure_due = true;
+            self.writer.request_memory_pass();
+        }
         if state.generation != *generation {
             // A new incarnation starts a new stream at offset 0.
             state.generation = generation.clone();
@@ -422,41 +579,58 @@ impl OutputStore {
         let log =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
-        let (generation, end, unflushed_start) = {
+        // A flush drops bytes from memory only after their frame is written,
+        // so every byte before an observed `unflushed_start` is already in a
+        // segment file. A try that finds the bytes at `after` in neither
+        // place saw a flush finish meanwhile; the next try's segment read
+        // then has them (a pruned or cleared file is the only other cause).
+        const TRIES: usize = 3;
+        for attempt in 1..=TRIES {
+            let (generation, end, unflushed_start) = {
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                (state.generation.clone(), state.next_offset(), state.unflushed_start())
+            };
+            if self.full.enabled()
+                && after < unflushed_start
+                && let Some(directory) = self.directory.as_deref()
+                && let Some(mut window) =
+                    segments::read_after(directory, terminal_id, &generation, after, budget)
+            {
+                // Memory holds every byte from the first unflushed one on
+                // (and the recent tail): the window goes on from there when
+                // memory reaches back to the window's end.
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if state.generation != generation {
+                    window.truncated |= window.next_offset < end;
+                    return Some(window);
+                }
+                state.continue_window(&mut window, budget);
+                let end = state.next_offset();
+                // Still short of the end with room left while a flush
+                // finished meanwhile (its bytes left memory after the
+                // segment read): read again, the files now hold them.
+                if window.next_offset < end
+                    && window.bytes.len() < budget
+                    && state.unflushed_start() != unflushed_start
+                    && attempt < TRIES
+                {
+                    continue;
+                }
+                window.truncated |= window.next_offset < end;
+                return Some(window);
+            }
             let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let unflushed_start =
-                if state.pending.is_empty() { state.next_offset() } else { state.pending_start };
-            (state.generation.clone(), state.next_offset(), unflushed_start)
-        };
-        if self.full.enabled()
-            && after < unflushed_start
-            && let Some(directory) = self.directory.as_deref()
-            && let Some(mut window) =
-                segments::read_after(directory, terminal_id, &generation, after, budget)
-        {
-            window.truncated |= window.next_offset < end;
-            return Some(window);
+            if self.full.enabled()
+                && after < state.tail_start
+                && after < state.unflushed_start()
+                && state.unflushed_start() != unflushed_start
+            {
+                continue;
+            }
+            return Some(state.memory_window(after, budget));
         }
         let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let end = state.next_offset();
-        // The unflushed bytes (full mode) reach further back than the tail.
-        let from_pending = !state.pending.is_empty() && state.pending_start < state.tail_start;
-        let source_start = if from_pending { state.pending_start } else { state.tail_start };
-        let start = after.clamp(source_start, end);
-        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
-        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
-        let take = available.min(budget);
-        let bytes = if from_pending {
-            state.pending.get(skip..skip.saturating_add(take))?.to_vec()
-        } else {
-            state.tail.iter().skip(skip).take(take).copied().collect()
-        };
-        Some(OutputWindow {
-            start_offset: start,
-            next_offset: start + take as u64,
-            bytes,
-            truncated: take < available,
-        })
+        Some(state.memory_window(after, budget))
     }
 
     /// The person cleared this terminal's history: drop the stored output
@@ -493,9 +667,22 @@ impl OutputStore {
     /// terminals that left the session.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
-        if self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id).is_some()
-            && self.directory.is_some()
-        {
+        self.public.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        // An incognito terminal's files (none are written; this covers one
+        // marked after a write) go now, not at the next pass. It stays
+        // marked: its exit can be recorded after it left the session, when
+        // its workspace's flag is gone too.
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            self.remove_files(terminal_id);
+        }
+        let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if let Some(log) = &removed {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.forgotten = true;
+            let resident = std::mem::take(&mut state.resident);
+            self.account_resident(resident, 0);
+        }
+        if removed.is_some() && self.directory.is_some() {
             self.prune_pending.store(true, std::sync::atomic::Ordering::Release);
             self.mark_dirty();
         }
@@ -568,6 +755,57 @@ impl OutputStore {
         snapshot::final_pass(mux, self, policy);
     }
 
+    /// Record `log`'s measured resident bytes (`rows`: its history rows at
+    /// the measurement, `None` on the alternate screen or when the terminal
+    /// is gone) and move its share
+    /// of [`Self::resident_total`].
+    /// Nothing changes for a forgotten log: its share already left the total.
+    fn set_resident(&self, log: &TerminalLog, resident: u64, rows: Option<u64>) {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.forgotten {
+            return;
+        }
+        let previous = std::mem::replace(&mut state.resident, resident);
+        // `measure_due` is cleared before the measurement read (by its
+        // caller), never here: an append that raced the read keeps its ask.
+        // No rows (the alternate screen, or the terminal is gone): the last
+        // primary measurement stays the next growth step's base.
+        if rows.is_some() {
+            state.measured_rows = rows;
+        }
+        self.account_resident(previous, resident);
+    }
+
+    /// Move one terminal's share of [`Self::resident_total`] from `previous`
+    /// to `current`. Called with that terminal's log lock held, so the total
+    /// stays the sum of the logs' `resident`.
+    fn account_resident(&self, previous: u64, current: u64) {
+        use std::sync::atomic::Ordering;
+        if current >= previous {
+            self.resident_total.fetch_add(current - previous, Ordering::AcqRel);
+        } else {
+            let shrunk = previous - current;
+            let _ =
+                self.resident_total.fetch_update(Ordering::AcqRel, Ordering::Acquire, |total| {
+                    Some(total.saturating_sub(shrunk))
+                });
+        }
+    }
+
+    /// True when the measured total is over the next pass's trigger.
+    fn resident_over_trigger(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.resident_total.load(Ordering::Acquire) > self.resident_trigger.load(Ordering::Acquire)
+    }
+
+    fn resident_total(&self) -> u64 {
+        self.resident_total.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn set_resident_trigger(&self, trigger: u64) {
+        self.resident_trigger.store(trigger, std::sync::atomic::Ordering::Release);
+    }
+
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {
         self.pass.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -578,6 +816,143 @@ impl OutputStore {
 
     fn cached_policy(&self) -> Option<PersistencePolicy> {
         *self.policy.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keep terminal `terminal_id` in memory only: it belongs to an incognito
+    /// workspace. Its files, if any, are removed now.
+    pub(crate) fn mark_private(&self, terminal_id: &TerminalPublicId) {
+        self.public.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone()) {
+            self.remove_files(terminal_id);
+        }
+    }
+
+    /// Terminal `terminal_id` is known normal (spawned outside an incognito
+    /// workspace), before its registry row exists. A private mark wins.
+    pub(crate) fn mark_public(&self, terminal_id: &TerminalPublicId) {
+        if !self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            self.public.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone());
+        }
+    }
+
+    fn remove_files(&self, terminal_id: &TerminalPublicId) {
+        if let Some(directory) = self.directory.as_deref() {
+            let _pass = self.lock_pass();
+            snapshot::remove(directory, terminal_id);
+            segments::remove(directory, terminal_id);
+        }
+    }
+
+    /// Whether terminal `terminal_id` is kept in memory only: it was marked
+    /// private, or its workspace is incognito (it is marked then). When the
+    /// registry cannot tell, it is (fail closed).
+    /// Takes the workspace registry lock; see [`Self::is_private_in`].
+    pub(crate) fn is_private(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> bool {
+        self.privacy(mux, terminal_id).unwrap_or(true)
+    }
+
+    /// [`Self::is_private`] for a caller that holds the workspace registry.
+    pub(crate) fn is_private_in(
+        &self,
+        registry: &crate::workspace_registry::WorkspaceRegistry,
+        terminal_id: &TerminalPublicId,
+    ) -> bool {
+        self.privacy_in(registry, terminal_id).unwrap_or(true)
+    }
+
+    /// Whether terminal `terminal_id` is private; `None` when the registry
+    /// could not tell. Takes the workspace registry lock unless the answer
+    /// is cached.
+    fn privacy(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> Option<bool> {
+        if let Some(known) = self.known_privacy(terminal_id) {
+            return Some(known);
+        }
+        let registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        self.privacy_in(&registry, terminal_id)
+    }
+
+    fn known_privacy(&self, terminal_id: &TerminalPublicId) -> Option<bool> {
+        if self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id) {
+            return Some(true);
+        }
+        self.public
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
+            .then_some(false)
+    }
+
+    fn privacy_in(
+        &self,
+        registry: &crate::workspace_registry::WorkspaceRegistry,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<bool> {
+        if let Some(known) = self.known_privacy(terminal_id) {
+            return Some(known);
+        }
+        match registry.read_state(|connection| {
+            crate::state::store::public_terminal_is_ephemeral(connection, terminal_id.as_str())
+        }) {
+            Ok(Some(true)) => {
+                self.private
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(terminal_id.clone());
+                Some(true)
+            }
+            Ok(Some(false)) => {
+                self.public
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(terminal_id.clone());
+                Some(false)
+            }
+            // No row (yet): not known normal, so it reads as incognito and
+            // its bytes wait; asked again next time.
+            Ok(None) => None,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: could not tell whether terminal {} is incognito; keeping it in memory: {error:#}",
+                    terminal_id.as_str()
+                );
+                None
+            }
+        }
+    }
+
+    /// Whether terminal `terminal_id`'s screen may reach the disk (an exit
+    /// replay, a snapshot): not in memory mode and not an incognito terminal.
+    pub(crate) fn keeps_screen(&self, mux: &Mux, terminal_id: &TerminalPublicId) -> bool {
+        !self.memory_only() && !self.is_private(mux, terminal_id)
+    }
+
+    /// `dirty` without the logs of private terminals, whose unflushed bytes
+    /// (full mode) are dropped: they never reach a file. A terminal the
+    /// registry could not place waits for the next pass with its bytes kept.
+    /// Called under the pass lock.
+    fn without_private(&self, mux: &Mux, dirty: Vec<Arc<TerminalLog>>) -> Vec<Arc<TerminalLog>> {
+        let mut unknown = false;
+        let kept = dirty
+            .into_iter()
+            .filter(|log| match self.privacy(mux, &log.terminal_id) {
+                Some(false) => true,
+                Some(true) => {
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    state.pending = Vec::new();
+                    state.pending_start = state.next_offset();
+                    false
+                }
+                None => {
+                    log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+                    unknown = true;
+                    false
+                }
+            })
+            .collect();
+        if unknown {
+            self.mark_dirty();
+        }
+        kept
     }
 
     /// True when `terminal.persistence.mode` is `memory`: no terminal screen

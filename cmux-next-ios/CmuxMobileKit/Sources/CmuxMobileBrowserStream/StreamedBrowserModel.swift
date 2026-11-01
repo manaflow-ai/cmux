@@ -96,6 +96,36 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
+    /// its options until the person picks or cancels, or the page closes it.
+    public private(set) var selectMenu: OpenMenu?
+    /// The page's open JavaScript dialog (`rb.dialog.show`), until it is answered or the
+    /// page closes it itself (`rb.dialog.cancel`).
+    public private(set) var dialog: OpenDialog?
+    /// The page's context menu for the long press in progress (`rb.menu.show` of kind
+    /// `context`); the page view hands it to the system menu.
+    @ObservationIgnored public private(set) var contextMenu: OpenMenu?
+    /// Called when the page's context menu arrives (or the wait for it ends with none).
+    @ObservationIgnored private var contextMenuWaiters: [@MainActor (OpenMenu?) -> Void] = []
+    /// A long press asked the page for its menu and it has not come yet.
+    @ObservationIgnored private var contextMenuAsked = false
+    /// Which long press the running wait belongs to (a later press has its own).
+    @ObservationIgnored private var contextMenuAsk = 0
+    /// Opens a page's new tab or window (`rb.open_tab`) beside this tab: the new tab's id,
+    /// or nil when none opened. Nil: the phone refuses every one.
+    @ObservationIgnored public var openTab: (@MainActor (RemoteBrowserOpenTab) async -> String?)?
+
+    /// A menu the page opened and its token (tokens restart with each stream session).
+    public struct OpenMenu: Equatable, Sendable, Identifiable {
+        public var token: UInt64
+        public var menu: RemoteBrowserMenu
+        public var id: UInt64 { token }
+    }
+
+    public struct OpenDialog: Equatable, Sendable {
+        public var token: UInt64
+        public var dialog: RemoteBrowserDialog
+    }
     public var host: String { Self.displayHost(url) }
 
     @ObservationIgnored public let decoder = BrowserVideoDecoder()
@@ -352,6 +382,8 @@ public final class StreamedBrowserModel: BrowserTabState {
             appliedScreen = nil
             // The host reports focus only when it changes: a new session starts with none.
             field = nil
+            // Menu and dialog tokens restart with the session: nothing from the last one is open.
+            dropPageUI()
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -373,6 +405,31 @@ public final class StreamedBrowserModel: BrowserTabState {
             apply(page)
         case "rb.screen_applied":
             phase = .live
+        case "rb.menu.show":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value,
+                  let menu = (json["menu"] as? [String: Any]).flatMap(RemoteBrowserMenu.init(json:)) else { return }
+            menuShown(OpenMenu(token: token, menu: menu))
+        case "rb.menu.cancel":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
+            menuCancelled(token)
+        case "rb.dialog.show":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value,
+                  let dialog = (json["dialog"] as? [String: Any]).flatMap(RemoteBrowserDialog.init(json:)) else { return }
+            // A new dialog replaces one still open (the host cancelled it).
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) \(dialog.kind.rawValue, privacy: .public)")
+            self.dialog = OpenDialog(token: token, dialog: dialog)
+        case "rb.dialog.cancel":
+            guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) closed by the page (open: \(self.dialog?.token ?? 0))")
+            if dialog?.token == token { dialog = nil }
+        case "rb.open_tab":
+            guard let request = RemoteBrowserOpenTab(json: json) else { return }
+            openRequestedTab(request, from: sink)
+        case "rb.state" where ["crashed", "closed"].contains(json["state"] as? String ?? ""), "rb.closed":
+            // The page crashed or its session closed: its dialog and menus go with it,
+            // unanswered (nothing waits for an answer), as the Mac's viewer closes them.
+            log.notice("browser \(self.tab, privacy: .public): page \(json["state"] as? String ?? "closed", privacy: .public); its dialog and menus close")
+            dropPageUI()
         default:
             break
         }
@@ -384,6 +441,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         self.sink = nil
         welcomed = false
         field = nil
+        dropPageUI()
         liveSince = nil
         decoder.reset()
         updateWatch()
@@ -522,6 +580,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     public func goBack() { step("back") }
     public func goForward() { step("forward") }
     public func reloadOrStop() { send(wire.history(isLoading ? "stop" : "reload")) }
+    /// The Mac's Hard Reload: the page again, bypassing its cache.
+    public func hardReload() { send(wire.history("reload_no_cache")) }
 
     /// Back or Forward. Right after another step the browser still reports the old history,
     /// so it would ignore this one: it waits until that step commits (a few hundred ms).
@@ -578,6 +638,129 @@ public final class StreamedBrowserModel: BrowserTabState {
         decoder.lastPicture { [weak self] pixels in
             guard let pixels, let image = CGImageBox(pixels) else { return }
             Task { @MainActor in self?.snapshot = image }
+        }
+    }
+
+    // MARK: Page menus, dialogs and new tabs
+
+    /// How long a long press waits for the page's menu before it says there is none (a
+    /// page that handles `contextmenu` itself sends none); a UI bound, not synchronization.
+    static let contextMenuWait: Duration = .milliseconds(1500)
+    /// The wait for the page's menu (tests replace it).
+    @ObservationIgnored var contextMenuTimer: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
+
+    /// A long press at CSS pixels: the page's own menu for that spot, as a secondary
+    /// click asks for it on the Mac. `then` gets the menu, or nil when the page sent none
+    /// in time.
+    public func requestContextMenu(x: Double, y: Double, then: @escaping @MainActor (OpenMenu?) -> Void) {
+        guard connection != nil, welcomed else { return then(nil) }
+        // A menu from an earlier press that nobody took: the page waits for an answer.
+        if let open = contextMenu { choose(.cancel, in: open.token) }
+        contextMenuWaiters.append(then)
+        guard !contextMenuAsked else { return }
+        contextMenuAsked = true
+        contextMenuAsk += 1
+        let ask = contextMenuAsk
+        input(wire.pointer("move", x: x, y: y, buttons: 0), mustDeliver: false)
+        input(wire.secondaryClick(x: x, y: y, down: true))
+        input(wire.secondaryClick(x: x, y: y, down: false))
+        let timer = contextMenuTimer
+        // task-owner: one bounded wait per long press; it ends the wait only if no menu came
+        Task { [weak self] in
+            try? await timer(Self.contextMenuWait)
+            guard let self, contextMenuAsk == ask else { return }
+            contextMenuWaitEnded()
+        }
+    }
+
+    private func contextMenuWaitEnded() {
+        guard contextMenuAsked else { return }
+        contextMenuAsked = false
+        let waiters = contextMenuWaiters
+        contextMenuWaiters = []
+        for waiter in waiters { waiter(nil) }
+    }
+
+    private func menuShown(_ open: OpenMenu) {
+        func describe(_ items: [RemoteBrowserMenuItem]) -> String {
+            items.map { "\($0.id):\($0.type)" + ($0.items.isEmpty ? "" : " [\(describe($0.items))]") }.joined(separator: ", ")
+        }
+        // Ids and types only in the clear: the labels are the page's text (a select's options).
+        let items = describe(open.menu.items)
+        let labels = open.menu.items.map(\.label).joined(separator: ", ")
+        log.notice("browser \(self.tab, privacy: .public): menu \(open.token) \(open.menu.kind.rawValue, privacy: .public) [\(items, privacy: .public)] [\(labels, privacy: .private)]")
+        switch open.menu.kind {
+        case .select:
+            selectMenu = open
+        case .context:
+            guard contextMenuAsked else {
+                // No long press waits for it (one that gave up, or a key the page took):
+                // the page's menu must not stay open on the Mac with nobody to answer it.
+                send(wire.menuResult(token: open.token, choice: .cancel))
+                return
+            }
+            contextMenuAsked = false
+            contextMenu = open
+            let waiters = contextMenuWaiters
+            contextMenuWaiters = []
+            for waiter in waiters { waiter(open) }
+        }
+    }
+
+    private func menuCancelled(_ token: UInt64) {
+        if selectMenu?.token == token { selectMenu = nil }
+        if contextMenu?.token == token { contextMenu = nil }
+    }
+
+    /// The person's answer to the menu `token`: sent once, and only a choice that menu
+    /// offered (anything else is a cancel). A menu already closed sends nothing.
+    public func choose(_ choice: RemoteBrowserMenuChoice, in token: UInt64) {
+        let open: OpenMenu
+        if let select = selectMenu, select.token == token {
+            open = select
+            selectMenu = nil
+        } else if let context = contextMenu, context.token == token {
+            open = context
+            contextMenu = nil
+        } else {
+            log.notice("browser \(self.tab, privacy: .public): menu \(token) already closed; \(String(describing: choice), privacy: .public) not sent")
+            return
+        }
+        let answer = open.menu.accepts(choice) ? choice : .cancel
+        log.notice("browser \(self.tab, privacy: .public): menu \(token) answer \(String(describing: answer), privacy: .public)")
+        send(wire.menuResult(token: token, choice: answer))
+    }
+
+    /// The person answered the dialog `token` (`text`: a prompt's answer).
+    public func answerDialog(_ token: UInt64, accept: Bool, text: String? = nil) {
+        guard let open = dialog, open.token == token else { return }
+        dialog = nil
+        log.notice("browser \(self.tab, privacy: .public): dialog \(token) answer accept=\(accept)")
+        send(wire.dialogResult(token: token, accept: accept, text: accept && open.dialog.kind == .prompt ? (text ?? "") : nil))
+    }
+
+    /// A new stream session: menus and dialogs of the old one are gone with it.
+    private func dropPageUI() {
+        selectMenu = nil
+        contextMenu = nil
+        dialog = nil
+        contextMenuWaitEnded()
+    }
+
+    /// The page opened a link in a new tab or window: the phone opens it beside this tab
+    /// and tells the page which tab it is, or that none opened (as the Mac's viewer).
+    private func openRequestedTab(_ request: RemoteBrowserOpenTab, from sink: Sink) {
+        log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) \(request.disposition.rawValue, privacy: .public)")
+        guard let openTab else {
+            send(wire.openTabResult(request: request.request, tab: nil, refused: "refused"))
+            return
+        }
+        // task-owner: one tab request; the answer goes back on the stream session it came on
+        Task { [weak self] in
+            let tab = await openTab(request)
+            guard let self, self.sink === sink else { return }
+            log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) -> \(tab ?? "refused", privacy: .public)")
+            send(wire.openTabResult(request: request.request, tab: tab, refused: tab == nil ? "refused" : nil))
         }
     }
 
@@ -649,6 +832,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         sink = nil
         welcomed = false
         field = nil
+        dropPageUI()
         liveSince = nil
         decoder.reset()
         updateWatch()

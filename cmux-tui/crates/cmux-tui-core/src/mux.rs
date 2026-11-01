@@ -1,7 +1,9 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_children;
 mod agent_hook_errors;
+mod agent_hook_projection;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -210,6 +212,7 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod pinned_columns;
+mod pty_reclaim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -291,6 +294,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
@@ -301,6 +305,7 @@ mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
+mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -332,6 +337,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+    is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;
@@ -489,6 +495,9 @@ type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 pub struct Mux {
     /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
     pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// The control socket actually bound at startup, including an explicit
+    /// --socket path. Internal clients must not reconstruct it from session.
+    pub(crate) bound_socket_path: OnceLock<std::path::PathBuf>,
     /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
@@ -617,8 +626,12 @@ pub struct Mux {
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
     agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// Orders durable hook catch-up and live projection as one operation.
+    agent_hook_projection: Mutex<()>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
+    /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
+    agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
@@ -660,6 +673,10 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// Keys of the incognito (ephemeral) workspaces this run created
+    /// (incognito_terminals.rs): a terminal created with its workspace
+    /// spawns before the workspace's row is published.
+    incognito_workspace_keys: Mutex<HashSet<String>>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
@@ -705,6 +722,8 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
+    startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their
@@ -756,6 +775,8 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
+    pty_reclaim_forced: AtomicBool,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -810,6 +831,7 @@ impl Mux {
     /// Resolve one public resource path from a single live-state snapshot.
     /// Direct content IDs use the reverse resource indexes and never trigger
     /// a registry snapshot or process query.
+    #[track_caller]
     pub fn resolve_resource_path(
         &self,
         target: crate::ResourceTarget,
@@ -871,11 +893,13 @@ impl Mux {
         ))
     }
 
+    #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
+    #[track_caller]
     pub(crate) fn terminal_resource_surface(
         &self,
         terminal_id: &TerminalPublicId,
@@ -907,8 +931,20 @@ impl Mux {
     ///
     /// The state lock is held for the duration of `f`; do not call back
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
+    #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
+    }
+
+    /// Run `f` with the session state if its lock is free now; `None`
+    /// instead of waiting while another thread holds it. A poisoned lock is
+    /// still read: its caller (the accept loop) must not stop on it.
+    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
+        match self.state.try_lock() {
+            Ok(state) => Some(f(&state)),
+            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
     }
 
     pub fn surface_count(&self) -> usize {
@@ -941,6 +977,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
         let (workspace, _) = state.screen_of(pane)?;

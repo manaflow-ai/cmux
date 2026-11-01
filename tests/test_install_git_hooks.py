@@ -342,6 +342,47 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
 
+    def test_pre_commit_registers_no_test_in_a_merge_commit(self):
+        """Merging the base into a pull request staged every test the base added since the branch
+        point, so the hook wrote the base's unregistered test into the pull request's merge commit
+        (tests/test_nightly_dedicated_mini.py in #30071 and #30351). A merge adds no test of its own."""
+        self.assertEqual(self.install().returncode, 0)
+        commit = ("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet")
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        base_workflow = ("name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+                         "      - run: python3 tests/test_kept.py\n")
+        workflow.write_text(base_workflow, encoding="utf-8")
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry_text = 'version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n'
+        registry.write_text(registry_text, encoding="utf-8")
+        (self.repo / "tests/test_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base")
+
+        self.git("checkout", "--quiet", "-b", "pr")
+        (self.repo / "notes.txt").write_text("pull request work\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git(*commit, "--no-verify", "-m", "pull request work")
+
+        # The base adds a test and the workflow line that runs it, and leaves it unregistered.
+        self.git("checkout", "--quiet", "main")
+        (self.repo / "tests/test_theirs.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        workflow.write_text(base_workflow + "      - run: python3 tests/test_theirs.py\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base adds a test")
+
+        self.git("checkout", "--quiet", "pr")
+        merged = self.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "--quiet", "--no-ff",
+                          "--no-commit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        result = self.git(*commit, "--no-edit", check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "HEAD").stdout.split()), 3)
+        self.assertEqual(self.git("show", "HEAD:tests/test-execution.toml").stdout, registry_text)
+        self.assertEqual(registry.read_text(encoding="utf-8"), registry_text)
+
     def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
         self.assertEqual(self.install().returncode, 0)
         source = self.stage_rust_package("Native/OptChat/probe", "2024")
@@ -828,6 +869,20 @@ cat > node_modules/.bin/vp <<'VP'
         hook = (SOURCE / "scripts/git-hooks/pre-push").read_text()
         self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
                         "pre-push refreshes the checks before it runs them")
+
+    def test_installed_and_refreshed_checks_carry_the_swift_source_masker(self):
+        # Review of #28365: check-package-dependency-lists.py imports scripts/swift_source_mask.py, and the hook runs
+        # its copy from the checks folder, so both the install and a refresh put the masker beside it.
+        masker = self.repo / "scripts/swift_source_mask.py"
+        if not masker.is_file():
+            masker.parent.mkdir(parents=True, exist_ok=True)
+            masker.write_bytes((SOURCE / "scripts/swift_source_mask.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "swift_source_mask.py").is_file(), "the install has no masker")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
+                         (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
 
     def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
         self.stale_install()

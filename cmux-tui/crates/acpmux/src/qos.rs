@@ -13,11 +13,17 @@
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
 //! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
-//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread in `PRIO_DARWIN_BG` for the pass (CPU and I/O throttled) | unchanged |
+//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O stays at the daemon's utility tier), then back | unchanged |
+//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (CPU only: its disk I/O stays at the daemon's utility tier), then back | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
-//! compiles. Its disk work (journals, the store) still yields to the app's.
+//! compiles. Its disk work (journals, the store) yields to the app's, the
+//! reads a person is waiting on to open a chat ([`on_screen`]) too: a thread's
+//! disk I/O tier is the most throttled of the process's, its own and its QoS
+//! class's (xnu `thread_policy.c`), and the process is at utility, so only the
+//! CPU of those reads is raised. A per-thread I/O policy cannot lift it either,
+//! and it drops the thread out of QoS (`imp::ThreadOnScreen`).
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -56,6 +62,8 @@ pub enum Tier {
     Agent,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
+    /// A read the person at the screen is waiting on: opening a chat.
+    OnScreen,
 }
 
 /// What a process is, for [`tier`].
@@ -65,6 +73,8 @@ pub enum Role {
     AgentHost,
     BackgroundTaskRunner,
     Housekeeping,
+    /// A daemon thread reading for a chat being opened on screen.
+    VisibleOpen,
 }
 
 /// The one policy: the tier of each role. Exhaustive, so a new role cannot
@@ -74,6 +84,7 @@ pub const fn tier(role: Role) -> Tier {
         Role::Daemon => Tier::Serving,
         Role::AgentHost | Role::BackgroundTaskRunner => Tier::Agent,
         Role::Housekeeping => Tier::Background,
+        Role::VisibleOpen => Tier::OnScreen,
     }
 }
 
@@ -109,8 +120,8 @@ pub fn enter(role: Role) {
             imp::clamp_cpu_utility();
         }
         // A whole background process is not in the policy yet; threads use
-        // [`background`].
-        Tier::Background => {}
+        // [`background`]. On-screen reads are per thread too ([`on_screen`]).
+        Tier::Background | Tier::OnScreen => {}
     }
 }
 
@@ -118,6 +129,15 @@ pub fn enter(role: Role) {
 /// the thread back: blocking-pool threads are reused for other work.
 pub fn background<T>(work: impl FnOnce() -> T) -> T {
     let _guard = enabled().then(imp::ThreadBackground::enter);
+    work()
+}
+
+/// Run `work` (blocking) with this thread in [`Tier::OnScreen`], then put the
+/// thread back as it was: the reads for a chat being opened on screen, which
+/// the person is waiting on, ahead of agent work's CPU and disk. Tokio worker
+/// and blocking-pool threads are reused, so the guard restores what it found.
+pub fn on_screen<T>(work: impl FnOnce() -> T) -> T {
+    let _guard = enabled().then(imp::ThreadOnScreen::enter);
     work()
 }
 
@@ -138,8 +158,9 @@ mod imp {
 
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
+    #[cfg(test)]
+    const IOPOL_SCOPE_THREAD: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
-    const PRIO_DARWIN_THREAD: libc::c_int = 3;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
     const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
     /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
@@ -152,6 +173,8 @@ mod imp {
             scope: libc::c_int,
             policy: libc::c_int,
         ) -> libc::c_int;
+        #[cfg(test)]
+        fn getiopolicy_np(iotype: libc::c_int, scope: libc::c_int) -> libc::c_int;
     }
 
     /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
@@ -255,21 +278,83 @@ mod imp {
         unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG) };
     }
 
-    /// This thread in `PRIO_DARWIN_BG` until dropped.
-    pub(super) struct ThreadBackground;
+    /// This thread at background QoS until dropped (CPU throttled; its disk I/O stays at the
+    /// process's utility tier), then back to the class it had. Not the per-thread
+    /// `setpriority(PRIO_DARWIN_THREAD, BG)`: like a thread-scope `setiopolicy_np`, it drops the
+    /// thread out of QoS for good (see [`ThreadOnScreen`]).
+    pub(super) struct ThreadBackground {
+        qos: libc::qos_class_t,
+    }
 
     impl ThreadBackground {
         pub(super) fn enter() -> Self {
-            // SAFETY: plain syscall on the calling thread.
-            unsafe { libc::setpriority(PRIO_DARWIN_THREAD, 0, PRIO_DARWIN_BG) };
-            ThreadBackground
+            let guard = ThreadBackground { qos: thread_qos() };
+            set_thread_qos(libc::qos_class_t::QOS_CLASS_BACKGROUND, "background pass");
+            guard
         }
     }
 
     impl Drop for ThreadBackground {
         fn drop(&mut self) {
-            // SAFETY: plain syscall on the calling thread; 0 clears background.
-            unsafe { libc::setpriority(PRIO_DARWIN_THREAD, 0, 0) };
+            set_thread_qos(restorable(self.qos), "after a background pass");
+        }
+    }
+
+    /// The class a guard puts back: an unspecified class cannot be set again, and default is
+    /// what such a thread runs at.
+    fn restorable(qos: libc::qos_class_t) -> libc::qos_class_t {
+        match qos {
+            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+            qos => qos,
+        }
+    }
+
+    /// This thread at user-initiated QoS until dropped, then back to the class it had. CPU only:
+    /// its disk I/O tier stays at the process's utility tier, the most throttled of the
+    /// process's, its QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
+    /// drops the thread out of QoS (it reads unspecified) and makes every later
+    /// `pthread_set_qos_class_self_np` on the thread fail with EPERM, so a reused pool thread
+    /// could never be raised again (fleet probes 01949bb5 and 3b349221, 2026-10-31).
+    pub(super) struct ThreadOnScreen {
+        qos: libc::qos_class_t,
+    }
+
+    /// `pthread_set_qos_class_self_np(qos, 0)`, logged when the kernel refuses it.
+    fn set_thread_qos(qos: libc::qos_class_t, what: &str) {
+        // SAFETY: plain call on the calling thread with a valid class and relative priority 0.
+        let rc = unsafe { libc::pthread_set_qos_class_self_np(qos, 0) };
+        if rc != 0 {
+            tracing::warn!(rc, "{what}: pthread_set_qos_class_self_np refused ({})", qos as u32);
+        }
+    }
+
+    /// This thread's QoS class (unspecified when none was ever set).
+    pub(super) fn thread_qos() -> libc::qos_class_t {
+        let mut qos = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+        let mut rel = 0;
+        // SAFETY: reads the calling thread's own class into locals.
+        unsafe { libc::pthread_get_qos_class_np(libc::pthread_self(), &mut qos, &mut rel) };
+        qos
+    }
+
+    /// This thread's own disk I/O policy (`IOPOL_DEFAULT`, 0, when it follows the process's).
+    #[cfg(test)]
+    pub(super) fn thread_io() -> libc::c_int {
+        // SAFETY: plain syscall on the calling thread.
+        unsafe { getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD) }
+    }
+
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            let guard = ThreadOnScreen { qos: thread_qos() };
+            set_thread_qos(libc::qos_class_t::QOS_CLASS_USER_INITIATED, "on-screen read");
+            guard
+        }
+    }
+
+    impl Drop for ThreadOnScreen {
+        fn drop(&mut self) {
+            set_thread_qos(restorable(self.qos), "after an on-screen read");
         }
     }
 }
@@ -300,6 +385,13 @@ mod imp {
             ThreadBackground
         }
     }
+
+    pub(super) struct ThreadOnScreen;
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            ThreadOnScreen
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -316,6 +408,13 @@ mod imp {
             ThreadBackground
         }
     }
+
+    pub(super) struct ThreadOnScreen;
+    impl ThreadOnScreen {
+        pub(super) fn enter() -> Self {
+            ThreadOnScreen
+        }
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +427,55 @@ mod tests {
         assert_eq!(tier(Role::AgentHost), Tier::Agent);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
+        assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);
+    }
+
+    #[test]
+    fn an_on_screen_read_returns_its_value() {
+        assert_eq!(on_screen(|| 7), 7);
+    }
+
+    /// The read runs at user-initiated QoS, and the thread goes back to what it had: tokio
+    /// reuses it for other work, and the next on-screen read on it is raised again.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_on_screen_read_raises_the_thread_and_puts_it_back() {
+        if !enabled() {
+            return;
+        }
+        // `qos_class_t` has no `PartialEq` in libc, so the classes compare as their numbers.
+        let class = |qos: libc::qos_class_t| qos as u32;
+        let (qos, io) = (imp::thread_qos(), imp::thread_io());
+        // The thread's own I/O policy is left alone: a thread-scope `setiopolicy_np` drops the
+        // thread out of QoS (it read 0, unspecified, on macOS 26 and 27) and makes every later
+        // `pthread_set_qos_class_self_np` on it fail with EPERM.
+        let inside = on_screen(|| (class(imp::thread_qos()), imp::thread_io()));
+        assert_eq!(inside, (class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), io));
+        let after = (class(imp::thread_qos()), imp::thread_io());
+        let expected_qos = match qos {
+            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+            qos => qos,
+        };
+        assert_eq!(after, (class(expected_qos), io));
+        // A pool thread is reused: the next on-screen read on it is raised again.
+        let again = on_screen(|| class(imp::thread_qos()));
+        assert_eq!(again, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "the second raise");
+    }
+
+    /// A background pass (`background`) puts the pool thread back as it found it, so a later
+    /// on-screen read on that thread is still raised.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_background_pass_leaves_the_thread_raisable() {
+        if !enabled() {
+            return;
+        }
+        let class = |qos: libc::qos_class_t| qos as u32;
+        let before = class(imp::thread_qos());
+        background(|| ());
+        assert_eq!(class(imp::thread_qos()), before, "the class after a background pass");
+        let raised = on_screen(|| class(imp::thread_qos()));
+        assert_eq!(raised, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "raised after it");
     }
 
     /// The clamp takes effect: a child spawned under it, and the shell it

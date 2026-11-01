@@ -34,9 +34,6 @@ pub const CONTEXT_TOKENS: &str = "contextTokens";
 /// `subagentsPerHour`: it started more subagents in the last hour than the limit.
 pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 
-/// The change that adds `lane-place rotate`, named beside the command until it lands.
-const ROTATE_PENDING: &str = "leo-workspace#1617";
-
 /// The steps that answer each rule for session `name`, first the one to try first: each its
 /// label, the command that takes it and the change that adds that command while it has not landed.
 fn actions(rule: &str, name: &str) -> Vec<Value> {
@@ -46,15 +43,13 @@ fn actions(rule: &str, name: &str) -> Vec<Value> {
     let rotate = |extra: &str| format!("lane-place rotate {name}{extra}");
     match rule {
         // The successor runs on the capped profile (claude-sr2, its sr2 `--autocompact`).
-        NO_AUTOCOMPACT_CAP => vec![step(
-            "Rotate onto a capped profile",
-            rotate(" --harness claude-sr2"),
-            Some(ROTATE_PENDING),
-        )],
+        NO_AUTOCOMPACT_CAP => {
+            vec![step("Rotate onto a capped profile", rotate(" --harness claude-sr2"), None)]
+        }
         // Claude Code's own `/compact`, sent as a prompt (`claude_stdio`: it ends its prompt).
         CONTEXT_TOKENS => vec![
             step("Compact it", format!("acpmux send {name} /compact"), None),
-            step("rotate to a fresh session", rotate(""), Some(ROTATE_PENDING)),
+            step("rotate to a fresh session", rotate(""), None),
         ],
         _ => vec![step(
             "Open the session to see what it starts; cancel its turn to stop it",
@@ -160,7 +155,7 @@ pub fn short(warning: &Value) -> String {
 }
 
 /// `short` with the commands that answer it, for `acpmux ls --wide`:
-/// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617)`.
+/// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`.
 pub fn with_command(warning: &Value) -> String {
     let commands = at(warning, "actions")
         .as_array()

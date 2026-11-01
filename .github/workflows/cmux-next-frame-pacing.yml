@@ -11,8 +11,9 @@ name: cmux-next frame pacing
 # warning annotation. It runs on an owned mini or not at all: `gate` asks the
 # E2E pool picker whether an owned Mac is free now (as iroh-release-gate's
 # `runner` does) and skips the run otherwise, and the build and the bench take
-# vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. The bench drives the
-# console session, so it holds the mini's gui token while it measures.
+# the runner selected by that gate. All suites retain the exclusive GUI token:
+# even fling-only runs create a virtual display in the shared console session.
+# A configured session lane is not selected without the pool's availability check.
 #
 # The same bench job then runs the golden interactions (scripts/ci/frame-pacing/golden.sh
 # and golden.py, cx-codh2): New Tab cold and warm, sidebar collapse and expand, transcript
@@ -75,6 +76,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       tag: ${{ steps.tag.outputs.tag }}
+      runner: ${{ steps.decide.outputs.runner }}
     steps:
       # The tagged app's baked tag (its debug socket is /tmp/cmux-debug-<tag>.sock). A
       # golden-only run's is per ref: reload-build.yml cancels an older build of the same tag.
@@ -102,6 +104,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
             scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -134,6 +137,8 @@ jobs:
       - name: Run only while an owned Mac is free
         id: decide
         env:
+          # Even fling creates a virtual display and needs a drawing console.
+          CMUX_CI_GUI_REQUIRED: 'true'
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
@@ -159,7 +164,8 @@ jobs:
           case "$label" in
             glaeda-*)
               echo "run=true" >> "$GITHUB_OUTPUT"
-              echo "An owned Mac is free ($label); the build and bench take $SIDE_LANE." ;;
+              echo "runner=$label" >> "$GITHUB_OUTPUT"
+              echo "An owned Mac is free ($label); the build and bench take the picked runner." ;;
             *)
               echo "run=false" >> "$GITHUB_OUTPUT"
               reason="no owned Mac free now (picker said '${label:-nothing}')"
@@ -182,15 +188,14 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
-    # The gui token wait (15 min) and the bench step (15 min) both fit, so a
-    # busy console skips the bench instead of timing the job out.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.gate.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # The GUI-token wait and bench step both fit in this job timeout.
     timeout-minutes: 45
     env:
       CMUX_TAG: ${{ needs.gate.outputs.tag }}
@@ -199,10 +204,9 @@ jobs:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_PERF_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
-      # The bench draws in the console session, which every GUI job on the mini
-      # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
-      # does. A busy console after the wait skips the bench, never fails it.
-      - name: Take this Mac's gui token
+      # All suites share the GUI lock: fling still creates a virtual display in the
+      # console session, so it must not overlap pixel-producing suites.
+      - name: Admit only an isolated GUI session
         id: gui
         run: |
           set -uo pipefail
@@ -212,13 +216,13 @@ jobs:
           case "$status" in
             0|2)
               echo "taken=true" >> "$GITHUB_OUTPUT"
-              echo "reason=gui token acquired" >> "$GITHUB_OUTPUT"
-              ;;
+              echo "reason=GUI token acquired for isolated frame-pacing session" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "taken=false" >> "$GITHUB_OUTPUT"
-              echo "reason=the console session stayed busy (take-gui exited $status)" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Agent pane frame pacing::Skipped: the console session stayed busy (take-gui exited $status)."
-              printf '## Agent pane frame pacing\n\nSkipped: the console session stayed busy (take-gui exited %s).\n' "$status" >> "$GITHUB_STEP_SUMMARY" ;;
+              reason="the console stayed busy (take-gui exited $status)"
+              echo "reason=$reason" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Agent pane frame pacing::Skipped: $reason."
+              printf '## Agent pane frame pacing\n\nSkipped: %s.\n' "$reason" >> "$GITHUB_STEP_SUMMARY" ;;
           esac
 
       - name: Checkout the bench
@@ -392,7 +396,7 @@ jobs:
   skipped-receipt:
     needs: [resolve-ref, gate, bench]
     if: always() && needs.gate.outputs.run != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     env:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha || github.sha }}

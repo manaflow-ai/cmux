@@ -3,10 +3,20 @@ import CmuxScreenKit
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
-/// touch gestures and keyboard input. One input model, no modes: a tap
-/// clicks where the finger is, press-and-hold then drag drags, one finger
-/// pans a zoomed view, two-finger tap right-clicks, two fingers scroll, and
-/// pinch zooms (zoom in for small targets).
+/// touch gestures and keyboard input. Two input modes (``inputMode``):
+/// - direct (the default): a tap clicks where the finger is (two quick taps
+///   double-click), press-and-hold then drag drags, one finger pans a
+///   zoomed view;
+/// - trackpad: one finger moves a cursor (faster strokes go further), a tap
+///   clicks at it, tap then hold and drag (or a long press) drags, and a
+///   zoomed view follows the cursor.
+///
+/// Both: two-finger tap right-clicks, two fingers scroll (smoothly, in
+/// pixels, when the Mac takes it), pinch zooms. Sticky ⌃⌥⌘ from the keyboard
+/// bar modify the next click. On iPad a mouse or trackpad drives the pointer
+/// directly: hover moves it, the buttons click and drag, the secondary
+/// button right-clicks, the wheel scrolls; the system pointer hides over
+/// the screen.
 ///
 /// Fitted mode (the default) pins the view to one display: zoom out stops at
 /// its fit and panning stays inside it. A computer with several displays
@@ -14,7 +24,8 @@ import UIKit
 /// fitted mode off, pinching zooms freely across all displays.
 ///
 /// SwiftUI apps use `ScreenView`; UIKit apps can host this controller directly.
-public final class ScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+public final class ScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate,
+    UIPointerInteractionDelegate {
     public let session: ScreenSession
     /// Swipes at fit move between displays (and the page dots show); off
     /// keeps the view on the current display.
@@ -27,6 +38,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private let screenLayer = CALayer()
     private let cursorLayer = CALayer()
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
+    private var hostCursorImage: CGImage?
     private let keyInput = KeyInputView()
     private var frameSize = CGSize.zero
     private var scrollRemainder = CGPoint.zero
@@ -47,6 +59,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     public init(session: ScreenSession) {
         self.session = session
+        inputMode = session.preferences.inputMode
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -56,6 +69,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
+        scrollView.accessibilityIdentifier = "screen.view"
         scrollView.frame = view.bounds
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scrollView.delegate = self
@@ -78,6 +93,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         keyInput.session = session
         view.addSubview(keyInput)
         installGestures()
+        applyInputMode()
         pageControl.isHidden = true
         pageControl.hidesForSinglePage = true
         pageControl.backgroundStyle = .prominent
@@ -149,6 +165,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         videoView?.frame = content.bounds
         scrollView.contentSize = size
         updateZoomLimits(resetToFit: true)
+        updateCursor()
     }
 
     private func show(_ frame: VNCFrame) {
@@ -183,21 +200,30 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     private func setCursor(_ cursor: VNCCursor) {
         self.cursor = cursor
-        cursorLayer.contents = cursor.makeImage()
-        cursorLayer.bounds = CGRect(x: 0, y: 0, width: cursor.width, height: cursor.height)
+        hostCursorImage = cursor.makeImage()
         updateCursor()
     }
 
-    /// Draws the cursor at the pointer when the server sent a shape (local cursor).
+    /// Draws the cursor at the pointer: the server's shape (local cursor),
+    /// and in trackpad mode or under a hovering mouse the shape or, when
+    /// the server sends none (a screen stream), a plain arrow.
     private func updateCursor() {
-        let visible = session.preferences.localCursor && !cursor.isEmpty && frameSize != .zero
+        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
+        let visible = frameSize != .zero && (hostShape || inputMode == .trackpad || pointerHovering)
         cursorLayer.isHidden = !visible
         guard visible else { return }
+        let fallback = Self.fallbackCursor
+        let image = hostShape ? hostCursorImage : fallback.image
+        let size = hostShape ? CGSize(width: cursor.width, height: cursor.height) : fallback.size
+        let hotspot = hostShape ? CGPoint(x: cursor.hotspotX, y: cursor.hotspotY) : fallback.hotspot
         let pointer = session.pointer
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        cursorLayer.position = CGPoint(x: pointer.x - CGFloat(cursor.hotspotX) + CGFloat(cursor.width) / 2,
-                                       y: pointer.y - CGFloat(cursor.hotspotY) + CGFloat(cursor.height) / 2)
+        if (cursorLayer.contents as AnyObject?) !== image {
+            cursorLayer.contents = image
+            cursorLayer.bounds = CGRect(origin: .zero, size: size)
+        }
+        cursorLayer.position = CGPoint(x: pointer.x - hotspot.x + size.width / 2, y: pointer.y - hotspot.y + size.height / 2)
         // Keep the cursor a readable size when zoomed out.
         let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
         cursorLayer.transform = CATransform3DMakeScale(scale, scale, 1)
@@ -391,12 +417,53 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         scrollView.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
     }
 
+    // MARK: Input mode
+
+    /// How touches drive the pointer (`ScreenPreferences.inputMode`):
+    /// direct (a tap clicks where the finger is) or trackpad (a cursor one
+    /// finger moves). Applies at once; a held button or drag is released.
+    public var inputMode: ScreenInputMode {
+        didSet { if inputMode != oldValue { applyInputMode() } }
+    }
+
+    private func applyInputMode() {
+        let trackpadMode = inputMode == .trackpad
+        applyTrackpad(trackpad.cancel())
+        trackpadTimer?.cancel()
+        trackpadTimer = nil
+        tap.isEnabled = !trackpadMode
+        longPress.isEnabled = !trackpadMode
+        trackpadTouch.isEnabled = trackpadMode
+        // Trackpad mode: one finger moves the cursor, not the view (the view follows the cursor).
+        scrollView.panGestureRecognizer.isEnabled = !trackpadMode
+        updateCursor()
+        followCursor()
+    }
+
     // MARK: Gestures
 
     private let longPress = UILongPressGestureRecognizer()
     private let tap = UITapGestureRecognizer()
     private let twoFingerTap = UITapGestureRecognizer()
     private let twoFingerPan = UIPanGestureRecognizer()
+    /// Trackpad mode's one finger.
+    private let trackpadTouch = SingleTouchRecognizer(target: nil, action: nil)
+    /// A mouse or trackpad on iPad: buttons, hover and the scroll wheel.
+    private let pointerButtons = PointerButtonRecognizer(target: nil, action: nil)
+    private let hover = UIHoverGestureRecognizer()
+    private let wheel = UIPanGestureRecognizer()
+    private var trackpad = TrackpadGesture()
+    private var trackpadTimer: Task<Void, Never>?
+    private var lastTrackpadPoint: CGPoint?
+    private let acceleration = PointerAcceleration()
+    /// Direct mode: a double tap clicks twice at one point.
+    private var clickSnap = ClickSnap()
+    /// The sticky ⌃⌥⌘ held down for the press in progress (a drag, a trackpad click).
+    private var heldModifiers: [VNCKeysym] = []
+    /// The mouse button held on iPad.
+    private var pointerButton: VNCButtons?
+    /// A hardware pointer is over the screen (the system pointer is hidden there).
+    private var pointerHovering = false
 
     private func installGestures() {
         longPress.addTarget(self, action: #selector(handleLongPress(_:)))
@@ -408,10 +475,27 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         twoFingerPan.addTarget(self, action: #selector(handleTwoFingerPan(_:)))
         twoFingerPan.minimumNumberOfTouches = 2
         twoFingerPan.maximumNumberOfTouches = 2
-        for recognizer in [longPress, tap, twoFingerTap, twoFingerPan] as [UIGestureRecognizer] {
+        trackpadTouch.onEvent = { [weak self] event in self?.handleTrackpad(event) }
+        trackpadTouch.isEnabled = false
+        pointerButtons.onEvent = { [weak self] event in self?.handlePointerButton(event) }
+        hover.addTarget(self, action: #selector(handleHover(_:)))
+        wheel.addTarget(self, action: #selector(handleWheel(_:)))
+        // Scroll events only (a mouse wheel, two fingers on a trackpad), no touches.
+        wheel.allowedScrollTypesMask = .all
+        wheel.allowedTouchTypes = []
+        // Fingers and the pencil; a mouse button is pointerButtons' (it drags at once, no hold).
+        let touches = [UITouch.TouchType.direct, .pencil].map { NSNumber(value: $0.rawValue) }
+        for recognizer in [longPress, tap, twoFingerTap, twoFingerPan, trackpadTouch] as [UIGestureRecognizer] {
+            recognizer.allowedTouchTypes = touches
+        }
+        scrollView.panGestureRecognizer.allowedTouchTypes = touches
+        // Wheel scrolling scrolls the Mac, not this view.
+        scrollView.panGestureRecognizer.allowedScrollTypesMask = []
+        for recognizer in [longPress, tap, twoFingerTap, twoFingerPan, trackpadTouch, pointerButtons, hover, wheel] as [UIGestureRecognizer] {
             recognizer.delegate = self
             scrollView.addGestureRecognizer(recognizer)
         }
+        scrollView.addInteraction(UIPointerInteraction(delegate: self))
         // Paging needs one-finger horizontal swipes even when a display fits the view.
         scrollView.alwaysBounceHorizontal = true
         // A hold that becomes a drag wins over panning the view.
@@ -420,8 +504,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // The trackpad finger, the hardware pointer and hover only observe: they run beside everything.
+        let observers: [UIGestureRecognizer] = [trackpadTouch, pointerButtons, hover]
+        if observers.contains(gestureRecognizer) || observers.contains(other) { return true }
         // Pinch zoom and two-finger scroll may run together.
-        (gestureRecognizer == twoFingerPan && other == scrollView.pinchGestureRecognizer)
+        return (gestureRecognizer == twoFingerPan && other == scrollView.pinchGestureRecognizer)
             || (other == twoFingerPan && gestureRecognizer == scrollView.pinchGestureRecognizer)
     }
 
@@ -430,49 +517,230 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         recognizer.location(in: content)
     }
 
+    /// Framebuffer pixels under one point of the view.
+    private var pixelsPerPoint: CGFloat { 1 / max(scrollView.zoomScale, 0.01) }
+
+    /// Presses `button` with the sticky modifiers down first (held until `releaseButton`).
+    private func pressButton(_ button: VNCButtons) {
+        if heldModifiers.isEmpty {
+            heldModifiers = keyInput.takeModifiers()
+            for modifier in heldModifiers { session.key(modifier, down: true) }
+        }
+        session.press(button, down: true)
+    }
+
+    private func releaseModifiers() {
+        for modifier in heldModifiers.reversed() { session.key(modifier, down: false) }
+        heldModifiers = []
+    }
+
+    // MARK: Direct touch
+
     @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
         case .began:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             session.movePointer(to: framebufferPoint(recognizer))
-            session.press(.left, down: true)
+            pressButton(.left)
         case .changed:
             session.movePointer(to: framebufferPoint(recognizer))
         case .ended, .cancelled, .failed:
             session.press(.left, down: false)
+            releaseModifiers()
         default:
             break
         }
         updateCursor()
     }
 
+    /// Clicks at once on touch-up (no double-tap recognizer waits): two
+    /// quick taps are two clicks at one point, which the Mac counts as a
+    /// double click.
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        session.movePointer(to: framebufferPoint(recognizer))
-        session.click(.left)
+        let point = clickSnap.point(for: framebufferPoint(recognizer), at: CACurrentMediaTime(), radius: 24 * pixelsPerPoint)
+        session.movePointer(to: point)
+        session.click(.left, modifiers: keyInput.takeModifiers())
         updateCursor()
     }
 
     @objc private func handleTwoFingerTap(_ recognizer: UITapGestureRecognizer) {
-        session.movePointer(to: framebufferPoint(recognizer))
-        session.click(.right)
+        // Trackpad mode: at the cursor.
+        if inputMode == .direct { session.movePointer(to: framebufferPoint(recognizer)) }
+        session.click(.right, modifiers: keyInput.takeModifiers())
         updateCursor()
     }
 
     @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
-        let velocity = recognizer.translation(in: view)
+        let translation = recognizer.translation(in: view)
         recognizer.setTranslation(.zero, in: view)
         if recognizer.state == .began {
             scrollRemainder = .zero
-            // Scroll what is under the fingers.
-            session.movePointer(to: framebufferPoint(recognizer))
+            // Scroll what is under the fingers (trackpad mode: under the cursor).
+            if inputMode == .direct { session.movePointer(to: framebufferPoint(recognizer)) }
         }
-        scrollRemainder.x += velocity.x
-        scrollRemainder.y += velocity.y
+        scroll(by: translation)
+    }
+
+    /// Scrolls by a finger's travel in view points: in pixels where the Mac
+    /// takes them (smooth), else in wheel lines.
+    private func scroll(by translation: CGPoint) {
+        // Natural scrolling: fingers moving down move the content down (wheel up).
+        scrollRemainder.x += translation.x
+        scrollRemainder.y += translation.y
+        if session.supportsPixelScroll {
+            // The content follows the fingers: their travel in framebuffer pixels.
+            let scale = pixelsPerPoint
+            let pixelsX = Int(scrollRemainder.x * scale), pixelsY = Int(scrollRemainder.y * scale)
+            scrollRemainder.x -= CGFloat(pixelsX) / scale
+            scrollRemainder.y -= CGFloat(pixelsY) / scale
+            session.scrollPixels(dx: pixelsX, dy: pixelsY)
+            return
+        }
         let clicksX = Int(scrollRemainder.x / pointsPerScrollClick), clicksY = Int(scrollRemainder.y / pointsPerScrollClick)
         scrollRemainder.x -= CGFloat(clicksX) * pointsPerScrollClick
         scrollRemainder.y -= CGFloat(clicksY) * pointsPerScrollClick
-        // Natural scrolling: fingers moving down move the content down (wheel up).
         session.scroll(dx: clicksX, dy: clicksY)
+    }
+
+    // MARK: Trackpad mode
+
+    private func handleTrackpad(_ event: SingleTouchRecognizer.Event) {
+        switch event {
+        case let .down(point, time):
+            lastTrackpadPoint = point
+            applyTrackpad(trackpad.touchDown(at: time))
+        case let .moved(point, time):
+            guard let last = lastTrackpadPoint else { return }
+            lastTrackpadPoint = point
+            applyTrackpad(trackpad.touchMoved(dx: point.x - last.x, dy: point.y - last.y, at: time))
+        case let .up(time):
+            lastTrackpadPoint = nil
+            applyTrackpad(trackpad.touchUp(at: time))
+        case .cancelled:
+            lastTrackpadPoint = nil
+            applyTrackpad(trackpad.cancel())
+        }
+        scheduleTrackpadDeadline()
+    }
+
+    private func applyTrackpad(_ actions: [TrackpadGesture.Action]) {
+        guard !actions.isEmpty else { return }
+        for action in actions {
+            switch action {
+            case let .move(dx, dy, dt):
+                let delta = acceleration.delta(dx: dx, dy: dy, dt: dt, pixelsPerPoint: pixelsPerPoint)
+                let pointer = session.pointer
+                session.movePointer(to: clampedToFocus(CGPoint(x: pointer.x + delta.dx, y: pointer.y + delta.dy)))
+                followCursor()
+            case .press:
+                pressButton(.left)
+            case .release:
+                session.press(.left, down: false)
+            }
+        }
+        // The modifiers stay down across a double click and a drag, and go up when the gesture ends.
+        if !trackpad.buttonHeld { releaseModifiers() }
+        updateCursor()
+    }
+
+    /// Wakes the gesture at its deadline (a long press, the end of a tap's drag window).
+    private func scheduleTrackpadDeadline() {
+        trackpadTimer?.cancel()
+        trackpadTimer = nil
+        guard let deadline = trackpad.deadline else { return }
+        let delay = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+        trackpadTimer = Task { [weak self] in
+            // Intentional bounded delay (at most the long-press time): cancelled by the next touch.
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            let actions = trackpad.advance(to: ProcessInfo.processInfo.systemUptime)
+            if actions.contains(.press) { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+            applyTrackpad(actions)
+            scheduleTrackpadDeadline()
+        }
+    }
+
+    /// A pointer position kept on the focused display (fitted mode) or the frame.
+    private func clampedToFocus(_ point: CGPoint) -> CGPoint {
+        let rect = fitToDisplay ? focusRect : CGRect(origin: .zero, size: frameSize)
+        return CGPoint(x: min(max(point.x, rect.minX), max(rect.minX, rect.maxX - 1)),
+                       y: min(max(point.y, rect.minY), max(rect.minY, rect.maxY - 1)))
+    }
+
+    /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
+    private func followCursor() {
+        guard inputMode == .trackpad, frameSize != .zero, view.bounds.width > 0 else { return }
+        let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
+        let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
+        let margin = min(bounds.width, bounds.height) * 0.12
+        var offset = scrollView.contentOffset
+        func follow(_ position: CGFloat, _ origin: inout CGFloat, _ length: CGFloat) {
+            if position - origin < margin { origin = position - margin } else if position - origin > length - margin { origin = position - length + margin }
+        }
+        follow(cursor.x, &offset.x, bounds.width)
+        follow(cursor.y, &offset.y, bounds.height)
+        if fitToDisplay {
+            offset = clamped(offset, allowHorizontal: false)
+        } else {
+            let inset = scrollView.contentInset, size = scrollView.contentSize
+            offset.x = min(max(offset.x, -inset.left), max(-inset.left, size.width + inset.right - bounds.width))
+            offset.y = min(max(offset.y, -inset.top), max(-inset.top, size.height + inset.bottom - bounds.height))
+        }
+        if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
+    }
+
+    public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+        followCursor()
+    }
+
+    // MARK: Mouse and trackpad (iPad)
+
+    /// The pointer follows a hovering mouse (both modes).
+    @objc private func handleHover(_ recognizer: UIHoverGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed:
+            pointerHovering = true
+            session.movePointer(to: framebufferPoint(recognizer))
+        default:
+            pointerHovering = false
+        }
+        updateCursor()
+    }
+
+    /// A mouse button: down and up where the pointer is, dragging in between;
+    /// the secondary button right-clicks.
+    private func handlePointerButton(_ event: PointerButtonRecognizer.Event) {
+        switch event {
+        case let .down(touch, secondary):
+            let button: VNCButtons = secondary ? .right : .left
+            if let held = pointerButton { session.press(held, down: false) }
+            pointerButton = button
+            session.movePointer(to: touch.location(in: content))
+            pressButton(button)
+        case let .moved(touch):
+            session.movePointer(to: touch.location(in: content))
+        case .up:
+            if let held = pointerButton { session.press(held, down: false) }
+            pointerButton = nil
+            releaseModifiers()
+        }
+        updateCursor()
+    }
+
+    /// A mouse wheel or two fingers on a trackpad: scrolls the Mac at the pointer.
+    @objc private func handleWheel(_ recognizer: UIPanGestureRecognizer) {
+        let translation = recognizer.translation(in: view)
+        recognizer.setTranslation(.zero, in: view)
+        if recognizer.state == .began {
+            scrollRemainder = .zero
+            session.movePointer(to: framebufferPoint(recognizer))
+        }
+        scroll(by: translation)
+    }
+
+    /// The system pointer hides over the screen: the Mac's cursor (or the drawn one) shows instead.
+    public func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
+        .hidden()
     }
 
     // MARK: Keyboard

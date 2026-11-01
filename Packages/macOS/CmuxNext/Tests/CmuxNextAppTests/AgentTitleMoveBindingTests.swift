@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import Testing
 
@@ -5,17 +6,17 @@ import Testing
 /// host moves the tab only while it still shows that chat.
 struct AgentTitleMoveBindingTests {
     @Test func movesOnlyTheMenusChat() {
-        #expect(AgentTabStore.tabStillShows("chat-a", requested: "chat-a"))
-        #expect(!AgentTabStore.tabStillShows("chat-b", requested: "chat-a"))
-        #expect(!AgentTabStore.tabStillShows(nil, requested: "chat-a"))
-        #expect(!AgentTabStore.tabStillShows("chat-a", requested: ""))
+        #expect(AgentPaneMoveTarget.tabStillShows("chat-a", requested: "chat-a"))
+        #expect(!AgentPaneMoveTarget.tabStillShows("chat-b", requested: "chat-a"))
+        #expect(!AgentPaneMoveTarget.tabStillShows(nil, requested: "chat-a"))
+        #expect(!AgentPaneMoveTarget.tabStillShows("chat-a", requested: ""))
     }
 
     /// No targets from a signed-out app or a list not loaded for the account signed in now (an
     /// account change, a failed refresh): a stale machine is never offered or moved to.
     @Test func offersTargetsOnlyFromTheCurrentAccountsLoadedList() {
-        #expect(AgentTabStore.offersMoveTargets(signedIn: true, loadedCurrent: true))
-        #expect(!AgentTabStore.offersMoveTargets(signedIn: true, loadedCurrent: false))
-        #expect(!AgentTabStore.offersMoveTargets(signedIn: false, loadedCurrent: true))
+        #expect(AgentPaneMoveTarget.offered(signedIn: true, loadedCurrent: true))
+        #expect(!AgentPaneMoveTarget.offered(signedIn: true, loadedCurrent: false))
+        #expect(!AgentPaneMoveTarget.offered(signedIn: false, loadedCurrent: true))
     }
 }

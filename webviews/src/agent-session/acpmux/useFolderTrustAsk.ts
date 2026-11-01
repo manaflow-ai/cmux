@@ -231,17 +231,23 @@ export function useFolderTrustAsk(
   const [trusted, setTrusted] = useState(false);
   const [scope, setScope] = useState<TrustScope>();
   const [justTrusted, setJustTrusted] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const bumpRevision = useCallback(() => setRevision((value) => value + 1), []);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
   const [reads, setReads] = useState(0);
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
+
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string; authorityEpoch: number }>();
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   /// Keyed by chat and visit (`retryKey`): fresh chats share no session id, so each keeps its own.
   const resend = useRef(
-    new Map<string, { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
+    new Map<
+      string,
+      { again: () => void; declined?: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }
+    >(),
   );
   /// The keys a chat's held retry may sit under: its visit's, then the unbound one (a New Tab's first
   /// render has no client visit yet, and its retry stays its own once the visit binds).
@@ -266,6 +272,7 @@ export function useFolderTrustAsk(
   const cwd =
     chat.cwd ??
     (refusal?.authorityEpoch === authorityEpoch && refusal.sessionId === sessionId ? refusal.cwd : undefined);
+
   // The chat a reply belongs to; a late reply for another one is dropped.
   const current = useRef({ sessionId, cwd, canAnswer, local, authorityEpoch });
   current.current = { sessionId, cwd, canAnswer, local, authorityEpoch };
@@ -440,6 +447,7 @@ export function useFolderTrustAsk(
   const save = useCallback(
     async (level: TrustLevel, folder?: string) => {
       if ((!ask && !cwd) || saving.current || !mounted.current || !sameAuthority() || !sameVisit()) return;
+      bumpRevision();
       saving.current = true;
       const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
       // The chat the answer was made in: the asked folder can be another spelling of its folder
@@ -532,7 +540,10 @@ export function useFolderTrustAsk(
         const found = heldRetry(asked.sessionId, visitValue);
         if (level === "trusted") {
           if (found) found.held.ready = true;
-        } else if (found) resend.current.delete(found.key);
+        } else if (found) {
+          resend.current.delete(found.key);
+          found.held.declined?.();
+        }
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {
@@ -551,6 +562,7 @@ export function useFolderTrustAsk(
       local,
       authorityEpoch,
       ownerEpoch,
+      bumpRevision,
       sameAuthority,
       sameVisit,
       visitValue,
@@ -598,6 +610,7 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    revision,
     /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
     /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
     /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
@@ -631,10 +644,12 @@ export function useFolderTrustAsk(
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(
-      (error: unknown, again?: () => void): boolean => {
+      (error: unknown, again?: () => void, declined?: () => void): boolean => {
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
+
         const said = trustRefusal(error);
         if (!said) return false;
+        bumpRevision();
         const named = said.cwd;
         if (named) setRefusal({ sessionId, cwd: named, authorityEpoch });
         const refusedFolder = named ?? cwd;
@@ -653,6 +668,7 @@ export function useFolderTrustAsk(
         if (again)
           resend.current.set(retryKey(sessionId, visitValue), {
             again,
+            declined,
             cwds: [cwd, refusedFolder],
             family,
             ready: false,
@@ -661,10 +677,11 @@ export function useFolderTrustAsk(
           const found = heldRetry(sessionId, visitValue);
           if (found) found.held.ready = false;
         }
+
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit, visitValue],
+      [sessionId, cwd, family, authorityEpoch, bumpRevision, sameAuthority, sameVisit, visitValue],
     ),
   };
 }

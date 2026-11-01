@@ -13,9 +13,22 @@ public final class TitlebarBandButton: ClickableButton {
     public var customImage: ((String, CGFloat) -> NSImage?)? {
         didSet { renderedIconSize = 0; renderSymbol() }
     }
+    /// Optional short text shown beside the symbol. A nil value preserves the icon-only control.
+    public var text: String? {
+        didSet {
+            guard text != oldValue else { return }
+            applyText()
+            needsLayout = true
+        }
+    }
     /// Optional compact count/status text supplied by a content-owned tool.
     public var badge: String? {
         didSet { badgeLabel.stringValue = badge ?? ""; badgeLabel.isHidden = badge == nil; needsLayout = true }
+    }
+    /// The glyph's point size, read at layout so density changes apply live; nil draws at
+    /// `Metrics.smallIconSize` (a split button's menu indicator draws smaller).
+    public var symbolPointSize: (() -> CGFloat)? {
+        didSet { renderedIconSize = 0; renderSymbol() }
     }
     private let badgeLabel = NSTextField(labelWithString: "")
     private var renderedIconSize: CGFloat = 0
@@ -23,14 +36,16 @@ public final class TitlebarBandButton: ClickableButton {
     /// Set once `hover` follows the pointer (not during NSButton's init).
     private var followsPointer = false
 
-    public init(symbol: String) {
+    public init(symbol: String, text: String? = nil) {
         self.symbol = symbol
+        self.text = text
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
         // A collapsing band narrows its items: the glyph scales down with them.
         imageScaling = .scaleProportionallyDown
+        applyText()
         renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
         badgeLabel.font = Typography.caption
@@ -66,13 +81,37 @@ public final class TitlebarBandButton: ClickableButton {
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
 
+    /// The width needed for the control's current symbol and optional text.
+    /// Text is still middle-truncated by the button cell when its frame is tighter.
+    public var preferredWidth: CGFloat {
+        guard let text, !text.isEmpty else { return Self.side }
+        let textWidth = ceil((text as NSString).size(withAttributes: [.font: Typography.caption]).width)
+        let badgeClearance = badge == nil ? 0 : Metrics.space3 + Metrics.space1
+        return Self.side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
+    }
+
     private func renderSymbol() {
-        let size = Metrics.smallIconSize
+        let size = symbolPointSize?() ?? Metrics.smallIconSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
         image = customImage?(symbol, size)
             ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+    }
+
+    private func applyText() {
+        guard let text, !text.isEmpty else {
+            title = ""
+            imagePosition = .imageOnly
+            return
+        }
+        title = text
+        font = Typography.caption
+        imagePosition = .imageLeft
+        alignment = .center
+        cell?.usesSingleLineMode = true
+        cell?.wraps = false
+        cell?.lineBreakMode = .byTruncatingMiddle
     }
 
     /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
