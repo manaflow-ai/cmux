@@ -110,14 +110,16 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
-                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudTurn: mode == .attach ? cloudTurn : nil)
+                let attachment = CloudTurnAttachment(endpoint: endpoint, ownerLink: ownerLink, turn: mode == .attach ? cloudTurn : nil)
+                let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: attachment.endpoint)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudTurn: attachment.turn)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect] in
-                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
+                let attachment = CloudTurnAttachment(endpoint: endpoint, ownerLink: ownerLink, turn: cloudTurn)
+                return RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
                     let started: Started
                     do {
                         started = try await Self.keyedStart(cwd, harness, model, approvals: approvals,
@@ -126,9 +128,9 @@ public nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
-                    let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
+                    let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: attachment.endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudTurn: cloudTurn)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudTurn: attachment.turn)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)

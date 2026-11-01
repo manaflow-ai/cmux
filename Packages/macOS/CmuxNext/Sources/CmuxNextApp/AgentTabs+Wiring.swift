@@ -557,19 +557,27 @@ extension AgentTabStore {
             try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
         }
         return .init(state: { [weak services] session, prompt in
-            let scope = await MainActor.run { () -> (String, String, AgentSessionAttachClient.OwnerLink)? in
+            let scope = await MainActor.run { () -> (String, String, CloudLinkSession)? in
                 guard let services, services.cloud.isSignedIn,
                       let (tab, pane) = services.locateTabOnAnyMachine(key),
                       let daemon = try? services.machines.agentDaemon(forTab: tab),
-                      let machine = services.machines.session(daemon.machineID), machine.appLink != nil,
+                      let machine = services.machines.session(daemon.machineID), let link = machine.appLink,
                       let workspace = daemon.store.workspace(containing: pane.handle), let resource = workspace.resourceID else { return nil }
-                return (resource.rawValue, machine.machineID, CloudMachineLinks(appLink: machine.appLink, link: nil).ownerLink)
+                return (resource.rawValue, machine.machineID, link)
             }
-            guard let (workspace, machine, link) = scope, await link() != nil else {
+            guard let (workspace, machine, link) = scope, await link.ownerLink != nil else {
                 throw CloudTurnOwnerClient.Failure.scope
             }
             guard let account = await services?.cloud.workspaceBindingScope else { throw CloudTurnOwnerClient.Failure.scope }
             let state = try await owner.authorizePreparation(workspace: workspace, machine: machine, session: session, prompt: prompt)
+            let generation = try JSONDecoder().decode(CloudTurnOwnerClient.Scope.self, from: state).generation
+            let connection = CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) {
+                try await identity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
+            }
+            let target = try JSONDecoder().decode(CloudWorkspaceConnection.self, from: await connection.connection(workspace: workspace)).checked(machine: machine)
+            guard target.generation == generation,
+                  await link.isConnected(machine: target.connectionMachine, generation: generation)
+            else { throw CloudTurnOwnerClient.Failure.scope }
             try await MainActor.run {
                 guard let services else { throw CancellationError() }
                 try services.cloud.rememberTurnWorkspace(workspace: workspace, machine: machine, scope: account)
