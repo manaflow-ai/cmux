@@ -975,8 +975,18 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir =
-        if cloud_peer { cloud_chat_folder(&name).await? } else { peer_scratch_root()?.join(name) };
+    let dir = if cloud_peer {
+        // Daemon starts use numeric surface ids. Keep a peer's numeric session
+        // name in its own namespace so the two paths cannot share a chat.
+        let folder_name = name
+            .parse::<u64>()
+            .ok()
+            .map(|_| format!("peer-{name}"))
+            .unwrap_or_else(|| name.clone());
+        cloud_chat_folder(&folder_name).await?
+    } else {
+        peer_scratch_root()?.join(name)
+    };
     let failed = |why: String| {
         RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
     };
@@ -1015,9 +1025,22 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
     let failed = |why: String| {
         RpcError::invalid_params(format!("the Cloud chat folder could not be made: {why}"))
     };
+    let safe_dir = |metadata: &std::fs::Metadata| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            metadata.is_dir()
+                && metadata.uid() == unsafe { libc::geteuid() }
+                && metadata.mode() & 0o022 == 0
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.is_dir()
+        }
+    };
     for path in [&chats, &dir] {
         match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.is_dir() => {}
+            Ok(metadata) if safe_dir(&metadata) => {}
             Ok(_) => return Err(failed(format!("{} is not a directory", path.display()))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let mut builder = std::fs::DirBuilder::new();
@@ -1042,6 +1065,15 @@ mod cloud_chat_tests {
         let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
         assert_eq!(dir, home.join("chats/chat-1"));
         assert!(dir.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
         let _ = std::fs::remove_dir_all(home);
     }
 }

@@ -296,9 +296,6 @@ pub(super) fn start(
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
     // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
     let own = super::agent_session_trust::callers_own_cloud_vm(mux, &params.vm_kind);
-    if params.cwd.is_none() && !own {
-        return refuse(writer, id, Refusal::BadRequest);
-    }
     if let Some(work) = super::agent_session_trust::owner_cloud_cwd(
         own,
         params.cwd.as_deref(),
@@ -306,6 +303,16 @@ pub(super) fn start(
         params.surface,
     ) {
         params.cwd = Some(work);
+    }
+    // A pre-capability Cloud caller cannot send the owner word, so preserve
+    // its historical work-folder start. Non-Cloud callers still need to send
+    // an explicit folder.
+    if params.cwd.is_none() && mux.control_clients.agent_sessions.starts.on_cloud_vm() {
+        params.cwd = super::agent_session_folders::own_work_folder(true)
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+    if params.cwd.is_none() {
+        return refuse(writer, id, Refusal::BadRequest);
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
