@@ -60,7 +60,7 @@ nonisolated enum AcpmuxStrayDaemon {
     /// Takes over the daemon described by `status` when it is stray. Returns true when it stopped
     /// that daemon, so the caller starts the bundled one. Who it is comes from the socket's own
     /// peer (`LOCAL_PEERPID`), never from the pid the daemon reports alone.
-    static func handOffIfStray(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    static func handOffIfStray(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons) async -> Bool {
         guard let peer = strayPeer(status, environment: environment), let pid = status.pid else { return false }
         let path = peer.executablePath
         // Without agent hosts its agents end, but chats it keeps on disk resume in the bundled
@@ -74,7 +74,7 @@ nonisolated enum AcpmuxStrayDaemon {
         // this takeover fails.
         let inserted = handedOff.withLock { pids in
             let inserted = pids.insert(pid).inserted
-            if inserted { AcpmuxDaemonSummary.mark(home: environment.home, restarting: true) }
+            if inserted { daemons.mark(home: environment.home, restarting: true) }
             return inserted
         }
         guard inserted else { return false }
@@ -88,12 +88,12 @@ nonisolated enum AcpmuxStrayDaemon {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux takeover request failed: \(String(describing: error), privacy: .public)")
-            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
+            daemons.mark(home: environment.home, restarting: false)
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
-        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
     }
 
@@ -107,7 +107,7 @@ nonisolated enum AcpmuxStrayDaemon {
     }
 
     /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
-    /// ``AcpmuxDaemonSummary``): whether it is stray, and whether ``handOffIfStray(_:environment:)``
+    /// ``AcpmuxDaemonSummary``): whether it is stray, and whether ``handOffIfStray(_:environment:daemons:)``
     /// would take it over now. An attached daemon is never taken over, nor one this process took once.
     static func takesOver(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) -> (stray: Bool, takesOver: Bool) {
         guard strayPeer(status, environment: environment) != nil, let pid = status.pid else { return (false, false) }

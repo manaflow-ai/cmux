@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 535,
   "sections": [
     {
       "id": "general",
@@ -89,6 +89,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
         },
         {
           "key": "agentPane.scrollToBottomOnSend",
@@ -3454,6 +3466,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showProfileControl",
           "title": "Show Profile Button",
           "help": "",
@@ -3910,6 +3930,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },

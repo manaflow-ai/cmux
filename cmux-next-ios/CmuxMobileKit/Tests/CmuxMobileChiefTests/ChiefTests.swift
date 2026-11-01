@@ -370,29 +370,38 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// How long a wait may take before it gives up: a watchdog against a hang, not a
-/// time the work is expected to take. In the full target a synchronous UIKit suite
-/// held the main thread 11.6 s on a cold simulator, and work waited on here (main-actor
-/// tasks) waits behind such a hold however fast it is, so a short limit failed tests
-/// that had nothing wrong with them.
+/// How long a wait may run before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. It counts only time the wait could run: in
+/// the full kit the main thread was held over a minute, every main-actor Chief test
+/// ran about 85 s instead of 7, and waits that woke past a wall-clock deadline gave up on
+/// their first look, before the work they waited on (held just as long) got its turn.
 let waitWatchdog: Duration = .seconds(60)
 
-/// Whether `condition` came to hold before `watchdog` passed or the task was cancelled.
-/// It waits on the condition's own state rather than on time: it wakes when observable
-/// state the condition read changes (Observation), and checks again every `tick` for
-/// state that isn't observable, such as a test double's log of requests.
+/// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
+/// it, whatever watchdog the wait asked for: only a backstop. A main thread blocked
+/// for good stops the wait too; the suite's time limit ends that.
+let waitBackstop: Duration = .seconds(600)
+
+/// Whether `condition` came to hold within `watchdog` of the wait's own running time,
+/// before the task was cancelled. It waits on the condition's own state rather than on
+/// time: it wakes when observable state the condition read changes (Observation), and
+/// checks again every `tick` for state that isn't observable, such as a test double's
+/// log of requests. A wake that comes late because the main thread was held counts only
+/// the time it asked for, so a hold never uses up the wait.
 @MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
                            _ condition: @MainActor () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now.advanced(by: watchdog)
+    let backstop = ContinuousClock.now.advanced(by: waitBackstop)
+    var left = watchdog
     while true {
         let wake = Wake()
         let met = withObservationTracking { condition() } onChange: {
             Task { @MainActor in wake.fire() }
         }
         if met { return true }
-        if Task.isCancelled || ContinuousClock.now >= deadline { return false }
-        // Never past the deadline, however long the tick.
-        let nap = min(tick, deadline - ContinuousClock.now)
+        if Task.isCancelled || left <= .zero || ContinuousClock.now >= backstop { return false }
+        // Never past what is left, however long the tick.
+        let nap = min(max(tick, .milliseconds(1)), left)
+        let start = ContinuousClock.now
         let ticker = Task { @MainActor in
             try? await Task.sleep(for: nap)
             wake.fire()
@@ -403,6 +412,7 @@ let waitWatchdog: Duration = .seconds(60)
             Task { @MainActor in wake.fire() }
         }
         ticker.cancel()
+        left -= min(ContinuousClock.now - start, nap)
     }
 }
 

@@ -2,11 +2,12 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Testing
 
 /// The entry owns the chrome. Its page must leave that hierarchy before AppKit destroys the
 /// chrome: Chromium's hierarchy probe can otherwise register a weak reference to a dying view.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct BrowserEntryRetirementTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1))) struct BrowserEntryRetirementTests {
     @Test func releasingAnEntryRetiresItsPageBeforeItsChrome() {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         weak var released: BrowserEntry?
