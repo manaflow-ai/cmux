@@ -166,8 +166,11 @@ impl Backend for Runtime<'_> {
                 if code == "repo.needs_github" {
                     // Missing installation is the same recoverable state
                     // whether the bridge returns connect or a typed error.
+                    // Keep repositories already received from earlier pages:
+                    // an installation can expire while a paginated catalog
+                    // is being read, but those rows are still valid choices.
                     return Ok(Catalog {
-                        repos: Vec::new(),
+                        repos: catalog.repos,
                         install_url: Some(self.install_url(error)?),
                     });
                 }

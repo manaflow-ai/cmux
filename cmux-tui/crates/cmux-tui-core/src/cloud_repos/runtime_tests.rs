@@ -32,10 +32,22 @@ impl Fixture {
     }
 
     fn server(&self, name: &str, replies: Vec<Value>) -> JoinHandle<Vec<Value>> {
+        self.server_observing(name, replies, |_, _| {})
+    }
+
+    fn server_observing<F>(
+        &self,
+        name: &str,
+        replies: Vec<Value>,
+        observer: F,
+    ) -> JoinHandle<Vec<Value>>
+    where
+        F: Fn(usize, &Value) + Send + 'static,
+    {
         let listener = UnixListener::bind(self.root.join(name)).unwrap();
         std::thread::spawn(move || {
             let mut requests = Vec::new();
-            for reply in replies {
+            for (index, reply) in replies.into_iter().enumerate() {
                 // A faulty implementation that sends fewer calls fails the
                 // test within five seconds rather than leaving accept hung.
                 let mut ready =
@@ -48,6 +60,7 @@ impl Fixture {
                 let mut line = String::new();
                 BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
                 requests.push(serde_json::from_str(&line).unwrap());
+                observer(index, requests.last().unwrap());
                 writeln!(stream, "{reply}").unwrap();
             }
             requests
@@ -128,13 +141,30 @@ fn cloud_repo_runtime_running_progress_finishes_with_seed_notes() {
     let fixture = Fixture::new();
     let progress = json!({"received_bytes":1024,"objects":2,"total_objects":4});
     let notes = json!(["lfs_unavailable"]);
-    let seed = fixture.server(
+    let expected_progress = progress.clone();
+    let mux = fixture.mux.clone();
+    let session = fixture.session.clone();
+    let seed = fixture.server_observing(
         "seed.sock",
         vec![
             seed_reply(json!({"job":"progress"})),
             seed_reply(json!({"state":"running","phase":"clone","progress":progress})),
             seed_reply(json!({"state":"done","head":"abc123","notes":notes})),
         ],
+        move |index, request| {
+            if index == 2 {
+                assert_eq!(request["cmd"], "git.seed.status");
+                assert_eq!(
+                    store::pending(&mux, &session).unwrap(),
+                    vec![json!({
+                        "repo":"owner/tool",
+                        "state":"running",
+                        "phase":"clone",
+                        "progress":expected_progress,
+                    })]
+                );
+            }
+        },
     );
     let result =
         add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"owner/tool"})).unwrap();
@@ -474,6 +504,31 @@ fn cloud_repo_runtime_connector_pages_and_rejects_repeated_cursor() {
     let asks = agent.join().unwrap();
     assert_eq!(asks[1], json!({"github_repos":{"query":"tool","cursor":"page-2"}}));
     assert_eq!(asks[3], json!({"github_repos":{"cursor":"again"}}));
+}
+
+#[test]
+fn cloud_repo_runtime_add_keeps_prior_page_when_install_expires() {
+    let fixture = Fixture::new();
+    let install_url = "https://github.com/apps/cmux/installations/new";
+    store::sync(&fixture.mux, &json!({"repos":[],"install_url":install_url})).unwrap();
+    let agent = fixture.server(
+        "agent.sock",
+        vec![
+            json!({
+                "ok":true,
+                "repos":[{"fullName":"owner/tool","private":true}],
+                "next_cursor":"page-2"
+            }),
+            json!({"ok":false,"error":{"code":"repo.needs_github"}}),
+        ],
+    );
+    let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"page-auth"})), done()]);
+    let result = add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"tool"})).unwrap();
+    assert_eq!(result["repo"], "owner/tool");
+    assert_eq!(seed.join().unwrap().len(), 2);
+    let asks = agent.join().unwrap();
+    assert_eq!(asks[0], json!({"github_repos":{"query":"tool"}}));
+    assert_eq!(asks[1], json!({"github_repos":{"query":"tool","cursor":"page-2"}}));
 }
 
 #[test]
