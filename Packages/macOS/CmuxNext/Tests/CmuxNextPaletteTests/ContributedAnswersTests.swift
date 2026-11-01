@@ -323,6 +323,28 @@ struct ContributedAnswersTests {
         #expect(palette.model.resultsVersion == version, "an empty answer redelivered \(palette.model.resultsVersion - version) times")
     }
 
+    /// Review 6 of #28090: the skip of a delivery that changes nothing compares what a delivery shows, not only the
+    /// row ids. An answer with the same chats under new titles (a chat renamed) must reach the screen.
+    @Test func anAnswerWithTheSameRowsRetitledIsDelivered() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("quokka"))
+        await palette.model.settle()
+        await Self.until { chats.streams["quokka"] != nil }
+        chats.streams["quokka"]?.yield([Self.item("chat:q", "Quokka plan", ran: ran)])
+        await Self.until { palette.model.rows.contains { $0.id == "chat:q" } }
+        #expect(palette.model.rows.first { $0.id == "chat:q" }?.item.title == "Quokka plan")
+        // The stream reads on (no end in between), so nothing but the title changes.
+        chats.streams["quokka"]?.yield([Self.item("chat:q", "Quokka plan, renamed", ran: ran)])
+        await Self.until { palette.model.rows.first { $0.id == "chat:q" }?.item.title == "Quokka plan, renamed" }
+        #expect(palette.model.rows.first { $0.id == "chat:q" }?.item.title == "Quokka plan, renamed",
+                "the renamed chat's answer was skipped as unchanged")
+        chats.streams["quokka"]?.finish()
+    }
+
     /// Review 5 note 3: on a full page that shows an older query's chats, navigation's rows are the rows on screen
     /// (the shown and selectable lists cut the ranked rows at the same row), so the selection is never off screen.
     @Test func navigationRowsAreAllOnScreenWithStandIns() async {
