@@ -47,6 +47,10 @@ fn walk(ws: Option<Arc<dyn Workspaces>>) -> (String, bool, String) {
     h.agents.hold(true);
     std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
     h.brain.set_workspaces(ws.clone());
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Spawner::new(
             h.chat.clone(),

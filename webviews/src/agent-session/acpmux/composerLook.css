@@ -1,38 +1,13 @@
 /* The composer's looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex. since
-   it's just all looks anyways"). Claude's, the default, sets nothing here: it is the composer as it
-   was. Codex's (data-composer-look="codex" on the chat's form and on New Tab's .nt-composer) lays the
-   same controls out as Codex desktop: one row inside the box under the prompt, + and the mode on the
-   left, the context ring, the model and effort, the mic and Send on the right, and the folder and
-   computer strip a tray tucked under the box's top edge. Our glass and the theme's accent (never
-   Codex's orange), Send our plain glyph (no disc). test/composer-look.test.tsx checks it. */
-
-/* The box's row: + first, then the mode, pushing the rest right; the ring before the model, as Codex
-   draws its own; the mic and Send last. The chips lay out as the row's own items. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips {
-  display: contents;
-}
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * {
-  order: 3;
-}
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-access {
-  order: 1;
-}
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-context {
-  order: 2;
-  margin-inline-start: auto;
-}
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers) > .acpmux-composer-actions {
-  order: 4;
-  margin-inline-start: 0;
-}
-/* With no ring (New Tab, or the ring hidden), the model starts the right group. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context)) .acpmux-chips > .acpmux-model {
-  margin-inline-start: auto;
-}
-/* With neither (no harness yet), the mic and Send keep the right edge. */
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] :is(.acpmux-composer-bar, .nt-pickers):not(:has(> .acpmux-context, .acpmux-model)) > .acpmux-composer-actions {
-  margin-inline-start: auto;
-}
+   it's just all looks anyways"). Both lay the buttons out as Claude's, the default (Leo 2026-11-01:
+   "the placement of the buttons are just really bad compared to our claude code version", then "we
+   already have a good version"): + left of the prompt, the send slot and the mic right of it, the
+   mode, model, effort and context ring in the quiet row under the box (composerLocation.css).
+   Codex's (data-composer-look="codex" on the chat's form and on New Tab's .nt-composer) keeps only
+   Codex's folder and computer strip, a tray tucked under the box's top edge, and Full access in the
+   theme's accent (never Codex's orange). Replaced: Codex's own row in the box under the prompt (cmux
+   #28901, last good commit 8b44a8a1dc2; gallery agent-pane.composer-look codex-chat-alt-in-box-row).
+   test/composer-codex-row.test.ts checks both looks draw the same row. */
 
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
@@ -99,32 +74,6 @@
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
-/* The Classic New Tab page (NewTabPage.tsx) draws the same look in its own box: the row under the
-   field takes Codex's order, the mode first, then the project and the agent, the model and effort
-   pushed right next to Send. */
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-newtab-context, .acpmux-chips) {
-  display: contents;
-}
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > * {
-  order: 2;
-}
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-access {
-  order: 0;
-}
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under :is(.acpmux-project, .acpmux-newtab-chip) {
-  order: 1;
-}
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under .acpmux-chips > .acpmux-model {
-  margin-inline-start: auto;
-}
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under > .acpmux-send {
-  order: 3;
-}
-/* A terminal or a browser tab has no model: Send keeps the right edge. */
-.acpmux-newtab[data-composer-look="codex"] .acpmux-newtab-under:not(:has(.acpmux-model)) > .acpmux-send {
-  margin-inline-start: auto;
-}
-
 /* The New Tab page's dots (newtab/PageDots.tsx): the looks, then the page's styles, one row under
    the page where the style switch sat (newtab/screen.css .nt-style). */
 .nt-page-dots {
@@ -146,10 +95,10 @@
 
 /* The look dots in a chat (LookSwitch.tsx): the New Tab page's dots (newtab/screen.css .nt-style),
    centered on the composer, in one element that survives a look change (ComposerBox.tsx), so a look
-   switch keeps the dots and their focus. With Claude's look the element is empty height after the
-   quiet row and the dots sit over the row's empty middle, out of its flow, so the row lays out as
-   without them; with Codex's it is the box's internal dead-space row at its bottom edge. They show while the pointer is over that area or a
-   dot has the keyboard, at once, and fade when it leaves (an exit, never an entry). */
+   switch keeps the dots and their focus. In either look the element is empty height after the quiet
+   row and the dots sit over the row's empty middle, out of its flow, so the row lays out as without
+   them. They show while the pointer is over that area or a dot has the keyboard, at once, and fade
+   when it leaves (an exit, never an entry). */
 .acpmux-look-slot {
   position: absolute;
   left: 50%;
@@ -176,53 +125,14 @@
   padding: 0 0 0 4px;
   transform: translateY(-50%);
 }
-/* Codex's look: the stable sibling host is positioned over the box's own dead-space row. The box
-   keeps a full 24px dot row inside its glass; the parent has no extra bottom gutter, so the dots cannot
-   fall below the composer edge or remount when the look changes. */
-.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
-  padding-bottom: 0;
-}
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(~ .acpmux-composer-under) {
-  padding-bottom: var(--ds-space-5);
-}
+/* No height of its own after the quiet row; the 24px dots ride up over the row's middle (the row is
+   28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
 .acpmux-composer-under {
   position: relative;
-  height: 16px;
-}
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under {
-  position: absolute;
-  /* Match the card's content column so the floating dock's gutters still pass
-     pointer and wheel input through to the transcript. */
-  inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)))
-    var(--cv-inset-end, var(--cv-inset, max(18px, calc((100% - 760px) / 2))));
-  bottom: 0;
-  z-index: calc(var(--layer-raised, 1) + 1);
-}
-/* The shared model footer adds its 28px row and 8px margins above and below it. Keep Codex's dots
-   overlay on the box's dead-space edge, instead of at the bottom of that footer. (64px was measured
-   in a gallery that applied styles.css's 48px bar height to the row, which the app never does.) */
-.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
-  bottom: 44px;
-  height: var(--ds-space-5);
-}
-.acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
-  height: 16px;
-}
-.acpmux-composer-under:not([data-beside-foot]) :is(.nt-style-option, .nt-style-mark) {
-  height: 16px;
-}
-/* Claude's look: no height of its own after the quiet row; the 24px dots ride up over the row's
-   middle (the row is 28px with a 10px bottom margin, composerLocation.css .acpmux-composer-foot). */
-.acpmux-composer-under[data-beside-foot] {
   height: 0;
 }
-.acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
+.acpmux-composer-under .acpmux-look-slot {
   bottom: 12px;
-}
-/* Codex's 24px dots fill the box's own row. The Claude-only 12px lift would overlap one-line
-   prompt actions when both looks share the footer. */
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under[data-beside-foot] .acpmux-look-slot {
-  bottom: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-style.acpmux-look-dots {

@@ -8,8 +8,11 @@
 # Contents/Resources/bin/cmux-tui.version (`mode=`, `key=`, `commit=`,
 # `source=`, `sha256=`, `run=`, `url=`, `version=`).
 #
-# This phase never downloads anything. Mode: CMUX_NEXT_TUI_MODE (tree or
-# pin), else pin for the Release configuration and tree for every other one.
+# This phase never downloads anything. Mode: CMUX_NEXT_TUI_MODE (tree, pin or
+# deferred), else pin for the Release configuration and tree for every other one.
+# No mode ever falls back to another cmux-tui (a CMUX_TUI_CLIENT_LOCAL of
+# another tree, or a release installer cache slice): an old client runs an old
+# daemon in the new app.
 #
 # Source order:
 #   1. CMUX_NEXT_TUI_BIN (a local cargo build or any hosted artifact),
@@ -20,12 +23,13 @@
 #      (`scripts/cmux-next/pin-cmux-tui.sh path`). scripts/reload.sh fetches it
 #      before building; by hand, `scripts/cmux-next/pin-cmux-tui.sh fetch`.
 #      Missing, or a sha256 other than the published one, fails the build.
-#   3. pin mode (Release; release and nightly jobs then replace it with the
-#      universal client of their own tree, install-cmux-tui-client.sh, so the
-#      pin is usually not fetched): scripts/cmux-next/cmux-tui.pin, as fetched by
-#      `pin-cmux-tui.sh fetch --pin`; then CMUX_TUI_CLIENT_LOCAL and the newest
-#      release installer cache slice, with a warning. With none of these it
-#      keeps an existing bundled copy, or warns and exits 0.
+#   3. pin mode (Release): scripts/cmux-next/cmux-tui.pin, as fetched by
+#      `pin-cmux-tui.sh fetch --pin`. A missing or malformed pin, a host other
+#      than arm64, or a pin that is not downloaded fails the build.
+#   4. deferred mode (release, nightly and CI Release jobs, which replace the
+#      client with the universal one of their own tree after the build,
+#      install-cmux-tui-client.sh): bundles none. It clears every output this
+#      phase owns and exits 0, so no client from another build is left behind.
 #
 # It then writes bin/daemon-capabilities.json from the placed binary
 # (write-daemon-capabilities.sh): the cmux-tui and acpmux capabilities the web
@@ -105,7 +109,25 @@ mode="${CMUX_NEXT_TUI_MODE:-}"
 if [[ -z "$mode" ]]; then
   if [[ "${CONFIGURATION:-Debug}" == Release ]]; then mode=pin; else mode=tree; fi
 fi
-[[ "$mode" == tree || "$mode" == pin ]] || { echo "error: CMUX_NEXT_TUI_MODE must be tree or pin, not '$mode'" >&2; exit 1; }
+[[ "$mode" == tree || "$mode" == pin || "$mode" == deferred ]] || { echo "error: CMUX_NEXT_TUI_MODE must be tree, pin or deferred, not '$mode'" >&2; exit 1; }
+
+# Every output this phase owns. A failed or deferred run removes them all:
+# keeping a prior binary would let a successful dependency stamp preserve
+# companions from a different tree, architecture, or mode.
+clear_outputs() {
+  rm -f "$dest" "$dest_dir/cmux-tui" "$dest_dir/acpmux" \
+    "$dest_dir/cmux-app-host" "$dest_dir/cmux-cloud" "$dest_dir/cmux-browser-host" \
+    "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" \
+    "$dest_dir/cmux-tui.version" "$dest_dir/daemon-capabilities.json"
+}
+# pin_error <message>: a pin-mode build without its pinned cmux-tui fails, the
+# way tree mode does, and leaves no bundled client behind.
+pin_error() {
+  clear_outputs
+  echo "error: $1" >&2
+  echo "error: pin mode (the Release default) bundles only the pinned cmux-tui, never another client: run scripts/cmux-next/pin-cmux-tui.sh fetch --pin, set CMUX_NEXT_TUI_BIN, or build with CMUX_NEXT_TUI_MODE=tree (deferred when install-cmux-tui-client.sh installs the client after the build)" >&2
+  exit 1
+}
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
@@ -147,53 +169,26 @@ elif [[ -z "$src" && "$mode" == tree ]]; then
     # A tree fetched through its v1 publication (CMUX-TUI-TREE-KEY-V2) records that key.
     [[ "$published_key" =~ ^[0-9a-f]{40}$ ]] && url="https://files.cmux.com/cmux-tui/tree/$published_key/cmux-tui-aarch64-apple-darwin"
   fi
+elif [[ -z "$src" && "$mode" == pin ]]; then
+  [[ -f "$pin_file" ]] || pin_error "no cmux-tui pin at $pin_file"
+  [[ "$arch" == aarch64 ]] || pin_error "the pinned cmux-tui is published for arm64 only, not $arch"
+  expected_commit="$(awk -F= '$1=="commit"{print $2}' "$pin_file")"
+  run_id="$(awk -F= '$1=="run"{print $2}' "$pin_file")"
+  url="$(awk -F= '$1=="url"{sub(/^[^=]*=/, ""); print}' "$pin_file")"
+  pin_sha256="$(awk -F= '$1=="sha256"{print $2}' "$pin_file")"
+  if [[ ! "$expected_commit" =~ ^[0-9a-f]{40}$ || ! "$pin_sha256" =~ ^[0-9a-f]{64}$ || "$url" != https://* ]]; then
+    pin_error "$pin_file is malformed: it needs a 40-hex commit=, a 64-hex sha256= and an https:// url="
+  fi
+  pinned="$repo_root/cmux-tui/target/hosted/$expected_commit/cmux-tui"
+  [[ -f "$pinned" ]] || pin_error "the pinned cmux-tui $expected_commit is not downloaded ($pinned)"
+  actual="$(sha256_of "$pinned")"
+  [[ "$actual" == "$pin_sha256" ]] || pin_error "$pinned has sha256 $actual, but $pin_file pins $pin_sha256"
+  src="$pinned"
+  source_kind="pinned-hosted"
 elif [[ -z "$src" ]]; then
-  if [[ -f "$pin_file" && "$arch" == aarch64 ]]; then
-    expected_commit="$(awk -F= '$1=="commit"{print $2}' "$pin_file")"
-    run_id="$(awk -F= '$1=="run"{print $2}' "$pin_file")"
-    url="$(awk -F= '$1=="url"{sub(/^[^=]*=/, ""); print}' "$pin_file")"
-    pin_sha256="$(awk -F= '$1=="sha256"{print $2}' "$pin_file")"
-    pinned="$repo_root/cmux-tui/target/hosted/$expected_commit/cmux-tui"
-    if [[ -f "$pinned" ]]; then
-      actual="$(sha256_of "$pinned")"
-      if [[ "$actual" != "$pin_sha256" ]]; then
-        echo "error: $pinned has sha256 $actual, but $pin_file pins $pin_sha256" >&2
-        exit 1
-      fi
-      src="$pinned"
-      source_kind="pinned-hosted"
-    else
-      echo "warning: pinned cmux-tui $expected_commit is not downloaded; run scripts/cmux-next/pin-cmux-tui.sh fetch --pin"
-      expected_commit=""
-    fi
-  fi
-  if [[ -z "$src" && -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-    src="$CMUX_TUI_CLIENT_LOCAL"
-    source_kind="client-local"
-  fi
-  if [[ -z "$src" ]]; then
-    cache="${CMUX_TUI_CLIENT_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-client}"
-    if [[ -d "$cache" ]]; then
-      # Newest cached slice by mtime.
-      # shellcheck disable=SC2012 # cache paths are commit hashes
-      src="$(ls -t "$cache"/*/"cmux-tui-$arch-apple-darwin" 2>/dev/null | head -n 1 || true)"
-      [[ -n "$src" ]] && source_kind="release-cache"
-    fi
-  fi
-  if [[ "$source_kind" == client-local || "$source_kind" == release-cache ]]; then
-    echo "warning: bundling release cmux-tui $src, which lacks the cmux-next daemon capabilities"
-  fi
-  if [[ -z "$src" ]]; then
-    # There is no source to validate. Clear every output owned by this phase;
-    # keeping a prior binary would let a successful dependency stamp preserve
-    # companions from a different tree, architecture, or mode.
-    rm -f "$dest" "$dest_dir/cmux-tui" "$dest_dir/acpmux" \
-      "$dest_dir/cmux-app-host" "$dest_dir/cmux-cloud" "$dest_dir/cmux-browser-host" \
-      "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" \
-      "$dest_dir/cmux-tui.version" "$dest_dir/daemon-capabilities.json"
-    echo "warning: no cmux-tui binary to bundle. Run scripts/cmux-next/pin-cmux-tui.sh fetch --pin, or set CMUX_NEXT_TUI_BIN."
-    exit 0
-  fi
+  clear_outputs
+  echo "note: CMUX_NEXT_TUI_MODE=deferred: bundled no cmux-tui; install-cmux-tui-client.sh must install this tree's client after the build"
+  exit 0
 fi
 if [[ ! -f "$src" ]]; then
   echo "error: cmux-tui source $src does not exist" >&2
@@ -203,10 +198,6 @@ fi
 sha256="$(sha256_of "$src")"
 version_line="$("$src" --version 2>/dev/null | head -n 1 || true)"
 commit="$(printf '%s' "$version_line" | sed -n 's/.*(\([0-9a-f]\{7,40\}\).*/\1/p')"
-if [[ -z "$commit" && "$source_kind" == release-cache ]]; then
-  # Cached slices are not executable; the cache directory is the commit.
-  commit="$(basename "$(dirname "$src")")"
-fi
 if [[ -n "$expected_commit" && ( -z "$commit" || "$expected_commit" != "$commit"* ) ]]; then
   echo "error: $source_kind cmux-tui reports '$version_line', not commit $expected_commit" >&2
   exit 1
@@ -220,7 +211,7 @@ companion_source() {
   companion_want=""
   if [[ -n "$override" ]]; then
     companion_src="$override"
-  elif [[ "$source_kind" == override || "$source_kind" == client-local || "$source_kind" == tree-local-build ]]; then
+  elif [[ "$source_kind" == override || "$source_kind" == tree-local-build ]]; then
     [[ -f "$(dirname "$src")/$file" ]] && companion_src="$(dirname "$src")/$file"
   elif [[ "$source_kind" == tree-hosted ]]; then
     state="$tree_dir/$file.sha256"
@@ -323,7 +314,7 @@ if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%
   printf '%s' "$version_text" > "$version_file"
 fi
 # bin/daemon-capabilities.json, from the binary just placed. A build of this
-# checkout must print its list; an override, pin or cache binary, or a pull
+# checkout must print its list; an override or pin binary, or a pull
 # request's fallback tree (CMUX_TUI_TREE_KEY, an older published tree), may
 # predate the command.
 require_capabilities=""

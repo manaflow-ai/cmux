@@ -235,7 +235,9 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       for (const width of [760, 300])
         test(`${engine}: ${stage.name} at ${width} px: the mic stays`, async () => {
           const page = await open(engine, stage, width);
-          // The chat's Send waits for a draft: type one so Send comes in after the mic.
+          // The chat's Send waits for a draft: type one so Send comes in. In the chat it takes the one
+          // send slot before the mic, Claude desktop's ↵ (Leo 2026-10-31: "THE F***ING TWO SEND
+          // BUTTONS"), so the mic keeps the right edge; New Tab's Send stays after the mic.
           if (!stage.sendAtRest) {
             await page.locator(`${stage.box} .acpmux-md`).first().click();
             await page.keyboard.type("Retry");
@@ -245,8 +247,10 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           await page.close();
           expect(at.mic, "the mic shows").not.toBeNull();
           expect(at.mic!.width, "the mic at full size").toBeGreaterThanOrEqual(20);
-          expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
-          expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
+          if (stage.sendAtRest) expect(at.send!.left, "Send after the mic").toBeGreaterThanOrEqual(at.mic!.right - 0.5);
+          else expect(at.send!.right, "Send before the mic").toBeLessThanOrEqual(at.mic!.left + 0.5);
+          expect(at.send!.left, "Send inside the box").toBeGreaterThanOrEqual(at.box.left);
+          expect(at.mic!.right, "the mic inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
     test(`${engine}: + is its glyph, named Add, its tooltip "Add files and more"`, async () => {

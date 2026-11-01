@@ -13,8 +13,11 @@ extension WorkspaceRowView {
         let th = ceil(title.intrinsicContentSize.height)
         let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let top = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
-        return (th, sh, top, isExpanded ? top + th / 2 : b.height / 2)
+        let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
+        let center = lines > 0 ? stackTop + th / 2 : b.midY
+        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: center, baseline: title.font.ascender,
+                                                                    capHeight: title.font.capHeight)
+        return (th, sh, top, center)
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
@@ -31,19 +34,29 @@ extension WorkspaceRowView {
         // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
         let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
                     (bounds.width * 0.4).rounded(.down))
-        timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
-        return trailing - w - Metrics.space2
+        let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
+        timeLabel.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: height))
+        timeLabel.frame.origin.y = SidebarStyle.textY(timeLabel, centerY: cy)
+        return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The pin button of an expanded row, with the menu button (hover, not
-    /// renaming): left of it, Pin or Unpin by the row's section, fading in
-    /// and out in place with it. Returns its minX while it shows.
-    func layoutPin(showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded ? isPinned?() : nil
-        setHoverShown(pinButton, showMore && pinned != nil, fades: fades)
-        guard let pinned else { return nil }
-        (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
-        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+    /// The Unpin button of an expanded pinned row, with the menu button (hover,
+    /// not renaming): left of it, fading in and out in place with it. Returns
+    /// its minX while it shows. An unpinned row draws no pin, at rest or on
+    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
+    /// symbol by default").
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
+        let pinned = isExpanded && isPinned?() == true
+        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        guard pinned else { return nil }
+        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
+        if SidebarTunables.rowCloseSpot.value.atEnd {
+            let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+        } else {
+            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+        }
         return showMore ? pinButton.frame.minX : nil
     }
 
@@ -53,8 +66,11 @@ extension WorkspaceRowView {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
         subtitle.isHidden = !hasSubtitle
-        subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
+        let titleCenter = top + title.font.ascender - title.font.capHeight / 2
+        let subtitleCenter = titleCenter + th + lineGap
+        subtitle.frame = NSRect(x: x, y: SidebarStyle.textY(subtitle, centerY: subtitleCenter), width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + lineGap, width: lineWidth, height: sh)
+        let metaCenter = hasSubtitle ? subtitleCenter + sh + lineGap : titleCenter + th + lineGap
+        metaLabel.frame = NSRect(x: x, y: SidebarStyle.textY(metaLabel, centerY: metaCenter), width: lineWidth, height: sh)
     }
 }

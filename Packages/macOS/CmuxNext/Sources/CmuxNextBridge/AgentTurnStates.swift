@@ -50,15 +50,30 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var laneSinceMs: UInt64?
     /// The session's folder (`cwd`).
     public var cwd: String?
+    /// The running turn's prompt is acpmux's notice of other agents' messages ("[inbox] New
+    /// messages from other agents…", `turn.notice`), not anyone's words: the hover card's
+    /// History leaves it out.
+    public var promptIsNotice = false
+    /// What the chat runs below its turn now, as acpmux counts it (`subagentsRunning`,
+    /// `subagentNames`, `commandsRunning`): its running subagents at any depth, the first of
+    /// their names, and its running background commands. 0 and empty from an older acpmux.
+    public var subagentsRunning = 0
+    public var subagentNames: [String] = []
+    public var commandsRunning = 0
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
-                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil) {
+                laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil, promptIsNotice: Bool = false,
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
         self.laneState = laneState
         self.laneSinceMs = laneSinceMs
         self.cwd = cwd
+        self.promptIsNotice = promptIsNotice
+        self.subagentsRunning = subagentsRunning
+        self.subagentNames = subagentNames
+        self.commandsRunning = commandsRunning
     }
 
     /// A summary's detail; nil when it names none of them.
@@ -69,9 +84,14 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
             return text
         }
         let lane = summary["lane"] as? [String: Any]
+        let count = { (value: Any?) -> Int in max(0, (value as? NSNumber)?.intValue ?? 0) }
         let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
                                      prompt: text(turn?["prompt"]), laneState: text(lane?["state"]),
-                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]))
+                                     laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]),
+                                     promptIsNotice: turn?["notice"] as? Bool == true,
+                                     subagentsRunning: count(summary["subagentsRunning"]),
+                                     subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
+                                     commandsRunning: count(summary["commandsRunning"]))
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -107,12 +127,13 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// new state (nil: no indicator, or purged), its last message (`lastMessage`, cx-13w3.1) and
     /// whether its notifications are muted. Nil when the line names no session state.
     public static func change(_ params: [String: Any])
-        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?)? {
+        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?, sessionName: String?)? {
         guard let id = params["sessionId"] as? String else { return nil }
-        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil, nil) }
+        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil, nil, nil) }
         guard let summary = params["session"] as? [String: Any] else { return nil }
-        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary), muted(summary),
-                title(summary), title(summary, includingPrompt: false))
+        let session = summary["sessionId"] as? String ?? id
+        return (session, AgentTurnState.of(summary: summary), lastMessage(summary), muted(summary),
+                title(summary), title(summary, includingPrompt: false), sessionName(summary))
     }
 
     /// A summary's chat title as the page names it (sessionList.ts `sessionTitle`): the name the
@@ -122,19 +143,7 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// (``promptGist(_:)``): a Chief subagent's `<chat>` view never names its tab. The latest
     /// prompt only stands in while acpmux reports no title at all. Nil when the chat has none yet.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
-        let name = (summary["name"] as? String) ?? ""
-        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
-        func generated(from agent: String?) -> Bool {
-            guard let agent, !agent.isEmpty, bare.hasPrefix(agent) else { return false }
-            // What follows the agent's name is only `-fork` and `-N` parts.
-            return bare.dropFirst(agent.count).split(separator: "-", omittingEmptySubsequences: false).dropFirst().allSatisfy { part in
-                part == "fork" || (!part.isEmpty && part.allSatisfy { ("0"..."9").contains($0) })
-            } && (bare.count == agent.count || bare.dropFirst(agent.count).hasPrefix("-"))
-        }
-        if includingPrompt, !name.isEmpty, !bare.hasPrefix(chiefSessionPrefix),
-           !generated(from: summary["harness"] as? String), !generated(from: summary["family"] as? String) {
-            return name
-        }
+        if includingPrompt, let name = sessionName(summary) { return name }
         if !includingPrompt {
             // acpmux publishes the first prompt as `title` before its title
             // request completes. Only a source that names a real chat title
@@ -152,6 +161,30 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// The prefix of every session name a Chief's presets make (optchat-chief `optchat-sub-…`,
     /// `optchat-chief-…`, `optchat-compact-…`): machine names, never a chat's title.
     static let chiefSessionPrefix = "optchat-"
+
+    /// The launcher/session name, when it is a user-readable name rather than a harness-generated id.
+    public static func sessionName(_ summary: [String: Any]) -> String? {
+        let name = (summary["name"] as? String) ?? ""
+        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
+        func generated(from agent: String?) -> Bool {
+            guard let agent, !agent.isEmpty, bare.hasPrefix(agent) else { return false }
+            // What follows the agent's name is only `-fork` and `-N` parts.
+            return bare.dropFirst(agent.count).split(separator: "-", omittingEmptySubsequences: false).dropFirst().allSatisfy { part in
+                part == "fork" || (!part.isEmpty && part.allSatisfy { ("0"..."9").contains($0) })
+            } && (bare.count == agent.count || bare.dropFirst(agent.count).hasPrefix("-"))
+        }
+        guard !name.isEmpty, !bare.hasPrefix(chiefSessionPrefix),
+              !generated(from: summary["harness"] as? String), !generated(from: summary["family"] as? String) else { return nil }
+        return name
+    }
+
+    public static func sessionNames(_ result: [String: Any]) -> [String: String] {
+        var names: [String: String] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let name = sessionName(summary) { names[id] = name }
+        }
+        return names
+    }
 
     /// The title of every session of a watch result that has one.
     public static func titles(_ result: [String: Any], includingPrompt: Bool = true) -> [String: String] {
@@ -178,9 +211,10 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         Set((result["sessions"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.filter(muted).compactMap { $0["sessionId"] as? String })
     }
 
-    /// A summary's `lastMessage` text: the reply's last line, else the prompt; nil before one.
+    /// A summary's reply preview. A user message is the raw prompt, not sidebar status.
     public static func lastMessage(_ summary: [String: Any]) -> String? {
-        guard let text = (summary["lastMessage"] as? [String: Any])?["text"] as? String, !text.isEmpty else { return nil }
+        guard let message = summary["lastMessage"] as? [String: Any], message["role"] as? String != "user",
+              let text = message["text"] as? String, !text.isEmpty else { return nil }
         return text
     }
 
@@ -236,6 +270,8 @@ public final class AgentTurnStateStore {
         var title: String?
         /// The chat's real title, excluding its session name and first prompt.
         var generatedTitle: String?
+        /// The launcher/session name, when it is user-readable rather than harness-generated.
+        var sessionName: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
         /// The session whose agent started this one (acpmux `startedBy`); nil for a root. Not
@@ -304,7 +340,7 @@ public final class AgentTurnStateStore {
 
     /// Sets one session's facts from a `_acpmux/session_changed`; writes only what changed.
     /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
-    public func apply(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
+    public func apply(session: String, sessionName: String? = nil, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
                       source: String = AgentTurnStateStore.localSource) {
         let held = record(session)
@@ -322,19 +358,20 @@ public final class AgentTurnStateStore {
         if record.muted != muted { record.muted = muted }
         if record.title != title { record.title = title }
         if record.generatedTitle != generatedTitle { record.generatedTitle = generatedTitle }
+        if record.sessionName != sessionName { record.sessionName = sessionName }
         if record.detail != detail { record.detail = detail }
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
     /// Sessions another watch wrote stay as they are.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
-                        titles: [String: String], generatedTitles: [String: String] = [:], details: [String: AgentChatDetail],
+                        titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource) {
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let ids = Set(own).union(states.bySession.keys).union(lastMessages.keys).union(muted)
-            .union(titles.keys).union(generatedTitles.keys).union(details.keys)
+            .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys)
         for id in ids {
-            apply(session: id, state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
+            apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
                   title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
         }
     }
@@ -343,7 +380,7 @@ public final class AgentTurnStateStore {
     /// reading as its chat while the watch reconnects.
     public func clearLive(source: String = AgentTurnStateStore.localSource) {
         for (id, record) in sessions where record.source == source {
-            apply(session: id, state: nil, lastMessage: nil, muted: false, title: record.title,
+            apply(session: id, sessionName: record.sessionName, state: nil, lastMessage: nil, muted: false, title: record.title,
                   generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false, source: source)
         }
     }
@@ -368,6 +405,9 @@ public final class AgentTurnStateStore {
     /// The title of the chat an agent chat tab shows; nil when it has none yet or is not on
     /// this Mac.
     public func title(for ref: AgentSessionRef) -> String? { local(ref)?.title }
+
+    /// The launcher/session name, when it is user-readable.
+    public func sessionName(for ref: AgentSessionRef) -> String? { local(ref)?.sessionName }
 
     /// The chat's real title, excluding its session name and first prompt.
     public func generatedTitle(for ref: AgentSessionRef) -> String? { local(ref)?.generatedTitle }

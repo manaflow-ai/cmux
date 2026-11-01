@@ -105,6 +105,17 @@ await requireBrowserLane("transcript-bottom-gutter-select-browser.test.ts", asyn
         expect(await selected(page), zone).toContain("Alpha keeper.");
         await page.evaluate(() => window.getSelection()?.removeAllRanges());
       }
+      await page.mouse.click(
+        ...(await page.evaluate(() => {
+          const rect = document
+            .querySelector<HTMLElement>('[data-testid="bottom-selection-control"]')!
+            .getBoundingClientRect();
+          return [rect.left + rect.width / 2, rect.top + rect.height / 2] as const;
+        })),
+      );
+      expect(
+        await page.evaluate(() => (window as unknown as { __controlPresses: () => number }).__controlPresses()),
+      ).toBe(1);
       await page.close();
     });
   }

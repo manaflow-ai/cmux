@@ -15,12 +15,12 @@ public final class StreamedBrowserDirectory {
 
     /// The current link when it can stream browser tabs, else nil.
     public var opener: (@Sendable () async -> (any BrowserStreamOpening)?)? {
-        didSet { if opener == nil, macOpener == nil { reset() } }
+        didSet { if opener == nil, macOpener == nil { reset() } else if appActive { localhost.resume() } }
     }
     /// The link of a given Mac (the phone links several at once): a tab named
     /// with its Mac streams over that Mac's link only, never the focused one.
     public var macOpener: (@Sendable (_ macID: String) async -> (any BrowserStreamOpening)?)? {
-        didSet { if opener == nil, macOpener == nil { reset() } }
+        didSet { if opener == nil, macOpener == nil { reset() } else if appActive { localhost.resume() } }
     }
 
     /// A tab's model key: tab ids (`s<surface>`) repeat across Macs.
@@ -42,6 +42,20 @@ public final class StreamedBrowserDirectory {
     public init() {}
 
     public var isLive: Bool { opener != nil || macOpener != nil }
+
+    /// Native browser tabs' `localhost:<port>` pages, forwarded to their Mac's loopback.
+    public private(set) lazy var localhost = LocalhostForwarder { [weak self] macID, port in
+        guard let link = await self?.link(macID: macID) else {
+            throw LinkError(code: "no-link", message: "Not connected to the Mac")
+        }
+        return try await link.openLocalhost(port: port)
+    }
+
+    /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
+    func link(macID: String?) async -> (any BrowserStreamOpening)? {
+        if let macID, !macID.isEmpty, let macOpener { return await macOpener(macID) }
+        return await opener?()
+    }
 
     /// Hears the tabs the Macs list (``retain(tabs:)``) and placeholder tabs that
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
@@ -171,17 +185,22 @@ public final class StreamedBrowserDirectory {
         }
         lastWarm = nil
         if !models.isEmpty { warmMedia() }
+        if appActive { localhost.resume() }
     }
 
     /// The app went to the background (or came back): hidden pages let the
     /// WebRTC media session go.
     public func setAppActive(_ active: Bool) {
         appActive = active
+        // iOS stops a background app's listeners; they come back with the app.
+        if active, isLive { localhost.resume() } else if !active { localhost.suspend() }
         for model in models.values { model.setAppActive(active) }
     }
 
     public func reset() {
         for model in models.values { model.close() }
         models = [:]
+        // No link: nothing to forward `localhost` pages to until it comes back.
+        localhost.suspend()
     }
 }

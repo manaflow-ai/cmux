@@ -1,0 +1,81 @@
+{
+  "title": "A finished agent turn with its reply and images (mock-light-theme)",
+  "settings": null,
+  "launch_args": [
+    "--showcase"
+  ],
+  "steps": [
+    {
+      "title": "Seed the showcase window and open its agent tab (mock daemon)",
+      "rpc": {
+        "method": "debug.showcase.seed",
+        "params": {
+          "focus": true
+        }
+      },
+      "wait": 6,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:212 -> Control/DebugShowcase.swift:14 (needs --showcase, AppEnvironment.swift:84)"
+    },
+    {
+      "title": "Agent page ready",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "wait": 2,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79",
+      "optional": "the page may still be loading"
+    },
+    {
+      "title": "Agent page ready (retry)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness"
+        }
+      },
+      "wait": 1,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79",
+      "optional": "the page may still be loading"
+    },
+    {
+      "title": "Open mock session mock-light-theme",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "select_session",
+          "session": "mock-light-theme"
+        }
+      },
+      "wait": 2.5,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79 (select_session: DebugAgentPane.swift:53,318; webviews/src/agent-session/acpmux/automation.ts selectSession)"
+    },
+    {
+      "title": "Close the chat Session Info (open by default; overlays the chat in a 447 pt pane)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": "button.acpmux-session-info-toggle[aria-pressed=\"true\"]"
+        }
+      },
+      "wait": 1.5,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79 (click: DebugAgentPaneClick.swift:60; toggle: webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx:189-196, open by default sessionInfoState.ts:79)",
+      "optional": "Session Info may already be closed"
+    },
+    {
+      "title": "Scroll check: chat state",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "wait": 1,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift:342 -> Control/DebugAgentPane.swift:79",
+      "optional": "read-only"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextPages
 @testable import CmuxNextSettings
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// Ghostty config. Moving Opacity through the Settings page repaints the window at once (the
 /// slider's preview and its write) and turns Material into the explicit choice that matches
 /// Ghostty's blur; resetting Opacity returns both rows to Ghostty.
-@MainActor @Suite(.serialized) struct WindowBackgroundOpacityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WindowBackgroundOpacityTests {
     /// The page's own writes: the bundled Settings page with a real gesture.
     static let gesture = PageCallContext(page: "cmux.settings", userGesture: true)
     static let opacityKey = "appearance.backgroundOpacity"
@@ -71,7 +72,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        let surface = WindowSurfaceView(content: NSView(), reduceTransparency: { false })
+        let surface = WindowSurfaceView(content: NSView(), activeLook: nil, reduceTransparency: { false })
         ThemeScope.app.adopt(window)
         window.contentView = surface
         surface.paintWindowSurface(of: window)

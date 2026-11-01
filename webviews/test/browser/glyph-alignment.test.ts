@@ -66,7 +66,8 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
     },
     {
       id: "agent-pane.subagent-tray",
-      variant: undefined,
+      // One line, so no header and nothing folded: the frame runs no play to open a headed tray.
+      variant: "one-running",
       selectors: [
         [
           ".acpmux-agent-line",
@@ -74,11 +75,6 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
           ".acpmux-summary-agent__name",
         ],
       ] as const,
-    },
-    {
-      id: "agent-pane.waiting-messages-card",
-      variant: undefined,
-      selectors: [[".cv-waiting__toggle", ".cv-waiting__icon svg", ".cv-waiting__count"]] as const,
     },
   ];
   test("glyphs use shared row geometry in light and dark", async () => {

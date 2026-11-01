@@ -33,12 +33,15 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
-///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
+///   `cached: true` (Session Info's Changes, which asks for many links) answers from the cache
 ///   only and never starts a read: its links are read in batches when it registers them.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
 ///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under
 ///   `agentPane.links.outsideRoots = open`; never a deny-listed path. A chat on another machine
 ///   reads nothing here and answers `{remote: true}`. Passive.
+/// - `composer.copy {text, items}`: the composer's Copy or Cut of a selection with attachments
+///   (``AgentPaneComposerCopyItem``): the text, then each attachment as a file, on the general
+///   pasteboard (``AgentPaneImageCopies/copyComposer(text:items:in:)``). Spends a user gesture.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
@@ -57,12 +60,13 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case dragFile(String)
     case inspectPullRequest(URL, cached: Bool = false)
     case previewPath(String)
+    case copyComposer(text: String, items: [AgentPaneComposerCopyItem])
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
-        "video.info", "video.quickLook", "link.preview",
+        "video.info", "video.quickLook", "link.preview", "composer.copy",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
@@ -85,6 +89,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "file.drag": ["path"],
         "pr.inspect": ["url", "cached"],
         "link.preview": ["path"],
+        "composer.copy": ["text", "items"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -118,7 +123,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .inspectPullRequest, .previewPath: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
-             .dragFile: false
+             .dragFile, .copyComposer: false
         }
     }
 
@@ -195,6 +200,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "link.preview":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = .previewPath(path)
+        case "composer.copy":
+            // The text may be empty (a selection of attachments only); both keys are required.
+            guard let text = params["text"] as? String, text.utf8.count <= AgentPaneComposerCopyItem.maximumText,
+                  !text.utf8.contains(0), let items = AgentPaneComposerCopyItem.list(params["items"]) else { return nil }
+            self = .copyComposer(text: text, items: items)
         default:
             return nil
         }

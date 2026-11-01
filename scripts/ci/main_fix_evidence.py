@@ -32,7 +32,9 @@ TEST_STEPS = {
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
-MAX_OUTPUT = 32 * 1024 * 1024
+# A cmux-next swift test job log reached about 40 MB on 2026-11-01 (#28391), past the old 32 MiB cap, so
+# no such red could be compared with the base. Output goes to a temporary file, not memory, until read.
+MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
@@ -55,19 +57,19 @@ class GitHub:
                 process.wait()
                 raise Refused("GitHub evidence request exceeded 90 seconds") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused("GitHub evidence exceeds the 32 MiB limit")
+                raise Refused(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
                 raise Refused("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
             return output.read().decode(errors="replace")
 
-    def json(self, route: str, *, paginate: bool = False):
+    def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):
         if not paginate:
             return json.loads(self.run(["api", route]))
         # The raw pages, as `--slurp` gave them, one bounded call each (scripts/ci/gh_pages.py).
         try:
-            return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route)
+            return gh_pages.pages(lambda url: json.loads(self.run(["api", url])), route, per_page=per_page)
         except gh_pages.PageCapError as error:
             raise Refused(str(error)) from None
 

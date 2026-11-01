@@ -44,9 +44,19 @@ enum HomeMapping {
             if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
         }
         let found = byID
+        // A root with many replies is asked once per reply, per diff: map its parts once.
+        let mapped = RootCache()
         return { root in
-            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            if let hit = mapped.entries[root] { return hit }
+            let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
+            return entry
         }
+    }
+
+    /// The roots one `roots(in:)` answer already mapped (nil: not among the items).
+    private final class RootCache {
+        var entries: [MessageID: (id: ID, owners: [Int])?] = [:]
     }
 
     /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
@@ -65,6 +75,9 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
+    static let welcomeKeyPrefix = "chief-welcome-"
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
                         roots: Roots = { _ in nil }) -> Message {
@@ -81,6 +94,8 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
+        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
@@ -111,6 +126,13 @@ enum HomeMapping {
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
+        if let row = item.agentMessage {
+            // A fold or notes row: a muted caption line, no bubble (HomeAgentFoldRowProvider).
+            if let caption = HomeAgentFoldRowProvider.part(row) { return ([caption], [0]) }
+            // An agent-message row: its words, as Markdown (the fold's link, the bold "Chief → a917" line).
+            let shown = self.parts(.text(agentMessageText(row)), media: media, markdown: true, links: links)
+            return (shown, Array(repeating: 0, count: shown.count))
+        }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
@@ -119,6 +141,38 @@ enum HomeMapping {
             owners += Array(repeating: i, count: shown.count)
         }
         return (parts, owners)
+    }
+
+    /// What an agent-message row says, as Markdown. A fold or notes row is one muted (italic) line with
+    /// no link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917";
+    /// "▸ Disconnected (5) · `a1` `a2`", the agents as code chips). A message is its bold
+    /// "from → to" line over the whole message; a status note is the agent's chip and its words, muted.
+    static func agentMessageText(_ row: HomeAgentMessageRow) -> String {
+        switch row.kind {
+        case let .fold(count, peers, expanded):
+            let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(markdownEscaped), separator: ", "))"
+        case let .notes(count, peers, reason, expanded):
+            let label = CmuxStrings.agentNotes(reason, count)
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(codeChip), separator: " "))"
+        case let .note(peer, _, text):
+            return "\(codeChip(peer)) *\(markdownEscaped(text))*"
+        case let .message(from, to, _, text):
+            return "**\(markdownEscaped(from)) → \(markdownEscaped(to))**\n\(text)"
+        }
+    }
+
+    /// `name` as an inline code span (a chip-like pill), its backticks dropped.
+    private static func codeChip(_ name: String) -> String { "`\(name.replacingOccurrences(of: "`", with: ""))`" }
+
+    /// `name` with the Markdown punctuation that would change its look escaped (an agent id, a display name).
+    private static func markdownEscaped(_ name: String) -> String {
+        var out = ""
+        for ch in name {
+            if "\\`*_[]<>#|~".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
+        return out
     }
 
     /// A HomeStore part index as the first MessagesLab part it shows as
@@ -378,15 +432,6 @@ enum HomeMapping {
 
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {
         summary?.displayTitle(me: me) ?? ""
-    }
-
-    /// The other participant's initials (the header avatar); a group shows
-    /// the title's.
-    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
-        let others = (summary?.participants ?? []).filter { $0.id != me }
-        if others.count == 1, let other = others.first { return other.initials }
-        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
-        return String(words).uppercased()
     }
 
     /// The loaded window's place in the history: (messages before it, total).

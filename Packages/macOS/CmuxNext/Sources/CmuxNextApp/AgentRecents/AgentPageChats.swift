@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -29,8 +30,12 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
+    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
+    /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
+    var handoffTurn: (@MainActor (AgentPaneView?, String) async -> [String: Any])?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
     private(set) var handoffNotices: HandoffNotices?
 
@@ -69,15 +74,17 @@ final class AgentPageChats {
         }
     }
 
+    /// The cards follow their window (acpmux sorts and pages; only that window's changes push).
     func follow(_ feed: ChatsFeed, open: @escaping @MainActor (String) -> Void, views: @escaping @MainActor () -> [AgentPaneView]) {
         self.open = open
-        let push = { [weak self, weak feed] in
-            guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
+        let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
+        window.follow(self) { [weak self] rows in
+            guard let self else { return }
+            chats = Self.deviceChats(rows)
             for view in views() { view.deviceChats = chats }
         }
-        feed.observe(self) { push() }
-        push()
+        feed.windows.open(.newTabCards)
+        chats = Self.deviceChats(window.rows)
     }
 
     /// A new page starts with the current chats and closed items.
@@ -86,6 +93,21 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
+        if let run = handoffTurn {
+            view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
+                await run(view, session)
+            }
+        } else {
+            view.model.onCloudHandoffTurn = nil
+        }
+        // Written out with its type: Xcode 26.6 could not type the `map` form.
+        if let run = cloudStart {
+            view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
+                await run(view, start)
+            }
+        } else {
+            view.model.onCloudStartChat = nil
+        }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
@@ -96,10 +118,12 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
+        tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         notices.start()
         let handoffs = HandoffNotices(services: services)
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
+        tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
@@ -107,7 +131,8 @@ final class AgentPageChats {
             guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
                 return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
             }
-            guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
+            // Not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs"): the
+            // person picked Sandboxed and sent, Cloud is allowed and they are signed in.
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).

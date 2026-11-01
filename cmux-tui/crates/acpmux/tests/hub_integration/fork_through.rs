@@ -17,6 +17,9 @@ mod context_window;
 // The account's plan usage limits a Claude chat reports, which share these helpers too.
 #[path = "usage_limits.rs"]
 mod usage_limits;
+// What a Claude chat spent and holds, read from its transcript, which shares these helpers too.
+#[path = "usage_stats.rs"]
+mod usage_stats;
 // Claude's todo list as an ACP plan, which shares these helpers too.
 #[path = "todo_plan.rs"]
 mod todo_plan;
@@ -26,6 +29,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// Claude Code's turns of its own, which the person did not start, which share these helpers too.
+#[path = "background_turns.rs"]
+mod background_turns;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
@@ -240,6 +246,91 @@ async fn a_claude_chat_forks_through_an_earlier_turn_holding_only_the_history_be
     assert_eq!(fork["sessions"].as_array().map(Vec::len), Some(1), "one conversation id: {fork}");
     assert_ne!(fork["sessions"], source["sessions"], "the fork is its own conversation");
     assert_eq!(source["prompts"], json!(["first", "second"]), "{source}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Fork Conversation (`acp.session.fork`) answers as soon as its chat is made: its agent starts after, so
+/// a slow harness start (Claude takes seconds) never holds Fork Conversation
+/// (NIGHTLY 2026-10-29: 12-16 s with nothing on screen). A prompt to the fork
+/// waits for that start and is answered.
+#[tokio::test]
+async fn a_claude_fork_answers_before_its_agent_has_started() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-fast-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[("FAKE_CLAUDE_INIT_DELAY_MS", "3000")]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "src"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+
+    let started = std::time::Instant::now();
+    let f = c.request(FORK_OP, json!({"sessionId": id, "live": true})).await.unwrap();
+    let took = started.elapsed();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(
+        took < std::time::Duration::from_millis(1500),
+        "the fork waited {took:?} for its agent"
+    );
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": fid, "prompt": [{"type": "text", "text": "second"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn");
+    // The fork's agent holds the chat's turn, then its own (a forked Claude process is primed
+    // with one line at its start, as before).
+    let fork = claude_history(&hub, &mut c, &fid).await;
+    let prompts: Vec<&str> = fork["prompts"]
+        .as_array()
+        .map(|p| {
+            p.iter()
+                .filter_map(Value::as_str)
+                .filter(|p| !p.starts_with("This session was just forked"))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(prompts, ["first", "second"], "{fork}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A plain `session/fork` still answers once its agent has started: its callers (a terminal's
+/// fork, side questions) read the fork's agent session id, model and env from the answer.
+#[tokio::test]
+async fn a_plain_session_fork_answers_once_its_agent_has_started() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-plain-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "src"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&fid).unwrap().meta().agent_session_id.is_some(), "{f}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

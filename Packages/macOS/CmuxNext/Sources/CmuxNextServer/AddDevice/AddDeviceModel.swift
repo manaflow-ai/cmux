@@ -75,6 +75,11 @@ public final class AddDeviceModel {
         return listing.network.detail
     }
 
+    public var canInstallTailscale: Bool {
+        guard case let .loaded(listing) = candidates else { return false }
+        return listing.network.kind == "none" && !listing.network.up
+    }
+
     public func choose(_ way: AddDeviceWay) {
         guard ways.contains(way) else { return }
         chosenByHand = true
@@ -107,6 +112,13 @@ public final class AddDeviceModel {
         }
     }
 
+    /// "Set up a new device" for a computer also offers Other Computer… (add by host name): the card
+    /// opens there when the network lists nothing, and a computer the person already reaches with
+    /// ssh needs no setup line (HQ #4877 break 5).
+    public var offersOtherComputer: Bool {
+        way == .newDevice && platform.setupLine != nil
+    }
+
     /// Runs a control (its click or its key). Returns true when the card should close.
     @discardableResult
     public func perform(_ action: AddDeviceAction) -> Bool {
@@ -123,6 +135,9 @@ public final class AddDeviceModel {
         case .enterCode:
             services.enterCode()
             return true
+        case .installTailscale:
+            if canInstallTailscale { services.installTailscale() }
+            return false
         case .copyLine:
             guard let line = platform.setupLine else { return false }
             services.copy(line)

@@ -165,10 +165,15 @@ public final class AuthCoordinator {
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
     @ObservationIgnored var teamMutationGeneration: UInt64 = 0
+    /// Bumped by a team delete or rename: a team-list read that started
+    /// before one answers with the list it changed.
+    @ObservationIgnored var teamListGeneration: UInt64 = 0
     /// Whether a team switch is still waiting on its server request.
     public internal(set) var isSelectingTeam = false
     /// Whether a team create is still waiting on its server request.
     public internal(set) var isCreatingTeam = false
+    /// Whether a team delete is still waiting on its server request (and its fallback selection).
+    public internal(set) var isDeletingTeam = false
     /// Every switch remains here until its request returns, even if a later
     /// switch replaces its pending UI projection.
     @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
@@ -726,6 +731,7 @@ public final class AuthCoordinator {
         // A selection made while this read was in flight is newer than the
         // server's answer to it: the read must not put the old team back.
         let mutationGeneration = teamMutationGeneration
+        let listGeneration = teamListGeneration
         activeTeamRefreshCount += 1
         let result: Result<([CMUXAuthTeam], String?), any Error>
         do {
@@ -748,11 +754,13 @@ public final class AuthCoordinator {
             teamScopeRateLimit = nil
             rateLimitTelemetry.succeeded(.sessionCheck)
             authenticatedTeamsSessionGeneration = generation
-            availableTeams = teams
+            // A delete or rename that landed while this read was in flight is newer than
+            // its list: keep the list the change left (the change re-reads after it).
+            if listGeneration == teamListGeneration { availableTeams = teams }
             let selectionChanged = mutationGeneration != teamMutationGeneration
             selectedTeamID = Self.resolveTeamID(
                 selectedTeamID: selectionChanged ? selectedTeamID : serverSelectedTeamID ?? selectedTeamID,
-                teams: teams
+                teams: availableTeams
             )
         case let .failure(error):
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")

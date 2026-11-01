@@ -8,6 +8,8 @@ extension PageWebView {
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        let pid = PageTermination.webContentPid(of: webView)
+        if pid != 0 { knownWebContentPid = pid }
         documentFinished()
     }
 
@@ -34,5 +36,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        onDocumentLoaded?()
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxHomeCore
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19: "Up arrow. You need to do work properly. We need to handle unfocus as well
 /// so that, like it is history, this is for the iMessage, chief ui stuff".
@@ -12,7 +13,7 @@ import Testing
 /// Home); the box itself, other text inputs and the conversation list keep their arrows.
 /// The recall's content (newest sent message, Down back to the draft) is covered by
 /// MessagesLabHomeTests.ComposerHistoryKeysTests.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomePrimaryInputHistoryTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomePrimaryInputHistoryTests {
     enum Container: String, CaseIterable { case dock, homeTab, conversationTab }
 
     struct Harness {
@@ -21,7 +22,7 @@ import Testing
         let box: NSView
         let home: HomeHostView
         let list: NSView?
-        func close() { window.orderOut(nil) }
+        func close() { window.closeWithHomePopovers() }
     }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {

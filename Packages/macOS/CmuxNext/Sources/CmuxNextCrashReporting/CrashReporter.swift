@@ -2,7 +2,7 @@ public import CmuxSentryReporting
 public import Darwin
 public import Foundation
 public import Sentry
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
@@ -31,9 +31,41 @@ public final class CrashReporter: Sendable {
 
     public let policy: CrashReportingPolicy
     private let sentryHandlers = Mutex<SignalActions?>(nil)
+    // Lock carve-out: Sentry's beforeSend reads it synchronously on its own
+    // thread; a sign-in writes it from the main thread.
+    private let identityState: Mutex<CrashReportIdentity>
 
-    public init(policy: CrashReportingPolicy) {
+    /// - Parameters:
+    ///   - policy: Whether this launch reports, and its labels.
+    ///   - identity: The install id and commit every event is tagged with.
+    public init(policy: CrashReportingPolicy, identity: CrashReportIdentity = CrashReportIdentity()) {
         self.policy = policy
+        self.identityState = Mutex(identity)
+    }
+
+    /// This launch's hourly counts of main-thread stalls and hangs
+    /// (``StallSummaryRecorder``): the watchdog's sinks record into it;
+    /// call ``StallSummaryRecorder/close()`` at quit.
+    public let stallSummary = StallSummaryRecorder.sentry()
+
+    /// The install, commit and team member tags every event carries now.
+    public var identity: CrashReportIdentity { identityState.withLock { $0 } }
+
+    /// Names (or stops naming) the signed-in cmux team member on every later
+    /// event. Call when the account or its teams change.
+    /// - Parameter member: The member, or nil for an anonymous report.
+    public func setTeamMember(_ member: CrashTeamMember?) {
+        identityState.withLock { $0.member = member }
+    }
+
+    /// Follows `members` (one value per sign-in, sign-out or team change) for
+    /// the app's lifetime: each value names, or stops naming, the member.
+    /// - Parameter members: The signed-in cmux team member over time.
+    public func followTeamMembers(_ members: ObservationStream<CrashTeamMember?>) {
+        // task-owner: lives for the app; ends when `members` ends.
+        Task { [self] in
+            for await member in members { setTeamMember(member) }
+        }
     }
 
     /// Whether Sentry runs in this process.
@@ -60,9 +92,9 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        options.beforeSend = { [self] event in
             let scrubbed = scrubber.scrub(event)
-            labels.apply(to: scrubbed)
+            labels.apply(to: scrubbed, identity: identity)
             return scrubbed
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }

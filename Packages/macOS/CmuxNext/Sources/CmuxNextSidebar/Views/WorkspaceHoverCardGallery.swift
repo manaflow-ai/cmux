@@ -12,6 +12,11 @@ public struct WorkspaceHoverCardGallery {
     /// Each state's name and its card on the overlay glass, configured; resources sampled a few
     /// times so the CPU bars show.
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
+        let mixedTabs = [
+                SidebarTab(id: TabID("terminal"), title: "app", kind: .terminal, folder: "~", state: .success),
+                SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
+                SidebarTab(id: TabID("review"), title: "Review changes", kind: .conversation, folder: "~/Projects/cmux", state: .waiting),
+        ]
         typealias Fact = WorkspaceHoverCardContent.Fact
         let agent = Fact(icon: .agentChat, text: "Codex · gpt-6.1-sol", kind: "agent")
         let folder = Fact(icon: .folder, text: "docs", kind: "folder")
@@ -51,14 +56,68 @@ public struct WorkspaceHoverCardGallery {
                 title: "Overlays are themed Liquid Glass", icon: .agentChat, age: "4w",
                 facts: [branch, pr("Merged", .merged, adds: 69, dels: 32)]), []),
         ]
-        return states.map { name, content, cpu in
+        let richCards = states.map { name, content, cpu in
             let card = WorkspaceHoverCardView()
             card.configure(content, now: now)
+            card.detailsToggle.performClick(nil)
             for value in cpu {
                 card.setResources(ResourceReport(total: ResourceUsage(cpu: value, memoryBytes: 2_300 << 20), processCount: 6))
             }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
+        let content = WorkspaceHoverCardContent(
+            title: "Review the sidebar", icon: .agentChat, age: "3m",
+            facts: [agent, branch, reply], activity: .working, activitySince: now.addingTimeInterval(-192))
+        let overflow = mixedTabs + (1...4).map {
+            SidebarTab(id: TabID("docs-\($0)"), title: "Documentation \($0)", kind: .browser, state: .success)
+        }
+        let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool, Bool)] = [
+            ("Tabs after status · 4 + more", .afterStatus, 4, true, true),
+            ("Tabs below title · 3 + more", .afterTitle, 3, true, true),
+            ("Tabs below details · 6 compact + more", .afterDetails, 6, false, true),
+            ("Tabs first · details collapsed · chosen", .afterTitle, 4, true, false),
+        ]
+        let tabCards = variants.map { name, placement, limit, details, expanded in
+            let card = WorkspaceHoverCardView(tabPlacement: placement, style: WorkspaceTabHoverCardStyle(twoLines: details, rowLimit: limit))
+            card.configure(content, now: now)
+            card.configureTabs(title: content.title, tabs: overflow, now: now)
+            if expanded { card.detailsToggle.performClick(nil) }
+            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
+        return tabCards + workCards(now: now) + richCards
     }
+
+    /// The expanded card with its agent's running work, in each `WorkspaceHoverCardWork.Style`
+    /// (Leo 2026-11-01: "this hover preview being able to see the # of associated subagents and
+    /// whatnot"); the shipped one says so in its name. Its History holds no inbox notice.
+    @MainActor static func workCards(now: Date) -> [(name: String, view: NSView)] {
+        var detail = SidebarWorkspaceDetail()
+        detail.subagentsRunning = 3
+        detail.commandsRunning = 1
+        detail.subagentNames = ["Review the hover card", "Fix the sidebar test", "Gallery captures"]
+        var chat = SidebarTab(id: TabID("lead"), title: "dev-lane/ui-lead", kind: .agentChat, folder: "~/Projects/cmux", state: .working)
+        chat.subagentsRunning = 3
+        chat.commandsRunning = 1
+        let timeline = [
+            SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-60), text: "Land the hover card change", agent: "Claude Code"),
+            SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-900), text: "Look at the sidebar previews", agent: "Claude Code"),
+        ]
+        return WorkspaceHoverCardWork.Style.allCases.map { style in
+            var content = WorkspaceHoverCardContent(
+                title: "UI lead", icon: .agentChat,
+                facts: [WorkspaceHoverCardContent.Fact(icon: .agentChat, text: "Claude Code · claude-opus-5-5", kind: "agent")]
+                    + WorkspaceHoverCardWork.facts(detail, style: style),
+                activity: .working, activitySince: now.addingTimeInterval(-41))
+            content.timeline = timeline
+            content.stats = Strings.timelineStats(prompts: 2, worked: "26m 52s")
+            let card = WorkspaceHoverCardView()
+            card.configure(content, now: now)
+            card.tabList.configure(title: content.title, tabs: [chat])
+            card.detailsToggle.performClick(nil)
+            let shipped = style == WorkspaceHoverCardWork.shipped ? " · chosen" : ""
+            return ("Running work · \(style.rawValue)\(shipped)", HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+        }
+    }
+
 }
 #endif

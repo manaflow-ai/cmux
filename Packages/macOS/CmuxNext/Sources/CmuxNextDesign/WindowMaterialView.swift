@@ -73,6 +73,10 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
+    /// The app's ``ActiveLookScope``: its glass keeps the key look while the window is not key
+    /// (nil: the glass follows the key state). A child window takes its owner's
+    /// (`NSWindow.backdropActiveLook`).
+    public let activeLook: ActiveLookScope?
     /// The desktop picture (the image store's): its color leans the tint
     /// (`appearance.wallpaperTint`), and the Desktop Wallpaper art reloads when it changes.
     private var wallpaper: DesktopWallpaperWatch { images.desktop }
@@ -97,8 +101,12 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
+    /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`) for a
+    ///   window backdrop; nil for one whose glass follows the key state.
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                activeLook: ActiveLookScope? = nil) {
         self.images = images
+        self.activeLook = activeLook
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
@@ -314,7 +322,7 @@ public final class WindowMaterialView: NSView {
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
-            materialView = Self.makeMaterialView(material)
+            materialView = Self.makeMaterialView(material, activeLook: activeLook)
             if let materialView {
                 materialView.frame = bounds
                 materialView.autoresizingMask = [.width, .height]
@@ -401,15 +409,15 @@ public final class WindowMaterialView: NSView {
                        alpha: alpha)
     }
 
-    private static func makeMaterialView(_ material: WindowMaterial) -> NSView? {
+    private static func makeMaterialView(_ material: WindowMaterial, activeLook: ActiveLookScope?) -> NSView? {
         switch material {
         case .opaque, .translucent, .frosted:
             return nil
         case .glass(let style):
             // WindowBackdrop frosts the window instead where Liquid Glass is missing.
             switch style {
-            case .regular: return GlassPanelView(style: .regular, keepsActiveLook: true)
-            case .clear: return GlassPanelView(style: .clear, keepsActiveLook: true)
+            case .regular: return GlassPanelView(style: .regular, activeLook: activeLook)
+            case .clear: return GlassPanelView(style: .clear, activeLook: activeLook)
             }
         }
     }

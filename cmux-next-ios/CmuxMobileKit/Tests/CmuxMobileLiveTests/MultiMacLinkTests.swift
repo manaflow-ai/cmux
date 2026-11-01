@@ -15,10 +15,12 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     let screens: [String: String]
     /// Each Mac's `acpmux` service (by Mac id and request); nil leaves it unanswered.
     let acpmux: (@Sendable (String, Data) -> [Data])?
+    let silentNotifications: Bool
 
-    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil) {
+    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil, silentNotifications: Bool = false) {
         self.screens = screens
         self.acpmux = acpmux
+        self.silentNotifications = silentNotifications
     }
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
@@ -28,12 +30,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         lock.withLock { dials[mac, default: 0] += 1 }
         let screen = screens[mac] ?? mac
         let acpmux = acpmux
+        let silentNotifications = silentNotifications
         return MockMacLink(transport: transport) { service, data in
             if service == "acpmux", let acpmux { return acpmux(mac, data) }
             guard service == "daemon" else { return [] }
             return data.split(separator: 0x0A).compactMap { request -> Data? in
                 guard let object = try? JSONSerialization.jsonObject(with: Data(request)) as? [String: Any],
                       let id = object["id"] as? String else { return nil }
+                if silentNotifications, object["cmd"] as? String == "list-notifications" { return nil }
                 let line: String
                 switch object["cmd"] as? String ?? "" {
                 case "list-workspaces":
@@ -66,6 +70,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let decision = MacLinkPolicy().decide(macs: macs, focused: "m2", showing: ["m1", "m2", "m3"], lastShown: [:], now: now)
         #expect(decision.linked == ["m2", "m1", "m3"])
         #expect(decision.nextExpiry == nil)
+    }
+
+    /// Opening the Cloud sheet keeps the whole authenticated Mac directory
+    /// shown, so selecting one Cloud VM cannot evict another Mac's link.
+    @Test func cloudSheetKeepsOtherMacLinksShown() {
+        let all = Set(macs.map(\.id))
+        let decision = MacLinkPolicy(maxLinks: 4).decide(macs: macs, focused: "m1", showing: all, lastShown: [:], now: now)
+        #expect(decision.linked == ["m1", "m2", "m3", "m4"])
     }
 
     /// Lazy: a Mac nothing shows, and never shown, is not dialed.
@@ -216,6 +228,27 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m2")?.macName == "MacBook Pro")
     }
 
+    /// A notification names the originating Mac. A stale push cannot use a
+    /// tab on another Mac, including when the same surface id exists on both.
+    @Test func notificationDestinationIsScopedToItsMac() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macDataPhase("m1") == .live && store.macDataPhase("m2") == .live }
+        let workspace = try #require(store.workspaces.first { $0.macID == "m1" })
+        let tab = try #require(workspace.tabs.first)
+        let destination = AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)
+
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m1") == destination)
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m2") == nil)
+        // An ordinary deep link has no source Mac; keep its existing lookup.
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id) == destination)
+    }
+
     /// Lazy and idle: a Mac no screen shows closes its link after the idle
     /// window, quietly (its list is last-known, not "Can't connect"), and opens
     /// it again when it is shown.
@@ -280,6 +313,110 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macConnection["m2"] == .connected }
         #expect(store.macConnection["m2"] == .connected)
         #expect(live.focusedMacID == "m1")
+    }
+
+    @Test func bannerRetryRedialsTheFocusedMacAndKeepsErrorsInDiagnostics() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        let session = try #require(live.sessions["m1"])
+        session.outdated = false
+        session.chatsError = "acpmux channel closed"
+        session.daemonError = "list-workspaces reply is not an object"
+        live.phaseChanged(session)
+        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
+
+        // Fail a redial synchronously so Retry must bypass its backoff.
+        let link = session.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        let generation = link.dialGeneration
+        // Exercise Retry before the asynchronous phase observer publishes a banner.
+        live.banner = nil
+        live.retryConnection()
+        #expect(link.dialGeneration > generation)
+        guard case .connecting = link.phase else {
+            Issue.record("Retry did not begin a dial")
+            return
+        }
+        #expect(live.focusedMacID == "m1")
+        #expect(dialer.dialCount("m2") == 0)
+    }
+
+    @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        let first = try #require(live.sessions["m1"])
+        let second = try #require(live.sessions["m2"])
+        let link = first.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        // Publish the waiting phase synchronously: link observation otherwise
+        // runs after this MainActor test yields, which would test the fallback.
+        live.phaseChanged(first)
+        try #require(live.banner?.identity == "m1")
+        // The displayed banner still belongs to m1 when focus moves to m2.
+        live.focusedMacID = "m2"
+        let firstGeneration = link.dialGeneration
+        let secondGeneration = second.link.dialGeneration
+        live.retryConnection()
+        #expect(link.dialGeneration > firstGeneration)
+        #expect(second.link.dialGeneration == secondGeneration)
+        #expect(live.focusedMacID == "m2")
+    }
+
+    @Test(arguments: [false, true])
+    func bannerRetryRestartsDiscoveryWithoutATarget(hasSession: Bool) async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        try #require(live.registeredTeamID == store.activeTeamID)
+        if hasSession {
+            let session = try #require(live.sessions["m1"])
+            session.link.send(.target(nil))
+            try #require(session.link.target == nil)
+            live.focusedMacID = "m1"
+        } else {
+            live.focusedMacID = "missing-session"
+            try #require(live.focused === live.idleSession)
+        }
+        live.banner = nil
+        store.teamDataState = .failed
+
+        live.retryConnection()
+
+        // Discovery must re-register and reload the team, not just touch a link.
+        #expect(live.registeredTeamID == nil)
+        #expect(store.teamDataState == .loading)
+        #expect(live.focusedMacID == nil)
     }
 
     /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.

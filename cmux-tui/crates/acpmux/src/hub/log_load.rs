@@ -113,11 +113,28 @@ impl Hub {
     /// reached it (immediate outside a deferred start, and once every log is read or the load
     /// failed).
     pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log_at(session, false).await;
+    }
+
+    /// [`Self::session_log`] for a chat being opened on screen: the read is what the person
+    /// is waiting on, so it runs ahead of agent work (`qos::on_screen`).
+    pub(crate) async fn session_log_on_screen(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log_at(session, true).await;
+    }
+
+    async fn session_log_at(self: &Arc<Self>, session: &Arc<Session>, on_screen: bool) {
         if self.session_log_loaded(session) {
             return;
         }
         let (hub, s) = (self.clone(), session.clone());
-        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_session_log(&s)).await {
+        let read = move || {
+            if on_screen {
+                crate::qos::on_screen(|| hub.load_session_log(&s))
+            } else {
+                hub.load_session_log(&s)
+            }
+        };
+        if let Err(e) = tokio::task::spawn_blocking(read).await {
             // It answers from the session list, as a failed load does (`LogsReady`).
             tracing::error!(session = %session.id, "reading the chat log failed: {e}");
         }
@@ -148,6 +165,7 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
@@ -161,6 +179,11 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        self.drop_unsent_subagent_retries(session);
+        // A crash may leave a durable prompt/queue record before its acceptance
+        // callback writes `_acpmux/message`; reconstruct those projections before
+        // clients can attach or the restored queue resumes.
+        super::message_events::recover_message_events(self, session);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
@@ -223,7 +246,15 @@ impl Hub {
         if kept && gone && waiting {
             // A wait the restart cut: its `status idle` record says so (`mark_lost_wait`), now
             // or when the background pass reads its log.
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).status = SessionStatus::Idle;
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.status = SessionStatus::Idle;
+                // Its harness is gone: a sub-session frees its parent's width slot, under the
+                // same lock as the status, as `write_status` does (`subsessions.rs`).
+                if let Some(link) = &m.subsession {
+                    self.subsessions.note_status(&link.started_by, &session.id, m.status);
+                }
+            }
             session.mark_waiting(false);
             if *loaded {
                 self.mark_lost_wait(session);
@@ -241,6 +272,7 @@ impl Hub {
             && let Some(prompt_id) = self.mark_unknown_outcome(session)
         {
             self.restore_queue(session);
+            self.drop_unsent_subagent_retries(session);
             let _ = self.move_queued(session, &prompt_id, 0, None);
         }
     }
@@ -257,13 +289,18 @@ impl Hub {
         }
         // Scan the whole log: a long turn can stream far more records
         // than any fixed tail window after its `turn_started`.
-        let mut open: Option<(u64, Value)> = None;
+        let mut open: Option<(u64, Value, Value, bool)> = None;
         let kinds = ["turn_started", "turn_result"];
         self.store
             .scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
+                        open = Some((
+                            e.seq,
+                            e.msg.get("turnId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("promptId").cloned().unwrap_or(Value::Null),
+                            e.msg.get("trigger") == Some(&Value::Bool(true)),
+                        ))
                     }
                     "turn_result" => open = None,
                     _ => {}
@@ -271,10 +308,20 @@ impl Hub {
                 true
             })
             .ok()?;
-        let (seq, turn_id) = open?;
+        let (seq, turn_id, prompt_id, trigger) = open?;
         let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
-        let error = "the daemon restarted before this turn settled";
-        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+        let error = if trigger {
+            "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
+        } else {
+            "the daemon restarted before this turn settled"
+        };
+        if trigger {
+            self.append(session, "mux", super::background_turn::RECORD_KIND, json!({
+                "state":"ended", "id":format!("bg-trigger-{}", turn_id.as_str().unwrap_or_default()),
+                "trigger":"system", "quiet":false, "reason":"exit"
+            }));
+        }
+        self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "promptId":prompt_id, "trigger":trigger, "error": error, "errorText": error}));
         self.save_meta(session);
         continued
     }

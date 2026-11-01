@@ -22,9 +22,11 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     case installing
     /// The result of a check the user asked for.
     case note(UpdateNote)
-    /// The running build was pulled off the feed (``PulledBuildWatch``): why, and the kept
-    /// build's version when a rollback to it would run.
-    case pulled(reason: String, rollbackVersion: String?)
+    /// Restart to Update found a build newer than the staged one, or the staged or running build
+    /// was pulled off the feed: the newest build downloads in its place (`transfer` once its
+    /// download runs), with no click (Leo 2026-10-29: "if there's multiple nightlies, i should
+    /// only need to do one to get the latest"). `pulled`: the running build was pulled (one line says so).
+    case gettingNewest(UpdateTransfer?, pulled: Bool)
 }
 
 /// What a notice card's button does. The raw value is the card action id.
@@ -37,10 +39,9 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     case retry
     /// Show a failure's details (the update sheet).
     case details
-    /// A pulled build: roll back to the kept build.
-    case rollBack = "roll_back"
-    /// A pulled build: keep it until the fix installs (the default).
-    case waitForFix = "wait_for_fix"
+    /// Stop the running download: Sparkle deletes the partial file and the card goes back to the
+    /// found update, whose Update downloads it again (Leo 2026-10-31: "WHY CAN'T I CANCEL THE DOWNLOAD").
+    case cancelDownload = "cancel_download"
 
     public var title: String {
         switch self {
@@ -48,11 +49,21 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .releaseNotes: UpdaterStrings.releaseNotes
         case .retry: UpdaterStrings.retry
         case .details: UpdaterStrings.details
-        case .rollBack: UpdaterStrings.pulledRollBack
-        case .waitForFix: UpdaterStrings.pulledWait
+        case .cancelDownload: UpdaterStrings.cancel
         }
     }
 
     /// The call to action (filled); the others are quiet.
-    public var isProminent: Bool { self == .update || self == .waitForFix }
+    public var isProminent: Bool { self == .update }
+
+    /// The SF Symbol of an action drawn as the card's right-hand control (``UpdateCardPresentation/trailing``).
+    public var symbol: String {
+        switch self {
+        case .cancelDownload: "xmark.circle.fill"
+        case .update: "arrow.down.circle"
+        case .releaseNotes: "doc.text"
+        case .retry: "arrow.clockwise"
+        case .details: "info.circle"
+        }
+    }
 }

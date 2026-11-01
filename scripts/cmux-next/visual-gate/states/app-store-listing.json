@@ -1,0 +1,28 @@
+{
+  "title": "App Store: the Hello Deploy listing (install = deploy + pin)",
+  "settings": {
+    "labs": {
+      "previewFeatures": true
+    }
+  },
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "App Store",
+      "cmux": [
+        "action",
+        "run",
+        "appStore.show",
+        "--focus",
+        "--app",
+        "manaflow-ai/hello-deploy"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+    }
+  ]
+}

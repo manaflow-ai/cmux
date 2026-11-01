@@ -1,5 +1,6 @@
 public import AVFoundation
 import CmuxNextCompat
+import Darwin
 public import Foundation
 import os
 
@@ -12,11 +13,34 @@ public struct DictationAudio: Equatable, Sendable {
     public var byteCount: Int
     /// The WAV's bytes, when it fits in a prompt as an audio block.
     public var data: Data?
+    /// The file the recording wrote (``file``), as the writer left it: a file put at that path
+    /// later is another file.
+    public var fileIdentity: DictationFileIdentity?
 
-    public init(file: URL? = nil, byteCount: Int, data: Data? = nil) {
+    public init(file: URL? = nil, byteCount: Int, data: Data? = nil, fileIdentity: DictationFileIdentity? = nil) {
         self.file = file
         self.byteCount = byteCount
         self.data = data
+        self.fileIdentity = fileIdentity
+    }
+}
+
+/// Which file a path named when it was read: its device and inode. A file renamed, linked to or
+/// written in its place since has another identity (a hard link to the same file keeps it).
+public struct DictationFileIdentity: Equatable, Sendable {
+    public let device: UInt64
+    public let inode: UInt64
+
+    public init(device: UInt64, inode: UInt64) {
+        self.device = device
+        self.inode = inode
+    }
+
+    /// The identity of the file open at `descriptor`; nil when it can't be read.
+    public static func of(descriptor: Int32) -> Self? {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { return nil }
+        return Self(device: UInt64(bitPattern: Int64(info.st_dev)), inode: UInt64(info.st_ino))
     }
 }
 
@@ -232,6 +256,7 @@ public final class DictationAudioRecording: Sendable {
     }
 
     private func close(rest: [Int16], samples: Int, omitted: Omission?) -> DictationAudio? {
+        var identity: DictationFileIdentity?
         let closed: Bool = output.withLock { output in
             write(rest, into: &output)
             defer {
@@ -245,6 +270,7 @@ public final class DictationAudioRecording: Sendable {
                 try handle.seek(toOffset: 0)
                 try handle.write(contentsOf: Self.header(samples: samples))
                 try handle.synchronize()
+                identity = DictationFileIdentity.of(descriptor: handle.fileDescriptor)
                 return true
             } catch {
                 return false
@@ -261,7 +287,7 @@ public final class DictationAudioRecording: Sendable {
         // samples follow its own (longer) header.
         let inlineBytes = 44 + dataBytes
         guard inlineBytes <= Self.inlinePromptBytes else {
-            return DictationAudio(file: file, byteCount: Self.headerBytes + dataBytes)
+            return DictationAudio(file: file, byteCount: Self.headerBytes + dataBytes, fileIdentity: identity)
         }
         let data = (try? Data(blockingContentsOf: file)).map { Self.plainHeader(samples: samples) + $0.dropFirst(Self.headerBytes) }
         removeFile()

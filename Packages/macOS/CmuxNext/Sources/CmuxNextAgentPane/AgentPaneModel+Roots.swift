@@ -102,6 +102,13 @@ extension AgentPaneModel {
             chosenFolder = folder
             pickedFolder = nil
             _ = beginPick()
+            let homeFolder = transport.homeFolder
+            let (picked, home) = await Task.detached(priority: .userInitiated) {
+                (AcpmuxPathPolicy.canonical(folder), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
+            }.value
+            if let picked, !AgentHome.isHomeOrAbove(picked, home: home) {
+                await transport.grantPicked(picked)
+            }
             return AgentPaneReply.success(["cwd": folder])
         case .cancelled:
             return AgentPaneReply.success()

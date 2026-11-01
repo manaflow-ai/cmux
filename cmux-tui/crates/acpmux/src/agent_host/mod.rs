@@ -37,8 +37,8 @@ pub(crate) mod tree;
 pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
-    BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
-    wait_dead_within, within, within_on,
+    HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async, wait_dead_within, within,
+    within_on,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -214,11 +214,42 @@ pub struct SpawnSpec {
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
     pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
-    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
-    /// a daemon that predates it starts the harness as before.
+    /// When the host ends on its own while no daemon controls it (`host.rs`, `orphan_step`).
+    /// None: never (a daemon whose idle hibernation is off, or one that predates it).
     #[serde(default)]
-    pub cpu_class: crate::cpu_class::CpuClass,
+    pub orphan_exit: Option<OrphanExit>,
 }
+
+/// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their
+/// daemon on purpose (an update, a crash, a restart, the app's Quit), but one whose daemon never
+/// comes back ran forever. It ends its harness group, as `Terminate` does, once no controller
+/// was connected for `idle_ms` and its agent is idle by everything the host can see: no request
+/// either side sent waits for its answer, no fenced line waits for its receipt, every entry a
+/// next daemon needs was logged, Claude Code runs no subagent or background shell, and nothing
+/// but the harness and its MCP servers runs under it (the idle pass's census,
+/// `hub/idle_census.rs`). What it cannot tell keeps it running. That is the end the daemon's
+/// own idle hibernation (`hub/idle.rs`) gives an idle agent: the next prompt resumes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrphanExit {
+    /// How long the host waits with no controller before it looks.
+    pub idle_ms: u64,
+    /// The MCP servers the harness's configs named just before it started, as the daemon read
+    /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
+    #[serde(default)]
+    pub servers: Vec<crate::hub::Sidecar>,
+    /// The harness's `PATH`, for the servers its sessions name by command.
+    #[serde(default)]
+    pub path: String,
+    /// The harness's folder, for the servers its sessions name by a relative path.
+    #[serde(default)]
+    pub cwd: std::path::PathBuf,
+}
+
+/// How long a host waits with no controller before an idle agent ends ([`OrphanExit`]): longer
+/// than the daemon's own idle hibernation (`hub::IDLE_CHILD`, 2 min), so an idle agent ends no
+/// sooner than a running daemon would have hibernated it, and far longer than a daemon restart
+/// or update takes to reconnect (seconds), which starts the wait again.
+pub const ORPHAN_IDLE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslatorSpec {
@@ -707,6 +738,36 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
 #[cfg(not(unix))]
 pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
     Err(crate::platform::unsupported("agent host records"))
+}
+
+/// `frame` as the bytes `write_frame` writes (length prefix and JSON), encoded once so
+/// it can be sent and kept without another copy. None when it is over the limit.
+pub fn encode_frame<T: Serialize>(frame: &T) -> Option<std::sync::Arc<[u8]>> {
+    encode_frame_within(frame, MAX_FRAME)
+}
+
+/// [`encode_frame`] with a body of at most `max` bytes.
+pub(crate) fn encode_frame_within<T: Serialize>(
+    frame: &T,
+    max: usize,
+) -> Option<std::sync::Arc<[u8]>> {
+    let body = serde_json::to_vec(frame).ok()?;
+    if body.len() > max {
+        return None;
+    }
+    let len = u32::try_from(body.len()).ok()?;
+    let mut buf = Vec::with_capacity(body.len().saturating_add(4));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&body);
+    Some(buf.into())
+}
+
+/// An entry frame serialized from a borrowed entry: the same bytes as
+/// `HostFrame::Entry { h, e }`, without copying the entry first.
+#[derive(Serialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub(crate) enum EntryFrame<'a> {
+    Entry { h: u64, e: &'a Entry },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

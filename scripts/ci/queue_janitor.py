@@ -202,6 +202,17 @@ def format_age(delta: dt.timedelta | None) -> str:
     return f"{minutes // 60}h{minutes % 60:02d}m"
 
 
+def is_delivery_run(run: Mapping[str, Any]) -> bool:
+    """Delivery protection is shared by backlog and orphan cleanup."""
+    path = str(run.get("path") or "")
+    delivery = ("nightly" in path.lower() or "promote" in path.lower() or
+                path.endswith("cmux-next-dev-daily.yml") or
+                path.endswith("cmux-next-dev-daily-dispatch.yml") or
+                any(str(run.get(key) or "").startswith("cmux NEXT DEV daily · ")
+                    for key in ("name", "display_title")))
+    return delivery and run.get("event") not in {"pull_request", "pull_request_target", "merge_group"}
+
+
 def protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why a run must never be cancelled, or None when policy may look at it."""
     event = run.get("event") or ""
@@ -217,6 +228,8 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} on main"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
+    if is_delivery_run(run):
+        return "nightly/DEV/promote delivery workflow"
     if PROTECTED_WORKFLOW.search(haystack):
         return "release/nightly/TestFlight/App Store workflow"
     return None
@@ -397,7 +410,7 @@ MAX_ARTIFACT_PAGES = 5
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
 # The dispatch markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/cmux-next-ios-kit.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
@@ -461,7 +474,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     if run.get("event") == "workflow_dispatch":
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")
-    return run.get("event") == "pull_request" and path.endswith("/ci.yml")
+    return ((run.get("event") == "pull_request" and (path.endswith("/ci.yml") or path.endswith("/cmux-next-ios-kit.yml"))) or
+            (run.get("event") == "push" and path.endswith("/cmux-next-ios-kit.yml")))
 
 
 def marker_may_exist(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
@@ -1082,12 +1096,13 @@ def find_orphans(
 def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why an orphaned run is reported but left for a human.
 
-    Narrower than protected_reason: an orphaned job never runs, so cancelling
-    a main schedule, nightly or TestFlight upload only lets the next one
-    start (ios-appstore-upload.yml does not count a cancelled run as an
-    upload). A release that stopped halfway, or a merge-queue check, is not
-    the janitor's to end.
+    An orphaned job does not prove that its delivery run never started:
+    completed builds and needs-blocked jobs may surround the queued job.
+    Delivery runs therefore keep the same protection as backlog cleanup.
+    Other main schedules and TestFlight uploads remain eligible.
     """
+    if is_delivery_run(run):
+        return "nightly/DEV/promote delivery workflow"
     event = run.get("event") or ""
     branch = run.get("head_branch") or ""
     if event in ORPHAN_PROTECTED_EVENTS:

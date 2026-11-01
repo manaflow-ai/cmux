@@ -1,6 +1,558 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "automations.activeCount": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "%lld نشطة"}},
+      "bs": {"stringUnit": {"state": "translated","value": "%lld aktivno"}},
+      "da": {"stringUnit": {"state": "translated","value": "%lld aktive"}},
+      "de": {"stringUnit": {"state": "translated","value": "%lld aktiv"}},
+      "en": {"stringUnit": {"state": "translated","value": "%lld active"}},
+      "es": {"stringUnit": {"state": "translated","value": "%lld activas"}},
+      "fr": {"stringUnit": {"state": "translated","value": "%lld actives"}},
+      "it": {"stringUnit": {"state": "translated","value": "%lld attive"}},
+      "ja": {"stringUnit": {"state": "translated","value": "%lld 件が有効"}},
+      "km": {"stringUnit": {"state": "translated","value": "%lld សកម្ម"}},
+      "ko": {"stringUnit": {"state": "translated","value": "%lld개 활성"}},
+      "nb": {"stringUnit": {"state": "translated","value": "%lld aktive"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Aktywne: %lld"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "%lld ativas"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Активных: %lld"}},
+      "th": {"stringUnit": {"state": "translated","value": "ใช้งาน %lld"}},
+      "tr": {"stringUnit": {"state": "translated","value": "%lld etkin"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Активних: %lld"}},
+      "vi": {"stringUnit": {"state": "translated","value": "%lld đang bật"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "%lld 个已启用"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "%lld 個已啟用"}}
+    }},
+    "automations.edit": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تعديل"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Uredi"}},
+      "da": {"stringUnit": {"state": "translated","value": "Rediger"}},
+      "de": {"stringUnit": {"state": "translated","value": "Bearbeiten"}},
+      "en": {"stringUnit": {"state": "translated","value": "Edit"}},
+      "es": {"stringUnit": {"state": "translated","value": "Editar"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Modifier"}},
+      "it": {"stringUnit": {"state": "translated","value": "Modifica"}},
+      "ja": {"stringUnit": {"state": "translated","value": "編集"}},
+      "km": {"stringUnit": {"state": "translated","value": "កែសម្រួល"}},
+      "ko": {"stringUnit": {"state": "translated","value": "편집"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Rediger"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Edytuj"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Editar"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Изменить"}},
+      "th": {"stringUnit": {"state": "translated","value": "แก้ไข"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Düzenle"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Редагувати"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Sửa"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "编辑"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "編輯"}}
+    }},
+    "automations.empty": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "لا توجد أتمتة بعد. اطلب من Chief (\"كل يوم عمل في 9، لخّص طلبات الدمج\") أو اضغط جديد."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Još nema automatizacija. Zamolite Chiefa (\"svaki radni dan u 9, sažmi moje PR-ove\") ili pritisnite Novo."}},
+      "da": {"stringUnit": {"state": "translated","value": "Ingen automatiseringer endnu. Spørg din Chief (\"hver hverdag kl. 9, opsummer mine PR'er\") eller tryk på Ny."}},
+      "de": {"stringUnit": {"state": "translated","value": "Noch keine Automatisierungen. Frag deinen Chief („jeden Werktag um 9 meine PRs zusammenfassen“) oder klicke auf Neu."}},
+      "en": {"stringUnit": {"state": "translated","value": "No automations yet. Ask your Chief (\"every weekday at 9, summarize my PRs\") or press New."}},
+      "es": {"stringUnit": {"state": "translated","value": "Aún no hay automatizaciones. Pídeselo a tu Chief (\"cada día laborable a las 9, resume mis PR\") o pulsa Nueva."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Aucune automatisation pour l’instant. Demandez à votre Chief (« chaque jour ouvré à 9 h, résume mes PR ») ou cliquez sur Nouvelle."}},
+      "it": {"stringUnit": {"state": "translated","value": "Ancora nessuna automazione. Chiedi al tuo Chief (\"ogni giorno feriale alle 9, riassumi le mie PR\") o premi Nuova."}},
+      "ja": {"stringUnit": {"state": "translated","value": "まだ自動化はありません。Chief に頼む (「平日の 9 時に PR を要約して」) か、「新規」を押してください。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនទាន់មានស្វ័យប្រវត្តិកម្មទេ។ សុំ Chief (\"រៀងរាល់ថ្ងៃធ្វើការម៉ោង 9 សង្ខេប PR របស់ខ្ញុំ\") ឬចុច ថ្មី។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "아직 자동화가 없습니다. Chief에게 요청하거나(\"평일 9시에 내 PR 요약해 줘\") 새로 만들기를 누르세요."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Ingen automatiseringer ennå. Spør Chief (\"hver ukedag kl. 9, oppsummer PR-ene mine\") eller trykk Ny."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Brak automatyzacji. Poproś Chiefa („w każdy dzień roboczy o 9 podsumuj moje PR-y”) lub kliknij Nowa."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Nenhuma automação ainda. Peça ao seu Chief (\"todo dia útil às 9, resuma meus PRs\") ou clique em Nova."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Автоматизаций пока нет. Попросите Chief («каждый будний день в 9 подводи итог моих PR») или нажмите «Новая»."}},
+      "th": {"stringUnit": {"state": "translated","value": "ยังไม่มีระบบอัตโนมัติ ขอให้ Chief (\"ทุกวันทำงานเวลา 9 โมง สรุป PR ของฉัน\") หรือกด ใหม่"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Henüz otomasyon yok. Chief'inize sorun (\"her iş günü saat 9'da PR'larımı özetle\") veya Yeni'ye basın."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Автоматизацій поки немає. Попросіть Chief («щобудня о 9 підсумовуй мої PR») або натисніть «Нова»."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Chưa có tự động hóa nào. Hãy nhờ Chief (\"mỗi ngày làm việc lúc 9 giờ, tóm tắt PR của tôi\") hoặc nhấn Mới."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "还没有自动化。让 Chief 来做（“每个工作日 9 点总结我的 PR”）或点按新建。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "還沒有自動化。請 Chief 幫忙（「每個工作日 9 點摘要我的 PR」）或按新增。"}}
+    }},
+    "automations.failed": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "فشل"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Neuspjelo"}},
+      "da": {"stringUnit": {"state": "translated","value": "Mislykkedes"}},
+      "de": {"stringUnit": {"state": "translated","value": "Fehlgeschlagen"}},
+      "en": {"stringUnit": {"state": "translated","value": "Failed"}},
+      "es": {"stringUnit": {"state": "translated","value": "Falló"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Échec"}},
+      "it": {"stringUnit": {"state": "translated","value": "Non riuscita"}},
+      "ja": {"stringUnit": {"state": "translated","value": "失敗"}},
+      "km": {"stringUnit": {"state": "translated","value": "បរាជ័យ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "실패"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Mislyktes"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Niepowodzenie"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Falhou"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Ошибка"}},
+      "th": {"stringUnit": {"state": "translated","value": "ล้มเหลว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Başarısız"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Помилка"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Thất bại"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "失败"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "失敗"}}
+    }},
+    "automations.history": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "السجل"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Historija"}},
+      "da": {"stringUnit": {"state": "translated","value": "Historik"}},
+      "de": {"stringUnit": {"state": "translated","value": "Verlauf"}},
+      "en": {"stringUnit": {"state": "translated","value": "History"}},
+      "es": {"stringUnit": {"state": "translated","value": "Historial"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Historique"}},
+      "it": {"stringUnit": {"state": "translated","value": "Cronologia"}},
+      "ja": {"stringUnit": {"state": "translated","value": "履歴"}},
+      "km": {"stringUnit": {"state": "translated","value": "ប្រវត្តិ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "기록"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Historikk"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Historia"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Histórico"}},
+      "ru": {"stringUnit": {"state": "translated","value": "История"}},
+      "th": {"stringUnit": {"state": "translated","value": "ประวัติ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Geçmiş"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Історія"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Lịch sử"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "历史记录"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "歷史記錄"}}
+    }},
+    "automations.late": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تأخر %lld دقيقة"}},
+      "bs": {"stringUnit": {"state": "translated","value": "pokrenuto %lld min kasnije"}},
+      "da": {"stringUnit": {"state": "translated","value": "kørte %lld min. for sent"}},
+      "de": {"stringUnit": {"state": "translated","value": "%lld Min. verspätet"}},
+      "en": {"stringUnit": {"state": "translated","value": "ran %lld min late"}},
+      "es": {"stringUnit": {"state": "translated","value": "se ejecutó con %lld min de retraso"}},
+      "fr": {"stringUnit": {"state": "translated","value": "exécutée avec %lld min de retard"}},
+      "it": {"stringUnit": {"state": "translated","value": "eseguita con %lld min di ritardo"}},
+      "ja": {"stringUnit": {"state": "translated","value": "%lld 分遅れて実行"}},
+      "km": {"stringUnit": {"state": "translated","value": "ដំណើរការយឺត %lld នាទី"}},
+      "ko": {"stringUnit": {"state": "translated","value": "%lld분 늦게 실행됨"}},
+      "nb": {"stringUnit": {"state": "translated","value": "kjørte %lld min for sent"}},
+      "pl": {"stringUnit": {"state": "translated","value": "uruchomiono %lld min później"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "executada %lld min atrasada"}},
+      "ru": {"stringUnit": {"state": "translated","value": "запущено с опозданием на %lld мин"}},
+      "th": {"stringUnit": {"state": "translated","value": "ทำงานช้า %lld นาที"}},
+      "tr": {"stringUnit": {"state": "translated","value": "%lld dk geç çalıştı"}},
+      "uk": {"stringUnit": {"state": "translated","value": "запущено із запізненням на %lld хв"}},
+      "vi": {"stringUnit": {"state": "translated","value": "chạy trễ %lld phút"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "延迟 %lld 分钟运行"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "延遲 %lld 分鐘執行"}}
+    }},
+    "automations.new": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "جديد"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Novo"}},
+      "da": {"stringUnit": {"state": "translated","value": "Ny"}},
+      "de": {"stringUnit": {"state": "translated","value": "Neu"}},
+      "en": {"stringUnit": {"state": "translated","value": "New"}},
+      "es": {"stringUnit": {"state": "translated","value": "Nueva"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Nouvelle"}},
+      "it": {"stringUnit": {"state": "translated","value": "Nuova"}},
+      "ja": {"stringUnit": {"state": "translated","value": "新規"}},
+      "km": {"stringUnit": {"state": "translated","value": "ថ្មី"}},
+      "ko": {"stringUnit": {"state": "translated","value": "새로 만들기"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Ny"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Nowa"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Nova"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Новая"}},
+      "th": {"stringUnit": {"state": "translated","value": "ใหม่"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Yeni"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Нова"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Mới"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "新建"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "新增"}}
+    }},
+    "automations.next": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "التالي %@"}},
+      "bs": {"stringUnit": {"state": "translated","value": "sljedeće %@"}},
+      "da": {"stringUnit": {"state": "translated","value": "næste %@"}},
+      "de": {"stringUnit": {"state": "translated","value": "nächste %@"}},
+      "en": {"stringUnit": {"state": "translated","value": "next %@"}},
+      "es": {"stringUnit": {"state": "translated","value": "próxima %@"}},
+      "fr": {"stringUnit": {"state": "translated","value": "prochaine %@"}},
+      "it": {"stringUnit": {"state": "translated","value": "prossima %@"}},
+      "ja": {"stringUnit": {"state": "translated","value": "次回 %@"}},
+      "km": {"stringUnit": {"state": "translated","value": "បន្ទាប់ %@"}},
+      "ko": {"stringUnit": {"state": "translated","value": "다음 %@"}},
+      "nb": {"stringUnit": {"state": "translated","value": "neste %@"}},
+      "pl": {"stringUnit": {"state": "translated","value": "następne %@"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "próxima %@"}},
+      "ru": {"stringUnit": {"state": "translated","value": "следующий %@"}},
+      "th": {"stringUnit": {"state": "translated","value": "ครั้งถัดไป %@"}},
+      "tr": {"stringUnit": {"state": "translated","value": "sonraki %@"}},
+      "uk": {"stringUnit": {"state": "translated","value": "наступний %@"}},
+      "vi": {"stringUnit": {"state": "translated","value": "lần tới %@"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "下次 %@"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "下次 %@"}}
+    }},
+    "automations.noRuns": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "لا توجد عمليات تشغيل بعد."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Još nema pokretanja."}},
+      "da": {"stringUnit": {"state": "translated","value": "Ingen kørsler endnu."}},
+      "de": {"stringUnit": {"state": "translated","value": "Noch keine Ausführungen."}},
+      "en": {"stringUnit": {"state": "translated","value": "No runs yet."}},
+      "es": {"stringUnit": {"state": "translated","value": "Aún no hay ejecuciones."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Aucune exécution pour l’instant."}},
+      "it": {"stringUnit": {"state": "translated","value": "Ancora nessuna esecuzione."}},
+      "ja": {"stringUnit": {"state": "translated","value": "まだ実行はありません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនទាន់មានការដំណើរការនៅឡើយ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "아직 실행 기록이 없습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Ingen kjøringer ennå."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Brak uruchomień."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Nenhuma execução ainda."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Запусков пока нет."}},
+      "th": {"stringUnit": {"state": "translated","value": "ยังไม่มีการเรียกใช้"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Henüz çalıştırma yok."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Запусків поки немає."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Chưa có lần chạy nào."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "尚无运行记录。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "尚無執行記錄。"}}
+    }},
+    "automations.pause": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "إيقاف مؤقت"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Pauziraj"}},
+      "da": {"stringUnit": {"state": "translated","value": "Sæt på pause"}},
+      "de": {"stringUnit": {"state": "translated","value": "Pausieren"}},
+      "en": {"stringUnit": {"state": "translated","value": "Pause"}},
+      "es": {"stringUnit": {"state": "translated","value": "Pausar"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Mettre en pause"}},
+      "it": {"stringUnit": {"state": "translated","value": "Metti in pausa"}},
+      "ja": {"stringUnit": {"state": "translated","value": "一時停止"}},
+      "km": {"stringUnit": {"state": "translated","value": "ផ្អាក"}},
+      "ko": {"stringUnit": {"state": "translated","value": "일시 중지"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Sett på pause"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Wstrzymaj"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Pausar"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Приостановить"}},
+      "th": {"stringUnit": {"state": "translated","value": "หยุดชั่วคราว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Duraklat"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Призупинити"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Tạm dừng"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "暂停"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "暫停"}}
+    }},
+    "automations.paused": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "متوقفة"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Pauzirano"}},
+      "da": {"stringUnit": {"state": "translated","value": "Pause"}},
+      "de": {"stringUnit": {"state": "translated","value": "Pausiert"}},
+      "en": {"stringUnit": {"state": "translated","value": "Paused"}},
+      "es": {"stringUnit": {"state": "translated","value": "En pausa"}},
+      "fr": {"stringUnit": {"state": "translated","value": "En pause"}},
+      "it": {"stringUnit": {"state": "translated","value": "In pausa"}},
+      "ja": {"stringUnit": {"state": "translated","value": "一時停止中"}},
+      "km": {"stringUnit": {"state": "translated","value": "បានផ្អាក"}},
+      "ko": {"stringUnit": {"state": "translated","value": "일시 중지"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Pause"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Wstrzymana"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Pausada"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Пауза"}},
+      "th": {"stringUnit": {"state": "translated","value": "หยุดชั่วคราว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Duraklatıldı"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Пауза"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Tạm dừng"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "已暂停"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "已暫停"}}
+    }},
+    "automations.resume": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "استئناف"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Nastavi"}},
+      "da": {"stringUnit": {"state": "translated","value": "Genoptag"}},
+      "de": {"stringUnit": {"state": "translated","value": "Fortsetzen"}},
+      "en": {"stringUnit": {"state": "translated","value": "Resume"}},
+      "es": {"stringUnit": {"state": "translated","value": "Reanudar"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Reprendre"}},
+      "it": {"stringUnit": {"state": "translated","value": "Riprendi"}},
+      "ja": {"stringUnit": {"state": "translated","value": "再開"}},
+      "km": {"stringUnit": {"state": "translated","value": "បន្ត"}},
+      "ko": {"stringUnit": {"state": "translated","value": "재개"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Gjenoppta"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Wznów"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Retomar"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Возобновить"}},
+      "th": {"stringUnit": {"state": "translated","value": "ดำเนินการต่อ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Sürdür"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Відновити"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Tiếp tục"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "恢复"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "繼續"}}
+    }},
+    "automations.problem.cloud": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تعذّر الوصول إلى cmux Cloud؛ لا تظهر أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Nije moguće doći do cmux Clouda; Cloud automatizacije se ne prikazuju."}},
+      "da": {"stringUnit": {"state": "translated","value": "Kunne ikke nå cmux Cloud; Cloud-automatiseringer vises ikke."}},
+      "de": {"stringUnit": {"state": "translated","value": "cmux Cloud ist nicht erreichbar; Cloud-Automatisierungen werden nicht angezeigt."}},
+      "en": {"stringUnit": {"state": "translated","value": "Could not reach cmux Cloud; Cloud automations are not shown."}},
+      "es": {"stringUnit": {"state": "translated","value": "No se pudo conectar con cmux Cloud; no se muestran las automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Impossible de joindre cmux Cloud ; les automatisations Cloud ne sont pas affichées."}},
+      "it": {"stringUnit": {"state": "translated","value": "Impossibile raggiungere cmux Cloud; le automazioni Cloud non vengono mostrate."}},
+      "ja": {"stringUnit": {"state": "translated","value": "cmux Cloud に接続できないため、Cloud の自動化は表示されません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនអាចភ្ជាប់ cmux Cloud បានទេ ស្វ័យប្រវត្តិកម្ម Cloud មិនត្រូវបានបង្ហាញ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "cmux Cloud에 연결할 수 없어 Cloud 자동화가 표시되지 않습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Får ikke kontakt med cmux Cloud; Cloud-automatiseringer vises ikke."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Nie można połączyć się z cmux Cloud; automatyzacje w chmurze nie są widoczne."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Não foi possível acessar o cmux Cloud; as automações na nuvem não aparecem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Не удалось связаться с cmux Cloud; облачные автоматизации не показаны."}},
+      "th": {"stringUnit": {"state": "translated","value": "ติดต่อ cmux Cloud ไม่ได้ จึงไม่แสดงระบบอัตโนมัติบนคลาวด์"}},
+      "tr": {"stringUnit": {"state": "translated","value": "cmux Cloud'a ulaşılamadı; Cloud otomasyonları gösterilmiyor."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Не вдалося зв'язатися з cmux Cloud; хмарні автоматизації не показано."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Không kết nối được cmux Cloud; không hiển thị tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "无法连接 cmux Cloud，云端自动化未显示。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "無法連線 cmux Cloud，雲端自動化未顯示。"}}
+    }},
+    "automations.problem.cloudOff": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "أوقف المسؤول cmux Cloud، لذلك لا تظهر أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Administrator je isključio cmux Cloud, pa se Cloud automatizacije ne prikazuju."}},
+      "da": {"stringUnit": {"state": "translated","value": "Din administrator har slået cmux Cloud fra, så Cloud-automatiseringer vises ikke."}},
+      "de": {"stringUnit": {"state": "translated","value": "Dein Administrator hat cmux Cloud deaktiviert, daher werden Cloud-Automatisierungen nicht angezeigt."}},
+      "en": {"stringUnit": {"state": "translated","value": "Your administrator turned off cmux Cloud, so Cloud automations are not shown."}},
+      "es": {"stringUnit": {"state": "translated","value": "Tu administrador desactivó cmux Cloud, así que no se muestran las automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Votre administrateur a désactivé cmux Cloud ; les automatisations Cloud ne sont pas affichées."}},
+      "it": {"stringUnit": {"state": "translated","value": "L'amministratore ha disattivato cmux Cloud, quindi le automazioni Cloud non vengono mostrate."}},
+      "ja": {"stringUnit": {"state": "translated","value": "管理者が cmux Cloud をオフにしているため、Cloud の自動化は表示されません。"}},
+      "km": {"stringUnit": {"state": "translated","value": "អ្នកគ្រប់គ្រងបានបិទ cmux Cloud ដូច្នេះស្វ័យប្រវត្តិកម្ម Cloud មិនត្រូវបានបង្ហាញទេ។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "관리자가 cmux Cloud를 꺼서 Cloud 자동화가 표시되지 않습니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Administratoren har slått av cmux Cloud, så Cloud-automatiseringer vises ikke."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Administrator wyłączył cmux Cloud, więc automatyzacje w chmurze nie są widoczne."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Seu administrador desativou o cmux Cloud, então as automações na nuvem não aparecem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Администратор отключил cmux Cloud, поэтому облачные автоматизации не показаны."}},
+      "th": {"stringUnit": {"state": "translated","value": "ผู้ดูแลระบบปิด cmux Cloud ไว้ จึงไม่แสดงระบบอัตโนมัติบนคลาวด์"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Yöneticiniz cmux Cloud'u kapattı; Cloud otomasyonları gösterilmiyor."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Адміністратор вимкнув cmux Cloud, тому хмарні автоматизації не показано."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Quản trị viên đã tắt cmux Cloud nên không hiển thị tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "管理员已关闭 cmux Cloud，因此不显示云端自动化。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "管理員已關閉 cmux Cloud，因此不顯示雲端自動化。"}}
+    }},
+    "automations.problem.signedOut": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "سجّل الدخول إلى cmux لرؤية أتمتة السحابة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Prijavite se u cmux da vidite svoje Cloud automatizacije."}},
+      "da": {"stringUnit": {"state": "translated","value": "Log ind på cmux for at se dine Cloud-automatiseringer."}},
+      "de": {"stringUnit": {"state": "translated","value": "Melde dich bei cmux an, um deine Cloud-Automatisierungen zu sehen."}},
+      "en": {"stringUnit": {"state": "translated","value": "Sign in to cmux to see your Cloud automations."}},
+      "es": {"stringUnit": {"state": "translated","value": "Inicia sesión en cmux para ver tus automatizaciones en la nube."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Connectez-vous à cmux pour voir vos automatisations Cloud."}},
+      "it": {"stringUnit": {"state": "translated","value": "Accedi a cmux per vedere le tue automazioni Cloud."}},
+      "ja": {"stringUnit": {"state": "translated","value": "Cloud の自動化を表示するには cmux にサインインしてください。"}},
+      "km": {"stringUnit": {"state": "translated","value": "ចូលគណនី cmux ដើម្បីមើលស្វ័យប្រវត្តិកម្ម Cloud របស់អ្នក។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "Cloud 자동화를 보려면 cmux에 로그인하세요."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Logg på cmux for å se Cloud-automatiseringene dine."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Zaloguj się do cmux, aby zobaczyć automatyzacje w chmurze."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Entre no cmux para ver suas automações na nuvem."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Войдите в cmux, чтобы увидеть облачные автоматизации."}},
+      "th": {"stringUnit": {"state": "translated","value": "ลงชื่อเข้าใช้ cmux เพื่อดูระบบอัตโนมัติบนคลาวด์ของคุณ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Cloud otomasyonlarınızı görmek için cmux'a giriş yapın."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Увійдіть у cmux, щоб побачити хмарні автоматизації."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đăng nhập cmux để xem các tự động hóa trên đám mây."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "登录 cmux 以查看你的云端自动化。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "登入 cmux 以查看你的雲端自動化。"}}
+    }},
+    "automations.problem.thisMac": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تعذّرت قراءة أتمتة هذا الـ Mac (فشل cmux automation list)."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Nije moguće pročitati automatizacije ovog Maca (cmux automation list nije uspio)."}},
+      "da": {"stringUnit": {"state": "translated","value": "Kunne ikke læse denne Macs automatiseringer (cmux automation list mislykkedes)."}},
+      "de": {"stringUnit": {"state": "translated","value": "Die Automatisierungen dieses Macs konnten nicht gelesen werden (cmux automation list ist fehlgeschlagen)."}},
+      "en": {"stringUnit": {"state": "translated","value": "Could not read this Mac's automations (cmux automation list failed)."}},
+      "es": {"stringUnit": {"state": "translated","value": "No se pudieron leer las automatizaciones de este Mac (falló cmux automation list)."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Impossible de lire les automatisations de ce Mac (échec de cmux automation list)."}},
+      "it": {"stringUnit": {"state": "translated","value": "Impossibile leggere le automazioni di questo Mac (cmux automation list non riuscito)."}},
+      "ja": {"stringUnit": {"state": "translated","value": "この Mac の自動化を読み込めませんでした (cmux automation list が失敗しました)。"}},
+      "km": {"stringUnit": {"state": "translated","value": "មិនអាចអានស្វ័យប្រវត្តិកម្មរបស់ Mac នេះបានទេ (cmux automation list បរាជ័យ)។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "이 Mac의 자동화를 읽을 수 없습니다(cmux automation list 실패)."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Kunne ikke lese automatiseringene på denne Macen (cmux automation list mislyktes)."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Nie można odczytać automatyzacji tego Maca (cmux automation list nie powiodło się)."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Não foi possível ler as automações deste Mac (cmux automation list falhou)."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Не удалось прочитать автоматизации этого Mac (ошибка cmux automation list)."}},
+      "th": {"stringUnit": {"state": "translated","value": "อ่านระบบอัตโนมัติของ Mac เครื่องนี้ไม่ได้ (cmux automation list ล้มเหลว)"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Bu Mac'in otomasyonları okunamadı (cmux automation list başarısız oldu)."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Не вдалося прочитати автоматизації цього Mac (помилка cmux automation list)."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Không đọc được tự động hóa của máy Mac này (cmux automation list thất bại)."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "无法读取此 Mac 的自动化（cmux automation list 失败）。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "無法讀取此 Mac 的自動化（cmux automation list 失敗）。"}}
+    }},
+    "automations.runNow": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تشغيل الآن"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Pokreni sada"}},
+      "da": {"stringUnit": {"state": "translated","value": "Kør nu"}},
+      "de": {"stringUnit": {"state": "translated","value": "Jetzt ausführen"}},
+      "en": {"stringUnit": {"state": "translated","value": "Run now"}},
+      "es": {"stringUnit": {"state": "translated","value": "Ejecutar ahora"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Exécuter maintenant"}},
+      "it": {"stringUnit": {"state": "translated","value": "Esegui ora"}},
+      "ja": {"stringUnit": {"state": "translated","value": "今すぐ実行"}},
+      "km": {"stringUnit": {"state": "translated","value": "ដំណើរការឥឡូវ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "지금 실행"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Kjør nå"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Uruchom teraz"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Executar agora"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Запустить сейчас"}},
+      "th": {"stringUnit": {"state": "translated","value": "เรียกใช้ตอนนี้"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Şimdi çalıştır"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Запустити зараз"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Chạy ngay"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "立即运行"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "立即執行"}}
+    }},
+    "automations.section.later": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "لاحقًا"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Kasnije"}},
+      "da": {"stringUnit": {"state": "translated","value": "Senere"}},
+      "de": {"stringUnit": {"state": "translated","value": "Später"}},
+      "en": {"stringUnit": {"state": "translated","value": "Later"}},
+      "es": {"stringUnit": {"state": "translated","value": "Más tarde"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Plus tard"}},
+      "it": {"stringUnit": {"state": "translated","value": "Più tardi"}},
+      "ja": {"stringUnit": {"state": "translated","value": "今後"}},
+      "km": {"stringUnit": {"state": "translated","value": "ពេលក្រោយ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "나중에"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Senere"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Później"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Mais tarde"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Позже"}},
+      "th": {"stringUnit": {"state": "translated","value": "ภายหลัง"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Daha sonra"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Пізніше"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Sau này"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "稍后"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "稍後"}}
+    }},
+    "automations.section.needsYou": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "تحتاج إليك"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Treba vas"}},
+      "da": {"stringUnit": {"state": "translated","value": "Kræver dig"}},
+      "de": {"stringUnit": {"state": "translated","value": "Braucht dich"}},
+      "en": {"stringUnit": {"state": "translated","value": "Needs you"}},
+      "es": {"stringUnit": {"state": "translated","value": "Requiere tu atención"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Attend votre action"}},
+      "it": {"stringUnit": {"state": "translated","value": "Richiede te"}},
+      "ja": {"stringUnit": {"state": "translated","value": "要対応"}},
+      "km": {"stringUnit": {"state": "translated","value": "ត្រូវការអ្នក"}},
+      "ko": {"stringUnit": {"state": "translated","value": "확인 필요"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Trenger deg"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Wymaga Ciebie"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Precisa de você"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Нужно ваше участие"}},
+      "th": {"stringUnit": {"state": "translated","value": "ต้องการคุณ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Sizi bekliyor"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Потрібна ваша дія"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Cần bạn"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "需要你处理"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "需要你處理"}}
+    }},
+    "automations.section.paused": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "متوقفة مؤقتًا"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Pauzirano"}},
+      "da": {"stringUnit": {"state": "translated","value": "Sat på pause"}},
+      "de": {"stringUnit": {"state": "translated","value": "Pausiert"}},
+      "en": {"stringUnit": {"state": "translated","value": "Paused"}},
+      "es": {"stringUnit": {"state": "translated","value": "En pausa"}},
+      "fr": {"stringUnit": {"state": "translated","value": "En pause"}},
+      "it": {"stringUnit": {"state": "translated","value": "In pausa"}},
+      "ja": {"stringUnit": {"state": "translated","value": "一時停止中"}},
+      "km": {"stringUnit": {"state": "translated","value": "បានផ្អាក"}},
+      "ko": {"stringUnit": {"state": "translated","value": "일시 중지됨"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Satt på pause"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Wstrzymane"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Pausadas"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Приостановлены"}},
+      "th": {"stringUnit": {"state": "translated","value": "หยุดชั่วคราว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Duraklatıldı"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Призупинено"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đã tạm dừng"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "已暂停"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "已暫停"}}
+    }},
+    "automations.section.today": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "اليوم"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Danas"}},
+      "da": {"stringUnit": {"state": "translated","value": "I dag"}},
+      "de": {"stringUnit": {"state": "translated","value": "Heute"}},
+      "en": {"stringUnit": {"state": "translated","value": "Today"}},
+      "es": {"stringUnit": {"state": "translated","value": "Hoy"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Aujourd’hui"}},
+      "it": {"stringUnit": {"state": "translated","value": "Oggi"}},
+      "ja": {"stringUnit": {"state": "translated","value": "今日"}},
+      "km": {"stringUnit": {"state": "translated","value": "ថ្ងៃនេះ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "오늘"}},
+      "nb": {"stringUnit": {"state": "translated","value": "I dag"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Dzisiaj"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Hoje"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Сегодня"}},
+      "th": {"stringUnit": {"state": "translated","value": "วันนี้"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Bugün"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Сьогодні"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Hôm nay"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "今天"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "今天"}}
+    }},
+    "automations.target.cloud": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "السحابة"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "da": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "de": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "en": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "es": {"stringUnit": {"state": "translated","value": "Nube"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "it": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "ja": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "km": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "ko": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Cloud"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Chmura"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Nuvem"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Облако"}},
+      "th": {"stringUnit": {"state": "translated","value": "คลาวด์"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Bulut"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Хмара"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đám mây"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "云端"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "雲端"}}
+    }},
+    "automations.target.thisMac": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "هذا الـ Mac"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Ovaj Mac"}},
+      "da": {"stringUnit": {"state": "translated","value": "Denne Mac"}},
+      "de": {"stringUnit": {"state": "translated","value": "Dieser Mac"}},
+      "en": {"stringUnit": {"state": "translated","value": "This Mac"}},
+      "es": {"stringUnit": {"state": "translated","value": "Este Mac"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Ce Mac"}},
+      "it": {"stringUnit": {"state": "translated","value": "Questo Mac"}},
+      "ja": {"stringUnit": {"state": "translated","value": "この Mac"}},
+      "km": {"stringUnit": {"state": "translated","value": "Mac នេះ"}},
+      "ko": {"stringUnit": {"state": "translated","value": "이 Mac"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Denne Macen"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Ten Mac"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Este Mac"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Этот Mac"}},
+      "th": {"stringUnit": {"state": "translated","value": "Mac เครื่องนี้"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Bu Mac"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Цей Mac"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Máy Mac này"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "此 Mac"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "此 Mac"}}
+    }},
+    "automations.title": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "الأتمتة"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Automatizacije"}},
+      "da": {"stringUnit": {"state": "translated","value": "Automatiseringer"}},
+      "de": {"stringUnit": {"state": "translated","value": "Automatisierungen"}},
+      "en": {"stringUnit": {"state": "translated","value": "Automations"}},
+      "es": {"stringUnit": {"state": "translated","value": "Automatizaciones"}},
+      "fr": {"stringUnit": {"state": "translated","value": "Automatisations"}},
+      "it": {"stringUnit": {"state": "translated","value": "Automazioni"}},
+      "ja": {"stringUnit": {"state": "translated","value": "自動化"}},
+      "km": {"stringUnit": {"state": "translated","value": "ស្វ័យប្រវត្តិកម្ម"}},
+      "ko": {"stringUnit": {"state": "translated","value": "자동화"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Automatiseringer"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Automatyzacje"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Automações"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Автоматизации"}},
+      "th": {"stringUnit": {"state": "translated","value": "ระบบอัตโนมัติ"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Otomasyonlar"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Автоматизації"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Tự động hóa"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "自动化"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "自動化"}}
+    }},
     "cloud.environments.buildBody": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "يقوم جهاز بناء باستنساخ المستودع وتشغيل الإعداد، ثم يُحفظ كلقطة ويُحذف. يعمل لبضع دقائق، وتُحتسب اللقطة ضمن لقطاتك المحفوظة. بعد ذلك تبدأ الأجهزة الجديدة في هذه البيئة في نحو ثانية."}},
       "bs": {"stringUnit": {"state": "translated","value": "Mašina za izgradnju klonira repozitorij i pokreće podešavanje, sačuva se kao snimak i obriše. Radi nekoliko minuta, a snimak se računa u vaše sačuvane snimke. Nove mašine u ovom okruženju se zatim pokreću za oko sekundu."}},
@@ -322,6 +874,29 @@
       "vi": {"stringUnit": {"state": "translated","value": "Kết nối đám mây này không hỗ trợ thiết lập thông tin xác thực của nhà cung cấp."}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "此云端连接不支持设置提供商凭据。"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "此雲端連線不支援設定供應商憑證。"}}
+    }},
+    "cloud.workspaceSetup.credentialsSignInOnMachine": {"localizations": {
+      "ar": {"stringUnit": {"state": "translated","value": "سجّل الدخول إلى Claude أو Codex على الآلة الافتراضية نفسها: توفّر محادثتها تسجيل دخول بنقرة واحدة."}},
+      "bs": {"stringUnit": {"state": "translated","value": "Prijavite se u Claude ili Codex na samoj virtuelnoj mašini: njen chat nudi prijavu jednim klikom."}},
+      "da": {"stringUnit": {"state": "translated","value": "Log ind på Claude eller Codex på selve VM'en: dens chat tilbyder login med ét klik."}},
+      "de": {"stringUnit": {"state": "translated","value": "Melde dich auf der VM selbst bei Claude oder Codex an: Ihr Chat bietet eine Anmeldung mit einem Klick."}},
+      "en": {"stringUnit": {"state": "translated","value": "Sign in to Claude or Codex on the VM itself: its chat offers a one-click sign-in."}},
+      "es": {"stringUnit": {"state": "translated","value": "Inicia sesión en Claude o Codex en la propia VM: su chat ofrece un inicio de sesión con un clic."}},
+      "fr": {"stringUnit": {"state": "translated","value": "Connectez-vous à Claude ou Codex sur la VM elle-même : son chat propose une connexion en un clic."}},
+      "it": {"stringUnit": {"state": "translated","value": "Accedi a Claude o Codex direttamente sulla VM: la sua chat offre l’accesso con un clic."}},
+      "ja": {"stringUnit": {"state": "translated","value": "VM 上で Claude または Codex にサインインしてください。チャットからワンクリックでサインインできます。"}},
+      "km": {"stringUnit": {"state": "translated","value": "ចូលគណនី Claude ឬ Codex នៅលើ VM ផ្ទាល់៖ ការជជែករបស់វាផ្តល់ការចូលគណនីដោយចុចតែម្តង។"}},
+      "ko": {"stringUnit": {"state": "translated","value": "VM에서 직접 Claude 또는 Codex에 로그인하세요. 해당 채팅에서 원클릭 로그인을 제공합니다."}},
+      "nb": {"stringUnit": {"state": "translated","value": "Logg på Claude eller Codex på selve VM-en: chatten tilbyr pålogging med ett klikk."}},
+      "pl": {"stringUnit": {"state": "translated","value": "Zaloguj się do Claude lub Codex na samej maszynie wirtualnej: jej czat oferuje logowanie jednym kliknięciem."}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "Entre no Claude ou no Codex na própria VM: o chat dela oferece login com um clique."}},
+      "ru": {"stringUnit": {"state": "translated","value": "Войдите в Claude или Codex на самой виртуальной машине: в её чате есть вход в один клик."}},
+      "th": {"stringUnit": {"state": "translated","value": "ลงชื่อเข้าใช้ Claude หรือ Codex บน VM โดยตรง: แชทของ VM มีการลงชื่อเข้าใช้ด้วยคลิกเดียว"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Claude veya Codex'e doğrudan VM üzerinde giriş yapın: sohbeti tek tıkla giriş sunar."}},
+      "uk": {"stringUnit": {"state": "translated","value": "Увійдіть у Claude або Codex на самій віртуальній машині: її чат пропонує вхід одним клацанням."}},
+      "vi": {"stringUnit": {"state": "translated","value": "Đăng nhập Claude hoặc Codex ngay trên VM: cuộc trò chuyện của VM có đăng nhập bằng một lần nhấp."}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "请在虚拟机上直接登录 Claude 或 Codex：其聊天提供一键登录。"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "請在虛擬機上直接登入 Claude 或 Codex：其聊天提供一鍵登入。"}}
     }},
     "cloud.workspaceSetup.credentialsTeamUnavailable": {"localizations": {
       "ar": {"stringUnit": {"state": "translated","value": "تبقى بيانات اعتماد المزوّد الشخصية خارج الآلات الافتراضية المشتركة للفريق لأنها تشترك في مجلد رئيسي واحد."}},
@@ -851,7 +1426,662 @@
       "vi": {"stringUnit": {"state": "translated","value": "Chuyển và hoàn tất"}},
       "zh-Hans": {"stringUnit": {"state": "translated","value": "传输并完成"}},
       "zh-Hant": {"stringUnit": {"state": "translated","value": "傳輸並完成"}}
-    }}
+    }},
+    "cloud.workspaceSetup.size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU، ذاكرة %2$@ غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB Arbeitsspeicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ Go de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB di memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU、メモリ %2$@ GB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, អង្គចងចាំ %2$@ GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU %1$@개, 메모리 %2$@GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ ГБ памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, หน่วยความจำ %2$@ GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ GB bellek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, %2$@ ГБ пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vCPU, bộ nhớ %2$@ GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 个 vCPU，%2$@ GB 内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 個 vCPU，%2$@ GB 記憶體"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeAutomatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic (sized for the chat's repository)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي (حسب مستودع المحادثة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski (prema repozitoriju chata)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk (tilpasset chattens repository)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch (passend zum Repository des Chats)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático (según el repositorio del chat)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique (selon le dépôt de la conversation)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatica (in base al repository della chat)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（チャットのリポジトリに合わせる）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ (តាមឃ្លាំងរបស់ការជជែក)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동(채팅의 저장소에 맞춤)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk (tilpasset chattens repository)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie (według repozytorium czatu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático (conforme o repositório do chat)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически (по репозиторию чата)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ (ตามรีโพสิทอรีของแชท)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik (sohbetin deposuna göre)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично (за репозиторієм чату)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động (theo kho mã của cuộc trò chuyện)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（按聊天的仓库确定）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（依聊天的儲存庫決定）"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinengröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de la máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione della macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makine boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kích thước máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器规格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器規格"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeMemory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة %@ غيغابايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB memorije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB Arbeitsspeicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB de memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Go de mémoire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB di memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ %@ GB"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អង្គចងចាំ %@ GB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 %@GB"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB pamięci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB de memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ГБ памяти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน่วยความจำ %@ GB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB bellek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ГБ пам’яті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ %@ GB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB 内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ GB 記憶體"
+          }
+        }
+      }
+    },
+    "cloud.workspaceSetup.sizeRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/h"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ساعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/t"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/Std."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/hora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/heure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ម៉ោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/t"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/godz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ч"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/ชม."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/sa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/год"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@/小時"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

@@ -146,6 +146,11 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
+        // Warm the pages the adoption's terminal ends write while the restore
+        // runs (workspace_registry::terminal_end_prefetch).
+        if let Some(database) = registry.session_journal_database_path() {
+            crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
+        }
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -195,6 +200,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
@@ -311,11 +317,15 @@ impl Mux {
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_hook_projection: Mutex::new(()),
             agent_presence: Mutex::new(HashMap::new()),
+            agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_message_pump: Default::default(),
+            #[cfg(unix)]
+            agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -332,6 +342,7 @@ impl Mux {
             journal_ingress,
             output_store,
             journal_maintenance: Mutex::new(None),
+            journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -354,6 +365,7 @@ impl Mux {
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            startup_adoption_gate: Default::default(),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
@@ -389,6 +401,7 @@ impl Mux {
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            pty_reclaim_forced: AtomicBool::new(false),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(

@@ -74,6 +74,12 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
+        } else if params["target"]?.stringValue == "dialog" {
+            // The window holding the keyboard over the shell: an attached sheet, or the child
+            // window (a dialog overlay) whose first responder edits text. Home's sheets.
+            let editing = shell.childWindows?.first { $0.isVisible && $0.firstResponder is NSText }
+            guard let dialog = shell.attachedSheet ?? editing else { return .object(["error": .string("no dialog over the window")]) }
+            window = dialog
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])

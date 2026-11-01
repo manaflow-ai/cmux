@@ -8,7 +8,7 @@ import PackageDescription
 //   (a cmux screen stream over WebRTC, RFB over WebRTC, or a direct VNC
 //   server), with reconnects, quality, input and live stats.
 // - CmuxScreenKitUI (iOS): the opt-in screen UI: `ScreenView` (fitted mode,
-//   paging between displays, the single touch input model, keyboard) and
+//   paging between displays, direct and trackpad input, keyboard) and
 //   `ScreenSessionView` (full-screen chrome whose parts are picked with
 //   `ScreenFeatures`), plus `MacShortcutsBar`, `ScreenOrientation` and
 //   `PairingScanner`.

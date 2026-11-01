@@ -47,13 +47,27 @@ fn checkout_defaults_to_pro_and_opens_where_the_app_decides() {
 }
 
 #[test]
-fn team_checkout_needs_a_team_and_go_is_not_a_cmux_next_plan() {
+fn plus_checks_out_as_the_go_plan_id() {
+    assert_eq!(
+        parsed(&["billing", "checkout", "--plan", "plus"]).unwrap(),
+        checkout(Plan::Plus, None, OpenMode::Auto)
+    );
+    // Web billing keeps the historical `go` id for Plus; it is accepted as an alias.
+    assert_eq!(
+        parsed(&["billing", "checkout", "--plan", "go"]).unwrap(),
+        checkout(Plan::Plus, None, OpenMode::Auto)
+    );
+    assert_eq!(Plan::Plus.id(), "go");
+    assert_eq!(plan_name("go"), "Plus");
+}
+
+#[test]
+fn team_checkout_needs_a_team() {
     assert_eq!(
         parsed(&["billing", "checkout", "--plan", "team", "--team", "t_1"]).unwrap(),
         checkout(Plan::Team, Some("t_1"), OpenMode::Auto)
     );
     assert!(parsed(&["billing", "checkout", "--plan", "team"]).is_err());
-    assert!(parsed(&["billing", "checkout", "--plan", "go"]).is_err());
     assert!(parsed(&["billing", "checkout", "--plan", "enterprise"]).is_err());
     assert!(parsed(&["billing", "checkout", "--open", "safari"]).is_err());
     assert!(parsed(&["billing", "checkout", "pro"]).is_err());

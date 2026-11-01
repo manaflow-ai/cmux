@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { appendAttachments } from "./attachmentIntake";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
@@ -26,6 +27,28 @@ export function keptChips(attachments: readonly ComposerAttachment[]): ComposerA
     const { video: _video, ...kept } = chip;
     return [kept];
   });
+}
+
+/// Each chat's handoffs still going (keepElsewhere), so the next waits for them.
+const handoffs = new Map<string, Promise<void>>();
+
+/// Adds `chips` to chat `chat`'s kept chips: a file whose read ended after the composer left that
+/// chat (attachmentIntake.ts `elsewhere`). A batch's chips are ready at their own times, so one
+/// chat's handoffs go one after another: each reads what the last wrote, never over it.
+export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
+  const next = (handoffs.get(chat) ?? Promise.resolve())
+    .then(() => store.read(chat))
+    .catch(() => [])
+    .then((kept) => store.write(chat, appendAttachments(kept, chips)))
+    .then(
+      () => undefined,
+      () => undefined,
+    );
+  handoffs.set(chat, next);
+  void next.then(() => {
+    if (handoffs.get(chat) === next) handoffs.delete(chat);
+  });
+  return next;
 }
 
 type Pending = { sessionId: string; chips: ComposerAttachment[]; timer: ReturnType<typeof setTimeout> };
@@ -213,4 +236,9 @@ export function useKeptAttachments(
   }, []);
 }
 
-const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
+/// What a write would change: each chip's id; its source, which the host may say a moment after
+/// the chip appears (composer/attachmentSources.ts); and its paths, since a file's full-resolution
+/// original may finish uploading after the preview chip was already saved (SW-00). Only short
+/// metadata: image data and long pasted text still travel once, never on every render.
+const signature = (chips: readonly ComposerAttachment[]) =>
+  JSON.stringify(chips.map((chip) => [chip.id, chip.source ?? null, chip.path, chip.originalPath, chip.originalName]));

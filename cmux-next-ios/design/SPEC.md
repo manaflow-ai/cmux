@@ -56,7 +56,7 @@ and are cited by file name only. Do not copy them into the repo.
 
 ### 1.3 cmux-next theming (minimal)
 
-- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it.
+- The cmux-next accent is neutral: `accent = textPrimary` (see `plans/cmux-next/spec-proposals/visuals/design-tokens.md`, "There is no accent hue by default"). In cmux-next-ios this is `Color.primary`: white in dark, black in light. Every "primary" control (CTA capsules, send circle, selected chip) uses it. That is the Default of the user's accent theme: Settings > Appearance > Accent color (`CmuxMobileAccentTheme`, `Accent.swift`) offers Default, Blue, Magenta, Cyan, Green, Yellow and Red, named as the desktop's `appearance.accent`, and every chrome tint (`accent`/`onAccent`, `Color.cmuxMobileAccent`) reads it. Never hard-code a hue in chrome (Leo, 2026-10-31: "I SAID NO BLUE AS A MATTER OF \"THIS PROBABLY NEEDS TO BE THEMED IN THE DESKTOP APP OR EXAMINED\"").
 - Chrome outside the terminal is the AI-app neutral system above (true black / white), not the terminal background. The Ghostty default `#282C34` is not used for app chrome.
 - The terminal screen (section 10) and code syntax colors take the terminal theme: `ThemeTokens.derive` from the active Ghostty theme supplies the terminal background, the composer and key bar tint on that screen, and the syntax palette (ANSI 1 to 6) for code and diffs.
 - Team colors (user-chosen, section 3.4) are the only saturated hues in chrome. Status uses system green, red and yellow.
@@ -86,8 +86,8 @@ Increase Contrast by using the "High contrast" column where given.
 | `label` | `#FFFFFF` | `#000000` | `Color.primary`. |
 | `label2` | `#EBEBF5` @ 60% | `#3C3C43` @ 60% | `Color.secondary` / `.secondaryLabel`. |
 | `label3` | `#EBEBF5` @ 30% | `#3C3C43` @ 30% | Placeholders, gutters, disabled. `.tertiaryLabel`. |
-| `accent` | `#FFFFFF` | `#000000` | Neutral cmux accent. Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
-| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills. |
+| `accent` | `#FFFFFF` | `#000000` | The user's accent (Default shown; hues in `Accent.swift`). Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cmuxMobileNeutralControlTint()`. |
+| `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills (the same for every accent). |
 | `success` | `#30D158` | `#34C759` | Mac online dots, connected, toggles. |
 | `danger` | `#FF453A` | `#FF3B30` | Destructive, errors, Log out. |
 | `warning` | `#FFD60A` | `#FFCC00` | Permission prompts, scanner corner guides (measured yellow, `chatgpt-08-codex-qr-scan`). |
@@ -288,9 +288,13 @@ CmuxMobileRoot
    └─ Global overlays: connection banner, toasts
 ```
 
-Pushed full-screen surfaces (Agent chat, Terminal, Browser, File preview, Diff viewer) hide the
-tab bar: `.toolbarVisibility(.hidden, for: .tabBar)`. Composer screens never show a tab bar under
-the composer (Messages and every AI app agree: a conversation owns the bottom edge).
+Pushed full-screen surfaces (a workspace and its tabs, Agent chat, Terminal, Browser, File preview,
+Diff viewer, a Home conversation) hide the tab bar. Composer screens never show a tab bar under
+the composer (Messages and every AI app agree: a conversation owns the bottom edge). One source of
+truth decides it: `ShellModel.showsTabBar(on:)` (anything pushed on Home, Workspaces or the Feed
+hides it; Settings pages keep it), applied per tab by `TabBarVisibility`. Pushed screens never set
+it themselves: SwiftUI drops a pushed screen's hide when one update selects a tab and pushes on it
+(a link, a notification tap, the launch restore).
 
 ### 3.2 TabView
 
@@ -392,7 +396,7 @@ Content (top to bottom):
    - Second line: Mac presence dots: up to 5 dots, each 7 x 7 circle, 4 pt spacing, `success`
      for online and `offline` for offline, online first (stable sort by name within each group),
      then "+N" in `meta` `label2` when more than 5 Macs; then " · 3 of 7 online" is NOT shown
-     (the dots are the summary). No Macs: "No Macs yet" in `meta` `label2`.
+     (the dots are the summary). No Macs: "No Macs" in `meta` `label2`.
    - Selected row: `fillSelected` background, radius 14 continuous, inset 10 pt from the
      sidebar edges (measured `chatgpt-23-sidebar-selected-expanded`).
    - Live updates: presence frames from `TeamHub` animate dot color with `snap`.
@@ -468,6 +472,11 @@ text, this should be a principle in general."
   the list's text column. Section headers, footers, inline labels ("Loading…", "No Macs
   yet", a Mac's offline line), group and disclosure titles, and icon-less rows on the same
   page start there too. Every title in a list starts at one x.
+- **Grouped lists keep native headers.** In `.insetGrouped` lists (Settings and its
+  pages, Devices) section headers and footers stay at the system position, the cell's
+  content margin where the row icons start, as in iOS Settings. They take no
+  `.cmuxMobileTextColumn()`. User direction, 2026-10-30: "the settings group headers like
+  Connection and Appearance are way too indented in cmux next ios, fix."
 - **Gutter.** Marks hang in a leading gutter before the text column: status and unread dots,
   disclosure chevrons, icons, small avatars, spinners, selection marks (Apple Mail's unread
   dots, iOS Settings' row icons). A group or disclosure row puts its chevron in the gutter
@@ -482,8 +491,8 @@ text, this should be a principle in general."
   - a list with its own glyph size declares its column (`CmuxMobileListColumn(mark:gap:)`,
     e.g. Continue in… 32 + 12, Checkpoints 24 + 12); the Team drawer uses
     `SidebarTeamRow.textLeading` (side margin + 36 pt avatar + 12 pt).
-- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a header, footer or
-  icon-less row in a list with marks takes `.cmuxMobileTextColumn(kind)`. A page whose rows
+- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a plain list's header or
+  footer, and an icon-less row in a list with marks, takes `.cmuxMobileTextColumn(kind)`. A page whose rows
   have no marks keeps the system alignment (its text, headers and footers already share
   the cell margin) and adds no icons to only some rows.
 - **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)

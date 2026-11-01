@@ -50,6 +50,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed tab's id (its link), with the pane a tab
         // whose pane and workspace are gone opens in.
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // closed.reopen by a closed workspace's old id (its link, #25659).
+        (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (

@@ -15,12 +15,12 @@ extension SidebarListViewComponents {
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
-        tabs = [:]
         groups = [:]
         groupSubtrees = [:]
         sections = [:]
         listItems = [:]
-        for section in listSections {
+        // The sections the layout draws: a workspace id two machines list is the first one's row, content and place alike.
+        for section in SidebarLayout.listingEachWorkspaceOnce(listSections) {
             sections[section.id] = section
             for node in section.nodes {
                 switch node {
@@ -40,7 +40,6 @@ extension SidebarListViewComponents {
                 }
             }
         }
-        for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
@@ -54,7 +53,13 @@ extension SidebarListViewComponents {
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        SidebarPerfCounters.timed { applyKeepingViewport(displayLayout(), animated: animated) }
+        let layout = displayLayout()
+        // Focus belongs to a displayed disclosure, so a structural reload clears it before
+        // row reuse can configure the same view for a later fold.
+        if let key = focusedFold, layout.row(for: key) == nil {
+            SidebarGroupKeys(list: self).setFocus(nil)
+        }
+        SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
         if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)
@@ -72,8 +77,14 @@ extension SidebarListViewComponents {
         }
         o.excludedWorkspaces.formUnion(leaving)
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
-        // A drop resolves by the drawn rows' model indexes: while a drag runs, every row shows in its place.
-        if shownDrag != nil || external != nil { (o.foldsDone, o.rowLimit) = (false, 0) }
+        // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
+        // resolves by the drawn rows' model indexes, which a fold leaves as they are, and a drop gap at an index the
+        // fold hides opens before the next drawn row (`SidebarLayout.gapEntry`). "Show N more" (off by default) still
+        // opens while a drag runs: its limit counts rows, so the drag's base rows (without the dragged ones) and the
+        // drop's result would show different rows.
+        if shownDrag != nil || external != nil { o.rowLimit = 0 }
+        // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
+        if external != nil { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -89,6 +100,8 @@ extension SidebarListViewComponents {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
+            // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived, o.archiveSection) = (false, false, false) }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
@@ -118,11 +131,7 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
-        // `inside` uses Chrome's corner geometry all the way to the list edge. The general
-        // header padding would clamp that overhang and put the line back under a member row.
-        let edgePadding = SidebarStyle.groupLineLayout == .inside ? 0 : SidebarStyle.groupEdgePadding
-        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
-        return membersX - min(membersX, max(barX, edgePadding))
+        return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -148,7 +157,10 @@ extension SidebarListViewComponents {
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
-    func apply(_ layout: SidebarLayout, animated: Bool) {
+    /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
+    /// now) is not opening: the jump draws it whole in its slot (`RowMotion.place`), since its gap is open by then and
+    /// a row growing from nothing there would show an empty slot. A new row this apply draws opens with its gap.
+    func apply(_ layout: SidebarLayout, animated: Bool, newRowsInPlace: Bool = false) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
@@ -167,14 +179,50 @@ extension SidebarListViewComponents {
         // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
         let insertsWorkspace = layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
         let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
-        // New rows open from their run's top, so only the rows below move; a row still opening
-        // that the next update moves (appended, then placed below) opens again there, in a new view:
-        // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
+        // New rows open from their run's top, so only the rows below move. A row still opening that the next update
+        // only pushes (Cmd-N held: each new workspace lands at the top and pushes the ones still opening down) keeps
+        // its view, its content and its open: its frame retargets on the additive springs from what shows, its fade
+        // goes on to 1, and it clips until its own open ends (Lawrence 2026-10-28, sidebar-burst-motion.md: reopening
+        // it in a new, empty and transparent view on every key left only empty slots until the repeat stopped). A row
+        // still opening that moved by itself (shown at the daemon's slot, then placed below the current one) opens
+        // again there, in a new view: carried across the list half open, it would cross the rows (cx-ai79).
         let now = CACurrentMediaTime()
-        openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
-        let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
+        // How the rows make room for a new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
+        // workspace at the top it's a huge cascade"). Only for a change that only adds rows, among them workspaces new
+        // to the model: one that also closes, moves or hides a row, or that lists a workspace again (a group's expand, a
+        // filter, "Show more"), moves every row as before, on `.move` over the whole distance.
+        let insertMotion = animate && insertsWorkspace && onlyAdds(layout, to: old) && opensOnlyNewWorkspaces(layout, from: old)
+            ? SidebarInsertMotion.tunable.value : nil
+        appliedSections = model.sections
+        // A row is opening until the spring it opens on settles (`.move`, or the insert motion's shorter one): past that
+        // a later move moves it, it does not open it again. A change that moves nothing settles every open now
+        // (`settleOpenings`), and a row no longer listed has none.
+        let opensRows = animate && Motion.sidebar.animatesMovement && window != nil && Motion.canAnimate(in: self)
+        if opensRows {
+            openingRows = openingRows.filter { $0.value.until > now && layout.row(for: $0.key) != nil }
+        } else {
+            settleOpenings()
+        }
+        let reopened = animate ? Self.movedByThemselves(openingRows.keys, from: old, to: layout) : []
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // How far the rows travel: the nudge, never past the shortest run of new rows (a row below never starts above them).
+        let insertTravel = insertMotion.flatMap { motion in
+            SidebarInsertMotion.travel(motion.travel(nudge: SidebarInsertMotion.nudgeDistance.value),
+                                       within: SidebarInsertMotion.shortestRun(insertRuns) { layout.row(for: $0).map { $0.y + $0.height } })
+        }
+        let nudge = insertTravel ?? 0
+        // Snap and a zero nudge open nothing: the new rows stand at their slots (one realized later shows there at once).
+        if insertTravel != 0, opensRows {
+            let opening = SidebarRowOpening(until: now + Motion.sidebar.spring(insertMotion?.token ?? .move).settlingTime(),
+                                            motion: insertMotion, travel: insertTravel)
+            // A new row outside the rows drawn now before a reveal jump does not open (``apply(_:animated:newRowsInPlace:)``).
+            for row in layout.rows where (old.row(for: row.key) == nil && (!newRowsInPlace || frame(for: row).intersects(realize)))
+                || reopened.contains(row.key) { openingRows[row.key] = opening } // only animated applies open rows (hq-1d)
+        } else {
+            // A row this change moves while still opening stands at its new slot: it must not keep an earlier insert's
+            // motion and replay it when realized later.
+            for key in reopened { openingRows[key] = nil }
+        }
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
@@ -205,7 +253,10 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
-            let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
+            // A row new to the layout, one that moved by itself, or one still opening that scrolls in with no view
+            // (it opens in place, as `RowMotion.place` opens one on a scroll).
+            let opens = animate && existing == nil
+                && (old.row(for: row.key) == nil || reopened.contains(row.key) || openingRows[row.key] != nil)
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
@@ -213,7 +264,8 @@ extension SidebarListViewComponents {
                 Motion.withoutAnimation {
                     if opens {
                         // An inserted row grows from its run's top; an expanded one comes out from under its header.
-                        view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
+                        let opening = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
+                        view.frame = insertMotion?.openFrame(opening, target: target, nudge: nudge) ?? opening
                         view.alphaValue = 0
                         view.clipsToBounds = true
                         view.opens += 1
@@ -286,8 +338,61 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(history + lines.springs, in: self)
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
-        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history)
+        RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines, companions: history, insert: insertMotion,
+                  travel: insertTravel)
             .run(in: self, from: old, to: layout, animated: animate)
+    }
+    /// The rows of `keys` (still opening) that `layout` moved by themselves, not with the rows around them: both
+    /// rows beside each, among the rows of both layouts, changed (as `ListViewport.movedByItself`). A row an insert or
+    /// a removal near it only pushes, or one whose neighbour moved away, keeps at least one of its neighbours.
+    static func movedByThemselves(_ keys: some Collection<SidebarRowKey>, from old: SidebarLayout, to layout: SidebarLayout) -> Set<SidebarRowKey> {
+        guard !keys.isEmpty else { return [] }
+        let both = Set(old.rows.map(\.key)).intersection(layout.rows.map(\.key))
+        func neighbours(_ rows: [SidebarRow]) -> [SidebarRowKey: (before: SidebarRowKey?, after: SidebarRowKey?)] {
+            let kept = rows.map(\.key).filter(both.contains)
+            var result: [SidebarRowKey: (before: SidebarRowKey?, after: SidebarRowKey?)] = [:]
+            for (index, key) in kept.enumerated() {
+                result[key] = (index > 0 ? kept[index - 1] : nil, index + 1 < kept.count ? kept[index + 1] : nil)
+            }
+            return result
+        }
+        let was = neighbours(old.rows), now = neighbours(layout.rows)
+        return Set(keys.filter { key in
+            guard let then = was[key], let next = now[key] else { return false }
+            return then.before != next.before && then.after != next.after
+        })
+    }
+
+    /// Ends every row's open at once: the rows were placed without motion (a change that does not animate, Reduce Motion,
+    /// a list out of a window, the display's sleep), so a row realized later shows at its slot instead of replaying an
+    /// open that already ended. The one way `openingRows` is cleared before its deadlines.
+    func settleOpenings() {
+        if !openingRows.isEmpty { openingRows.removeAll() }
+    }
+
+    /// `layout` is `old` with rows added and none taken away or moved past another: every row of `old` is still listed,
+    /// in the same order. Only then do the rows below make room by the new row motion (`sidebar.insertMotion`); a
+    /// change that also closes, hides or reorders rows moves them all as before.
+    func onlyAdds(_ layout: SidebarLayout, to old: SidebarLayout) -> Bool {
+        var last = -1
+        for row in old.rows {
+            guard let position = layout.position(of: row.key), position > last else { return false }
+            last = position
+        }
+        return true
+    }
+
+    /// Every workspace row `layout` lists and `old` does not is a workspace the model did not hold at the last apply
+    /// (`appliedSections`): a new one, not one a group's expand, a filter or "Show more" lists again. Reads the model's
+    /// workspaces only when such a row exists, and then once.
+    func opensOnlyNewWorkspaces(_ layout: SidebarLayout, from old: SidebarLayout) -> Bool {
+        var known: Set<WorkspaceID>?
+        for row in layout.rows {
+            guard case let .workspace(id) = row.key, old.row(for: row.key) == nil else { continue }
+            if known == nil { known = Set(appliedSections.flatMap(\.workspaces).map(\.id)) }
+            if known?.contains(id) == true { return false }
+        }
+        return true
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         SidebarPerfCounters.add(.rowConfigures)
@@ -298,7 +403,10 @@ extension SidebarListViewComponents {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
             paintSecondaryFills(view, id)
-            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
+            // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
+            view.isKeyboardFocused = showsFocusRing && row.standsForGroup && row.group == focusedGroup
+            view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
@@ -307,9 +415,6 @@ extension SidebarListViewComponents {
             view.region.activeItem = activeTopItem
             view.region.selectedWorkspaces = selectedWorkspaces
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
-        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
-            guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row, focused: workspaces[workspaceID]?.focusedTab == tabID)
         case let (.group(id), view as GroupHeaderRowView):
             // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
             guard var group = groups[id] ?? model.group(id) else { return }
@@ -337,15 +442,17 @@ extension SidebarListViewComponents {
             view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed),
                            animated: animated || model.followsUserIntent)
             view.railReach = railReach(for: row)
-            view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
+            view.isDropTarget = highlightsDropGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
-        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection), shortcut: model.newWorkspaceShortcut)
+        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
-        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+            view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
+            view.configure(row)
         default:
             break
         }
@@ -392,8 +499,8 @@ extension SidebarListViewComponents {
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
             guard target.intersects(realize) else { continue }
-            let opening = openingRows[row.key] != nil
-            let view = dequeue(row.key, rebinding: !opening)
+            let opening = openingRows[row.key].flatMap { $0.until > CACurrentMediaTime() ? $0 : nil }
+            let view = dequeue(row.key, rebinding: opening == nil)
             view.targetSize = target.size
             configure(view, row: row, animated: false)
             if view.superview !== self { addSubview(view, positioned: .above, relativeTo: decorations) } // a parked view is still here (`recycle`)

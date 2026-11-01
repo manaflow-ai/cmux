@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -47,8 +48,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarArchiveActions(host: services).bind(into: registry)
-        AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -62,7 +62,6 @@ enum AppActions {
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
         SidebarGroupByActions.bind(into: registry, context: context)
-        SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
         SidebarMinimalToggle.bind(into: registry, context: context)
         MatchTerminalBackgroundToggle.bind(into: registry, context: context)
         SidebarDensityActions.bind(into: registry, context: context)
@@ -92,6 +91,7 @@ enum AppActions {
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
         VoiceRoomHandlers.bind(into: registry, context: context)
+        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)

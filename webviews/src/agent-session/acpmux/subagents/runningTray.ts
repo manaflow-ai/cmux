@@ -8,17 +8,18 @@
 // (conversation/BackgroundTaskNote.tsx).
 //
 // Debug Settings `agentPane.debug.subagentTray` (AgentPaneTunables+SubagentTray.swift) turns it off:
-// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx),
-// the agents pill sits above the composer (AgentsPill.tsx) and the running turn's line counts the
-// work (conversation/WorkingFor.tsx). The host sends it with the theme (`subagentTray`); absent
-// means on.
+// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx) and
+// the running turn's line counts the work (conversation/WorkingFor.tsx). The separate running
+// activity pill above the composer is intentionally not rendered. The host sends the setting with
+// the theme (`subagentTray`); absent means on.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import type { BackgroundCommand } from "../inspector/processes";
+import type { BackgroundCommand } from "../session-info/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
+import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -55,7 +56,7 @@ export type TrayItem =
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
-/// it runs (inspector/processes.ts `backgroundCommands` merged it in, `processId`); one only the
+/// it runs (session-info/processes.ts `backgroundCommands` merged it in, `processId`); one only the
 /// transcript knows shows only while a turn runs, since the transcript cannot tell a command that
 /// ended unseen (a peer's chat, whose registry this acpmux cannot list) from one that runs.
 export function trayItems(
@@ -64,8 +65,15 @@ export function trayItems(
   sessions: readonly StartedSession[],
   working: boolean,
 ): TrayItem[] {
+  const retries = childRetries(sessions);
   const live = agents
-    .filter((agent) => agent.state === "running" && (working || agent.background === true))
+    // One acpmux retries is about to run again: it shows with the running ones, turn or not. A
+    // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
+    .flatMap((agent) => {
+      if (agent.state === "running" && (working || agent.background === true)) return [agent];
+      const retry = retries(agent);
+      return retry ? [agent.retry ? agent : { ...agent, retry }] : [];
+    })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
   for (const command of commands)
@@ -76,7 +84,15 @@ export function trayItems(
   return items;
 }
 
-const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
+/// The retry acpmux waits to run for `agent`, if any: a sub-session's is on its own session row
+/// (retryState.ts ``subagentRetry``), found among the chats this one started.
+function childRetries(sessions: readonly StartedSession[]): (agent: Subagent) => RetryState | undefined {
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  return (agent) => retrying(agent, agent.child ? byId.get(agent.child) : undefined);
+}
+
+const liveSession = (session: StartedSession) =>
+  session.state === "running" || session.state === "waiting" || sessionRetry(session).kind === "retrying";
 
 /// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
 /// subagents that ended last first, so the few the tray shows under what runs are the latest. A
@@ -84,7 +100,8 @@ const liveSession = (session: StartedSession) => session.state === "running" || 
 /// that ended after the others is never hidden behind older ones. Then the chats, newest first
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
-  const ended = agents.filter((agent) => agent.state !== "running");
+  const retries = childRetries(sessions);
+  const ended = agents.filter((agent) => agent.state !== "running" && !retries(agent));
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
   const ids = new Set(ended.map((agent) => agent.id));
@@ -142,9 +159,25 @@ function versionOf(key: string): number {
   return (hash >>> 0) % 1_000_003;
 }
 
-function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
+/// A done line or card keeps the background turn its group belongs to (conversation/backgroundTurns.ts),
+/// so a quiet turn's closed line folds it with the rest of that turn.
+function doneLine(
+  agent: Subagent,
+  endedAt: number,
+  cache: DoneLineCache,
+  made: Set<string>,
+  inBackground?: string,
+): AcpmuxRow {
   const id = `${SUBAGENT_DONE}:${agent.id}`;
-  const key = [agent.state, agent.name, agent.startedAt, endedAt, agent.stopReason ?? ""].join("\u0000");
+  const key = [
+    agent.state,
+    agent.name,
+    agent.startedAt,
+    endedAt,
+    agent.stopReason ?? "",
+    retryKey(agent),
+    inBackground ?? "",
+  ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;
@@ -154,6 +187,7 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
     at: endedAt,
     kind: SUBAGENT_DONE,
     subagents: [{ ...agent, endedAt }],
+    ...(inBackground !== undefined && { inBackground }),
   };
   cache.set(id, { key, row });
   return row;
@@ -202,11 +236,18 @@ function cardKey(node: Subagent): string {
 /// A workflow's card row, one per workflow so each row is one card's height (model.ts).
 function workflowCard(row: AcpmuxRow, node: Subagent, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
   const id = `${WORKFLOW_CARD}:${node.id}`;
-  const key = cardKey(node);
+  const key = `${cardKey(node)}\u0000${row.inBackground ?? ""}`;
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key) return kept.row;
-  const card: AcpmuxRow = { id, version: versionOf(key), at: row.at, kind: WORKFLOW_CARD, subagents: [node] };
+  const card: AcpmuxRow = {
+    id,
+    version: versionOf(key),
+    at: row.at,
+    kind: WORKFLOW_CARD,
+    subagents: [node],
+    ...(row.inBackground !== undefined && { inBackground: row.inBackground }),
+  };
   cache.set(id, { key, row: card });
   return card;
 }
@@ -240,7 +281,7 @@ export function withSubagentLines(
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
-      const line = doneLine(agent, endedAt, cache, made);
+      const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
   });

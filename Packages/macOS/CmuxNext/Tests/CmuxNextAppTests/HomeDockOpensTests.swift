@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -75,6 +76,165 @@ struct HomeDockOpensTests {
             try await Task.sleep(for: .milliseconds(500))
             #expect(screen.defaultPane == dock.pane.handle, "the daemon's focus left Home")
             #expect(window.focusedPane === dock, "the window's focus left Home")
+        }
+    }
+
+    /// A person's foreground browser tab aimed at the focused Home (the update card's Release Notes
+    /// link after an update, New Browser Tab) opens beside it, so Home keeps no tab bar. Lawrence
+    /// 2026-10-29 on NIGHTLY 6c1a5ab: "chief in home should not have horizontal tabbar"; the release
+    /// page's stand-in tab stayed in Home's dock and brought its strip back.
+    @Test(arguments: ["update link", "new tab"])
+    func aForegroundBrowserTabFromHomeOpensBesideIt(_ via: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home, dock) = try await Self.openHome(services, connection)
+            #expect(window.focusedPane === dock)
+            let url = try #require(URL(string: "https://example.com/release"))
+            if via == "update link" {
+                SidebarCardFeed.openUpdateLink(url, services: services)
+            } else {
+                #expect(dock.newBrowserTab(url: url))
+            }
+            let right = try await Self.untilBeside(home, dock.pane, via)
+            #expect(right.tabs.contains { $0.kind == .browser })
+            #expect(dock.view.hidesStrip, "Home's dock shows a tab bar")
+        }
+    }
+
+    /// A browser creator that delegates Home placement through `then` must not select its daemon
+    /// tab after that callback starts: OutboundTab owns the hold until the move lands.
+    @Test func aBrowserPlacementCallbackKeepsTheHomeStripHiddenBeforeTheMove() async throws {
+        try await PasswordManagerRouteTests.withApp { services, homeConnection in
+            let (window, home, dock) = try await Self.openHome(services, homeConnection)
+            dock.syncStripFromStore()
+            guard let homeTab = dock.stripModel.selectedID else {
+                Issue.record("Home did not have a selected page before browser placement")
+                return
+            }
+            var callbackSawHiddenStrip = false
+            guard let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
+                dock.syncStripFromStore()
+                #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "browser selected itself before placement")
+                #expect(dock.stripModel.selectedID == homeTab, "browser selection released Home's outbound hold")
+                callbackSawHiddenStrip = true
+            }) else {
+                Issue.record("Home did not provide a browser placement callback")
+                return
+            }
+            #expect(dock.newBrowserTab(url: URL(string: "https://example.com/"), placementOwner: true, then: placed))
+            let right = try await Self.untilBeside(home, dock.pane, "browser placement callback")
+            #expect(callbackSawHiddenStrip)
+            #expect(right.tabs.contains { $0.kind == .browser })
+            #expect(dock.view.hidesStrip)
+            try await PasswordManagerRouteTests.until({ window.focusedPane?.pane === right }, report: {
+                "browser placement callback did not focus its destination"
+            })
+        }
+    }
+
+    /// A foreground creator must not select either its stand-in or its real tab in Home before
+    /// placement. OutboundTab deliberately releases selected tabs (a person's explicit selection).
+    @Test(arguments: ["optimistic terminal", "typed terminal", "page"])
+    func aForegroundCreatorKeepsHomesStripHiddenUntilPlacement(_ kind: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home, dock) = try await Self.openHome(services, connection)
+            dock.syncStripFromStore()
+            guard let homeTab = dock.stripModel.selectedID else {
+                Issue.record("Home did not have a selected page before placement")
+                return
+            }
+            var sawPlacement = false
+            guard let placed = HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
+                // Runs before HomeDockOpens moves the tab: a later final-state check misses the flash.
+                dock.syncStripFromStore()
+                #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the created tab appeared in Home before placement")
+                #expect(dock.stripModel.selectedID == homeTab, "the creator selected its real tab in Home")
+                sawPlacement = true
+            }) else {
+                Issue.record("Home did not provide a placement callback")
+                return
+            }
+            if kind == "page" {
+                #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true, created: placed) != nil)
+            } else {
+                // A non-nil typing value uses the asynchronous path, without an optimistic tab.
+                dock.newTerminalTab(typing: kind == "typed terminal" ? ":\r" : nil, placementOwner: true, then: placed)
+            }
+            dock.syncStripFromStore()
+            #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the provisional tab appeared in Home")
+            #expect(dock.stripModel.selectedID == homeTab, "the creator selected its provisional tab in Home")
+            let right = try await Self.untilBeside(home, dock.pane, kind)
+            #expect(sawPlacement)
+            #expect(dock.view.hidesStrip)
+            try await PasswordManagerRouteTests.until({ window.focusedPane?.pane === right }, report: {
+                "the foreground \(kind) did not take focus in its destination"
+            })
+        }
+    }
+
+    /// The create reply is not the end of a terminal open from Home: its move is another async
+    /// step. Hold the store listing to leave placement pending, then let the move fail normally.
+    /// Both optimistic and non-optimistic creators resolve their ticket immediately after `placed`.
+    @Test func aHomePlacementKeepsCreationInputPendingAfterTheCreateReply() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            let shell = try #require(window.window)
+            let content = try #require(dock.workspace)
+            let input = services.keyRouter.creationInputCoordinator
+            let creation = try #require(input.begin(in: shell, generation: content.beginFocusIntent()))
+            let pending = ProvisionalTab()
+            let placed = try #require(HomeDockOpens.placing(dock.pane, services: services, focus: true, then: nil))
+            // The surface is not listed yet, so LinkOpener waits rather than starting the move.
+            placed(pending.surface)
+            input.resolve(creation, landed: true, in: shell)
+            await Task.yield()
+            #expect(input.hasPendingCreation(in: shell), "create reply released the keys before placement")
+            #expect(content.focus.state.expectation?.awayFrom == dock.paneKey,
+                    "the old Home terminal may not satisfy destination focus")
+
+            // List a stand-in the real daemon does not own: the attempted move fails and releases
+            // the placement hold through its ordinary failure fallback, not the expiration timer.
+            let transaction = ClientTransactionID.generate()
+            defer { services.daemon.store.rejectIntent(transaction) }
+            services.daemon.store.intend(.createTab(pane: dock.pane.handle, provisional:
+                TabSnapshot(surface: pending.surface, tabResourceID: ResourceID(rawValue: pending.id))), transaction: transaction)
+            try await PasswordManagerRouteTests.until({ !input.hasPendingCreation(in: shell) }, report: {
+                "the failed Home placement kept its input ticket"
+            })
+        }
+    }
+
+    /// A foreground page kept its provisional tab unselected to avoid flashing Home's strip.
+    /// If creation fails, the same local view must become visible; a background or superseded
+    /// request must leave the old selection alone.
+    @Test(arguments: ["foreground", "background", "superseded"])
+    func aFailedHomePageOpenRevealsOnlyItsCurrentForegroundFallback(_ request: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, _, dock) = try await Self.openHome(services, connection)
+            let original = try #require(dock.stripModel.selectedID)
+            let create = services.pages.createStoreTab
+            var fail: CheckedContinuation<Void, Never>?
+            services.pages.createStoreTab = { _, _, _, _, _ in
+                await withCheckedContinuation { fail = $0 }
+                throw DaemonError.notConnected
+            }
+            defer { services.pages.createStoreTab = create; fail?.resume() }
+            let view = try #require(services.pages.openStoreTab(.inbox, in: dock, window: window,
+                                                              focus: request != "background"))
+            try await PasswordManagerRouteTests.until({ fail != nil })
+            #expect(dock.stripModel.selectedID == original, "the provisional page selected itself in Home")
+            if request == "superseded" { _ = dock.workspace?.beginFocusIntent() }
+            let reply = fail
+            fail = nil
+            reply?.resume()
+            try await PasswordManagerRouteTests.until({ services.pages.tabIDs(in: dock.paneKey).contains(view.key) })
+            if request == "foreground" {
+                try await PasswordManagerRouteTests.until({ dock.currentTabKey == view.key }, report: {
+                    "the failed foreground page stayed hidden behind \(dock.currentTabKey ?? "nil")"
+                })
+            } else {
+                #expect(dock.stripModel.selectedID == original, "a \(request) failure stole focus")
+            }
+            #expect(services.pages.existingView(view.key) === view, "fallback replaced the page's view")
         }
     }
 

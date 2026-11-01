@@ -5,11 +5,13 @@
 // prompt's delivery), never from its words; the words and the code stay for Details.
 import { translate } from "./i18n";
 import { DATE } from "./conversation/turns";
+import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow } from "./model";
 import { errorMessage } from "./transportErrors";
+import { peerLinkFailure, peerLinkLine } from "./hostLine";
 
 /// The causes the failure card names in its own words, with their own way out.
-export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "other";
+export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "other";
 
 type CauseFields = { code?: unknown; reason?: unknown } | null | undefined;
 
@@ -21,6 +23,8 @@ export function sendCause(fields: CauseFields): SendCause {
   // The reasons acpmux's trust gate writes (trust_gate.rs), as isTrustRefusal reads them.
   if (reason === "trust.pending") return "trust-pending";
   if (reason === "trust.untrusted") return "trust-untrusted";
+  // More than one message carries (`rpc::MAX_MESSAGE_BYTES`): the same prompt is refused again.
+  if (reason === "message.too_large") return "too-large";
   // A request the pane's host would not take is the pane's bug, not something the person did.
   if (text(fields?.code) === "transport.intent_invalid") return "pane";
   return "other";
@@ -29,9 +33,32 @@ export function sendCause(fields: CauseFields): SendCause {
 /// A trust cause: Trust folder fixes it, and Retry waits while the folder's question is open.
 export const isTrustCause = (cause: SendCause) => cause === "trust-pending" || cause === "trust-untrusted";
 
+/// Whether Retry can help: a prompt too large to send is refused the same way again, so its way
+/// out is Edit (Leo, 2026-10-31: "this is completely hardlocked bc of message size").
+export const retryHelps = (cause: SendCause) => cause !== "too-large";
+
+/// The bytes an attachment puts in the prompt: its base64 or its text.
+const promptBytes = (attachment: ComposerAttachment) => (attachment.data?.length ?? 0) + (attachment.text?.length ?? 0);
+
+/// A prompt too large to send: the attachment that takes the most of it, by name, when one does.
+function tooLargeText(attachments: readonly ComposerAttachment[]): string {
+  const largest = attachments.reduce<ComposerAttachment | undefined>(
+    (most, attachment) => (promptBytes(attachment) > (most ? promptBytes(most) : 0) ? attachment : most),
+    undefined,
+  );
+  return largest
+    ? translate("prompt.failure.tooLargeFile", { name: largest.name })
+    : translate("prompt.failure.tooLarge");
+}
+
 /// The failed prompt's one sentence. `retried`: a Retry that was refused again says "Still"
-/// (hq#2569 item 5), so the click visibly did something.
-export function failedSendText(error: unknown, retried: boolean): string {
+/// (hq#2569 item 5), so the click visibly did something. `attachments`: the prompt's, so a prompt
+/// too large to send names the one to take out.
+export function failedSendText(
+  error: unknown,
+  retried: boolean,
+  attachments: readonly ComposerAttachment[] = [],
+): string {
   const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
   switch (sendCause(fields)) {
     case "trust-pending":
@@ -42,15 +69,22 @@ export function failedSendText(error: unknown, retried: boolean): string {
       // The pane's bug, not the person's: logged for its report, as errorMessage logs it.
       console.error("agent pane: the host refused a request", error);
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
+    case "too-large":
+      return tooLargeText(attachments);
     default:
       break;
   }
   // A refusal for want of a gesture names that (the generic refusal's text is about a pick):
   // posted input is never the person's (cx-ocdz), and the Retry click is.
+  // A chat's machine that is not reachable is said in plain words, never as acpmux's own text (a
+  // `peer_unreachable:` code, its link state and a command to run; hostLine.ts).
+  const peer = peerLinkFailure(error);
   const reason =
     text(fields?.code) === "transport.gesture_required"
       ? translate("prompt.gestureReason")
-      : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
+      : peer
+        ? peerLinkLine(peer, translate)
+        : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
   return translate(retried ? "prompt.stillNotSent" : "prompt.notSent", {
     reason: reason || translate("transport.refused"),
   });

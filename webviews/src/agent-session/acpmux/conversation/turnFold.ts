@@ -107,7 +107,9 @@ function ghostOf(row: HTMLElement): HTMLElement {
   }
   for (const name of ["aria-posinset", "aria-setsize", "aria-label", "aria-current", "data-transcript-active"])
     copy.removeAttribute(name);
-  copy.classList.remove("acpmux-row--enter", "acpmux-row--older");
+  copy.classList.remove("acpmux-row--enter", "acpmux-row--message-enter", "acpmux-row--older");
+  for (const node of copy.querySelectorAll<HTMLElement>(".acpmux-row__message-presentation"))
+    node.classList.remove("acpmux-row__message-presentation");
   copy.classList.add(TURN_FOLD_GHOST);
   copy.setAttribute("aria-hidden", "true");
   copy.setAttribute("inert", "");

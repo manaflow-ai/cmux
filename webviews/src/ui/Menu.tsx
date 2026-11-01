@@ -19,6 +19,8 @@ import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvid
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { popupCollision, type UiPopupFlip } from "./openSide";
+import { usePopupPadding } from "./popupInset";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
@@ -216,6 +218,7 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -260,8 +263,9 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
-  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
-  flip?: boolean;
+  /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
+   *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
+  flip?: UiPopupFlip;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -311,6 +315,7 @@ export function MenuPopup({
 }: MenuPopupProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const padding = usePopupPadding();
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
@@ -351,12 +356,15 @@ export function MenuPopup({
         positionMethod={positionMethod}
         anchor={anchor}
         side={side}
-        collisionAvoidance={flip ? undefined : { side: "none" }}
+        collisionAvoidance={popupCollision(flip)}
+        collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
+          // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
+          data-popup-shift={flip === "shift" ? "" : undefined}
           // Only a page with a host measures its menus; the others render as they did.
           ref={attachPopup}
           id={id}

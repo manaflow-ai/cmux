@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
@@ -42,8 +41,6 @@ public final class WebUpdates {
     @ObservationIgnored var resignedAt: ContinuousClock.Instant?
     /// Counts handoffs, so a look's page answers apply only to the update they were asked for.
     @ObservationIgnored var pendingGeneration = 0
-    /// The note of a swap made while cmux was behind other apps, shown when it comes back.
-    @ObservationIgnored var unseenNote: String?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -112,7 +109,6 @@ public final class WebUpdates {
                 self?.resignedAt = nil
                 self?.updater?.noteActivation()
                 self?.scheduleSafePoint()
-                self?.showUnseenNote()
             }
         })
     }
@@ -161,23 +157,8 @@ public final class WebUpdates {
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        let reloaded = WebBundleServedViews.shared.reloadServed()
-        // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
-        if reloaded > 0 { unseenNote = nil }
-        if reloaded > 0, let version { note(version.updatedNote) }
-        return reloaded
-    }
-
-    /// A quiet "Updated to <commit>" toast that dismisses itself (CmuxToastCenter), in the front
-    /// window now, or once cmux comes back to the front.
-    private func note(_ message: String) {
-        unseenNote = message
-        showUnseenNote()
-    }
-
-    private func showUnseenNote() {
-        guard let message = unseenNote, NSApp.isActive, let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        unseenNote = nil
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "web-update", message: message, duration: .seconds(4)), in: window)
+        // A swap shows nothing (Leo, 2026-10-30: "i dont think i need to see this"); Settings'
+        // Web UI card shows the served version.
+        return WebBundleServedViews.shared.reloadServed()
     }
 }

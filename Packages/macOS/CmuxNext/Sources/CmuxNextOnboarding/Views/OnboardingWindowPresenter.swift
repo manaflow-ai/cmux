@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// Owns the one tool window (Import from Browser or Computer Use setup):
 /// opens it for a tool, brings an open one forward when it shows that
@@ -15,10 +16,14 @@ public final class OnboardingWindowPresenter {
     /// Builds a window's model (the App's services); nil opens nothing.
     public var makeModel: MakeModel?
     private let presentWindow: @MainActor (OnboardingWindowController) -> Void
+    /// The app's ``ActiveLookScope``, for each tool window's backdrop.
+    private let activeLook: ActiveLookScope?
 
     /// `present` shows a window (tests pass one that does not put it on screen).
-    public init(makeModel: MakeModel? = nil, present: @escaping @MainActor (OnboardingWindowController) -> Void = { $0.present() }) {
+    public init(makeModel: MakeModel? = nil, activeLook: ActiveLookScope?,
+                present: @escaping @MainActor (OnboardingWindowController) -> Void = { $0.present() }) {
         self.makeModel = makeModel
+        self.activeLook = activeLook
         presentWindow = present
     }
 
@@ -37,7 +42,7 @@ public final class OnboardingWindowPresenter {
         }
         guard let model = makeModel?(step) else { return }
         prepare?(model, false)
-        let controller = OnboardingWindowController(model: model)
+        let controller = OnboardingWindowController(model: model, activeLook: activeLook)
         controller.onClose = { [weak self, weak controller] in self?.windowDidClose(controller) }
         self.controller = controller
         presentWindow(controller)

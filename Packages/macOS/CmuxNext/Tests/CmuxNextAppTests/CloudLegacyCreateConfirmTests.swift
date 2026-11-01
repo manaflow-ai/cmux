@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// started: an agent's create waits in the sidebar's
 /// card and sends nothing until a click on Create; Cancel sends nothing; the person's own gesture
 /// creates without asking. The legacy size is the plan's default, so the card names no size.
-@MainActor @Suite(.serialized) struct CloudLegacyCreateConfirmTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CloudLegacyCreateConfirmTests {
     /// Counts the creates that went out.
     @MainActor final class Sent {
         var count = 0

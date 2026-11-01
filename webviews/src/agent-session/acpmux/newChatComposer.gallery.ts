@@ -138,7 +138,10 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: data });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => doc.querySelector(".acpmux-attachment-pasted"));
+        // Inline (the default) puts the chip at the caret; the strip view puts it over the text.
+        await ctx.waitFor(() =>
+          doc.querySelector(".acpmux-md-inline-chip[data-kind='file'], .acpmux-attachment-pasted"),
+        );
         await ctx.press("Enter");
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "acpmux session/prompt"), { capMs: 10_000 });
       },

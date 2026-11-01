@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A strip divider partly scrolled under a docked column showed its resize cursor over the docked
@@ -9,6 +10,7 @@ import Testing
 /// strip handle's rect under it. The handle's cursor rect, and the mouse area a page's click catcher
 /// covers, now stop where the dock begins.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerCursorUnderDockTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -50,6 +52,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockKeepsItsCursorOutOfTheDock(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])
@@ -73,6 +76,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockIsNotHoveredOrDrawnThere(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])

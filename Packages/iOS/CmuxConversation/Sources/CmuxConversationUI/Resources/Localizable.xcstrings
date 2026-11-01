@@ -750,6 +750,23 @@
         }
       }
     },
+    "conversation.composer.sendReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を送信"
+          }
+        }
+      }
+    },
     "conversation.menu.edit": {
       "extractionState": "manual",
       "localizations": {

@@ -24,9 +24,7 @@ permissions:
 # The CmuxNextApp size cap is a structural guard: while this is `warn` it
 # prints its findings as a warning and passes (Leo, 2026-10-19). Set it to
 # `fail` to make it block again. The crash ratchet, the defaults snapshot
-# freshness (cmux-next-defaults-guard.yml reads the committed exports to decide
-# whether a default change needs approval), the guard self-tests and the menu
-# check still fail.
+# freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
 
@@ -85,11 +83,16 @@ jobs:
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
   nightly-guards:
+    # !cancelled(): a skipped or failed portable-placement leaves the group on its usual runner.
+    needs: [portable-placement]
+    if: ${{ !cancelled() }}
     permissions:
       contents: read
       checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
+      # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
+      guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
       linux_guard_tests: ${{ 'true' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
@@ -102,7 +105,7 @@ jobs:
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
   signing-runner-variables:
     name: signing runner variables are ephemeral
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -121,6 +124,89 @@ jobs:
           done
           [ "$bad" = 0 ] || exit 1
 
+  # The CI guard group's, the tooling tests' and the release-notary guards' runner.
+  # Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
+  # own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
+  # Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
+  # cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
+  # The placement code comes from the base branch, as macos-placement's does.
+  portable-placement:
+    name: portable job placement
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 4
+    permissions:
+      # The queue janitor's pool snapshot (nightly jobs waiting on a pool).
+      actions: read
+      contents: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      # A re-run of failed jobs carries this job's outputs from an earlier attempt; a job takes them
+      # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        continue-on-error: true
+        run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the portable jobs
+        id: place
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          JOBS: ci-guard-group tooling-tests release-notary
+          # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: |
+          # A base branch that predates the script places nothing: every job keeps its Blacksmith route.
+          if [ ! -f scripts/ci/portable_job_placement.py ]; then
+            echo "portable placement: the trusted base predates scripts/ci/portable_job_placement.py"
+            exit 0
+          fi
+          python3 scripts/ci/portable_job_placement.py
+
   # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
   # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
   # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
@@ -135,7 +221,11 @@ jobs:
     # and push (175-359 s on 4 vCPU with 8 workers). vars.LINUX_RUNNER names the 4 vCPU size, so it is read only
     # when it names a non-Blacksmith runner; in a Blacksmith outage CI_CLOUD_OVERFLOW_SAVED moves it to 16 vCPU
     # (tests/test_feat_ci_guard_group.py, tests/test_ci_blacksmith_linux_failover.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Fleet Linux, then a free mini (portable-placement: the guards are Python, bash and bun, and the head and
+    # base run on the same machine, so a red of the machine's own is a base red), then Blacksmith.
+    needs: [portable-placement]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -146,6 +236,11 @@ jobs:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base) for the changed files.
           fetch-depth: 2
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       # The base this change is judged against, and the diff the groups are routed by: a pull request's
       # merge commit against its first parent (pull_request.base.sha lags it once the base moves), a push
@@ -198,8 +293,11 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # setup-python has no macOS arm64 build of 3.9, so a mini (portable-placement) takes the one uv installs
+      # instead. The head and the base run on the same machine, so either way they compare like for like.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
+        if: runner.os == 'Linux'
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
@@ -210,6 +308,13 @@ jobs:
           PYTHON39: ${{ steps.python39.outputs.python-path }}
         run: |
           mkdir -p "$RUNNER_TEMP/python39"
+          if [ -z "$PYTHON39" ] && command -v uv >/dev/null 2>&1; then
+            PYTHON39="$(uv python find 3.9 2>/dev/null || { uv python install 3.9 >/dev/null 2>&1 && uv python find 3.9; } || true)"
+          fi
+          if [ -z "$PYTHON39" ]; then
+            echo "::warning::no Python 3.9 on this runner; the nightly prune compatibility step reds on the head and the base alike"
+            exit 0
+          fi
           ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
           echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
@@ -230,9 +335,9 @@ jobs:
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(nproc)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(nproc)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
           fi
@@ -480,9 +585,8 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
-  # The defaults guard's tests and the settings export stamp, in seconds (the
-  # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
-  # the approval from each tree's sources.
+  # The defaults snapshot's tests and the settings export stamp, in seconds (the
+  # defaults snapshot is bot-only).
   defaults-snapshot:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -496,7 +600,7 @@ jobs:
           # previous commit of a push.
           fetch-depth: 2
 
-      - name: The defaults guard judges changes and approvals
+      - name: The defaults snapshot tests
         run: python3 tests/test_defaults_guard.py
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
@@ -514,8 +618,11 @@ jobs:
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
-    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
+    # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith.
+    needs: [portable-placement]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -524,6 +631,11 @@ jobs:
           persist-credentials: false
           # HEAD^1: a pull request's base for the registry check.
           fetch-depth: 2
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: nightly-next's App ID and profile through the ASC API
         run: python3 tests/test_asc_developer_id_app.py
@@ -539,6 +651,14 @@ jobs:
 
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
+
+      - name: Remote Powerlevel10k prompt reset compatibility
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+          fi
+          python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
 
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
@@ -598,6 +718,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_app_crate_licenses.py
 
+      - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_check_objc_selectors_step.py
+
       - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
         if: ${{ !cancelled() }}
         run: python3 tests/test_ci_package_lane_prebuild.py
@@ -605,6 +729,14 @@ jobs:
       - name: The iOS simulator step runs the declared runtime, never just the newest (ios_sim_runtime.py)
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_ios_sim_runtime.py
+
+      - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_ffi_cache.py
+
+      - name: The iOS Chief benchmark repeats one simulator and requires retained measurements
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_chief_benchmark_route.py
 
       # cmux-ci sends a package-test-lane suite step that names a display suite to a display
       # worker; the list it reads is derived from the suites' own display skip traits, so a

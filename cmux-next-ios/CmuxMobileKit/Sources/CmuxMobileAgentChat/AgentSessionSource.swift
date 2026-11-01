@@ -64,6 +64,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// The history a chat opened on leaves out older records (the attach's cap): its first
     /// turn is not where the session started.
     case earlierHistory(Bool)
+    /// Older history read as the reader scrolled up (``AgentSessionSource/loadEarlierHistory()``):
+    /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
+    /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
+    case earlierPage([AgentSessionEvent], hasEarlier: Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -98,8 +102,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
     /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
-    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
-    case retryWithModel(model: String, text: String, promptID: String)
+    /// the prompt again, with its attachments, under `promptID`. A refused model sends nothing
+    /// (the chat says why).
+    case retryWithModel(model: String, text: String, attachments: [AgentAttachment], promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
@@ -197,10 +202,14 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The chat reached the oldest turn it shows: read the page before it, delivered as
+    /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
+    func loadEarlierHistory()
 }
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func loadEarlierHistory() {}
 }
 
 extension AgentSessionSource {

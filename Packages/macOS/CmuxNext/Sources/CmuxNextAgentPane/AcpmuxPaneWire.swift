@@ -28,12 +28,16 @@ public extension AcpmuxPaneWire {
 public nonisolated final class AgentPaneRemoteRoute: Sendable {
     /// The machine's name, for logs (never a secret).
     public let machine: String
+    /// The canonical host key used by session lineage (`registry:<id>`).
+    public let hostID: String?
     /// The keyed restart of the machine's acpmux, when the app can do one (cx-0q7o).
     public let approvals: AgentPaneRemoteApprovals?
     private let make: @Sendable () -> any AcpmuxPaneWire
 
-    public init(machine: String, approvals: AgentPaneRemoteApprovals? = nil, make: @escaping @Sendable () -> any AcpmuxPaneWire) {
+    public init(machine: String, hostID: String? = nil, approvals: AgentPaneRemoteApprovals? = nil,
+                make: @escaping @Sendable () -> any AcpmuxPaneWire) {
         self.machine = machine
+        self.hostID = hostID
         self.approvals = approvals
         self.make = make
     }

@@ -18,6 +18,7 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
     private var rows: [FileSidebarRow] = []
     private var current: URL?
     private var applying = false
+    private var fontScale = Typography.userScale
 
     init(actions: FileSidebarActions) {
         self.actions = actions
@@ -46,6 +47,13 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
         if rows != self.rows {
             self.rows = rows
             table.reloadData()
+        }
+        if fontScale != Typography.userScale {
+            fontScale = Typography.userScale
+            table.enumerateAvailableRowViews { [actions] view, index in
+                guard rows.indices.contains(index) else { return }
+                for case let cell as FileSidebarCell in view.subviews { cell.show(rows[index], eject: actions.eject) }
+            }
         }
         current = folder.standardizedFileURL
         applying = true

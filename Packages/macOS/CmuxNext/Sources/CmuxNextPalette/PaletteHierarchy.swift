@@ -53,6 +53,19 @@ extension PaletteModel {
         return true
     }
 
+    /// A click on chip `index` of a multi-value step: the page without that value.
+    public func removeToken(at index: Int) {
+        guard let current, case .list(let page) = current.kind, page.tokens.indices.contains(index) else { return }
+        replaceCurrentPage(with: page.tokens[index].remove())
+    }
+
+    /// Backspace on an empty query of a multi-value step: takes out the last chip. False with none.
+    func removeLastToken() -> Bool {
+        guard let current, case .list(let page) = current.kind, let last = page.tokens.last else { return false }
+        replaceCurrentPage(with: last.remove())
+        return true
+    }
+
     /// A click on footer segment `index`: its page in the current one's place.
     public func openCrumb(at index: Int) {
         guard let current, case .list(let page) = current.kind, page.crumbs.indices.contains(index),

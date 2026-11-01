@@ -3,6 +3,7 @@
 // (`git.worktree.remove`) and refuses while the worktree holds work found nowhere else: uncommitted
 // changes, or commits on no other branch or remote. That refusal shows inline with "Remove anyway",
 // the only way that work goes, and Keep. The pill keeps where it stands, like Apply.
+import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { HeaderWorktree } from "./WorktreePill";
 
@@ -128,7 +129,10 @@ export function WorktreeRemove({
         </div>
       ) : (
         <button type="button" disabled={busy || removing.step === "removing"} onClick={() => run(false)}>
-          {removing.step === "removing" ? t("header.worktreeRemoving") : t("header.worktreeRemove")}
+          <StableLabel
+            label={removing.step === "removing" ? t("header.worktreeRemoving") : t("header.worktreeRemove")}
+            alternatives={[t("header.worktreeRemove"), t("header.worktreeRemoving")]}
+          />
         </button>
       )}
       {removing.step === "failed" && <span role="alert">{removing.message}</span>}

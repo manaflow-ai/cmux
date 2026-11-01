@@ -7,7 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
-import type { IndexEntry, ReleaseNotes } from "./types";
+import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 
@@ -50,8 +50,6 @@ type Props = {
   data: UpdateHighlights;
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
-  /** The channel's published builds (the notes index), newest first. */
-  builds?: IndexEntry[];
   wallpaper?: boolean;
   maxHeight?: number;
 };
@@ -108,13 +106,6 @@ const releaseToolingData: UpdateHighlights = {
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.4037226096601", to: "1.0.0-nightly.4037632091801" },
 };
-// The notes index: two builds published after the base card's.
-const behind: IndexEntry[] = ["3845900000001", "3845500000001", "3845050428001", "3844000000001"].map((build) => ({
-  build,
-  shortVersion: `1.0.0-nightly.${build}`,
-  date: "2026-10-12",
-  highlights: 0,
-}));
 const internalOnly: ReleaseNotes[] = [
   {
     ...span[0]!,
@@ -166,14 +157,7 @@ const longNotes: UpdateHighlights = {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
-function UpdateSurfacesGallery({
-  surface,
-  data,
-  span: notes,
-  builds,
-  wallpaper: onWallpaper = false,
-  maxHeight,
-}: Props) {
+function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpaper = false, maxHeight }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
@@ -186,13 +170,7 @@ function UpdateSurfacesGallery({
       }}
     >
       {surface === "card" ? (
-        <UpdatedCard
-          data={data}
-          span={notes}
-          builds={builds}
-          strings={strings}
-          actions={{ openChangelog: noop, dismiss: noop }}
-        />
+        <UpdatedCard data={data} span={notes} strings={strings} actions={{ openChangelog: noop, dismiss: noop }} />
       ) : (
         <div
           style={{
@@ -225,17 +203,46 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "popover-pr-links": {
+      note: "Structured PR metadata on a leading change and a remaining change; both reuse the shared PR chip and card. Public PR titles, representative update data.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll("a.cl-pr").length === 2);
+        for (const chip of ctx.document.querySelectorAll<HTMLAnchorElement>("a.cl-pr")) {
+          const box = chip.getBoundingClientRect();
+          if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
+            throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+        }
+        await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card"));
+      },
+      props: {
+        surface: "popover",
+        data: {
+          ...base,
+          items: [
+            {
+              id: "transcript-reading",
+              category: "improved",
+              title: "Let transcript reading surfaces follow chat text size",
+              pr: "https://github.com/manaflow-ai/cmux/pull/26875",
+            },
+          ],
+          rest: [
+            {
+              id: "inline-messages",
+              category: "improved",
+              title: "Other sessions' messages are one inline line each, then open when opened",
+              pr: "https://github.com/manaflow-ai/cmux/pull/27312",
+            },
+          ],
+          moreCount: 1,
+        },
+      },
+    },
     card: {
-      note: "Card #01 Compact list (u2441): \"Updated to Nightly · Oct 12\", what changed one line per area (updateSummary.ts), the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page. Without the span's notes the card groups the host's items.",
+      note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The composer\'s surface on a plain page.',
       props: { surface: "card", data: base },
-    },
-    "card-behind": {
-      note: 'Leo 2026-10-26: "it just says updated to nightly, but that doesn\'t mean anything." The build by when it was made (local time) and its commit, and how far it is from the newest once the notes index loads.',
-      props: { surface: "card", data: base, builds: behind },
-    },
-    "card-newest": {
-      note: "The newest build of its channel.",
-      props: { surface: "card", data: base, builds: behind.slice(2) },
     },
     "card-span": {
       note: "An update across ten skipped nightlies (real nightly-next notes, 2026-10-18): every build counts, one line per area, internal work left out, +N more. It used to show the newest build's one line as the whole card.",

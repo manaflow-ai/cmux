@@ -41,6 +41,10 @@
 #   path owns it and keeps it. CI uses a worker/workspace/toolchain-specific
 #   Release path on owned runners; the binary-module guard and the one-time
 #   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
+# CMUX_NEXT_RELEASE_XCODE_SETTINGS: extra xcodebuild settings, one KEY=VALUE per
+#   line. release-compile-fleet-cas.sh passes the fleet compile cache's settings
+#   here. A failed build whose log shows the cache failing (not the code) builds
+#   once more without them (lib/compilation-cache.sh cmux_next_cas_failed).
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -114,6 +118,15 @@ else
   fi
 fi
 build_attempt=0
+extra_settings=()
+while IFS= read -r setting; do
+  [[ -n "$setting" ]] || continue
+  if [[ ! "$setting" =~ ^[A-Z][A-Z0-9_]*=[^[:space:]]*$ ]]; then
+    echo "check-release-compile: CMUX_NEXT_RELEASE_XCODE_SETTINGS line is not KEY=VALUE: '$setting'" >&2
+    exit 2
+  fi
+  extra_settings+=("$setting")
+done <<< "${CMUX_NEXT_RELEASE_XCODE_SETTINGS:-}"
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   xcode_app="${CMUX_RELEASE_COMPILE_XCODE:-}"
@@ -142,6 +155,7 @@ build() {
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
+    ${extra_settings[@]+"${extra_settings[@]}"} \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
@@ -155,6 +169,16 @@ if (( kept_path )); then
 fi
 status=0
 build || status=$?
+if (( status && ${#extra_settings[@]} )); then
+  # shellcheck source=lib/compilation-cache.sh
+  source "$repo_root/scripts/cmux-next/lib/compilation-cache.sh"
+  if cmux_next_cas_failed "$log"; then
+    echo "::warning::check-release-compile: the compilation cache failed (not the code); building once more without it"
+    extra_settings=()
+    status=0
+    build || status=$?
+  fi
+fi
 if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
   echo "check-release-compile: stale precompiled modules in $derived_data; removing them and building again"
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"

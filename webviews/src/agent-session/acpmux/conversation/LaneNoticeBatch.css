@@ -1,0 +1,43 @@
+/* The head is a tool row (TranscriptActivityRow.tsx) on the one-line rows' line, with no margins of its
+   own: its row's frame gives the room (conversation.css `.acpmux-row--line`). */
+.cv-lane-batch {
+  margin-block: 0;
+  min-width: 0;
+  font: inherit;
+  color: var(--cv-text);
+}
+.cv-lane-batch__toggle {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: var(--ds-space-2);
+  max-width: 100%;
+  height: var(--cv-message-line);
+  padding-inline: var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  cursor: default;
+}
+.cv-lane-batch__toggle > svg {
+  flex: none;
+}
+.cv-lane-batch__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-lane-batch__toggle:hover,
+.cv-lane-batch__toggle:focus-visible {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
+.cv-lane-batch__body {
+  padding-inline-start: var(--ds-space-5);
+}
+/* A report's sender remains a separate target; only its disclosure lights on hover. */
+.cv-received.cv-lane-notice > .cv-disclosure__line:hover,
+.cv-received.cv-lane-notice > .cv-disclosure__line:focus-within,
+.cv-received.cv-lane-notice > .cv-disclosure__line:has([aria-haspopup="menu"][aria-expanded="true"]) {
+  background: none;
+}
+.cv-received.cv-lane-notice .cv-disclosure__toggle:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}

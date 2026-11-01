@@ -363,11 +363,12 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
     private let recolor: () -> Void
     private weak var observedScope: ThemeScope?
 
-    public init(body: NSView, recolor: @escaping () -> Void) {
+    /// - Parameter cornerRadius: the real card's shape, so the gallery shows what a hover shows: nil
+    ///   is the floating panels' (`HoverCardPanel.cornerRadius`); a tab's card passes the tab's.
+    public init(body: NSView, cornerRadius: CGFloat? = nil, recolor: @escaping () -> Void) {
         self.recolor = recolor
         super.init(frame: .zero)
-        // The real card's shape (`HoverCardPanel.cornerRadius`), so the gallery shows what a hover shows.
-        let glass = Glass.makeOverlayPanel(cornerRadius: HoverCardPanel.cornerRadius, interactive: false, cardFill: false)
+        let glass = Glass.makeOverlayPanel(cornerRadius: cornerRadius ?? HoverCardPanel.cornerRadius, interactive: false, cardFill: false)
         body.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(body)
         addSubview(glass)
