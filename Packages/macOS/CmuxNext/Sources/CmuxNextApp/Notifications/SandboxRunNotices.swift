@@ -53,13 +53,18 @@ final class SandboxRunNotices {
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
     /// The server decides who may read it: if the create went out under another account (a switch
     /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
-    func follow(id: String, task: String, key: String, team: String?, incognito _: Bool? = nil) async throws -> Data {
+    /// `incognito` is the send's own, read as it started (``sendIsIncognito(key:)``): by the time the
+    /// create answers, its tab may be gone (#31040).
+    func follow(id: String, task: String, key: String, team: String?, incognito: Bool) async throws -> Data {
         guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
         var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
-        // A send whose tab is gone already may have been an incognito one: it is taken as one.
-        record.incognito = tab(holding: key) == nil || incognito(key) ? true : nil
+        record.incognito = incognito ? true : nil
         return try await follower.follow(record)
     }
+
+    /// Whether the send of attempt `key` is an incognito chat's, read as the send starts, while its
+    /// pane holds the key. A send no tab holds may be an incognito one: it is taken as one.
+    func sendIsIncognito(key: String) -> Bool { tab(holding: key) == nil || incognito(key) }
 
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]

@@ -126,6 +126,8 @@ final class AgentPageChats {
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            // Read before any wait, while the pane holds the send: its tab may close before the create answers.
+            let incognito = notices.sendIsIncognito(key: key)
             // Cloud turned off by policy, or the managed team it requires missing: a definite
             // refusal, nothing was asked of the server.
             guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
@@ -140,7 +142,7 @@ final class AgentPageChats {
             let team = await services.cloud.api.currentTeam()
             let api = services.cloud.api.pinningTeam(team)
             let follow: @Sendable (String) async throws -> Data = { id in
-                try await notices.follow(id: id, task: task, key: key, team: team)
+                try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }
             return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
