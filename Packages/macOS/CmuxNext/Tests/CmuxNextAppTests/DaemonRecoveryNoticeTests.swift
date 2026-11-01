@@ -89,10 +89,12 @@ struct DaemonRecoveryNoticeTests {
         let socket = root.appendingPathComponent("cmux.sock").path
         let starts = Counter()
         let endpoint = launcher.endpointProvider
+        // Made here: the bridge's maker is main-actor, the endpoint provider is not.
+        let first = DaemonEndpoint(socketPath: socket, bridge: .fakePython(["-c", Self.daemonScript]))
         let connection = DaemonConnection(configuration: .init(requiredCapabilities: [], terminalEnvironment: nil)) {
             // The first start reaches the stand-in daemon; every restart after it runs the failing ensure.
             guard starts.increment() == 0 else { return try await endpoint() }
-            return DaemonEndpoint(socketPath: socket, bridge: .fakePython(["-c", Self.daemonScript]))
+            return first
         }
         service.start(makeConnection: { connection })
         defer { service.shutdownConnection() }
