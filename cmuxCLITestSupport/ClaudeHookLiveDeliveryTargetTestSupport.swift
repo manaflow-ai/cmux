@@ -301,7 +301,7 @@ enum ClaudeHookLiveDeliveryHarness {
         return fd
     }
 
-    private static func startMockServer(
+    static func startMockServer(
         listenerFD: Int32,
         state: ServerState,
         handler: @escaping @Sendable (String) -> String
@@ -356,7 +356,7 @@ enum ClaudeHookLiveDeliveryHarness {
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -369,7 +369,7 @@ enum ClaudeHookLiveDeliveryHarness {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }

@@ -6526,6 +6526,7 @@ struct CMUXCLI {
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "claude-account", !Self.claudeAccountCommandNeedsSocket(commandArgs) { try runClaudeAccountList(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "chief", !chiefCommandNeedsSocket(commandArgs) { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
@@ -7060,6 +7061,16 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "claude-account":
+            try runClaudeAccount(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "session-priority":
+            try runSessionPriority(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
@@ -21576,6 +21587,10 @@ struct CMUXCLI {
 
             <surface> is a UUID, a ref like surface:3, or an index with --workspace.
             """
+        case "claude-account":
+            return Self.claudeAccountHelp
+        case "session-priority":
+            return Self.sessionPriorityHelp
         case "restore-session":
             return String(localized: "cli.restoreSession.help", defaultValue: """
             Usage: cmux restore-session
@@ -31275,6 +31290,11 @@ struct CMUXCLI {
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        // The difficulty rating's prompt is the transcript as it was when the turn ended: note its
+        // size before anything below waits on the session store's lock.
+        let difficultyTurnStart = subcommand == "auto-name"
+            ? claudeDifficultyTurnStart(parsedInput: parsedInput)
+            : ClaudeDifficultyTurnStart()
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()
@@ -31946,6 +31966,7 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let difficultyTurn = difficultyTurnStart.withTranscriptFallback(mappedSession?.transcriptPath)
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -31968,6 +31989,18 @@ struct CMUXCLI {
                 runClaudeAutoNameHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionStore: sessionStore,
+                    client: client,
+                    telemetry: telemetry
+                )
+                // Independent of auto-naming (which may be disabled); it never
+                // throws and cannot affect the pass above or the hook's status.
+                runClaudeDifficultyAssessmentHook(
+                    parsedInput: parsedInput,
+                    mappedSession: mappedSession,
+                    turnStart: difficultyTurn,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionStore: sessionStore,

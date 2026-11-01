@@ -19,6 +19,9 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
     var sanitizedScrollbackCount = 0
     /// Terminals whose text box draft attachments were dropped.
     var droppedDraftAttachmentCount = 0
+    /// Workspaces whose Claude difficulty, manual priority flag, or rank
+    /// position was dropped.
+    var droppedSessionPriorityStateCount = 0
 }
 
 /// Restore policy for a session snapshot read from an arbitrary file
@@ -109,6 +112,14 @@ enum SessionSnapshotImportTrust {
                     || workspace.cloudMachineTeams?.isEmpty == false {
                     report.droppedRemoteWorkspaceCount += 1
                 }
+                if workspace.claudeDifficultyOverride != nil || workspace.claudeDifficultyAuto != nil
+                    || workspace.sessionPriorityManual != nil || workspace.sessionPriorityIndex != nil {
+                    report.droppedSessionPriorityStateCount += 1
+                }
+                workspace.claudeDifficultyOverride = nil
+                workspace.claudeDifficultyAuto = nil
+                workspace.sessionPriorityManual = nil
+                workspace.sessionPriorityIndex = nil
                 workspace.remote = nil
                 workspace.cloudVM = nil
                 workspace.environment = nil
@@ -190,6 +201,9 @@ enum SessionSnapshotImportTrust {
             terminal.claudeBackgroundViewer = nil
             heldBack = true
         }
+        // A switched pane's Claude account keys become the restored shell's environment; a file
+        // must not supply any environment.
+        terminal.claudeAccountEnvironment = nil
         if heldBack {
             report.heldBackResumeCount += 1
         }
