@@ -10,9 +10,16 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import { agentStartLook } from "./conversation/agentStart.experiment";
+import { claudeModels, codexModels } from "./mockFixture";
 
 const prompt = "Run the sidebar tests and fix what fails.";
 const seeded = { transport: "mock", newSession: true, harness: "claude", prompt };
+/// The mock daemon's harnesses with the level a new chat starts on, as acpmux lists them
+/// (`_acpmux/harnesses` start), so the model chip names its effort while the agent starts too.
+const startingHarnesses = [
+  { id: "claude", name: "Claude Code", models: claudeModels, start: { effort: "medium", effortSource: "catalog" } },
+  { id: "codex", name: "Codex", models: codexModels, start: { effort: "high", effortSource: "catalog" } },
+];
 
 /// The prompt is on screen as sent, the line under it, while the agent starts.
 const sent: Play = async (ctx) => {
@@ -115,6 +122,7 @@ export default agentPaneEntry({
     "slow-start": {
       note: "Play: the agent takes 2.5 s to start, then answers. The prompt, the line and the composer keep their places.",
       ready: seeded,
+      mockHarnesses: startingHarnesses,
       mockStart: { delayMs: 2_500 },
       snapshot: noChat([]),
       play: toReply,
@@ -122,6 +130,7 @@ export default agentPaneEntry({
     starting: {
       note: "The agent is still starting: the prompt reads as sent, Thinking runs under it, and the composer offers Stop.",
       ready: seeded,
+      mockHarnesses: startingHarnesses,
       mockStart: { delayMs: 600_000 },
       snapshot: noChat([]),
       play: sent,
@@ -129,6 +138,7 @@ export default agentPaneEntry({
     "failed-start": {
       note: "The agent could not start: the reason with Retry above the composer, and the prompt back in it to send again.",
       ready: seeded,
+      mockHarnesses: startingHarnesses,
       mockStart: { error: "Claude Code exited before it started (exit code 1)." },
       snapshot: noChat([]),
       play: async (ctx) => {
