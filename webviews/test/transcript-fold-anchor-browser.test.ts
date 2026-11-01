@@ -261,6 +261,17 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await settle(page);
     expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
+
+    // Reopening at the bottom consumes the retained room while the stack moves upward. It must
+    // not add the old room on top of the expanded body a second time.
+    await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
+    const reopened = await clickAndWatch(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(reopened.threadAnimations).toBe(1);
+    expect(reopened.moved).toBeGreaterThan(1);
+    expect(await scrollHeight(page)).toBe(expandedEnd);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 
@@ -268,7 +279,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const page = await open("no-preference");
     await show(page, [...done, ...live(1)]);
     await settle(page);
-    await page.mouse.wheel(0, -220);
+    await page.mouse.wheel(0, -80);
     await settle(page);
     expect(await atLatest(page)).toBe(false);
     const before = await page.evaluate(() => {
