@@ -21,6 +21,8 @@ struct Fake {
     fail_apps: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
+    /// The app applied an open action but lost the acknowledgement.
+    lose_open_transport: bool,
     daemon_snapshot: Option<Value>,
     /// The answer to every daemon request but `session.snapshot`; else
     /// `daemon_snapshot`.
@@ -284,6 +286,15 @@ impl Backend for Fake {
                 kind: FailureKind::Rejected,
                 error: json!({"code": "invalid_argument", "message": "no such file"}),
                 idempotency_key: None,
+            });
+        }
+        if self.lose_open_transport && method == "action.run" {
+            // A real app can apply action.run before its acknowledgement is lost.
+            return Err(CallFailure {
+                kind: FailureKind::InProgress,
+                error: json!({"code": "app.transport", "message": "reply lost",
+                              "retryable": true}),
+                idempotency_key: Some("open-viewer-app-key".into()),
             });
         }
         match method {
@@ -2072,6 +2083,36 @@ fn open_splits_and_opens_in_one_call() {
     let close = sent.iter().find(|s| s["request"]["operation"] == "pane.close");
     let close = close.unwrap_or_else(|| panic!("the split stays: {sent:?}"));
     assert!(close["request"].to_string().contains(pane), "{close}");
+    drop(sent);
+
+    // A lost acknowledgement is ambiguous: the app may already have opened the viewer.
+    // Preserve that new pane and return its ID so a caller can reconcile the result.
+    let lost = Fake {
+        actions: actions.clone(),
+        resource_result: Some(json!({"pane_id": pane, "id": tab, "focused": true})),
+        lose_open_transport: true,
+        ..Fake::default()
+    };
+    let mut uncertain = Server::new(lost, None);
+    let result = uncertain
+        .call(&json!({"name": "open",
+                       "arguments": {"kind": "file", "path": "/work/docs/notes.md",
+                                     "where": "below"}}))
+        .expect("a tool result");
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+    assert_eq!(result["structuredContent"]["idempotency_key"], "open-viewer-app-key");
+    assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+    assert!(
+        result["structuredContent"]["recovery"].as_str().is_some_and(|s| s.contains("inspect")),
+        "the pending open needs a usable recovery hint: {result}"
+    );
+    let sent = uncertain.backend.sent.borrow();
+    assert!(sent.iter().any(|s| s["method"] == "action.run"), "{sent:?}");
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "a lost acknowledgement must never close a possibly successful viewer: {sent:?}"
+    );
     drop(sent);
 
     // `where` as an object names its workspace: the page goes there, not to the right.
