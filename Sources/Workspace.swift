@@ -12439,6 +12439,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Forces terminal representables to reconcile their portal host after this
+    /// workspace is attached to a different window. SwiftUI can reuse the
+    /// representable identity across a cross-window move, so the destination
+    /// window may otherwise keep the old host's detached geometry and show a
+    /// blank surface until another update arrives.
+    func requestTerminalViewReattachAfterWindowMove() {
+        for panelID in panels.keys {
+            for terminal in terminalPanels(projectedFromPanelID: panelID) {
+                terminal.requestViewReattach()
+            }
+        }
+    }
+
     func hideAllBrowserPortalViews() {
         for panel in panels.values {
             guard let browser = panel as? BrowserPanel else { continue }

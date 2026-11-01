@@ -2875,6 +2875,11 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        // A workspace moved from another window may retain its SwiftUI
+        // representable identity while its portal host is being reparented.
+        // Publish an explicit reattach token so every terminal asks the new
+        // window portal for a fresh binding on the destination turn.
+        workspace.requestTerminalViewReattachAfterWindowMove()
         // A workspace moved in from another window arrives ungrouped (detach
         // clears `groupId`) and may be pinned, so an arbitrary insert index can
         // split a destination group's contiguous run or drop a pinned workspace
