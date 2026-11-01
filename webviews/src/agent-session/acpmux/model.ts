@@ -1987,7 +1987,13 @@ export function placeRows(
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  // The gaps take the Interface Size now, not the estimate's (it may predate a change), and the kept
+  // rows keep their places only at the scale they were placed at.
+  const scale = gridScale();
+  const kept =
+    previous && (previous.layout.scale ?? 1) === scale
+      ? Math.min(previous.kept, previous.layout.heights.length, heights.length)
+      : 0;
   if (kept > 0) {
     tops.set(previous!.layout.tops.subarray(0, kept));
     heights.set(previous!.layout.heights.subarray(0, kept));
@@ -1998,7 +2004,6 @@ export function placeRows(
   let beforeContent = previousContent - 1;
   while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
   const marks = estimate.marks;
-  const scale = estimate.scale ?? 1;
   for (let index = kept; index < heights.length; index += 1) {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);

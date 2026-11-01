@@ -57,3 +57,33 @@ test("measured empty rows do not leave a gap at the beginning or the end", () =>
   expect([...measured.tops]).toEqual([0, 0, 40]);
   expect(measured.totalHeight).toBe(40);
 });
+
+// Review at 1691838: a placement kept from 100% must not survive a change to 125% Interface Size,
+// or its rows keep the 100% gaps while the CSS tokens draw the 125% ones.
+test("placed gaps follow an Interface Size change, kept rows included", () => {
+  const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
+  const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
+  let scale = "1";
+  g.document ??= { documentElement: {} };
+  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  try {
+    const rows = [
+      { id: "a", version: 1, at: 0, kind: "assistant", text: "One." },
+      { id: "b", version: 1, at: 1, kind: "assistant", text: "Two." },
+    ] as AcpmuxRow[];
+    const heightAt = () => 20;
+    const estimate = layoutConversation(rows, 720);
+    const atOne = placeRows(estimate, heightAt);
+    expect(atOne.tops[1]! - atOne.tops[0]!).toBe(20 + 24);
+    scale = "1.25";
+    const atLarger = placeRows(estimate, heightAt, { layout: atOne, kept: 2 });
+    expect(atLarger.tops[1]! - atLarger.tops[0]!).toBe(20 + 30);
+    expect(atLarger.scale).toBe(1.25);
+    const relaid = layoutConversation(rows, 720, undefined, undefined, undefined, { rows, layout: estimate });
+    expect(relaid.scale).toBe(1.25);
+    expect(relaid.gaps?.[1]).toBe(30);
+  } finally {
+    g.document = saved.document;
+    g.getComputedStyle = saved.getComputedStyle;
+  }
+});
