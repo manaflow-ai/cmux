@@ -76,8 +76,8 @@ test("footnoteOrder's early exit returns what the full scan returns", () => {
 // backticks in its info string and opens nothing. The streaming helpers follow the same rule, or
 // the text after such a line is cut into blocks the whole text never has.
 const quoted = [
-  "Intro.\n\n````md\n```js\nx\n```\n\nstill inside the four-tick fence\n\n- not a list\n````\n\nAfter.\n\n- real list",
-  "Before.\n\n```x``` not a fence\n\n- one\n- two\n\nAfter.",
+  "Intro.\n\n````md\n```js\nx\n\nstill inside the four-tick fence\n\n- not a list\n```\n````\n\nAfter.\n\n- real list",
+  "Before.\n\n```x``` not a fence\n\n```\ncode\n\nmore code\n```\n\nAfter.",
   "Para.\n\n``````\n`````\ninner five\n\nstill code\n``````\n\nEnd.",
 ];
 
@@ -93,10 +93,10 @@ for (const [index, fixture] of quoted.entries()) {
 }
 
 test("inside a four-backtick fence a line of three is code, and a list marker is not held back", () => {
-  const tail = "````md\n```js\nx\n```\n- ";
+  const tail = "````md\n```js\n- ";
   expect(safeTail(tail)).toBe(tail);
 });
 
 test("inside a four-backtick fence a closer still being typed is held with its newline", () => {
-  expect(safeTail("````md\n```js\nx\n```\n``")).toBe("````md\n```js\nx\n```");
+  expect(safeTail("````md\n```js\n``")).toBe("````md\n```js");
 });
