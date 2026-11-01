@@ -156,10 +156,12 @@ def _setup(job: Mapping[str, Any]) -> str:
     return ""
 
 
-def latest_admission(label: str, jobs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
-    """The newest build-nightly-app job on `label` whose "Set up runner" was decided (admitted or refused)."""
+def latest_admission(labels: str | Sequence[str], jobs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """The newest build-nightly-app job on any of `labels` whose "Set up runner" was decided (admitted or
+    refused). The builder takes jobs by its dedicated label and, routed by the trusted pair, by its runner label."""
+    wanted = {labels} if isinstance(labels, str) else set(labels)
     decided = [job for job in jobs if isinstance(job, Mapping) and job.get("name") == BUILD_JOB
-               and label in (job.get("labels") or []) and _setup(job) in ("success", "failure")
+               and wanted.intersection(job.get("labels") or []) and _setup(job) in ("success", "failure")
                and _stamp(job.get("started_at"))]
     return max(decided, key=lambda job: _stamp(job["started_at"]), default=None)
 
@@ -178,7 +180,7 @@ def refusal(label: str, job: Mapping[str, Any] | None, now: dt.datetime,
             f"held off for {round(hold.total_seconds() / 60)} min")
 
 
-def read_admission(github: Any, label: str, runs: int = RECENT_RUNS) -> Mapping[str, Any] | None:
+def read_admission(github: Any, label: str | Sequence[str], runs: int = RECENT_RUNS) -> Mapping[str, Any] | None:
     """latest_admission() across the newest `runs` nightly-next runs of nightly.yml."""
     listed = github.get(f"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page={runs}")
     admissions: list[Mapping[str, Any]] = []
@@ -399,11 +401,13 @@ def main(env: Mapping[str, str] = os.environ,
             return None
 
     # Before the busy wait: a builder that is refusing jobs is skipped at once, not waited on.
+    # The trusted pair names the same Mac (trusted_route()), so its runner label's jobs are its admissions too.
     refused_why = ""
+    admission_labels = [dedicated_label] + [label for label in [(env.get("TRUSTED_RUNNER") or "").strip()] if label]
     if pool.nightly_dedicated(dedicated_label) and env.get("SNAPSHOT_TOKEN") and repo:
         try:
             latest = (read_admission_fn or (lambda token, name: read_admission(pool.GitHub(token, name),
-                                                                               dedicated_label)))(
+                                                                               admission_labels)))(
                 env["SNAPSHOT_TOKEN"], repo)
             refused_why = refusal(dedicated_label, latest, now)
         except Exception as error:  # noqa: BLE001 - an unread refusal leaves the builder offered
@@ -461,6 +465,10 @@ def main(env: Mapping[str, str] = os.environ,
         env.get("TRUSTED_POOL", ""), env.get("TRUSTED_RUNNER", ""), runners,
         event=event, ref=ref,
     )
+    if refused_why and trusted:
+        # The trusted pair is the dedicated builder (trusted_route()), and build-nightly-app takes `trusted`
+        # before `owned`: offering it would send the build back to the Mac that is refusing it.
+        trusted, trusted_why = "", f"{refused_why} (the trusted pair is the same builder)"
     if only_verify:
         write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
                                              f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
