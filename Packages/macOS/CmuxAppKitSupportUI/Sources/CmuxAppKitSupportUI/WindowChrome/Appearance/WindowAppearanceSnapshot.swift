@@ -336,7 +336,7 @@ public struct WindowAppearanceSnapshot {
                 windowIsOpaque: false,
                 rootPolicy: rootPolicy,
                 glass: nil,
-                shouldApplyGhosttyCompositorBlur: !terminalBackgroundBlur.isMacOSGlassStyle
+                shouldApplyGhosttyCompositorBlur: terminalBackgroundBlur.appliesCompositorBlur
             )
         }
 
