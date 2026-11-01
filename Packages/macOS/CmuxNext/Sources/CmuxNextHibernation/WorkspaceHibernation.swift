@@ -40,14 +40,18 @@ public nonisolated struct WorkspaceHibernationResident: Hashable, Sendable {
     public var running: Bool
     /// An agent waits on the person, or it shows an error.
     public var needsAttention: Bool
+    /// No window shows any space it is in (its space is hidden), so it hibernates on the shorter clock.
+    public var inHiddenSpace: Bool
 
     /// Every flag defaults to false.
-    public init(workspace: String, lastActivity: Date? = nil, pinned: Bool = false, running: Bool = false, needsAttention: Bool = false) {
+    public init(workspace: String, lastActivity: Date? = nil, pinned: Bool = false, running: Bool = false, needsAttention: Bool = false,
+                inHiddenSpace: Bool = false) {
         self.workspace = workspace
         self.lastActivity = lastActivity
         self.pinned = pinned
         self.running = running
         self.needsAttention = needsAttention
+        self.inHiddenSpace = inHiddenSpace
     }
 }
 
@@ -159,12 +163,16 @@ public final class WorkspaceHibernation {
             return WorkspaceHibernationPlanner.Candidate(
                 workspace: resident.workspace, lastActive: active, shown: shown.contains(resident.workspace),
                 pinned: resident.pinned, running: resident.running, needsAttention: resident.needsAttention,
-                keptAwake: keepAwake.contains(resident.workspace), hibernated: hibernated.contains(resident.workspace))
+                keptAwake: keepAwake.contains(resident.workspace), hibernated: hibernated.contains(resident.workspace),
+                inHiddenSpace: resident.inHiddenSpace)
         }
         // A hibernated workspace that holds nothing more stays hibernated until shown; one that is
         // gone (closed) is forgotten.
         let plan = planner.plan(candidates, policy: host.hibernationPolicy(), pressure: pressure, now: time)
-        for id in plan.due { hibernateNow(id, cause: pressure == .normal ? "idle" : "memory-pressure=\(pressure.rawValue)") }
+        let hiddenSpace = Set(residents.filter(\.inHiddenSpace).map(\.workspace))
+        for id in plan.due {
+            hibernateNow(id, cause: pressure != .normal ? "memory-pressure=\(pressure.rawValue)" : hiddenSpace.contains(id) ? "hidden-space" : "idle")
+        }
         lastShown = lastShown.filter { live.contains($0.key) || shown.contains($0.key) }
         if let next = plan.nextCheck {
             schedulePass(after: .milliseconds(Int64(max(next.timeIntervalSince(time), 1) * 1000)))

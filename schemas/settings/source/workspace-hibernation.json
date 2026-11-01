@@ -8,7 +8,7 @@
         "key": "settings.group.workspaceHibernation",
         "text": "Hibernation"
       },
-      "note": "Settings > General > Hibernation. WorkspaceHibernation (CmuxNextApp) reads both rows; a workspace's Keep Awake (its row's Options menu) wins.",
+      "note": "Settings > General > Hibernation. WorkspaceHibernation (CmuxNextApp) reads every row; a workspace's Keep Awake (its row's Options menu) wins.",
       "rows": [
         {
           "key": "workspaces.hibernation.enabled",
@@ -62,6 +62,37 @@
             "idle",
             "minutes",
             "timeout",
+            "memory"
+          ]
+        },
+        {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "name": "hiddenSpaceMinutes",
+          "note": "Minutes a workspace of a space no window shows waits instead (leo-workspace design/spaces.md, Hibernation and the perf plan); the shorter of this and idleMinutes applies. 15: picked from bench_workspace_hibernation.py (the PR names the run). Memory pressure shortens it the same way.",
+          "title": {
+            "key": "settings.workspaceHibernation.hiddenSpaceMinutes",
+            "text": "Hibernate Hidden Spaces After"
+          },
+          "help": {
+            "key": "settings.workspaceHibernation.hiddenSpaceMinutes.help",
+            "text": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+          },
+          "kind": "number",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "step": 5,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "hibernate",
+            "idle",
+            "minutes",
+            "hidden",
+            "space",
+            "spaces",
+            "window",
             "memory"
           ]
         }
