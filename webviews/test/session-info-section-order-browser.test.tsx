@@ -203,7 +203,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           return {
             inBody: handle.right <= body.right + 0.5,
             // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
-            clearOfScrollbar: scrollport - handle.right >= 3.5,
+            clearOfScrollbar: scrollport - handle.right >= 5.5,
             afterSection: handle.left >= section.right - 0.5,
             rightOfTitle: handle.left > title.right,
             titleAtTextColumn: Math.round(title.left - section.left),
