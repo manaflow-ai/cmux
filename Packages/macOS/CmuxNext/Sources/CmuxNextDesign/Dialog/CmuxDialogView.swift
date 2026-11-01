@@ -199,7 +199,8 @@ public final class CmuxDialogView: NSView {
         let row = Self.buttonRow(buttonViews, width: contentWidth)
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        focusables += buttonViews
+        // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
+        focusables += row.orientation == .vertical ? buttonViews.reversed() : buttonViews
         chainKeyViews()
 
         let content = NSView()
@@ -225,7 +226,6 @@ public final class CmuxDialogView: NSView {
 
     /// The buttons on one line, right-aligned, when they fit in `width`; else stacked, each `width` wide and the
     /// default on top, as NSAlert stacks buttons that do not fit (the quit choice's four buttons, a long locale).
-    /// Tab order follows the spec in both.
     private static func buttonRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
         let row = NSStackView()
         row.translatesAutoresizingMaskIntoConstraints = false

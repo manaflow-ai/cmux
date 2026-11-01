@@ -213,8 +213,14 @@ rpc_ok action.run '{"id":"selectWorkspaceByNumber","args":{"index":1}}' >/dev/nu
 snapshot post-terminal
 
 # 9. Variants (on the live app) ---------------------------------------------------
-# A second Cmd-Q while the first completes is ignored; the first already keeps.
+# A second Cmd-Q while the quit dialog shows answers its default (Keep). It is
+# sent once the dialog shows: before that the quit is still reading its facts.
 rpc_ok debug.quit '{"open":true}' >/dev/null
+for i in $(seq 1 15); do
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && break
+  alive "$APP_PID" || break
+  sleep 1
+done
 rpc_ok debug.quit '{"open":true}' >/dev/null || true
 check second-quit-keeps "$(cond wait_exit "$APP_PID" 15)" "app quit"
 check second-quit-daemon-alive "$(cond alive "$TUI_PID")" "daemon $TUI_PID"
