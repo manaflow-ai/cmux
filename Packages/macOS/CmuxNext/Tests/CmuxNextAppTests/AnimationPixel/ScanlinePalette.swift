@@ -42,6 +42,11 @@ struct ScanlinePalette {
         let description: String
     }
 
+    /// The learned color of `name`, if any.
+    func label(ofName name: String) -> UInt32? {
+        entries.first { $0.label == name }?.color
+    }
+
     func label(of pixel: UInt32) -> String? {
         entries.first { Self.matches($0.color, pixel) }?.label
     }

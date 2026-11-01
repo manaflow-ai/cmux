@@ -48,7 +48,7 @@ final class LayoutPixelFixture {
 
     init(layout: ScreenLayout, focused: PaneID, scale: Int, dark: Bool, animations: Bool = true,
          size: CGSize = CGSize(width: 1200, height: 700)) async throws {
-        display = try await VirtualDisplay120(points: CGSize(width: 1600, height: 1000), scale: scale)
+        display = try await VirtualDisplay120.shared(scale: scale)
         self.scale = CGFloat(scale)
         let design = DesignSettings.shared
         let saved = (design.animationsEnabled, design.animationSpeed, design.animationBounce, design.paneAnimations, Motion.reduceMotionOverride)

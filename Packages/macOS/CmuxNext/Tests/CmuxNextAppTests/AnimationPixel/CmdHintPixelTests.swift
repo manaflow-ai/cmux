@@ -53,7 +53,7 @@ struct CmdHintPixelTests {
         private let restore: () -> Void
 
         init(scale: Int, dark: Bool, animations: Bool) async throws {
-            display = try await VirtualDisplay120(points: CGSize(width: 1200, height: 800), scale: scale)
+            display = try await VirtualDisplay120.shared(scale: scale)
             let design = DesignSettings.shared
             let saved = (design.animationsEnabled, design.animationSpeed, Motion.reduceMotionOverride)
             let restore = {

@@ -67,7 +67,7 @@ struct WindowResizePixelTests {
         var palette = ScanlinePalette()
         for element in expected(width: window.frame.width) {
             let center = Int(((element.start + element.end) / 2).rounded(.down))
-            try palette.learn(element.label, rest.pixel(x: center, y: rowY))
+            try palette.learn(element.color, rest.pixel(x: center, y: rowY))
         }
         let sampler = PresentationSampler(window: window, views: fixture.sampledViews)
         let driver = WindowWidthDriver(window: window, widths: widths)
@@ -80,8 +80,11 @@ struct WindowResizePixelTests {
 
         var failures: [String] = [], shownWidths: [(time: Double, width: Double)] = []
         let allowed = Set(([Double(window.frame.width)] + widths + [1200]).map { Int(($0 * Double(scale)).rounded()) })
-        for (index, frame) in stream.captured.enumerated() where frame.time >= trigger - period {
-            let at = "frame \(index) (t=\(AnimationPixelRun.ms(frame.time - trigger)) ms)"
+        let captured = stream.captured
+        let grid = ScanlineJudge.onVsyncGrid(captured.map(\.time), link: sampler.samples.map(\.time), period: period)
+        failures += grid.invalid
+        for (index, (time, frame)) in zip(grid.times, captured).enumerated() where time >= trigger - period {
+            let at = "frame \(index) (t=\(AnimationPixelRun.ms(time - trigger)) ms)"
             // The window's extent on the row: its opaque pixels (the capture is transparent past a narrower window).
             guard let first = frame.row.firstIndex(where: { $0 >> 24 != 0 }), let last = frame.row.lastIndex(where: { $0 >> 24 != 0 }) else {
                 failures.append("\(at): the row shows no window pixel")
@@ -92,10 +95,10 @@ struct WindowResizePixelTests {
                 failures.append("\(at): the window shows \(extent) px wide, not a width the test set (\(fullWidth) px at rest): scaled or torn")
                 continue
             }
-            shownWidths.append((time: frame.time, width: Double(extent) / Double(scale)))
+            shownWidths.append((time: time, width: Double(extent) / Double(scale)))
             let runs = palette.runs(Array(frame.row[first...last]))
             let due = expected(width: Double(extent) / Double(scale))
-            let labels = due.map(\.label), bounds = due.dropLast().map { Int($0.end.rounded()) }
+            let labels = due.map(\.color), bounds = due.dropLast().map { Int($0.end.rounded()) }
             if runs.map(\.name) != labels {
                 failures.append("\(at): at \(extent) px the row reads \(runs), the layout at that width is "
                     + "\(due.map { "\($0.label)[\(Int($0.start.rounded()))..<\(Int($0.end.rounded()))]" }): content laid out for another width, a blend or a gap")

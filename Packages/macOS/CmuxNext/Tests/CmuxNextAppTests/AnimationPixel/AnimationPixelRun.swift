@@ -68,10 +68,10 @@ struct AnimationPixelRun {
         var palette = ScanlinePalette()
         for element in before {
             let center = Int(((element.start + element.end) / 2).rounded(.down))
-            try palette.learn(element.label, axis == .row ? rest.pixel(x: center, y: rowY) : rest.pixel(x: columnX, y: center))
+            try palette.learn(element.color, axis == .row ? rest.pixel(x: center, y: rowY) : rest.pixel(x: columnX, y: center))
         }
         let restRuns = palette.runs(line(rest))
-        guard restRuns.map(\.name) == before.map(\.label), Array(restRuns.dropLast().map(\.end)) == before.dropLast().map({ Int($0.end.rounded()) }) else {
+        guard restRuns.map(\.name) == before.map(\.color), Array(restRuns.dropLast().map(\.end)) == before.dropLast().map({ Int($0.end.rounded()) }) else {
             await stream.stop()
             throw Failure(description: "\(name): the window at rest reads \(restRuns), the layout says "
                 + "\(before.map { "\($0.label)[\($0.start)..<\($0.end)]" })")
@@ -92,11 +92,21 @@ struct AnimationPixelRun {
             failures.append("captured frames are not the window's \(width)x\(height) device pixels unscaled: \(shapes)")
         }
         let structural = before.map(\.label) != after.map(\.label)
+        // A pane the change added: its color from the last frame, at the middle of its final place.
+        if structural, let last = stream.lastImage {
+            for span in after where palette.label(ofName: span.color) == nil {
+                let center = Int(((span.start + span.end) / 2).rounded(.down))
+                try palette.learn(span.color, axis == .row ? last.pixel(x: center, y: rowY) : last.pixel(x: columnX, y: center))
+            }
+        }
         let tracked = Self.track(before: before, after: after)
         let oracle = try makeOracle(tracked)
         var judge = ScanlineJudge(oracle: oracle, elements: tracked, trigger: trigger, period: fixture.display.refreshPeriod)
-        if structural { judge.previous = (labels: before.map(\.label), boundaries: before.dropLast().map { Int($0.end.rounded()) }) }
-        let frames = stream.captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }
+        if structural { judge.previous = (labels: before.map(\.color), boundaries: before.dropLast().map { Int($0.end.rounded()) }) }
+        let captured = stream.captured
+        let grid = ScanlineJudge.onVsyncGrid(captured.map(\.time), link: sampler.samples.map(\.time), period: fixture.display.refreshPeriod)
+        failures += grid.invalid
+        let frames = zip(grid.times, captured).map { (time: $0, line: axis == .row ? $1.row : $1.column) }
         let verdict = judge.judge(frames, palette: palette, moves: moves)
         failures += verdict.failures
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
@@ -108,7 +118,8 @@ struct AnimationPixelRun {
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), refresh "
             + "\(String(format: "%.2f", fixture.display.refreshPeriod * 1000)) ms, \(frames.count) complete and \(stream.idleFrames) idle "
-            + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), \(failures.count) failures")
+            + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), capture times put on the display link's "
+            + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms), \(failures.count) failures")
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures

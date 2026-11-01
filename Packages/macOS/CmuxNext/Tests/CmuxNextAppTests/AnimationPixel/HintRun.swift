@@ -50,7 +50,9 @@ struct HintRun {
         let on = try golden("on", captured: Self.image(shown), failures: &failures)
         guard let off, let on else { return failures }
         let period = fixture.display.refreshPeriod
-        let readings = frames.map { read($0.image, time: $0.time, off: off, on: on) }
+        let grid = ScanlineJudge.onVsyncGrid(frames.map(\.time), link: [], period: period)
+        failures += grid.invalid
+        let readings = zip(grid.times, frames).map { read($1.image, time: $0, off: off, on: on) }
         for reading in readings where reading.misses > 0 {
             failures.append("t=\(AnimationPixelRun.ms(reading.time - down)) ms: \(reading.misses) pixels are up to \(reading.worst)/255 from the "
                 + "golden blend at opacity \(String(format: "%.3f", reading.opacity)) (tolerance \(CmdHintPixelTests.tolerance)/255)")

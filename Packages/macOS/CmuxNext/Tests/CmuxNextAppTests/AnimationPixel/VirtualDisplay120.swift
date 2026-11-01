@@ -18,6 +18,18 @@ final class VirtualDisplay120 {
 
     static let hz: Double = 120
 
+    /// One display per scale for the whole test process: displays made and dropped per test
+    /// case stopped reaching AppKit's screen list after the first (green 38dc511f, 2026-11-01).
+    private static var made: [Int: VirtualDisplay120] = [:]
+
+    /// The process's `scale`x display, made on first use and kept until the process exits.
+    static func shared(scale: Int) async throws -> VirtualDisplay120 {
+        if let display = made[scale] { return display }
+        let display = try await VirtualDisplay120(points: CGSize(width: 1600, height: 1000), scale: scale)
+        made[scale] = display
+        return display
+    }
+
     let displayID: CGDirectDisplayID
     let screen: NSScreen
     let scale: CGFloat
@@ -26,7 +38,7 @@ final class VirtualDisplay120 {
     /// The display exists while this reference does.
     private let display: AnyObject
 
-    init(points: CGSize, scale: Int) async throws {
+    private init(points: CGSize, scale: Int) async throws {
         guard let descriptorType = NSClassFromString("CGVirtualDisplayDescriptor") as? NSObject.Type,
               let settingsType = NSClassFromString("CGVirtualDisplaySettings") as? NSObject.Type,
               let modeType = NSClassFromString("CGVirtualDisplayMode"),
@@ -67,7 +79,12 @@ final class VirtualDisplay120 {
             if let listed, listed.backingScaleFactor == CGFloat(scale) { break }
             try await Task.sleep(for: .milliseconds(50))
         }
-        guard let listed else { throw Failure(description: "AppKit did not list virtual display \(id) within 5 s") }
+        guard let listed else {
+            var online = [CGDirectDisplayID](repeating: 0, count: 16), count: UInt32 = 0
+            CGGetOnlineDisplayList(16, &online, &count)
+            let screens = NSScreen.screens.compactMap(Self.number(of:))
+            throw Failure(description: "AppKit did not list virtual display \(id) within 5 s (CoreGraphics online: \(online.prefix(Int(count))), AppKit screens: \(screens))")
+        }
         guard listed.backingScaleFactor == CGFloat(scale) else {
             throw Failure(description: "virtual display \(id) is \(listed.backingScaleFactor)x, not \(scale)x")
         }
