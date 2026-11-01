@@ -91,7 +91,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
-    func setAnswersFileChooser(_ on: Bool) { tab.pageFilesChosen = on ? { [weak self] (urls: [URL]) in self?.onEvent?(.filesChosen(urls)) } : nil }
+    func setAnswersFileChooser(_ on: Bool) { if on { tab.pageFilesChosen = { [weak self] urls in self?.onEvent?(.filesChosen(urls)) } } else { tab.pageFilesChosen = nil } }
 
     func close() {
         guard !closed else { return }
