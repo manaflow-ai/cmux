@@ -106,7 +106,7 @@ enum RemoteStrings {
         case .offline:
             return String(localized: "remote.status.offline", defaultValue: "Disconnected. Choose Reconnect Machine to connect.", table: "Remote", bundle: .module)
         case .connecting, .connected:
-            if let failure = session.daemonFailure { return daemonFailed(failure.error) }
+            if let failure = session.daemonFailure { return plainFailure(failure.error, machine: session.host.label) }
             return session.lastError
         case .reconnecting:
             return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
@@ -121,7 +121,15 @@ enum RemoteStrings {
         case .installing:
             return String(localized: "remote.status.installing", defaultValue: "Installing cmux-tui…", table: "Remote", bundle: .module)
         case .installFailed(let message), .failed(let message):
-            return message
+            return plainFailure(message, machine: session.host.label)
+        }
+    }
+
+    static func plainFailure(_ raw: String, machine: String) -> String {
+        switch RemoteFailureCause(raw) {
+        case .sessionInUse: String(format: String(localized: "remote.failure.sessionInUse", defaultValue: "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry.", table: "Remote", bundle: .module), machine)
+        case let .cause(cause): String(format: String(localized: "remote.failure.cause", defaultValue: "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine, cause)
+        case .unknown: String(format: String(localized: "remote.failure.unknown", defaultValue: "cmux on %@ stopped. Choose Copy Error for the details.", table: "Remote", bundle: .module), machine)
         }
     }
 
@@ -137,14 +145,6 @@ enum RemoteStrings {
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
-    }
-
-    /// The header detail of a machine whose cmux-tui did not start; `error`
-    /// is the daemon's error and the link's output.
-    static func daemonFailed(_ error: String) -> String {
-        String(format: String(localized: "remote.status.daemonFailed",
-                              defaultValue: "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text.",
-                              table: "Remote", bundle: .module), error)
     }
 
     /// The one-time notice of a browser tab opened in another machine's
