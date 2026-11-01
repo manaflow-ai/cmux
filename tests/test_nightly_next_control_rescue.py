@@ -27,6 +27,15 @@ class ControlRescueTests(unittest.TestCase):
                                                sleep=lambda _: None, clock=lambda: 0.0), "started")
         api.cancel.assert_not_called()
 
+    def test_queued_runner_id_zero_is_not_execution_proof(self):
+        self.assertFalse(rescue.control_started([
+            {"name": "request", "status": "queued", "runner_id": 0, "runner_name": None},
+        ]))
+        self.assertTrue(rescue.control_started([
+            {"name": "request", "status": "completed", "conclusion": "success", "runner_id": 0,
+             "started_at": "2026-11-01T00:00:00Z"},
+        ]))
+
     def test_unstarted_control_is_cancelled_and_retried_after_settlement(self):
         api = mock.Mock()
         api.jobs.return_value = []

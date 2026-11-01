@@ -47,7 +47,14 @@ def control_started(jobs: Sequence[Mapping[str, Any]]) -> bool:
         name = str(job.get("name") or "").split("(", 1)[0].strip()
         if name not in CONTROL_JOBS:
             continue
-        if job.get("started_at") or job.get("runner_name") or job.get("status") == "in_progress":
+        # GitHub reports queued jobs with runner_id 0. A runner assignment or
+        # started_at timestamp is the execution proof; queued/pending jobs are
+        # still eligible for the bounded no-start rescue even when visible.
+        if job.get("started_at") or job.get("status") == "in_progress":
+            return True
+        if job.get("status") == "completed" and job.get("conclusion") not in (None, "skipped"):
+            return True
+        if job.get("runner_id") not in (None, 0) or job.get("runner_name"):
             return True
     return False
 
