@@ -885,3 +885,46 @@ fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
     let sends = h.owner.lock().unwrap().sends();
     assert!(sends.iter().any(|(_, text)| text == "done"), "{sends:?}");
 }
+
+/// The owner's message as another agent sent it through `cmux chief -p`
+/// or `cmux chief acp` (`cmux_conversation::agent_sender`): posted as
+/// `user_local`, its `client_msg_id` names the acpmux session that wrote it.
+fn deliver_from_agent(h: &mut Harness, sender: &str, text: &str) {
+    let agent = cmux_conversation::agent_sender::AgentSender::new(sender, Some("question"), Some("t1"))
+        .unwrap();
+    let m: Message = {
+        let mut owner = h.owner.lock().unwrap();
+        let seq = owner.messages.len() as u64 + 1;
+        let mut m = message(seq, "user_local", &agent.labelled(text));
+        m.client_msg_id = agent.client_msg_id("n1");
+        owner.messages.push(m.clone());
+        m
+    };
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Message { message: m },
+    }));
+}
+
+#[test]
+fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor() {
+    // Gap 1 (chief-acpmux-gaps.md): a lane's `cmux chief -p` posts as the
+    // owner, so it ran under the owner's approve-all and read as the owner.
+    let mut h = harness(None, false, started());
+    h.agents.hold(true);
+    deliver_from_agent(&mut h, "lane-a", "clean the build directory");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    assert_eq!(policy(&h, 0), "ask");
+    assert_eq!(h.brain.spawn_policy(), Some("ask"));
+    let prompt = format!("{:?}", h.agents.inner.lock().unwrap().prompts[0]);
+    assert!(prompt.contains("[from lane-a] clean the build directory"), "{prompt}");
+    assert!(prompt.contains("acpmux session lane-a"), "{prompt}");
+    assert!(prompt.contains("not the user's word"), "{prompt}");
+    h.brain.step(permission("q1", "Bash", json!({"command": "rm -rf target"})));
+    assert_eq!(answered(&h, "q1"), Some(Some("reject".into())));
+    assert_eq!(questions(&h), 0, "no approval card");
+    finish(&mut h);
+}
+
