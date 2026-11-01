@@ -565,6 +565,20 @@ class OmnibarDrawn(unittest.TestCase):
         self.assertIn("no field frame", detail["error"])
 
 
+class FailingStep(unittest.TestCase):
+    def test_a_failed_finally_step_is_never_the_rounds_failing_step(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / mod.JOURNEY
+            d.mkdir()
+            steps = [{"do": "expect", "ok": True}, {"do": "rpc", "ok": False, "error": "x", "finally": True}]
+            (d / "result.json").write_text(json.dumps({"steps": steps}))
+            self.assertIsNone(mod.failing_step(Path(tmp)))
+            steps.insert(1, {"do": "expect", "ok": False, "error": "real", "title": "t"})
+            (d / "result.json").write_text(json.dumps({"steps": steps}))
+            self.assertEqual(mod.failing_step(Path(tmp))["error"], "real")
+
+
 class OpenP0(unittest.TestCase):
     """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
 

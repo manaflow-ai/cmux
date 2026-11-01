@@ -185,7 +185,8 @@ def failing_step(out):
         return None
     result = json.loads(path.read_text())
     for step in result.get("steps", []):
-        if step.get("ok") is False:
+        # `finally` steps (app_log, debug.focus, close all) only record or clean up: never the round's failing step.
+        if step.get("ok") is False and not step.get("finally"):
             return {"do": step.get("do"), "title": step.get("title"), "error": (step.get("error") or "")[:400]}
     return None
 
