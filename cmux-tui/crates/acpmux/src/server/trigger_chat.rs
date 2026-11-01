@@ -325,7 +325,12 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
     if prior.get("error").is_some() {
         return Err(RpcError::new(-32001, "trigger delivery journal is unavailable"));
     }
-    if prior.get("promptHash").and_then(Value::as_str).is_some_and(|hash| hash != scope.prompt_hash)
+    // A prompt id may have been consumed by a human or harness. If the durable
+    // journal already knows this id, require a complete matching trigger receipt
+    // before allowing a resend; a missing digest fails closed.
+    if hub.knows_prompt(&session, &scope.delivery, true)
+        && (prior.get("promptHash").and_then(Value::as_str) != Some(scope.prompt_hash.as_str())
+            || prior.get("turnId").and_then(Value::as_str).is_none())
     {
         return Err(RpcError::new(-32001, "trigger delivery prompt does not match prior delivery"));
     }
@@ -365,15 +370,12 @@ async fn send(hub: &Arc<Hub>, scope: &TriggerScope, body: String) -> Result<Valu
             )
             .await;
     });
-    let receipt = tokio::time::timeout(std::time::Duration::from_secs(4), accepted_rx)
+    let _accepted = tokio::time::timeout(std::time::Duration::from_secs(4), accepted_rx)
         .await
-        .ok()
-        .and_then(Result::ok)
-        .unwrap_or_else(|| hub.trigger_delivery(&session, &delivery));
-    if receipt.get("turnId").and_then(Value::as_str).is_none() {
-        return Err(RpcError::new(-32001, "trigger delivery was not durably accepted"));
-    }
-    Ok(receipt)
+        .ok();
+    // Always reconstruct from the strict journal. This recovers duplicate callbacks
+    // whose accepted receipt is null and rejects a callback from another prompt id.
+    validate_durable_receipt(&hub.trigger_delivery(&session, &delivery), scope)
 }
 
 fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
@@ -383,6 +385,22 @@ fn status(hub: &Hub, scope: &TriggerScope) -> Result<Value, RpcError> {
     out["workspace"] = Value::String(scope.workspace.clone());
     out["session"] = Value::String(session.id.clone());
     Ok(out)
+}
+
+/// Accept only the durable receipt reconstructed from the journal. The callback from
+/// `prompt_with` is an admission hint and may be a stale or unrelated prompt receipt.
+fn validate_durable_receipt(receipt: &Value, scope: &TriggerScope) -> Result<Value, RpcError> {
+    if receipt.get("error").is_some() {
+        return Err(RpcError::new(-32001, "trigger delivery journal is unavailable"));
+    }
+    let turn_id = receipt.get("turnId").and_then(Value::as_str).filter(|id| !id.is_empty());
+    if turn_id.is_none() {
+        return Err(RpcError::new(-32001, "trigger delivery was not durably accepted"));
+    }
+    if receipt.get("promptHash").and_then(Value::as_str) != Some(scope.prompt_hash.as_str()) {
+        return Err(RpcError::new(-32001, "trigger delivery prompt does not match authorization"));
+    }
+    Ok(receipt.clone())
 }
 
 pub(super) async fn handle(

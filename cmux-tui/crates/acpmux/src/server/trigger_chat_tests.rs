@@ -5,8 +5,11 @@
 //! protocol model.
 
 use super::*;
+use crate::config::{Config, StoreMode};
 use cmux_host::identity::HostIdentity;
 use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
 
 fn identity() -> HostIdentity {
     HostIdentity {
@@ -129,3 +132,60 @@ fn prompt_allows_newlines_but_rejects_nul_and_other_controls() {
     assert!(prompt(&json!({"body": "escape\u{1b}"}), "body").is_err());
 }
 
+#[test]
+fn durable_receipt_requires_exact_turn_and_prompt_digest() {
+    let scope = scope();
+    let receipt = json!({
+        "delivery": scope.delivery,
+        "state": "queued",
+        "turnId": "turn-1",
+        "promptHash": scope.prompt_hash,
+    });
+    assert_eq!(validate_durable_receipt(&receipt, &scope).unwrap(), receipt);
+
+    for invalid in [
+        json!({"delivery": "delivery-1", "turnId": "turn-1"}),
+        json!({"delivery": "delivery-1", "turnId": "turn-1", "promptHash": "b".repeat(64)}),
+        json!({"delivery": "delivery-1", "promptHash": "a".repeat(64)}),
+        json!({"error": "journal unavailable"}),
+    ] {
+        assert!(validate_durable_receipt(&invalid, &scope).is_err(), "accepted {invalid}");
+    }
+}
+
+fn hub_with_session() -> Arc<Hub> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("memory store");
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA,
+        "id": "session-1",
+        "name": "trigger-session",
+        "harness": "fake",
+        "cwd": "/workspace",
+        "workspaceId": "workspace-1",
+        "status": "idle",
+        "createdAt": 1,
+        "updatedAt": 1,
+    }))
+    .expect("session metadata");
+    store.save(&meta).expect("save session metadata");
+    let hub = Hub::new(config, store);
+    hub.make_session(meta);
+    Arc::new(hub)
+}
+
+#[tokio::test]
+async fn ensure_builds_the_flat_machine_workspace_session_delivery_receipt() {
+    let hub = hub_with_session();
+    let mut scoped = scope();
+    scoped.session = "session-1".into();
+    let receipt = ensure(&hub, &scoped).await.expect("ensure existing chat");
+    assert_eq!(receipt["ok"], true);
+    assert_eq!(receipt["state"], "started");
+    assert_eq!(receipt["machine"], scoped.machine);
+    assert_eq!(receipt["workspace"], scoped.workspace);
+    assert_eq!(receipt["session"], scoped.session);
+    assert_eq!(receipt["delivery"], scoped.delivery);
+    assert!(receipt.get("turn").is_none());
+}
