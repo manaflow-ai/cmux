@@ -826,6 +826,39 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 mod tests {
     use super::*;
 
+    /// An explicit peer removal must release *every* upload waiting for the
+    /// reconnect. The old waiter listened only to completed connection attempts,
+    /// so an idle/stopped peer kept these calls for 30 seconds.
+    #[tokio::test]
+    async fn removed_peer_wakes_all_waiting_uploads_without_a_connect_attempt() {
+        let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+        let peer = crate::peer::Peer::new(
+            "gone",
+            "ws://127.0.0.1:9",
+            None,
+            None,
+            notices,
+        );
+        let mut pending = Vec::new();
+        for _ in 0..2 {
+            let peer = peer.clone();
+            pending.push(tokio::spawn(async move {
+                await_upload_link(&peer, std::time::Duration::from_secs(30)).await
+            }));
+        }
+        // Peer::run is deliberately absent: removal itself, not a later
+        // connection outcome, must wake each waiter.
+        tokio::task::yield_now().await;
+        peer.stop();
+        for task in pending {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .expect("a stopped peer left its upload waiting for the 30 s timeout")
+                .unwrap();
+            assert!(!result, "stopped peer was reported ready");
+        }
+    }
+
     /// A refused answer for a peer's prompt names that peer, so the app can say where to
     /// enroll this Mac; a peer the answer named itself is replaced by this daemon's name.
     #[test]
