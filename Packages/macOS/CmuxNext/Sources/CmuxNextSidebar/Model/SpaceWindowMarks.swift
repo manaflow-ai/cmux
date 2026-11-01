@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 
 /// Another open window that shows a space (`SpaceSwitcherLogic.shownElsewhere`).
 public nonisolated struct SpaceElsewhere: Hashable, Sendable {
