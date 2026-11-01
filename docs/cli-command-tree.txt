@@ -459,6 +459,8 @@ command  clear-status  aliases=-
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
   arg  key  kind=argument  completion=-
+command  clear_git_branch  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  close-surface  aliases=-
   arg  --force  kind=flag  completion=-
   arg  --panel  kind=option  completion=custom
