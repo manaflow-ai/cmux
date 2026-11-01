@@ -486,7 +486,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
         if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
-        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        if let keyRouter, let focus,
+           keyRouter.routeContentKeyEquivalent(event, focus: focus.state, facts: keyRouter.facts(in: self, controller: self)) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
