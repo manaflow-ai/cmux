@@ -2,7 +2,8 @@
 //! chat only when that peer holds it: an older build ignores `approval` and would run it
 //! unapproved. To a peer that does not list `queueApproval` the prompt, and the owner's approve
 //! and decline, are refused `queue.approval_unsupported` and nothing is forwarded; to one that
-//! lists it the prompt goes with its approval (review of #26747).
+//! lists it the prompt goes with its approval (review of #26747). `_acpmux/queue_get` goes only to
+//! a peer that lists `queueGet`.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -94,7 +95,12 @@ fn prompt(id: &str, approval: Option<&str>) -> Value {
 
 /// The prompts and queue answers a fake peer got (it also gets the attach a prompt makes).
 fn prompts(got: &Mutex<Vec<(String, Value)>>) -> Vec<Value> {
-    let asks = [method::SESSION_PROMPT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE];
+    let asks = [
+        method::SESSION_PROMPT,
+        method::MUX_QUEUE_APPROVE,
+        method::MUX_QUEUE_DECLINE,
+        method::MUX_QUEUE_GET,
+    ];
     let got = got.lock().unwrap();
     got.iter().filter(|(m, _)| asks.contains(&m.as_str())).map(|(_, p)| p.clone()).collect()
 }
@@ -113,7 +119,7 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
     let refused = call(&old, method::SESSION_PROMPT, prompt("g-1", Some("owner"))).await;
     assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
-    for m in [method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE] {
+    for m in [method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_GET] {
         let answer = json!({"sessionId": "far-1", "promptId": "g-1", "revision": 0});
         let refused = call(&old, m, answer).await;
         assert_eq!(reason(&refused), "queue.approval_unsupported", "{m}: {refused}");
@@ -135,4 +141,52 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
     assert_eq!(got.len(), 1, "{:?}", new_got.lock().unwrap());
     let author = &got[0]["_meta"]["acpmux"]["author"];
     assert_eq!(author["approval"], "owner", "it lost its hold on the way: {author}");
+    // `_acpmux/queue_get` needs its own feature (`queueGet`), which this peer does not list.
+    let get = json!({"sessionId": "far-1", "promptId": "g-2"});
+    let refused = call(&new, method::MUX_QUEUE_GET, get.clone()).await;
+    assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
+    assert_eq!(prompts(&new_got).len(), 1);
+
+    let (get_port, get_got) = fake_peer(json!(["queueApproval", "queueGet"])).await;
+    let reads = hub();
+    reads
+        .add_peer("reads", &format!("ws://127.0.0.1:{get_port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let read = call(&reads, method::MUX_QUEUE_GET, get).await;
+    assert!(read.get("error").is_none(), "{read}");
+    assert_eq!(prompts(&get_got).len(), 1, "{:?}", get_got.lock().unwrap());
+}
+
+/// A link guest's prompt waits for the owner with `approval` left off (`author.rs`, hq#5528): it
+/// goes only to a peer that holds it, and names its hold there, so a peer that reads only
+/// `approval` holds it too.
+#[tokio::test]
+async fn an_unmarked_guest_prompt_goes_held_and_only_to_a_peer_that_holds_it() {
+    let unmarked = |id: &str| {
+        let mut p = prompt(id, None);
+        p["_meta"]["acpmux"]["author"] = json!({"id": "guest:share.guest", "name": "Theo"});
+        p
+    };
+    let (old_port, old_got) = fake_peer(json!(["trustGate", "filePut"])).await;
+    let old = hub();
+    old.add_peer("old", &format!("ws://127.0.0.1:{old_port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let refused = call(&old, method::SESSION_PROMPT, unmarked("g-1")).await;
+    assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
+    assert!(prompts(&old_got).is_empty(), "forwarded: {:?}", old_got.lock().unwrap());
+
+    let (new_port, new_got) = fake_peer(json!(["trustGate", "queueApproval"])).await;
+    let new = hub();
+    new.add_peer("new", &format!("ws://127.0.0.1:{new_port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let sent = call(&new, method::SESSION_PROMPT, unmarked("g-2")).await;
+    assert!(sent.get("error").is_none(), "{sent}");
+    let got = prompts(&new_got);
+    assert_eq!(got.len(), 1, "{:?}", new_got.lock().unwrap());
+    let author = &got[0]["_meta"]["acpmux"]["author"];
+    assert_eq!(author["approval"], "owner", "it went without its hold: {author}");
+    assert_eq!(author["id"], "guest:share.guest", "{author}");
 }

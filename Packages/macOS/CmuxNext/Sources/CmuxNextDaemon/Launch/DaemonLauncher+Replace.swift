@@ -83,11 +83,13 @@ extension DaemonLauncher {
 
     /// True for a plain ensure failure a stuck owner causes: the restore bound
     /// passed (`server.restore_timeout`), the ensure itself got no answer in
-    /// time, or no owner became ready (`server.unavailable`).
+    /// time, no owner became ready (`server.unavailable`), or the owner refused
+    /// every connection at its connection limit (`server.busy`, issue 22311).
     static func isStuckOwnerFailure(_ error: any Error) -> Bool {
         switch error as? DaemonError {
         case .sessionRestoreTimedOut?, .timedOut?: true
-        case .launchFailed(let detail)?: detail.contains("\"server.unavailable\"")
+        case .launchFailed(let detail)?:
+            detail.contains("\"server.unavailable\"") || detail.contains("\"server.busy\"")
         default: false
         }
     }
