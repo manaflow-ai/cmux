@@ -26,7 +26,7 @@
     },
     "composer": {
       "spec": "leo-workspace design/composer.md",
-      "aliases": ["composer", "prompt box", "bottom stack", "PR dock", "N PRs"],
+      "aliases": ["composer", "prompt box", "bottom stack"],
       "paths": [
         "webviews/src/agent-session/acpmux/Composer.tsx",
         "webviews/src/agent-session/acpmux/ComposerBox.tsx",
@@ -42,9 +42,7 @@
         "webviews/src/agent-session/acpmux/HostError.tsx",
         "webviews/src/agent-session/acpmux/hostLine.ts",
         "webviews/src/agent-session/acpmux/hostRetry.ts",
-        "webviews/src/agent-session/acpmux/bottomStack.css",
-        "webviews/src/agent-session/acpmux/summary/PullRequestStack.tsx",
-        "webviews/src/agent-session/acpmux/summary/PullRequestDockLegacy.tsx"
+        "webviews/src/agent-session/acpmux/bottomStack.css"
       ]
     },
     "running-tray": {

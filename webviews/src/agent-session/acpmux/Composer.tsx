@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PullRequestCountSlot } from "./summary/PullRequestStack";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
@@ -2423,8 +2422,6 @@ export function Composer({
         chips={
           <PromptFocus value={focusPrompt}>
             <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            {/* The chat's "N PRs" count beside the mode, in a row already there (summary/PullRequestStack.tsx). */}
-            <PullRequestCountSlot />
           </PromptFocus>
         }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
