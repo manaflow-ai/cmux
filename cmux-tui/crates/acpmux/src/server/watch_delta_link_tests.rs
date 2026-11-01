@@ -107,7 +107,7 @@ fn ids(rows: &[serde_json::Value]) -> Vec<String> {
     ids
 }
 
-/// A daemon whose list needed pages of rows (too large with tools and without) is asked for a
+/// A daemon whose list needed pages of rows (too large to send whole) is asked for a
 /// delta when the link comes back, as its list was read (without tools), and not for the
 /// pages again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -180,13 +180,13 @@ async fn a_link_that_read_row_pages_asks_a_delta_when_it_links_again() {
     let peer = Peer::new("big", &format!("ws://{address}"), Some(TOKEN.into()), None, tx);
     let link = tokio::spawn(peer.clone().run());
     assert_eq!(once(&linked(&mut notices).await), 50);
-    // The first link: with tools, without, then pages of rows.
+    // The first link: the list without tools, then pages of rows.
     let mut first = Vec::new();
     while let Ok(params) = asked.try_recv() {
         first.push(params);
     }
-    assert_eq!(first.len(), 3, "{first:?}");
-    assert!(first[2].get("limit").is_some(), "{first:?}");
+    assert_eq!(first.len(), 2, "{first:?}");
+    assert!(first[1].get("limit").is_some(), "{first:?}");
 
     close_tx.send(()).unwrap();
     assert_eq!(once(&linked(&mut notices).await), 50, "the whole list again");

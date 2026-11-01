@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -59,6 +60,40 @@ def idle(count: int, label: str = SIDE) -> list[dict]:
 
 
 class Decide(unittest.TestCase):
+    def test_linux_signer_binary_is_never_built_on_a_mini(self):
+        config = env(JOBS="control signer-build", LINUX_ONLY="signer-build", NIGHTLY="1")
+        result = placement.decide(config, idle(5), snapshot(), NOW)
+        self.assertEqual(result.mini_jobs, ("control",))
+        result = placement.decide({**config, "FLEET_LINUX": "cmux-fleet-linux-x64"}, idle(5), snapshot(), NOW)
+        self.assertEqual(result.linux_jobs, ("control", "signer-build"))
+        self.assertEqual(result.mini_jobs, ())
+
+    def test_nightly_waits_for_fleet_capacity_then_uses_the_latest_read(self):
+        config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", side_effect=[([], fresh), (idle(1), fresh)]), \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 0]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer"):
+            self.assertEqual(placement.main(config), 0)
+        sleep.assert_called_once_with(30)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+
+    def test_nightly_overflow_wait_is_bounded_to_three_minutes(self):
+        config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", return_value=([], fresh)) as read, \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30, 60, 90, 120, 150, 180]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer") as timer:
+            self.assertEqual(placement.main(config), 0)
+        self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 180)
+        self.assertEqual(read.call_count, 7)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ())
+        self.assertEqual(timer.call_args.args, (placement.signal.ITIMER_REAL, 0))
+
     def test_idle_minis_take_the_jobs_in_order_when_there_is_no_fleet_linux(self):
         placed = placement.decide(env(), idle(2), snapshot(), NOW)
         self.assertEqual(placed.mini_runner, SIDE)
@@ -173,6 +208,29 @@ def jobs(name: str) -> dict:
 
 
 class Wiring(unittest.TestCase):
+    def test_early_nightly_controls_try_fleet_before_blacksmith_without_signing_secrets(self):
+        nightly = jobs("nightly.yml")
+        step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
+        self.assertEqual(step["env"]["NIGHTLY_WAIT_FOR_FLEET"], "1")
+        self.assertEqual(step["env"]["LINUX_ONLY"], "signer-build")
+        for name in step["env"]["JOBS"].split():
+            with self.subTest(job=name):
+                job = nightly[name]
+                route = job["runs-on"]
+                self.assertIn("decide", job["needs"])
+                self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
+                linux = route.index("needs.decide.outputs.early_linux_runner")
+                overflow = route.index("'blacksmith-")
+                self.assertLess(linux, overflow)
+                if name == "signer-build":
+                    self.assertNotIn("early_mini_runner", route)
+                else:
+                    mini = route.index("needs.decide.outputs.early_mini_runner")
+                    self.assertLess(linux, mini)
+                    self.assertLess(mini, overflow)
+                self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
+                self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
+
     PLACED = {"cmux-next.yml": ["checks"], "cmux-next-guards.yml": ["ci-guard-group", "tooling-tests"]}
 
     def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):

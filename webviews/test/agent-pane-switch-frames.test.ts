@@ -288,7 +288,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     });
     await page.goto(url(undefined, true));
     await page.waitForSelector(".acpmux-newtab, .nt-location");
-    await page.locator("textarea.nt-field, input.acpmux-newtab-field").first().fill("Docs");
+    await page.locator('.nt-field [contenteditable="true"], input.acpmux-newtab-field').first().fill("Docs");
     await page.getByText("Docs pass", { exact: true }).waitFor();
     await page.evaluate(() => {
       const frames: { at: number; newTab: boolean; empty: boolean; transcript: boolean }[] = [];
@@ -352,7 +352,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     });
     await page.goto(url(undefined, true));
     await page.waitForSelector(".acpmux-newtab, .nt-location");
-    await page.locator("textarea.nt-field, input.acpmux-newtab-field").first().fill("Docs");
+    await page.locator('.nt-field [contenteditable="true"], input.acpmux-newtab-field').first().fill("Docs");
     await page.getByText("Docs pass", { exact: true }).waitFor();
     await page.evaluate(() => {
       const frames: { at: number; newTab: boolean; empty: boolean; transcript: boolean }[] = [];

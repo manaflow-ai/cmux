@@ -1,4 +1,4 @@
-// The right-hand card (the Summary card, SummaryCard.tsx, and Session Info, inspector/ChatInspector.tsx)
+// The right-hand card (the Summary card, SummaryCard.tsx, and Session Info, session-info/SessionInfo.tsx)
 // holds still while the reader scrolls the chat (Leo, 2026-10-25: "session summary on top right
 // flickers when im scrolling thru the chat"). The card is read from the chat's loaded rows, and
 // scrolling up through a long chat pages older history in (direct.ts `loadOlder`): each page that

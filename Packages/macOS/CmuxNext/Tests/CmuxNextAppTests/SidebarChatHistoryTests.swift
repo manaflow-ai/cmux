@@ -16,7 +16,10 @@ import Testing
 
     /// `count` chats, newest first (`c0` newest).
     private static func chats(_ count: Int) -> [SidebarHistoryChat] {
-        (0..<count).map { SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60)) }
+        (0..<count).map {
+            SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60),
+                               harness: $0.isMultiple(of: 2) ? "codex" : "claude-code")
+        }
     }
 
     private static func make(_ index: [SidebarHistoryChat], live: Set<String> = [], pinned: [String] = [], limit: Int = 3,
@@ -250,5 +253,24 @@ import Testing
         let state = SidebarChatHistoryFeed.state(earlier: rows, pinned: [], inputs: inputs)
         #expect(state.earlier.map(\.id) == ["codex:2", "claude-code:4"])
         #expect(state.earlier.map(\.title) == ["cmux", "claude-code"])
+        #expect(state.earlier.map(\.harness) == ["codex", "claude-code"])
+    }
+
+    @Test func historyRowsCarryHarnessMarksAndStableFallbackColoursAcrossReuse() throws {
+        let view = SidebarChatHistoryView(part: .earlier)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+        let codex = SidebarHistoryChat(id: "codex:1", title: "same title", updatedAt: Self.start, harness: "codex")
+        let unknown = SidebarHistoryChat(id: "acme:1", title: "same title", updatedAt: Self.start, harness: "acme-agent")
+        view.show(SidebarChatHistoryState(earlier: [codex]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        let row = try #require(view.rows.first)
+        #expect(row.harness == "codex")
+        #expect(row.harnessMarkColor == nil)
+        #expect(row.titleText == "same title")
+        view.show(SidebarChatHistoryState(earlier: [unknown]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        #expect(row.harness == "acme-agent")
+        #expect(row.harnessMarkColor == GroupColor.unset(id: "acme-agent"))
+        #expect(row.harnessMarkColor != nil)
     }
 }

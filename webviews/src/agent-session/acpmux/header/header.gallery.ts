@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
 // The pane header: the chat's plain title, tools and connection failures only.
-// Where a started chat runs is the Inspector's Environment; the header never repeats it.
+// Where a started chat runs is Session Info's Environment; the header never repeats it.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -35,15 +35,15 @@ const sessionInfo =
     const { setTabRow } = await import("./tabRow");
     const { setHeaderState } = await import("./headerState");
     const { setChatDisplay } = await import("../chatDisplay");
-    const { setInspectorOpen } = await import("../inspector/inspectorState");
+    const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
     setTabRow({ height: 28, trailingInset: 0 });
     setHeaderState({ inspector: true });
     setChatDisplay({ "agentPane.display.inspector.placement": placement });
-    setInspectorOpen(open);
+    setSessionInfoOpen(open);
     await ctx.waitFor(() =>
       open
-        ? ctx.document.querySelector(`.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`)
-        : !ctx.document.querySelector(".acpmux-chat-inspector"),
+        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`)
+        : !ctx.document.querySelector(".acpmux-session-info"),
     );
   };
 
