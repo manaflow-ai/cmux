@@ -2,7 +2,7 @@
 // A Claude workflow's card in the transcript (Labs `workflowLabs`, WorkflowCard.tsx), drawn from a
 // workflow's events fed through the real subagent fold (workflowFixture.ts): its name, "Workflow ·
 // N agents · time" and a dot per agent, live while it runs. A click opens Session Info's
-// Background tasks (inspector/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
+// Background tasks (session-info/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { realWorkflowFixture } from "../realWorkflowFixture";
