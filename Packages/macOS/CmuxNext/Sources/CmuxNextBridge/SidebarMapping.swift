@@ -36,10 +36,12 @@ public struct SidebarMapping {
 
     /// Whether `label` is only the last folder of an account's home (`/home/cmux` read "cmux"): what an idle shell at
     /// another computer's home gives its workspace, the account's name, not the work. Only a shell's: a tab the person
-    /// named, a chat, or a terminal running an agent keeps a label that happens to be that word.
+    /// named, a chat, a terminal running an agent, or one whose shell or program set its own title (OSC 0/2) keeps a
+    /// label that happens to be that word. A title that is only the folder's path is the shell saying where it is.
     static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
         guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash), abbreviateRemote(cwd) == "~",
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
+              tab.titleText.isEmpty || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
         return label == URL(fileURLWithPath: cwd).lastPathComponent
     }

@@ -67,7 +67,7 @@ nonisolated extension SidebarLayout {
         // Members sit one level in from their header (`make`).
         let memberDepth = group.depth + 1
         func workspaceRow(_ ws: SidebarWorkspace, at childIndex: Int, last: Bool) {
-            let content = o.rowContent(ws, machine: machineLabel)
+            let content = o.rowContent(ws, machine: machineLabel, header: section.machine?.id)
             let h = m.height(for: content)
             built.append(SidebarRow(
                 key: .workspace(ws.id), y: y, height: h, section: section.id,

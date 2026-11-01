@@ -156,7 +156,9 @@
   rows are one line, their title, with no machine mark before it (the header names the machine; Group by Status, which
   mixes computers, keeps the mark). An unnamed Cloud workspace whose shell idles at the machine's home reads
   "Terminal", never "cmux" or the machine's name. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT
-  SIMILARLY TO EVERYTHING ELSE". Regression: `SidebarCloudRowLookTests`.
+  SIMILARLY TO EVERYTHING ELSE". Regression: `SidebarCloudRowLookTests`. Outside its machine's header (Pinned, a
+  custom section, Group by Status) a Cloud row keeps its mark, as nothing else there names the machine; a Cloud shell
+  whose own title (OSC) reads like the home folder keeps that title rather than "Terminal".
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
