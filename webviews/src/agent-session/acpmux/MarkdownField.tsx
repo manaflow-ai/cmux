@@ -506,7 +506,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           literalKeys.current!,
         ]
       : richPlugins.current;
+    // A new plugin list remakes every plugin view, and Milkdown's root view then unwraps and wraps
+    // the editor's element again: the move blurs it. The New Tab field is plain in both of its
+    // modes (`plainInput`), so leaving shell mode asks for the list it already has; keep it, and
+    // the keyboard with it. A list that does change gives the focus back to the field that had it.
+    const now = current.state.plugins;
+    if (plugins.length === now.length && plugins.every((plugin, index) => plugin === now[index])) return;
+    const focused = current.hasFocus();
     current.updateState(current.state.reconfigure({ plugins }));
+    if (focused && !current.hasFocus()) current.focus();
   }, []);
   useLayoutEffect(configureLiteral, [configureLiteral, literal, plainInput]);
   // The markdown the field last emitted or applied; a different `value` comes from outside.

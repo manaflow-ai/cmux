@@ -94,13 +94,14 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
-import { errorMessage } from "./transportErrors";
+import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { SessionPageError, SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { promptContext } from "./composer/videoTranscript";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
@@ -6429,8 +6430,10 @@ export class AcpmuxDirectClient {
     let released = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
-    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
-    if (context) this.contextInFlight = true;
+    const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (workspace) this.contextInFlight = true;
+    // Each attached video's speech, as the host heard it, goes beside it (composer/videoTranscript.ts).
+    const context = promptContext(workspace, carried);
     /// The sender (the composer) lets go of the prompt.
     const release = () => {
       if (released) return;
@@ -6442,7 +6445,7 @@ export class AcpmuxDirectClient {
       if (taken) return;
       taken = true;
       tookIt();
-      if (context) this.host = { ...this.host, workspaceContext: undefined };
+      if (workspace) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
       onTaken?.();
@@ -6556,7 +6559,7 @@ export class AcpmuxDirectClient {
         this.emit();
       }
       // A refused prompt did not use the context: the next send carries it.
-      if (context && !taken) this.contextInFlight = false;
+      if (workspace && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       // Only into the chat it was sent in, still shown: its Retry sends there.
@@ -7631,7 +7634,7 @@ export class AcpmuxDirectClient {
                 if (settled || running) return;
                 running = true;
                 void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                  finish(undefined, new Error(translate("switch.cancelled"))),
+                  finish(undefined, startCancelled()),
                 ).then(
                   (id) => finish(id),
                   (error: unknown) => {
