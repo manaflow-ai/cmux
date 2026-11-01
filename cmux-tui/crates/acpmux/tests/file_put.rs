@@ -298,14 +298,24 @@ async fn cuttable_relay(port: u16, up: tokio::sync::watch::Receiver<bool>) -> u1
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut buf = vec![0u8; 64 * 1024];
         loop {
-            tokio::select! {
-                read = from.read(&mut buf) => {
-                    let Ok(n) = read else { return };
-                    if n == 0 || to.write_all(&buf[..n]).await.is_err() {
+            // The read guard of `up` never lives across an await: the pipe ends once it reads false.
+            if !*up.borrow_and_update() {
+                return;
+            }
+            let n = tokio::select! {
+                read = from.read(&mut buf) => match read {
+                    Ok(n) if n > 0 => n,
+                    _ => return,
+                },
+                changed = up.changed() => {
+                    if changed.is_err() {
                         return;
                     }
+                    continue;
                 }
-                _ = up.wait_for(|up| !*up) => return,
+            };
+            if to.write_all(&buf[..n]).await.is_err() {
+                return;
             }
         }
     }
