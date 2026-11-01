@@ -131,3 +131,45 @@ async fn a_700_session_snapshot_sleeps_at_most_one_current_window() {
         snapshot.keys.len()
     );
 }
+
+#[cfg(target_os = "linux")]
+fn process_cpu() -> Duration {
+    let mut value = std::mem::MaybeUninit::<libc::timespec>::uninit();
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, value.as_mut_ptr()) },
+        0
+    );
+    let value = unsafe { value.assume_init() };
+    Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
+}
+
+/// Same 7,828-record fixture used for the live-index before/after measurement. The baseline is
+/// the pre-index full metadata walk; the indexed call is the exclude-closed snapshot path.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "manual live-index measurement"]
+async fn measure_7828_exclude_closed_index() {
+    let rounds = 5;
+    let baseline = scale_hub();
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        std::hint::black_box(baseline.all_session_summaries());
+    }
+    eprintln!(
+        "7828 excludeStatus baseline full walk: {:.3} wall ms/list, {:.3} CPU ms/list",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+    let indexed = scale_hub();
+    let start = std::time::Instant::now();
+    let cpu = process_cpu();
+    for _ in 0..rounds {
+        std::hint::black_box(Snapshot::build_live(&indexed));
+    }
+    eprintln!(
+        "7828 excludeStatus indexed live snapshot: {:.3} wall ms/list, {:.3} CPU ms/list",
+        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
+    );
+}
