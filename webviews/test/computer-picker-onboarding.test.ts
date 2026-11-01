@@ -44,9 +44,7 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           const computer = page.locator('.acpmux-location-picker[data-kind="computer"] button').first();
           const log = () =>
             page.evaluate(() =>
-              (
-                window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
-              ).cmuxGalleryLog
+              (window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }).cmuxGalleryLog
                 .filter((call) => call.method === "action.run")
                 .map((call) => call.params?.id),
             );
