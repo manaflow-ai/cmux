@@ -28,6 +28,13 @@ struct CmuxDialogButtonFitTests {
         #expect(top?.0 == "keep", "the default is not the top button: \(frames.map(\.0))")
     }
 
+    @Test func tabWalksTheStackedButtonsTopToBottom() {
+        let view = CmuxDialogView(spec: Self.quitSpec)
+        view.layoutSubtreeIfNeeded()
+        let order = view.focusables.compactMap { ($0 as? CmuxDialogButtonView)?.button.id }
+        #expect(order == ["keep", "cancel", "end-everything", "end-keep-layout"], "Tab order: \(order)")
+    }
+
     @Test func buttonsThatFitStayOnOneLine() {
         let view = CmuxDialogView(spec: CmuxDialogSpec(title: "Close tab?", buttons: [
             CmuxDialogButton(id: "cancel", title: "Cancel", role: .cancel),
