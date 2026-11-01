@@ -163,8 +163,17 @@ the shell profile are available. A function must call `codex` through `PATH` so
 the cmux shim can register the actual Codex PID and inject hooks. For example:
 
 ```sh
-subcodex() { HTTPS_PROXY="$MY_CODEX_PROXY" codex --no-daemon "$@"; }
+subcodex() (
+    export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+    HTTPS_PROXY="$MY_CODEX_PROXY" codex "$@"
+)
 ```
+
+Export `CODEX_HOME` when selecting a Codex account, including the default account
+when the shell also carries Claude routing variables. This makes the current
+account explicit to launch capture. If the launcher adds options such as
+`--no-daemon`, add them only when absent from the forwarded arguments: saved
+launch arguments can already contain them on resume.
 
 cmux restores its Codex shim's PATH priority after loading the login profile, so
 profile changes such as Homebrew's `shellenv` do not bypass session tracking.
