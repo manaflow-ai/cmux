@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextIcons
@@ -211,9 +212,15 @@ final class ChromeIconButton: ClickableButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
-        isMenuOpen = false
+        // From a run-loop callout, not the timer's main-actor job: a menu tracking inside a main-queue
+        // job holds the main queue until it closes, and the click that closes it waits on everything
+        // queued meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is sometimes slow").
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, window != nil else { return }
+            isMenuOpen = true
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
+            isMenuOpen = false
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {

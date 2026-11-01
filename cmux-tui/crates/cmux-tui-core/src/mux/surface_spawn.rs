@@ -169,6 +169,9 @@ impl Mux {
             let surface = match spawned {
                 Ok(surface) => surface,
                 Err(error) => {
+                    if pty_reclaim::is_pty_exhaustion(&error) {
+                        self.note_pty_exhausted();
+                    }
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
