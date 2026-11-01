@@ -79,6 +79,11 @@
   --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
   --cv-glyph-line: var(--acpmux-glyph-line, 20px);
   --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  /* Content below a transcript row starts after its glyph slot and the shared inline gap.
+     Keep this in the transcript grid so a message card follows the row when the glyph slot
+     changes, instead of carrying a second local pixel indent. */
+  --cv-message-inline-gap: 8px;
+  --cv-message-indent: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-message-inline-gap));
   --cv-footer-control-slot: var(--cv-meta-row, 24px);
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
