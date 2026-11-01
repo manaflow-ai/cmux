@@ -118,10 +118,7 @@ nonisolated enum AgentTabRemoteStart {
         return (listed + machine).filter { seen.insert($0).inserted }
     }
 
-    struct Started: Sendable, Equatable {
-        let surface: UInt64
-        let session: String
-    }
+    typealias Started = AgentTabRemoteHost.Started
 }
 
 extension AgentRemoteStartRefusal { static let folderNeededCode = "app.folder_needed" } // folderNeeded(machine:)'s code (defaults guard key)

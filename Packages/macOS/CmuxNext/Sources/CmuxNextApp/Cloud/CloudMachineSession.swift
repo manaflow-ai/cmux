@@ -18,6 +18,8 @@ import CmuxNextWakeups
 @Observable
 final class CloudMachineSession {
     let machineID: String
+    /// Current transport target; the workspace and registry retain `machineID` after a rewind.
+    private(set) var connectionMachineID: String?
     var machine: CloudMachine
     /// Its create's auto-size pick, which a list read's ``machine`` lacks: a hand-off's `size`.
     var sizePick: CloudSizePick?
@@ -76,6 +78,8 @@ final class CloudMachineSession {
     /// machine the idle auto-pause parked while cmux stayed in front can
     /// still read running here.
     @ObservationIgnored var refresher: (@MainActor (_ force: Bool) async -> Void)?
+    /// Known platform workspaces resolve their current carrier before every app-link connect.
+    @ObservationIgnored var connectionResolver: (@MainActor () async throws -> CloudWorkspaceConnection?)?
     /// A resume an attach started is in flight.
     private(set) var resuming = false
     /// Why the last attach's resume failed (localized), until the next attach.
@@ -239,6 +243,12 @@ final class CloudMachineSession {
         let suspendsBefore = suspends
         let ticket: CloudLinkTicket
         do {
+            if let target = try await connectionResolver?() {
+                guard !disconnected, suspends == suspendsBefore, !Task.isCancelled,
+                      await appLink.retarget(machine: target.connectionMachine, generation: target.generation)
+                else { throw CancellationError() }
+                connectionMachineID = target.connectionMachine
+            }
             ticket = try await appLink.connect(origin: origin)
         } catch {
             // A pause or a disconnect cancelled this connect: not a failure.
@@ -459,6 +469,30 @@ final class CloudMachineSession {
             appTicket = nil
             reconnectAfterHop = true
         }
+    }
+
+    /// A rewind changed the provider machine behind this logical record. Retire every old link
+    /// ticket and wait for the fresh daemon snapshot before the owner command reports success.
+    func reconnectAfterRewind(connectionMachine: String, generation: Int, forceReconnect: Bool = false) async throws {
+        guard let appLink else { throw DaemonError.notConnected }
+        if !forceReconnect, await appLink.isConnected(machine: connectionMachine, generation: generation) {
+            try await daemon.waitForReadySnapshot()
+            guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
+            connectionMachineID = connectionMachine
+            return
+        }
+        await linkTransition?.value
+        guard !appConnecting else { throw DaemonError.notConnected }
+        guard await appLink.retarget(machine: connectionMachine, generation: generation, forceReconnect: forceReconnect) else { throw DaemonError.notConnected }
+        connectionMachineID = connectionMachine
+        guard !appConnecting else { throw DaemonError.notConnected }
+        appTicket = nil
+        daemon.shutdownConnection()
+        connect(origin: .user)
+        await linkTransition?.value
+        guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
+        try await daemon.waitForReadySnapshot()
+        guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
     }
 
     /// What an app link does after an update.

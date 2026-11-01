@@ -27,6 +27,9 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_turn.rs"]
+pub(super) mod turn;
+pub use turn::CloudTurnConfig;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
@@ -86,6 +89,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The daemon's acpmux socket and every live attachment.
 #[derive(Default)]
 pub(crate) struct AgentSessions {
+    cloud_turn: RwLock<Option<CloudTurnConfig>>,
+    cloud_scope_handoff_attempted: AtomicBool,
     socket: RwLock<inventory_socket::SocketState>,
     #[cfg(test)]
     inventory_socket_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -200,6 +205,7 @@ impl AgentSessions {
 
 /// One attached tab: its acpmux link and the client stream it feeds.
 struct Attachment {
+    cloud_turn_supported: bool,
     author: Option<Value>,
     client: u64,
     surface: SurfaceId,
@@ -339,6 +345,8 @@ enum AgentSessionCommand {
     Attach(PageParams),
     Events(PageParams),
     Prompt(PromptParams),
+    PrepareTurn(turn::Prepare),
+    AbandonTurn(turn::Abandon),
     Cancel(SurfaceParams),
     Permission(PermissionParams),
     Detach(SurfaceParams),
@@ -361,6 +369,8 @@ impl AgentSessionCommand {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
             "agent-session-prompt" => Self::Prompt(from_value(params).ok()?),
+            "agent-session-turn-prepare" => Self::PrepareTurn(from_value(params).ok()?),
+            "agent-session-turn-abandon" => Self::AbandonTurn(from_value(params).ok()?),
             "agent-session-cancel" => Self::Cancel(from_value(params).ok()?),
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
@@ -449,6 +459,8 @@ struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
     text: String,
+    #[serde(default, deserialize_with = "turn::envelope")]
+    cloud_turn: Option<turn::Capability>,
 }
 
 #[derive(Deserialize)]
@@ -780,6 +792,8 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
     match command {
         AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
         AgentSessionCommand::Prompt(params) => params.surface,
+        AgentSessionCommand::PrepareTurn(params) => params.surface,
+        AgentSessionCommand::AbandonTurn(params) => params.surface,
         AgentSessionCommand::Permission(params) => params.surface,
         AgentSessionCommand::Cancel(params)
         | AgentSessionCommand::Detach(params)
@@ -1017,6 +1031,8 @@ fn run_on_worker(
         && matches!(
             &command,
             AgentSessionCommand::Prompt(_)
+                | AgentSessionCommand::PrepareTurn(_)
+                | AgentSessionCommand::AbandonTurn(_)
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
@@ -1033,6 +1049,8 @@ fn run_on_worker(
         && matches!(
             &command,
             AgentSessionCommand::SetModel(_)
+                | AgentSessionCommand::PrepareTurn(_)
+                | AgentSessionCommand::AbandonTurn(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
         )
@@ -1115,6 +1133,10 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
+                .map(|mut page| {
+                    page["cloud_turn_supported"] = json!(attachment.cloud_turn_supported);
+                    page
+                })
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
@@ -1127,9 +1149,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
-            prompt(attachment, prompt_id, text)
+        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, cloud_turn, .. }) => {
+            let envelope = turn::prompt_envelope(attachment, cloud_turn)?;
+            prompt(attachment, prompt_id, text, envelope)
         }
+        AgentSessionCommand::PrepareTurn(params) => turn::prepare(attachment, params),
+        AgentSessionCommand::AbandonTurn(params) => turn::abandon(attachment, params),
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
@@ -1261,10 +1286,18 @@ fn setting(
 /// Sends one text prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
-fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Value, Refusal> {
-    let valid_id = (1..=128).contains(&prompt_id.len())
-        && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+fn valid_prompt_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn prompt(
+    attachment: &Attachment,
+    prompt_id: String,
+    text: String,
+    cloud_turn: Option<Value>,
+) -> Result<Value, Refusal> {
+    if !valid_prompt_id(&prompt_id) || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
         return Err(Refusal::BadRequest);
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -1277,11 +1310,14 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     }
     // Only a text content block: the client sends content, never a command,
     // a path or an MCP server.
-    let params = json!({
+    let mut params = json!({
         "sessionId": attachment.session,
         "prompt": [{"type": "text", "text": text}],
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
+    if let Some(cloud_turn) = cloud_turn {
+        params.insert("cloud_turn", cloud_turn);
+    }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).

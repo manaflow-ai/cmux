@@ -554,6 +554,8 @@ mod tests {
         for frame in [
             json!({"cmd":"agent-session-trust", "cwd":"/tmp"}),
             json!({"cmd":"agent-session-start", "cwd":"/tmp"}),
+            json!({"cmd":"agent-session-turn-prepare", "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3}),
+            json!({"cmd":"agent-session-turn-abandon", "prompt_id":"p1"}),
             json!({"cmd":"agent-session-media", "media_id":"m1"}),
             json!({"cmd":"agent-session-children"}),
             json!({"cmd":"agent-session-permission", "permission_id":"perm_attach", "option_id":"allow"}),

@@ -18,6 +18,16 @@ pub(super) fn connect_and_attach(
 ) {
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
+    let configured_owner = author.is_none()
+        && !read_only
+        && sessions.cloud_turn.read().unwrap_or_else(|e| e.into_inner()).is_some();
+    if configured_owner
+        && let Err(refusal) = agent_session_start::reconcile_cloud_scope(&mux, &socket)
+    {
+        release(sessions);
+        refuse(&writer, id, refusal);
+        return;
+    }
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
@@ -43,6 +53,19 @@ pub(super) fn connect_and_attach(
             refuse(&writer, id, Refusal::Unavailable);
             return;
         }
+    };
+    let cloud_turn_supported = if configured_owner {
+        match turn::support(&link) {
+            Ok(supported) => supported,
+            Err(refusal) => {
+                release(sessions);
+                link.close();
+                refuse(&writer, id, refusal);
+                return;
+            }
+        }
+    } else {
+        false
     };
     let page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
         Ok(page) => bound_page(page, newest_first),
@@ -89,8 +112,12 @@ pub(super) fn connect_and_attach(
         refuse(&writer, id, Refusal::BadList);
         return;
     }
-    let page = if author.is_some() { without_drafts(page) } else { page };
+    let mut page = if author.is_some() { without_drafts(page) } else { page };
+    // A native owner decides whether to capture from this attachment's actual acpmux,
+    // including the first chat after acpmux starts. No discovery runs on identify's thread.
+    page["cloud_turn_supported"] = json!(cloud_turn_supported);
     let attachment = Arc::new(Attachment {
+        cloud_turn_supported,
         author,
         client,
         surface,

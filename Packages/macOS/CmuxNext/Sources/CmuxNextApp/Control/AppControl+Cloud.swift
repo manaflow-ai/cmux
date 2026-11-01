@@ -41,6 +41,29 @@ extension AppControl {
         ])
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
+        let turnClient = CloudTurnRewindClient(origin: services.cloud.configuration.turnAPIBaseURL()) {
+            try await services.cloud.installIdentity.accessToken(team: try await services.cloud.auth.accessTokenTeam(requested: nil)).accessToken
+        }
+        service?.router.register(CloudTurnCommands(
+            state: { try await turnClient.state(workspace: $0) },
+            connection: { try await turnClient.connection(workspace: $0) },
+            rewind: { try await turnClient.rewind(workspace: $0.workspace, session: $0.session, turn: $0.turn,
+                                                  machine: $0.machine, generation: $0.generation, key: $0.key) }
+        ) { workspace in
+            let (machine, account) = try await MainActor.run {
+                if let refusal = ControlError.policyRefusal("cloud.turn.rewind", disabled: services.registry.disabledFeatures) { throw refusal }
+                guard let account = services.cloud.workspaceBindingScope else { throw ControlError(code: "cloud.turn.scope", message: "Sign in to Cloud first.") }
+                let known = try services.cloud.workspaceBindings.bindings(in: account).first { $0.workspace == workspace }
+                guard let machine = services.machines.cloud.first(where: { $0.appLink != nil && ($0.machineID == known?.machine || $0.daemon.store.workspaces.contains(where: { $0.resourceID?.rawValue == workspace })) })
+                else { throw ControlError(code: "cloud.turn.scope", message: "Open the Cloud workspace in this app first.") }
+                return (machine, account)
+            }
+            // The platform authenticates the workspace creator. A previous rewind may already
+            // have ended the old owner link, so same-key recovery must not require that link.
+            return CloudTurnCommands.Scope(machine: await machine.machineID, confirmed: {
+                try await services.cloud.rememberTurnWorkspace(workspace: workspace, machine: machine.machineID, scope: account)
+            }) { try await machine.reconnectAfterRewind(connectionMachine: $0, generation: $1) }
+        }.methods)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
         service?.router.register([.authToken(

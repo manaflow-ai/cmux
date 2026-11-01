@@ -2260,6 +2260,10 @@ fn run_server(
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    let cloud_turn_config =
+        cmux_tui_core::server::CloudTurnConfig::from_lookup(|key| std::env::var(key).ok())
+            .map_err(anyhow::Error::msg)?;
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
@@ -2638,6 +2642,8 @@ fn run_server(
     acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
+    #[cfg(unix)]
+    mux.set_cloud_turn_config(cloud_turn_config);
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);

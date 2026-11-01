@@ -168,6 +168,10 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) turn_prepare_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) turn_unsupported: bool,
+    pub(super) turn_scope_ready: Option<Arc<AtomicBool>>,
+    pub(super) turn_initialize_malformed: bool,
 }
 
 fn serve(
@@ -186,6 +190,31 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "initialize" if fixture.turn_initialize_malformed => Some(json!({})),
+            "initialize" => Some(json!({"_meta":{"acpmux":{"capabilities":
+                if fixture.turn_unsupported || fixture.turn_scope_ready.as_ref().is_some_and(|ready| !ready.load(Ordering::Acquire)) {
+                    vec![]
+                } else { vec!["agent-session-turn-rewind-v1"] }}}})),
+            "agent-session-turn-prepare" => {
+                let answer = json!({"session":SESSION,"turn":params["authorization"]["turn"],
+                    "generation":params["generation"],"attempt_id":params["attempt_id"]});
+                if let Some(gate) = fixture.turn_prepare_gate.clone() {
+                    let mut delayed = writer.try_clone().unwrap();
+                    let id = id.clone();
+                    std::thread::spawn(move || {
+                        let _ = gate.lock().unwrap().recv_timeout(WAIT);
+                        let _ = writeln!(
+                            delayed,
+                            "{}",
+                            json!({"jsonrpc":"2.0","id":id,"result":answer})
+                        );
+                    });
+                    None
+                } else {
+                    Some(answer)
+                }
+            }
+            "agent-session-turn-abandon" => Some(json!({"abandoned":true})),
             "_acpmux/attach" => {
                 if let Some(gate) = &fixture.attach_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -583,6 +612,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
+include!("agent_session_turn_tests.rs");
 
 // MARK: Capability and trust
 

@@ -84,6 +84,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
     }
     #[cfg(unix)]
+    if mux.serves_cloud_turns() {
+        capabilities.push(agent_session_attach::turn::CAPABILITY);
+    }
+    #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);

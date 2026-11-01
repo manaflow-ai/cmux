@@ -9,6 +9,19 @@ import Testing
 /// session list and its attach), so a Cloud machine's chat never connected: the client sends one
 /// attach at a time.
 @Suite(.timeLimit(.minutes(1))) struct AgentSessionAttachClientConcurrencyTests {
+    @Test func turnSupportWaitsForThePendingAttachment() async throws {
+        let signal = AsyncStream<Void>.makeStream()
+        let daemon = try ReservingAttachDaemon(onAttach: { signal.continuation.yield(()); signal.continuation.finish() })
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let pending = Task { try await client.attach(afterSeq: nil, beforeSeq: nil, limit: 1, kinds: nil) { _, _ in } }
+        var events = signal.stream.makeAsyncIterator()
+        _ = await events.next()
+        #expect(try await client.supportsCloudTurns())
+        _ = try await pending.value
+        await client.close()
+    }
+
     @Test func twoAttachesAskedTogetherBothAnswer() async throws {
         let daemon = try ReservingAttachDaemon()
         defer { daemon.stop() }
@@ -28,11 +41,13 @@ import Testing
 private nonisolated final class ReservingAttachDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     let path: String
     private let descriptor: Int32
+    private let onAttach: (@Sendable () -> Void)?
     private let counts = OSAllocatedUnfairLock<(attaches: Int, refusals: Int)>(initialState: (0, 0))
     var attaches: Int { counts.withLock { $0.attaches } }
     var refusals: Int { counts.withLock { $0.refusals } }
 
-    init() throws {
+    init(onAttach: (@Sendable () -> Void)? = nil) throws {
+        self.onAttach = onAttach
         path = FileManager.default.temporaryDirectory
             .appendingPathComponent("asc-\(UUID().uuidString.prefix(8)).sock").path
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -87,9 +102,10 @@ private nonisolated final class ReservingAttachDaemon: @unchecked Sendable {  //
                     continue
                 }
                 counts.withLock { $0.attaches += 1 }
+                onAttach?()
                 DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
                     reserved.withLock { $0 = false }
-                    reply(["id": id, "ok": true, "data": ["session": ["sessionId": "s1"], "events": [Any]()]])
+                    reply(["id": id, "ok": true, "data": ["session": ["sessionId": "s1"], "events": [Any](), "cloud_turn_supported": true]])
                 }
             }
         }

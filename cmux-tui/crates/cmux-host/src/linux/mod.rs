@@ -239,7 +239,8 @@ impl LinuxPlatform {
         );
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
         let child = spawn::spawn_daemon(&spec)?;
         let pid = child.id();

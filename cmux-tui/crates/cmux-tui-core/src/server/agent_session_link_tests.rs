@@ -47,6 +47,40 @@ fn ids(reply: &Value) -> Vec<&str> {
 const WAIT: Duration = Duration::from_secs(5);
 
 #[test]
+fn closing_a_link_releases_a_queued_turn_without_a_reply() {
+    let dir = cmux_unix_socket::short_test_dir("turn-close");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (asked, request) = std::sync::mpsc::channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        asked.send(()).unwrap();
+        let _ = gate.recv_timeout(WAIT);
+    });
+    let link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let pending = link.clone();
+    let (done, result) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        let _ = done.send(pending.call(
+            "agent-session-turn-prepare",
+            json!({}),
+            Duration::from_secs(120),
+        ));
+    });
+    request.recv_timeout(WAIT).unwrap();
+    link.close();
+    assert_eq!(result.recv_timeout(WAIT).unwrap(), Err(LinkError::Closed));
+    assert!(link.pending.lock().unwrap().is_empty());
+    release.send(()).unwrap();
+    waiter.join().unwrap();
+    server.join().unwrap();
+}
+
+#[test]
 fn pages_in_byte_page_order_are_joined_newest_first() {
     let (link, asked, _dir) = scripted(vec![
         json!({"sessions": [row("old", 1), row("b", 5)], "nextCursor": "p1"}),

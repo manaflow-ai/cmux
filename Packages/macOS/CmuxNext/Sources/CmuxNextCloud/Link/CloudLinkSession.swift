@@ -20,6 +20,8 @@ public actor CloudLinkSession {
     }
 
     public nonisolated let key: CloudLinkKey
+    private var connectionKey: CloudLinkKey
+    private var machineGeneration = -1
     /// ``ownerLink`` != nil for the main actor (Settings > Machines' row), on the same link.
     public nonisolated let ownership = CloudLinkOwnership()
     private let resolver: any CloudLinkResolver
@@ -43,6 +45,7 @@ public actor CloudLinkSession {
     /// `intent` makes each connect's idempotency key (default: a new UUID).
     public init(key: CloudLinkKey, resolver: any CloudLinkResolver, intent: (@Sendable () -> String)? = nil) {
         self.key = key
+        connectionKey = key
         self.resolver = resolver
         makeIntent = intent ?? { UUID().uuidString }
     }
@@ -64,7 +67,7 @@ public actor CloudLinkSession {
         revokedWhileConnecting = nil
         var result: Result<CloudLinkSocket, CloudLinkError>
         do {
-            result = .success(try await resolver.open(key, intent: makeIntent(), origin: origin))
+            result = .success(try await resolver.open(connectionKey, intent: makeIntent(), origin: origin))
         } catch let error as CloudLinkError {
             result = .failure(error)
         } catch {
@@ -154,7 +157,7 @@ public actor CloudLinkSession {
     /// (its answer names the carrier that counts) change nothing. A revoke
     /// while a connect is in flight ends that connect when it answers.
     public func apply(_ change: CloudLinkChange) -> UInt64? {
-        guard change.key == key, change.state != .up else { return nil }
+        guard change.key == connectionKey, change.state != .up else { return nil }
         let socket: CloudLinkSocket
         switch state {
         case .ready(let current), .attached(let current): socket = current
@@ -179,7 +182,30 @@ public actor CloudLinkSession {
     /// Ends the link for good and asks the app server to close it.
     public func close() async {
         end(reason: "closed")
-        await resolver.close(key)
+        await resolver.close(connectionKey)
+    }
+
+    /// Rebinds transport after the owner API confirmed a replacement. Logical identity stays
+    /// unchanged; all old tickets and owner proofs are retired before opening the new target.
+    public func retarget(machine: String, generation: Int, forceReconnect: Bool = false) async -> Bool {
+        guard generation >= machineGeneration, generation >= 0,
+              generation != machineGeneration || machine == connectionKey.machine else { return false }
+        if !forceReconnect, isConnected(machine: machine, generation: generation) { return true }
+        end(reason: "machine rewound")
+        let previous = connectionKey
+        connectionKey = CloudLinkKey(machine: machine)
+        machineGeneration = generation
+        await resolver.close(previous)
+        return machineGeneration == generation && connectionKey.machine == machine
+    }
+
+    /// Whether the current ready transport belongs to the exact owner-confirmed replacement.
+    public func isConnected(machine: String, generation: Int) -> Bool {
+        guard machineGeneration == generation, connectionKey.machine == machine else { return false }
+        switch state {
+        case .ready(let socket), .attached(let socket): return socket.key == connectionKey
+        default: return false
+        }
     }
 
     private static let superseded = CloudLinkError.disconnected(reason: "superseded")
