@@ -168,9 +168,12 @@ final class CloudService {
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         installIdentity = identity
+        let sessions = paths.root.appendingPathComponent("client-sessions", isDirectory: true)
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
-                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                            // Exec and files go through the bundled cmux-tui, direct to the provider when it can.
+                                            machineIO: LocalServerSource.bundledCLI().map { CloudMachineIO(binary: $0, cacheDirectory: sessions) })
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build
