@@ -492,7 +492,6 @@ import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
-import { configureMessageGroupLook } from "./conversation/messageGroupLook";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
@@ -8817,7 +8816,6 @@ function AcpmuxPane() {
         configureLiveLineBelow(theme.liveLineBelow);
         configureToolRunLook(theme.toolRunLook);
         configureSentLook(theme.sentLook);
-        configureMessageGroupLook(theme.messageGroupLook);
         configureInboxNoticeLook(theme.inboxNoticeLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);

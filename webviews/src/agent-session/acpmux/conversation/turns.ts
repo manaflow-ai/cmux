@@ -19,7 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, groupId, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
+import { awaitsPermission, groupId, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -1160,9 +1160,6 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
-  // A message in a run of them shows under the group's line while it is open, which it starts
-  // while one goes out (MessageGroupRow.tsx).
-  if (group.type === "messages") return { key: messageGroupKey(group.items, row.id, at), open: true };
   const kind = group.type === "mcp" ? "mcp" : group.kind;
   const key = `group:${kind}:${(group.type === "mcp" ? group.items[0]!.tool!.id : groupId(group.items)) || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
