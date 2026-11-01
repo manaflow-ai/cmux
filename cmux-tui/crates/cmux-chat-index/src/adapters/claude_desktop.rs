@@ -39,10 +39,12 @@ struct DesktopSession {
     title: Option<String>,
 }
 
+/// A parsed session file and the stamp it was parsed at.
+type Parsed = HashMap<PathBuf, (FileStamp, Option<DesktopSession>)>;
+
 /// Parsed session files by path, kept while their stamp holds, so a transcript
 /// write re-parses only the desktop files that changed since the last one.
-static PARSED: Mutex<Option<HashMap<PathBuf, (FileStamp, Option<DesktopSession>)>>> =
-    Mutex::new(None);
+static PARSED: Mutex<Option<Parsed>> = Mutex::new(None);
 
 /// Names and marks the Claude Code chats in `entries` that Claude desktop
 /// started, when `root` is a home's default Claude projects folder.
