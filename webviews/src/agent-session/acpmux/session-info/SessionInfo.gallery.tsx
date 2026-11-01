@@ -341,7 +341,7 @@ const checkTopBlockAlignment: Play = async (ctx) => {
 const fleet: AcpmuxSessionEntry[] = [
   sessionEntry({
     sessionId: local.summary!.sessionId,
-    name: "inspector-polish",
+    name: "session-info-polish",
     harness: "claude",
     usageStats: ownUsage,
   }),

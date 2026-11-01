@@ -300,11 +300,7 @@ test("sorted by 24h cost, a session whose cost is unknown shows an em dash, neve
     }),
   ];
   await render(
-    <SessionInfo
-      summary={{ sessionId: "x" }}
-      allSessions={sessions}
-      sections={{ ...DEFAULT_SECTIONS, usage: true }}
-    />,
+    <SessionInfo summary={{ sessionId: "x" }} allSessions={sessions} sections={{ ...DEFAULT_SECTIONS, usage: true }} />,
   );
   const usage = host.querySelector<HTMLElement>(".acpmux-session-info-usage")!;
   const listed = () =>
