@@ -277,6 +277,7 @@ export default componentEntry<Props>({
     combined: { props: { chat: true }, play: open },
     // The compact menu's widths (Leo 2026-11-01: "surely we can get more compact horizontally").
     "width-fit": { props: { chat: true, inlineEffort: true, widthLook: "fit" }, play: open },
+    "width-stable": { props: { chat: true, inlineEffort: true, widthLook: "stable" }, play: open },
     "width-snug": { props: { chat: true, inlineEffort: true, widthLook: "snug" }, play: open },
     "width-wide": { props: { chat: true, inlineEffort: true, widthLook: "wide" }, play: open },
     // One tab per harness; its routes are its Account choices.

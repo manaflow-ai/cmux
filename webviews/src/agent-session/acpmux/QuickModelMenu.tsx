@@ -60,11 +60,11 @@ export type QuickMenu = {
   routeLayout?: "submenu" | "inline" | "grouped";
   /// How wide the menu is, for the gallery's versions; `fit` is the default (Leo 2026-11-01: "i
   /// also don't like the way this composer has so much space between stuff surely we can get more
-  /// compact horizontally" / "see claude code has that"). `fit`: as wide as the rows each tab shows,
-  /// with an effort column as wide as a level's name. `snug`: the same with tighter columns and a
-  /// lower floor. `wide`: as wide as the longest model of any list, Legacy models included, with the
-  /// earlier 112px effort column (the menu before this).
-  widthLook?: "fit" | "snug" | "wide";
+  /// compact horizontally" / "see claude code has that"). `fit`: as wide as the open tab's rows, as
+  /// Claude Code's menu is, with an effort column as wide as a level's name. `stable`: as wide as
+  /// every tab's rows, so switching tabs never moves the right edge. `snug`: `fit` with tighter
+  /// columns and a lower floor. `wide`: the fixed 480px menu with the 112px effort column (before).
+  widthLook?: "fit" | "stable" | "snug" | "wide";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
@@ -1214,7 +1214,7 @@ export function QuickModelMenu({
   // pushing the segments past the narrow chat boundary.
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
-      {families.list
+      {(menu.widthLook === "wide" || menu.widthLook === "stable" || !shownTab ? families.list : shownTab.routes)
         // The rows a tab shows, never its Legacy models: the longest model name of any harness's
         // Legacy list sized the whole menu, so every row's keys sat far from its name.
         .flatMap((family) => (menu.widthLook === "wide" ? [...family.models, ...family.more] : family.models))

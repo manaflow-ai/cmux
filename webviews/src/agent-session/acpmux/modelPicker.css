@@ -677,10 +677,12 @@
    wide as the rows its tabs show (QuickModelMenu's width probe leaves Legacy models out), and the
    effort column is as wide as a level's name and chevron ("Extra high ›"), so a row's effort, star
    and key sit close after its name. `wide` keeps the earlier menu for the gallery. */
-.acpmux-quick-menu.acpmux-quick-width-fit {
+.acpmux-quick-menu:is(.acpmux-quick-width-fit, .acpmux-quick-width-stable) {
   --acpmux-quick-effort-column: 88px;
   min-width: min(240px, var(--available-width, calc(100vw - 24px)));
 }
+/* The rail's menu was a fixed 480px (#26615): the compact looks take their rows' width instead. */
+.acpmux-quick-railed:is(.acpmux-quick-width-fit, .acpmux-quick-width-stable, .acpmux-quick-width-snug) { width: max-content; }
 .acpmux-quick-menu.acpmux-quick-width-snug {
   --acpmux-quick-effort-column: 76px;
   min-width: min(200px, var(--available-width, calc(100vw - 24px)));
