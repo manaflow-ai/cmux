@@ -262,10 +262,7 @@ final class WindowManager {
             for space in await incognitoLedger.loadSpaces() { _ = try? await home.deleteProfile(ProfileID(rawValue: space), moveTo: nil) }
         }
         let leftover = await incognitoLedger.load()
-        if !leftover.isEmpty {
-            registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
-            discard(leftover)
-        }
+        IncognitoLeftovers.discard(leftover, self)
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         guard !Task.isCancelled, !isTerminating else { return }
