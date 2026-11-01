@@ -138,4 +138,35 @@ struct WorkspaceCloseSlowDaemonTests {
             #expect(!toasts.contains("The workspace could not be closed."), "toasts: \(toasts)")
         }
     }
+
+    /// Close Other Workspaces (the palette, the row menu, `cmux workspace close-other`): one bulk close
+    /// (`close-workspaces`, BulkClosePlan) the daemon answers past the deadline reports no failure and closes them all.
+    @Test func closeOtherWorkspacesThatTheDaemonAnswersAfterTheDeadlineIsNoFailure() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let ids = try await Self.make(8, prefix: "late-others", services, in: controller)
+            let kept = try #require(ids.first), others = Array(ids.dropFirst())
+            let pid = try #require(services.daemon.identity?.pid)
+            defer { kill(pid, SIGCONT) }
+
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: kept), origin: .cli).confirmed()
+            var ran = false
+            var work: [ActionWork] = []
+            let refusal = services.registry.capturingRefusal {
+                work = services.registry.capturingWork { ran = services.registry.perform("palette.closeOtherWorkspaces", invocation: invocation) }
+            }
+            await Self.stopDaemon(pid)
+            var failures = refusal.map { [$0] } ?? []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            try? await PinnedPageTests.until({ Self.listed(others, services).isEmpty }, within: .seconds(30))
+            print("WorkspaceCloseSlowDaemon: close other workspaces, ran \(ran), tasks \(work.count), failures \(failures), "
+                + "left \(Self.listed(others, services).count) of \(others.count)")
+
+            #expect(ran)
+            #expect(failures.isEmpty, "failed: \(failures)")
+            #expect(Self.listed(others, services).isEmpty, "not closed: \(Self.listed(others, services).count) of \(others.count)")
+            #expect(services.workspace(id: kept) != nil, "the kept workspace closed")
+        }
+    }
 }
