@@ -1229,6 +1229,7 @@ all chief approvals. chief should never have to ask for approvals"):
 | One that reads the Home workspace block (the host reads it on every turn) | the configured one |
 | One a paired device of the owner started | the configured one |
 | Another person wrote in it (a shared Chief, a channel), or it reads the report of a subagent spawned under such a turn | `ask`, and the host refuses every local effect at once |
+| Another agent wrote it: `cmux chief -p`, `cmux chief send` or `cmux chief acp` run by an acpmux session (its `client_msg_id` names the session, `cmux_conversation::agent_sender`; the text shows `[from NAME]`), or an acpmux session's answer to the Chief's `tell(id: "session:NAME")` | `ask`, as for another person |
 
 History: Lawrence added the device gate on 2026-10-05 (0654733226a, default
 ask), made auto-approve the default on 2026-10-06 (8f1b5b9c65b, "i dont want
@@ -1247,7 +1248,9 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   `sleep`, `spawn` (its children take the floor), `send` without
   attachments, `profile` reads (`history` or no field), and `control`
   `status`, `interrupt` with no message and `answer` with `deny`, plus a
-  `tell` or `control` to a subagent that runs with `ask` itself. Plain
+  `tell` or `control` to a subagent that runs with `ask` itself, `control
+  sessions`, and a `tell` to `session:NAME` when the turn carries NAME's own
+  message (it answers that agent, never starts a talk with another). Plain
   replies need nothing.
 - Refused: everything else (a shell command, a file write or edit, computer
   use, a `send` with attachments, a `profile` write or undo, a `tell` or

@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextHome
 import Foundation
 @testable import MessagesLabHome
+import CmuxNextTestSupport
 import Testing
 
 /// A Chief opened from Home's list for the first time opens at its newest message
@@ -13,7 +14,7 @@ import Testing
 /// up, then what the app does next follows (the message box takes the keyboard, the header's panel
 /// toggles arrive, the window is resized). After each step the transcript must still rest at the
 /// bottom; each step's offsets are printed, so a failure names the step that moved it.
-@MainActor @Suite(.serialized) struct HomeColdOpenAtNewestTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeColdOpenAtNewestTests {
     static let conversation = ConversationID("conv_chief")
 
     private func until(_ condition: () -> Bool) async {
@@ -70,7 +71,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 800))
         window.contentView = container
         window.orderFrontRegardless()

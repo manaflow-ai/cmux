@@ -705,12 +705,14 @@
   font-size: var(--text-caption);
   white-space: nowrap;
 }
-/* A row that is not the running one shows its effort item only while pointed at or reached; a row
-   of another tab (nothing runs there yet) always names the level its pick lands. */
+/* Every row with levels names one: the running row its level, in the text color, every other row the
+   level its pick lands, muted. A row with no named level shows its item only while pointed at or
+   reached. */
 .acpmux-quick-model-effort:not([data-running], [data-held]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
   .acpmux-quick-effort-trigger {
   opacity: 0;
 }
+.acpmux-quick-model-effort[data-running] > .ui-menu-item.acpmux-quick-effort-trigger { color: var(--agent-text); }
 /* The dropdown is as wide as its levels, not the model menu's 280px floor, so it fits beside the row. */
 .acpmux-quick-menu.acpmux-quick-effort-menu { min-width: 0; }
 .acpmux-quick-effort-menu .acpmux-quick-effort-segment { gap: var(--ds-space-2); }

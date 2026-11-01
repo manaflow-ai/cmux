@@ -270,6 +270,10 @@ pub(super) fn handle_frame(
     if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    #[cfg(unix)]
+    if let Some(keep_open) = super::cloud_repos::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     if gate::check_frame(message).is_err() {
         return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
     }

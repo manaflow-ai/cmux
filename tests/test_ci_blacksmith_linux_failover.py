@@ -10,9 +10,12 @@ A runs-on that names a Blacksmith Linux label literally and reads neither
 variable never sees that, so its job queued with zero capacity for the whole
 outage (2026-10-27). Each such label must sit behind
 `vars.CI_CLOUD_OVERFLOW_SAVED && '<FAILOVER_SIZE[label]>' ||` (another
-Blacksmith Linux size, the switch's own pairing: 16 and 32 vCPU swap, 2 goes
-to 4, 4 and 8 go to 16), or the expression must read one of the switched
-variables first. An unset variable is falsy, so
+Blacksmith Linux size: 2 goes to 4, 4 and 8 swap, 16 goes to 8, and the older
+pairing of 4 and 8 to 16 and 16 and 32 swapping still counts), or the expression
+must read one of the switched variables first. Blacksmith's concurrency is a cap
+on vCPUs, so a failover to a smaller size is the one likelier to start
+(.github/runners.json linux_sizes; tests/test_ci_blacksmith_linux_sizes.py keeps
+32 vCPU out of every route that has no measured reason for it). An unset variable is falsy, so
 healthy routing still takes the Blacksmith label.
 
 Nightly, notarization, dev-daily and release/publish workflows are sequenced
@@ -39,15 +42,21 @@ EXCLUDED_FILES = {
 }
 # x64 Blacksmith Linux labels; -arm labels are a different pool.
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
-# Each x64 Blacksmith Linux size and the size it fails over to.
-FAILOVER_SIZE = {2: 4, 4: 16, 8: 16, 16: 32, 32: 16}
+# Each x64 Blacksmith Linux size and the sizes it may fail over to, the first preferred.
+FAILOVER_SIZES = {2: (4,), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
 FAILOVER_PREFIX = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-"
 
 
-def failover_for(label: str) -> str:
-    """The text that must come right before `'<label>'`."""
+def failovers_for(label: str) -> list[str]:
+    """Each text that may come right before `'<label>'`."""
     size = int(re.match(r"blacksmith-(\d+)vcpu", label).group(1))
-    return f"vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-{FAILOVER_SIZE[size]}vcpu-ubuntu-2404' || '"
+    return [f"vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-{other}vcpu-ubuntu-2404' || '"
+            for other in FAILOVER_SIZES[size]]
+
+
+def failover_for(label: str) -> str:
+    """The preferred text that comes right before `'<label>'`."""
+    return failovers_for(label)[0]
 # What may come right before a Blacksmith Linux literal without the failover:
 # a variable the switch already points at another Blacksmith size, or a fork pull-request
 # branch, which picks Blacksmith on purpose and is not the fallback.
@@ -62,16 +71,26 @@ FORK_BRANCH = re.compile(
 
 def literal_covered(head: str, label: str) -> bool:
     """head is the text up to and including the quote that opens the literal."""
-    failover = failover_for(label)
-    if head.endswith(failover) or SWITCHED.search(head) or FORK_BRANCH.search(head):
+    if SWITCHED.search(head) or FORK_BRANCH.search(head):
         return True
-    # A guarded literal (`cond && 'blacksmith-...'`) keeps the guard first:
-    # `cond && vars.CI_CLOUD_OVERFLOW_SAVED && '<failover>' || cond && '...'`.
-    return re.search(r"(?:\|\||\()\s*(.+?) && " + re.escape(failover[:-1]) + r"\1 && '$", head) is not None
+    for failover in failovers_for(label):
+        if head.endswith(failover):
+            return True
+        # A guarded literal (`cond && 'blacksmith-...'`) keeps the guard first:
+        # `cond && vars.CI_CLOUD_OVERFLOW_SAVED && '<failover>' || cond && '...'`.
+        if re.search(r"(?:\|\||\()\s*(.+?) && " + re.escape(failover[:-1]) + r"\1 && '$", head) is not None:
+            return True
+    return False
 
 
 def covered(value: str) -> bool:
     """True when every Blacksmith Linux literal in a runner value fails over."""
+    # A bounded workflow_dispatch input is a broker-selected reroute set, not a primary
+    # Blacksmith reservation. The workflow defaults to fleet and accepts these labels only
+    # when the broker explicitly supplies one after a stalled attempt.
+    if "contains(fromJSON(" in value and "inputs.runner) && inputs.runner" in value \
+            and "cmux-fleet-linux-x64" in value:
+        return True
     if "vars.CI_TRUSTED_RUNNER" in value:
         # The switch points CI_TRUSTED_RUNNER at another Blacksmith size; the labels in its
         # allowlist are double-quoted JSON, not runner literals.
@@ -126,6 +145,11 @@ class BlacksmithLinuxFailoverTest(unittest.TestCase):
         self.assertFalse(covered("blacksmith-32vcpu-ubuntu-2404"))
         self.assertFalse(covered("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"))
         self.assertTrue(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        # The smaller pairings: 4 and 8 swap, 16 goes to 8.
+        self.assertTrue(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertTrue(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}"))
+        self.assertTrue(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}"))
+        self.assertFalse(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-2vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}"))
         # A hosted failover, or the wrong size (the same stalled pool), does not count.
         self.assertFalse(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"))
         self.assertFalse(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"))

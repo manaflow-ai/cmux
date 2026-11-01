@@ -6,6 +6,7 @@
 
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -16,7 +17,7 @@ use cmux_link::connect_info::{
 use cmux_link::dial::{
     CloudEvent, CloudEventRequest, DialError, DialReply, DialRequest, Service, ServiceHello, line,
 };
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use super::dial::{DIAL_TIMEOUT, Overlay, reply};
 use super::locked;
@@ -38,22 +39,86 @@ pub(super) trait ConnectInfoSource: Send + Sync + 'static {
     ) -> impl Future<Output = Result<LinkTokenGrant, ConnectInfoError>> + Send;
 }
 
-/// The host credential relay (`cmux.credential.relay`, owned by the apps
-/// lanes). It is not served yet, so every call answers `Unavailable` and a
-/// Cloud dial reports `unreachable`. Gated off until the relay ships.
-pub(super) struct RelaySource;
+/// The dedicated link credential relay. The socket is owned by the signed-in
+/// Mac app and admits only the link process it launched; the install token
+/// never crosses this boundary. A missing socket remains an unavailable
+/// source, so a signed-out or old build fails closed.
+#[derive(Clone, Debug, Default)]
+pub(super) struct RelaySource(Option<PathBuf>);
+
+impl RelaySource {
+    pub(super) fn unavailable() -> Self {
+        Self(None)
+    }
+    pub(super) fn socket(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+    async fn request(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, ConnectInfoError> {
+        let Some(path) = &self.0 else { return Err(relay_unavailable()) };
+        let mut stream = tokio::time::timeout(DIAL_TIMEOUT, tokio::net::UnixStream::connect(path))
+            .await
+            .map_err(|_| relay_unavailable())?
+            .map_err(|_| relay_unavailable())?;
+        let mut line = serde_json::to_vec(&body).map_err(|_| relay_unavailable())?;
+        line.push(b'\n');
+        tokio::time::timeout(DIAL_TIMEOUT, stream.write_all(&line))
+            .await
+            .map_err(|_| relay_unavailable())?
+            .map_err(|_| relay_unavailable())?;
+        let mut answer = String::new();
+        let bytes = tokio::time::timeout(
+            DIAL_TIMEOUT,
+            BufReader::new(stream).take(64 * 1024).read_line(&mut answer),
+        )
+        .await
+        .map_err(|_| relay_unavailable())?
+        .map_err(|_| relay_unavailable())?;
+        if bytes == 0 || !answer.ends_with('\n') || answer.len() > 64 * 1024 {
+            return Err(ConnectInfoError::Unavailable(
+                "the link credential relay sent a truncated response".into(),
+            ));
+        }
+        let value: serde_json::Value = serde_json::from_str(answer.trim()).map_err(|_| {
+            ConnectInfoError::Unavailable("the link credential relay sent invalid JSON".into())
+        })?;
+        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        }
+        let error = value.get("error");
+        let field =
+            |name: &str| error.and_then(|e| e.get(name)).and_then(serde_json::Value::as_str);
+        let code = field("code").unwrap_or("owner.unreachable");
+        let message = field("message").unwrap_or("the link credential relay refused");
+        Err(ConnectInfoError::from_code(code, message))
+    }
+}
 
 impl ConnectInfoSource for RelaySource {
-    async fn fetch(&self, _host: &str) -> Result<ConnectInfo, ConnectInfoError> {
-        Err(relay_unavailable())
+    async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
+        let value = self.request(serde_json::json!({"op":"connect_info","host":host})).await?;
+        serde_json::from_value(value).map_err(|_| {
+            ConnectInfoError::Unavailable(
+                "the link credential relay sent an invalid connect_info".into(),
+            )
+        })
     }
 
     async fn mint_token(
         &self,
-        _host: &str,
-        _services: &[Service],
+        host: &str,
+        services: &[Service],
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
-        Err(relay_unavailable())
+        let value = self
+            .request(serde_json::json!({"op":"link_token","host":host,"services":services}))
+            .await?;
+        serde_json::from_value(value).map_err(|_| {
+            ConnectInfoError::Unavailable(
+                "the link credential relay sent an invalid link_token".into(),
+            )
+        })
     }
 }
 

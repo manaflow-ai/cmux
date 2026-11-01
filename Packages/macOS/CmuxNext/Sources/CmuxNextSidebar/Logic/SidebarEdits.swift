@@ -46,9 +46,8 @@ public nonisolated enum SidebarEdits {
         case let .toggleCollapse(target):
             return toggleCollapse(target, in: &sections)
         case let .close(ids):
-            let held = groupsWithMembers(sections)
+            // Closing a member never closes its group; keep the header's identity and position.
             let removed = removeWorkspaces(Set(ids), from: &sections)
-            pruneEmptyGroups(in: &sections, keeping: nil, emptiedFrom: held)
             return !removed.isEmpty
         case let .rename(id, title):
             return mutateWorkspaces([id], in: &sections) { $0.title = title }

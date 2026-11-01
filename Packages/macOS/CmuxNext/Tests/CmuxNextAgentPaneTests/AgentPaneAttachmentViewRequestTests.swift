@@ -3,17 +3,17 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `pane.setAttachmentView {view}` (the composer's Inline or Strip choice): the host writes
-/// `agentPane.attachmentView` and refuses anything but the two views.
+/// `pane.setAttachmentView {view}` (the composer's Inline, Strip or Inline and Strip choice): the host writes
+/// `agentPane.attachmentView` and refuses anything but the three views.
 struct AgentPaneAttachmentViewRequestTests {
-    @Test(arguments: ["inline", "strip"])
+    @Test(arguments: ["inline", "strip", "both"])
     func eachViewWritesTheKey(_ view: String) {
         let request = AgentPaneRequest(body: ["method": "pane.setAttachmentView", "params": ["view": view]])
         #expect(request == .displaySetting(path: ["agentPane", "attachmentView"], value: .string(view)))
     }
 
     @Test func anythingElseIsRefused() {
-        for params: [String: Any] in [["view": "row"], ["view": "Strip"], ["view": true], ["view": NSNull()], [:]] {
+        for params: [String: Any] in [["view": "row"], ["view": "Strip"], ["view": "Both"], ["view": true], ["view": NSNull()], [:]] {
             let request = AgentPaneRequest(body: ["method": "pane.setAttachmentView", "params": params])
             #expect(request == .unsupported("pane.setAttachmentView"))
         }
