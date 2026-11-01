@@ -552,11 +552,14 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   CloudLinkSession objects. Carrier paths and ownership markers are never sent
   to the phone; conflicting duplicate machine/team entries are omitted.
 - `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
-  resolves exactly one current owner link from the app, performs the normal
-  `link.dial` handshake for the Cloud machine's daemon, and forwards ACP JSON
-  frames to the machine adapter. VM-side policy maps supported chat calls to
-  scoped agent-session operations and retains remote-origin asking and approval
-  checks; this service never opens a phone-supplied socket or arbitrary service.
+  resolves exactly one current owner link from the app. This socket is already
+  the Cloud app server's daemon carrier; no second `link.dial` or service hello
+  is sent. Rust hostd negotiates `cloud-mobile-chat-v1`, discovers the VM's stored
+  agent tabs, and translates the phone's ACP requests to scoped native
+  `agent-session-*` commands. ACP pages and records keep their original sequence
+  numbers. Text prompts answer on durable acceptance; cancel and history paging
+  are supported. Approval answers, mode changes and arbitrary daemon commands
+  are refused. The VM enforces the authenticated owner and phone prompt policy.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.

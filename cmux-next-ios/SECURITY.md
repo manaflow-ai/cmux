@@ -113,12 +113,23 @@ conflicting link cannot be selected.
 `cloud-acpmux` accepts a machine id and team id from that directory and asks
 the app for another fresh snapshot. Hostd requires exactly one matching owner
 link and an absolute socket path supplied by the app. It performs the normal
-`link.dial` handshake for that machine's `daemon` service and then forwards the
-ACP stream to the Cloud machine's native adapter. The VM adapter remains the
-security boundary: it maps the supported chat calls to scoped agent-session
-operations and applies the same remote-origin asking-mode and approval checks
-as the Mac acpmux path. Hostd never opens a phone-supplied path, accepts an
-arbitrary service, or treats the carrier as a local-owner connection.
+native client handshake on that machine's existing daemon carrier (the Cloud
+app server has already dialed it). Rust hostd maps the supported ACP calls to
+`list-workspaces` and typed `agent-session-attach/events/prompt/cancel/detach`
+commands. Surface ids come only from the daemon's stored agent tabs, never
+from phone arguments. Prompt ids are preserved, and pages/live records are
+forwarded without synthesizing transcript entries or sequence numbers. Native
+request ids are distinct from phone ids, with a bounded pending map and expiry;
+stream routing is indexed by surface rather than scanning the session list.
+
+The VM remains the authority: every admitted mobile command needs its owner
+principal, and prompts retain the phone's asking-mode restrictions through
+dispatch. No Mac approval signature or Full-access setting is transplanted to
+the VM. Approval answers, mode changes, file operations and other native
+commands are unsupported on this service. Hostd never opens a phone-supplied
+path, accepts an arbitrary service, or treats the carrier as a local-owner
+connection. Sign-out stops the supervised hostd and its channels; each new
+channel needs a fresh app snapshot.
 
 ## `file`: read-only previews
 
