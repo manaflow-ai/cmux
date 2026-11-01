@@ -20,18 +20,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The capability map from .github/runners.json (fleet Linux first, Blacksmith as overflow), as ci-web.yml
-  # resolves it; a fork gets the hosted fleet with no configuration.
-  runners:
-    uses: ./.github/workflows/resolve-runners.yml
-    permissions:
-      contents: read
-
   cloud-backend:
     name: pr-cloud-backend-check
-    needs: runners
-    # A Linux-class path check (git, bash, python3), so it runs on the map's Linux runner.
-    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux }}
+    # A Linux-class path check (git, bash, python3). It reads the live Linux pool (RUNNER_POOLS, which
+    # runner_pools.py moves off a size that starts nothing), not the capability map's one fixed
+    # blacksmith-4vcpu label: on 2026-10-31 it sat 46 min queued there (tests/test_ci_runner_set.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:

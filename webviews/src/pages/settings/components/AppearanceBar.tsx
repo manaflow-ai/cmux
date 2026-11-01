@@ -1,10 +1,13 @@
-// Settings > Appearance's floating Undo, Redo and Reset (Leo, 10-19): pinned to the bottom right of
-// the content while Appearance shows, so a wrong pick is always one click from undone. Reset is a
+// Settings > Appearance's floating Presets, Undo, Redo and Reset (Leo, 10-19 and 10-20): pinned to the
+// bottom right of the content while Appearance shows, so a whole look is one click and a wrong pick
+// is always one click from undone. Presets set the window's Opacity and Material and every surface's
+// opacity at once (appearancePresets.ts), as one undoable step. Reset is a
 // menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults, each
 // confirmed inline and itself undoable.
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";
+import { activePreset, APPEARANCE_PRESETS } from "../appearancePresets";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -32,6 +35,7 @@ export function AppearanceBar() {
   const redoLabel = redo ? t("settingsPage.history.redoNamed", redo.label) : t("settingsPage.history.redo");
   const canRestore = store.appearanceChangedSinceOpened();
   const canReset = store.appearanceCustomized();
+  const preset = activePreset(state);
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     try {
@@ -76,6 +80,32 @@ export function AppearanceBar() {
         </span>
       ) : (
         <>
+          <Menu>
+            <MenuButton
+              className="button"
+              label={t("settingsPage.presets.menu")}
+              data-menu="appearance-presets"
+              disabled={!live}
+              aria-haspopup="menu"
+            >
+              <span>{t("settingsPage.presets.title")}</span>
+            </MenuButton>
+            <MenuPopup side="top" align="end">
+              <MenuRadioGroup
+                value={preset ?? ""}
+                onValueChange={(id) => {
+                  const picked = APPEARANCE_PRESETS.find((item) => item.id === id);
+                  if (picked) void run(() => store.applyAppearancePreset(picked));
+                }}
+              >
+                {APPEARANCE_PRESETS.map((item) => (
+                  <MenuRadioItem key={item.id} value={item.id} closeOnClick>
+                    {t(item.nameKey)}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
           <Tooltip /* tooltip-allow: names the step Undo takes back */ label={undoLabel} side="top">
             <button
               type="button"

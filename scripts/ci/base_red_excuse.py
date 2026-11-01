@@ -22,6 +22,19 @@ abort, EXC_*, Fatal error) is the head's whatever the base shows; and a run
 whose per-test results are cut short (no summary, ended early, stuck) is the
 head's, since nothing in it can be compared.
 
+A failing test is the base's when it failed on any of the newest BASE_WINDOW base verdicts for its job, not only
+the newest (2026-11-01). The newest verdict still decides whether the job is red on the base at all: when it is
+not a failure, nothing older is read (fixed_on_base, below). When it is, a head failing test, failed step or error
+line that the newest red run lacks is looked for in the older verdicts, newest first, at most BASE_WINDOW verdicts
+within BASE_WINDOW_HOURS of the newest, and only back to the first green one: a green base run means every
+test passed there, so an older red may predate a fix and never counts. A crash, a cut-short run, the
+Chromium check, a process signal and the panic ratchet are judged against the newest alone, as before. Why: the
+feat-cmux-next tip Swift suite fails 59 to 106 tests on every run and the set churns:
+modelModeAndOptionPicksGoToThisChat() failed on run 41282022128, passed on 41298073172 and failed again on
+41303556638, and 56 of the 115 tests that failed on the last six runs failed on only one of them. So a pull
+request's test that is flaky on the base read as its own red whenever the newest run happened to pass it, and
+reviewed PRs sat. The audit line names the run each such test failed on.
+
 A compile check that gave no verdict (the build fleet's "no result", "No build-fleet verdict") is never a
 base red, even with the base's identical line: nothing compiled the head. It is set aside only when the
 same head has a real compile pass (a green Mac Release compile or a cmux-next/compile success). Error
@@ -41,6 +54,7 @@ import importlib.util
 import json
 import re
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
@@ -137,7 +151,16 @@ SUITES = {
     # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
     "cmux NEXT DEV daily": frozenset(),
 }
-TIP_SUITE_JOB_READS = 6
+# The base-red window (2026-11-01): how many of the newest base verdicts for a job a head's failing test may have
+# failed on. Only the newest decides whether the job is red on the base at all; the window only widens which
+# failing tests count as the base's (see the module docstring). The tip Swift suite runs about every 1.5 to 2 hours
+# and one page of BASE_RUNS_PAGE dispatches reaches back about 11 hours (DEV daily runs land about 9 an hour), so 5
+# verdicts (about 8 to 10 hours of the suite) fit in that page with TIP_SUITE_JOB_READS to spare for a lost run.
+# Older verdicts are read only when the newer ones leave a head test unexcused, one log each, and never one more
+# than BASE_WINDOW_HOURS older than the newest.
+BASE_WINDOW = 5
+BASE_WINDOW_HOURS = 24
+TIP_SUITE_JOB_READS = BASE_WINDOW + 2
 # The jobs of the cmux-tui tree tiers (cmux_next_tree_notify.TIERS: daemon, scheme). A tip daemon suite or base tier
 # dispatch whose tree has not published yet skips them and leaves them to the same-tree run its publish dispatches,
 # which carries the same `<title><tested sha>` name. So a suite run with a newer run of the same name (queued,
@@ -655,9 +678,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
     return list(jobs.values())
 
 
-def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
-                      base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
-    """The newest completed suite run of BASE with a verdict for job NAME, and that job."""
+def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_jobs: dict[int, list[dict]]):
+    """(run, job) for each completed suite run of BASE with a verdict for job NAME, newest first, read lazily."""
     # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
                          f"&per_page={BASE_RUNS_PAGE}")
@@ -673,8 +695,42 @@ def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                 for found in page.get("jobs") or []]
         found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
         if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
-            return run, found
-    return None, None
+            yield run, found
+
+
+def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: dict, base_jobs: dict,
+                  job_reads: dict):
+    """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
+    BASE_RUNS_PAGE runs (at most BASE_JOB_READS job lists per workflow), then, for a SUITE_JOBS job, the base's
+    dispatches (tip_suite_verdicts). A base push run's Mac job is often cancelled by the next push, or refused by a
+    mini, so a run with no verdict for the job is passed over."""
+    seen: set[int] = set()
+    for candidate_run in base_runs[workflow]:
+        if never_carries(candidate_run, name):
+            continue
+        if candidate_run["id"] not in base_jobs:
+            if job_reads.get(workflow, 0) >= BASE_JOB_READS:
+                break
+            job_reads[workflow] = job_reads.get(workflow, 0) + 1
+            base_jobs[candidate_run["id"]] = [found for page in github.json(
+                f"repos/{repo}/actions/runs/{candidate_run['id']}/jobs?filter=latest&per_page=100", paginate=True)
+                for found in page.get("jobs") or []]
+        found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
+        if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
+            seen.add(candidate_run["id"])
+            yield candidate_run, found
+    if name in SUITE_JOBS:
+        for run, found in tip_suite_verdicts(repo, base, workflow, name, github, base_jobs):
+            if run["id"] not in seen:
+                seen.add(run["id"])
+                yield run, found
+
+
+def created(run: dict) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 # Fixed on the base (2026-10-31): a pull request whose merge-base is older than a base fix keeps the red the fix
@@ -818,6 +874,66 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
             f"{'; '.join(sorted(tests))[:400]}")
 
 
+class Final(Refused):
+    """A refusal no older base verdict can lift: it is judged against the newest verdict alone."""
+
+
+def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, window: list,
+                   chromium_without_diagnostics: bool) -> str:
+    """The audit line for red job NAME (HEAD: its signature) when each of its failures is on some red base verdict of
+    WINDOW (newest first: (run, log, signature)); raises Refused naming the first that is on none, Final when the
+    newest verdict's log alone (the Chromium check, a process signal, the panic ratchet) refuses it."""
+    base_run, base_log, _ = window[0]
+    runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
+    head_steps, head_tests, head_errors = head
+    head_crash = crash_signals(head_log)
+    base_steps, base_tests, base_errors, on = set(), set(), set(), {}
+    for run, _, (steps, tests, errors) in window:
+        base_steps, base_tests, base_errors = base_steps | steps, base_tests | tests, base_errors | errors
+        for test in tests:
+            on.setdefault(test, run["id"])
+    if chromium_without_diagnostics and (window[0][2][1] or window[0][2][2] or crash_signals(base_log)):
+        raise Final(f"'{name}': no failing test or error line to match; nothing to compare with the base")
+    verdict = test_reds.classify_any(head_log, [(f"{base} run {run['id']}", text) for run, text, _ in window], name)
+    if verdict is not None and verdict.own:
+        raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
+    # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
+    if missing := sorted(head_crash - crash_signals(base_log)):
+        raise Final(f"'{name}': the process died on signal {', '.join(missing)}, "
+                    f"and {base} run {base_run['id']} did not")
+    # The ratchet's error line names the run's packages, not its red: its rows are compared instead (RATCHET_SCOPE).
+    ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
+    if ratchet:
+        try:
+            unmatched = ratchet_unmatched(head_log, base_log)
+        except Refused as error:
+            raise Final(f"'{name}': {error}") from None
+        if unmatched:
+            raise Final(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
+                        f"{'; '.join(unmatched)[:600]}")
+        head_errors = head_errors - ratchet
+    compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
+    if not head_tests:
+        compared.append(("errors", head_errors, base_errors))
+    for kind, head, seen in compared:
+        if missing := sorted(head - seen):
+            raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
+    rows = [f"{crate}: clippy::{lint} {count} > {where}"
+            for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
+    what = ("; ".join(test if on[test] == base_run["id"] else f"{test} (red on run {on[test]})"
+                      for test in sorted(head_tests))
+            or "; ".join(rows + sorted(head_errors)))
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
+    # once every 15 minutes, so name the commit and time it is from.
+    at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+    when = f", {base_run['created_at']}" if base_run.get("created_at") else ""
+    older = (f" or one of the {len(window) - 1} red {base} verdict(s) before it (runs "
+             f"{', '.join(str(w[0]['id']) for w in window[1:])})") if len(window) > 1 else ""
+    return (f"excused '{name}': {base} run {base_run['id']}{at} (the newest {base} verdict for it{when}){older} "
+            f"fails the same way ({url}): {what[:400]}")
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
@@ -861,25 +977,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                  f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
-        # The newest base run where this job has a verdict decides: a base push
-        # run's Mac job is often cancelled by the next push, or refused by a mini.
-        base_run = base_job = None
-        for candidate_run in base_runs[workflow]:
-            if never_carries(candidate_run, name):
-                continue
-            if candidate_run["id"] not in base_jobs:
-                if job_reads.get(workflow, 0) >= BASE_JOB_READS:
-                    break
-                job_reads[workflow] = job_reads.get(workflow, 0) + 1
-                base_jobs[candidate_run["id"]] = [found for page in github.json(
-                    f"repos/{repo}/actions/runs/{candidate_run['id']}/jobs?filter=latest&per_page=100", paginate=True)
-                    for found in page.get("jobs") or []]
-            found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
-            if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
-                base_run, base_job = candidate_run, found
-                break
-        if base_run is None and name in SUITE_JOBS:
-            base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
+        # The newest base run where this job has a verdict decides whether it is red on the base.
+        verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads)
+        base_run, base_job = next(verdicts, (None, None))
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
@@ -891,48 +991,28 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
-        head_steps, head_tests, head_errors = signature(job, head_log)
-        head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash and not chromium_without_diagnostics:
+        head = signature(job, head_log)
+        if not head[1] and not head[2] and not crash_signals(head_log) and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
-        base_log = github.log(repo, base_job)
-        base_steps, base_tests, base_errors = signature(base_job, base_log)
-        if chromium_without_diagnostics and (base_tests or base_errors or crash_signals(base_log)):
-            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
-        verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
-        if verdict is not None and verdict.own:
-            raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
-        # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
-        if missing := sorted(head_crash - crash_signals(base_log)):
-            raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, "
-                          f"and {base} run {base_run['id']} did not")
-        # The ratchet's error line names the run's packages, not its red: its rows are compared instead (RATCHET_SCOPE).
-        ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
-        if ratchet:
+        # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
+        # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
+        def red(run: dict, found: dict) -> tuple:
+            text = github.log(repo, found)
+            return run, text, signature(found, text)
+        window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        while True:
             try:
-                unmatched = ratchet_unmatched(head_log, base_log)
-            except Refused as error:
-                raise Refused(f"'{name}': {error}") from None
-            if unmatched:
-                raise Refused(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
-                              f"{'; '.join(unmatched)[:600]}")
-            head_errors = head_errors - ratchet
-        compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-        if not head_tests:
-            compared.append(("errors", head_errors, base_errors))
-        for kind, head, seen in compared:
-            if missing := sorted(head - seen):
-                raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        rows = [f"{crate}: clippy::{lint} {count} > {where}"
-                for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
-        what = "; ".join(sorted(head_tests)) or "; ".join(rows + sorted(head_errors))
-        url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
-        # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
-        # once every 15 minutes, so name the commit and time it is from.
-        at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
-        when = f", {base_run['created_at']}" if base_run.get("created_at") else ""
-        audit.append(f"excused '{name}': {base} run {base_run['id']}{at} (the newest {base} verdict for it{when}) "
-                     f"fails the same way ({url}): {what[:400]}")
+                audit.append(compare_window(repo, base, name, head, head_log, window, chromium_without_diagnostics))
+                break
+            except Final:
+                raise
+            except Refused:
+                run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
+                if (run is None or found.get("conclusion") != "failure"
+                        or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
+                    raise
+                read += 1
+                window.append(red(run, found))
     return audit
 
 

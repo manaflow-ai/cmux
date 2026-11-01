@@ -345,6 +345,28 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
+/// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
+/// when an agent or script asks (#30263), so the CLI waits as long as the app's person deadline:
+/// a late Make Link still reaches the caller instead of a link nobody receives.
+#[test]
+fn share_chat_waits_for_the_owners_answer() {
+    let sent = match parse(&args(&["share", "chat", "--surface", "1"])) {
+        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+            Some((method, params, timeout))
+        }
+        _ => None,
+    };
+    assert!(sent.is_some(), "expected one action.run call");
+    if let Some((method, params, timeout)) = sent {
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "share chat");
+        assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
+    }
+    assert_eq!(waiting_run_timeout("share chat"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("agent.share"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("share list"), WAITING_RUN_TIMEOUT);
+}
+
 /// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
 #[test]
 fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {

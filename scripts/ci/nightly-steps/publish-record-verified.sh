@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly: "Record verified nightly publication". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The marker is written only after immutable assets, aliases, release
+# metadata, and every appcast have succeeded. A rerun can therefore use
+# it as an idempotency record without mistaking a partial publication for
+# a complete one.
 set -euo pipefail
 {
   printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
