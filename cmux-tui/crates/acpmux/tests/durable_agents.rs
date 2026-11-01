@@ -498,6 +498,33 @@ async fn a_subagents_tool_call_across_a_restart_is_not_its_parent_turns() {
     ends_its_turn(&daemon, &session, &gate);
 }
 
+/// A subagent that runs across a restart is still the chat's subagent once the next daemon adopts
+/// its host: its next line is tagged with its session id and the summary still counts it. The
+/// adopting daemon started with no subagents, so the child's line after `host_adopted` reached
+/// clients untagged and read as the chat's own call (Leo: "why does it say you're still running
+/// grep" after a finished turn).
+#[tokio::test]
+async fn a_subagent_running_across_a_restart_keeps_its_tag_after_adoption() {
+    let (daemon, session, gate, entry) = adopted_after("adopt-sub", "child-gate", |e| {
+        e["kind"] == "tool_call" && e["msg"].pointer("/params/_meta/acpmux/subagent").is_some()
+    })
+    .await;
+    assert_eq!(entry["subagentsRunning"], 1, "its subagent still runs: {entry}");
+    assert_eq!(entry["subagentNames"], json!(["Child"]), "{entry}");
+    std::fs::write(&gate, b"go").unwrap();
+    let update = daemon.wait_event(&session, "the child's call ending", |e| {
+        e["kind"] == "tool_call_update"
+            && e["msg"].pointer("/params/update/toolCallId") == Some(&json!("cg-1"))
+    });
+    assert_eq!(
+        update["msg"].pointer("/params/_meta/acpmux/subagent"),
+        Some(&json!("child-1")),
+        "the subagent's line after adoption is tagged with its session: {update}"
+    );
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
 /// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
 /// the turn open until the turn's own prompt is answered; it settled the turn on the steer's
