@@ -27,7 +27,8 @@ extension GhosttyNSView {
         if appendCurrentSurfaceResumeMenuItems(to: menu) {
             menu.addItem(.separator())
         }
-        if appendForkCurrentAgentConversationMenuItems(to: menu) {
+        let addedForkItems = appendForkCurrentAgentConversationMenuItems(to: menu)
+        if appendSwitchClaudeAccountMenuItems(to: menu) || addedForkItems {
             menu.addItem(.separator())
         }
         appendMoveCurrentSurfaceMoveMenuItems(to: menu)
