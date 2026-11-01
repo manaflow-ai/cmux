@@ -207,6 +207,9 @@ export type HostLists = {
     levels: string[];
     current: Record<string, string | null>;
     config?: GhosttyTheme | null;
+    /** The Mac's own light or dark (the side of a light/dark pair the terminals use). The page's
+     * prefers-color-scheme is its window's, which a light or dark App Theme sets. */
+    system_scheme?: "light" | "dark";
   };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
@@ -604,7 +607,7 @@ export type HarnessRow = {
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */

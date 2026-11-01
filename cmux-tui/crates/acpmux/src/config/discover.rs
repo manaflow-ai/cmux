@@ -460,7 +460,11 @@ pub fn discover_harnesses_from(
     // PATH no npx adapter package is offered: it reads the account through
     // codex's `account/read`, which a ChatGPT login behind a routing proxy
     // (subrouter) fails, so its chats never started; the bridge does not.
-    if !codex_imported && let Some(codex) = which("codex") {
+    if !codex_imported
+        && let Some(codex) = which("codex").or_else(|| {
+            crate::managed_codex::configured_path().map(|p| p.to_string_lossy().into_owned())
+        })
+    {
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
         }
@@ -571,6 +575,28 @@ mod chief_tests {
         let mut found = BTreeMap::from([(CHIEF_PROFILE.to_owned(), mine.clone())]);
         add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
         assert_eq!(found[CHIEF_PROFILE], mine);
+    }
+
+    #[test]
+    fn the_chief_is_never_the_automatic_default_harness() {
+        // `chief` sorts before `claude`: with no configured default, every new chat on a Mac
+        // would start on the person's Chief (seen in the fleet capture, 2026-10-30).
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let mut claude = found[CHIEF_PROFILE].clone();
+        claude.argv = vec!["claude".into()];
+        claude.family = Some("claude".into());
+        found.insert("claude".into(), claude);
+        let mut cfg = crate::config::Config::default();
+        cfg.join_discovered(found.clone());
+        cfg.pick_auto_default_for_tests();
+        assert_eq!(cfg.default_harness.as_deref(), Some("claude"));
+        // With the Chief alone there is no automatic default at all.
+        let mut alone = crate::config::Config::default();
+        found.remove("claude");
+        alone.join_discovered(found);
+        alone.pick_auto_default_for_tests();
+        assert_eq!(alone.default_harness, None);
     }
 
     #[test]
