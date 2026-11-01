@@ -161,7 +161,7 @@
     "nightly-next-canary.yml:canary": {"class": "mac-sign", "warm": [], "exempt": "verification only: checks the feed's signed DMG with Gatekeeper and the notary tickets, compiles nothing"},
     "nightly-next-launch-smoke.yml:smoke": {"class": "nightly-release-compile", "warm": [], "exempt": "launches the feed's published DMG from a fresh home; compiles nothing"},
     "nightly-next-train.yml:build": {"class": "nightly-release-compile", "warm": ["deriveddata-reuse"]},
-    "nightly.yml:build-nightly-app": {"class": "nightly-release-compile", "warm": ["actions-cache", "product-reuse"]},
+    "nightly.yml:build-nightly-app": {"class": "nightly-release-compile", "warm": ["actions-cache", "product-reuse", "ssd-cas"]},
     "nightly.yml:build-nightly-ghostty-cli-helper": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-inputs": {"class": "webview", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-remote-daemon": {"class": "linux-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
