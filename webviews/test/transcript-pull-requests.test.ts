@@ -370,6 +370,19 @@ test("OrderedRows summary revisions track row addition, settling and removal", (
   expect(transcriptSummaryVersion(rows.sorted())).not.toBe(settled);
 });
 
+test("OrderedRows adopts an echoed prompt's event order while keeping its row id", () => {
+  const rows = new OrderedRows();
+  rows.set("local-prompt", { id: "local-prompt", kind: "user", text: "prompt", at: 1, version: 1 });
+  rows.current = 10;
+  rows.set("local-prompt", { id: "local-prompt", kind: "user", text: "prompt", at: 10, version: 2 });
+  rows.adoptEventOrder("local-prompt");
+  rows.current = 11;
+  rows.set("reply", { ...assistant("reply", 10), id: "reply", at: 11 });
+  rows.current = undefined;
+  rows.placeLocalLast();
+  expect(rows.sorted().map((row) => row.id)).toEqual(["local-prompt", "reply"]);
+});
+
 test("sessionSummary skips history across 50 mixed activity and assistant chunks", () => {
   const rows = new OrderedRows();
   let visits = 0;

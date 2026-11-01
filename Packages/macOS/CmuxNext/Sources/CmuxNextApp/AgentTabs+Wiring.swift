@@ -522,7 +522,11 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
-    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
+    /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
+    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
+    /// machine instead).
+    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
+                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+        isSignedIn && passesLogin
     }
 }

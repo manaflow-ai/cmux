@@ -43,6 +43,8 @@ mod chief_target;
 mod cloud_client_session;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_machine_io;
+#[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
@@ -144,6 +146,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "attention",
     "agent",
     "room",
+    "space",
     "closed",
     "git",
     "conversation",
@@ -496,6 +499,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
@@ -1196,6 +1200,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
+  space         List and organize spaces
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
@@ -1281,7 +1286,7 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
