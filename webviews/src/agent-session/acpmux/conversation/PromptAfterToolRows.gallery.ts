@@ -16,7 +16,7 @@ const rows = [
   user("Check the fleet for idle machines and stray sessions.", 10),
   activity([command("List the fleet's machines", "reach --list")], 9.9),
   activity([command("Show each lane's load", "sessions ls --load")], 9.8),
-  activity([command("Find idle runners", "glaeda-gh runners --idle")], 9.7),
+  activity([command("Find idle runners", "ci runners --idle")], 9.7),
   user(
     "make sure we're not randomly wasting money on random agents doing ineffective/inefficient stuff nor leaving machines idle for no reason",
     9.6,
