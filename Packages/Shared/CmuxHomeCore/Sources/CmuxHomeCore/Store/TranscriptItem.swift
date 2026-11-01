@@ -30,6 +30,12 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var messageID: MessageID?
     /// A persisted run message is readable and copyable, but is not a mutable conversation message.
     public var isReadOnly = false
+    /// For a row `HomeAgentMessages` inserted: the fold or the agent message it shows (the
+    /// renderer writes its words); nil for every conversation message.
+    public var agentMessage: HomeAgentMessageRow?
+    /// For a row of the Feed in the main Chief's transcript (``HomeFeedRow``); nil for every
+    /// conversation message.
+    public var feedRow: HomeFeedRow?
     /// Local files for this row's attachment parts, by content hash, when
     /// this client has them (my sends, before and after the echo). Empty
     /// otherwise: fetch the bytes with `HomeStore.fetchAttachment`.

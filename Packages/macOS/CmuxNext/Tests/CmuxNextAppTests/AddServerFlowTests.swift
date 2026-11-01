@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// (enter code, looking up, refused, review, approving, approve failed, added), every step has a
 /// Return and an Escape answer that a click on the same button also runs, a stale result never
 /// greets the next opening, and the code field takes the keyboard as the sheet opens.
-@MainActor @Suite(.serialized) struct AddServerFlowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AddServerFlowTests {
     let source: MockServerSource
     let model: ServerModel
 

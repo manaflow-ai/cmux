@@ -191,11 +191,11 @@ pub(super) fn move_tab(
     transaction: Option<String>,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
-    let valid = mux.with_state(|state| {
-        state.surfaces.contains_key(&surface)
-            && state.panes.contains_key(&pane)
-            && state.pane_of(surface).is_some()
-    });
+    // A placement is enough: a terminal still adopting after a daemon
+    // restart has no runtime surface yet and moves like any other tab
+    // (https://github.com/manaflow-ai/cmux/issues/25999).
+    let valid =
+        mux.with_state(|state| state.panes.contains_key(&pane) && state.pane_of(surface).is_some());
     if !valid {
         anyhow::bail!("unknown surface/pane");
     }

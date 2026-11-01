@@ -67,6 +67,35 @@ struct ChatTailCacheTests {
     /// The bound that keeps #23064 from coming back on this side: a tail over the cap is refused
     /// WHOLE. Cutting one and keeping its `historyExhausted` would tell the next page the chat has
     /// no older turns, and the reader could not scroll up to them.
+    /// A sidebar hover's hand-over (`ifNewer`, HQ#5914) is compared and kept in one step in the
+    /// host: it never goes backwards, whichever page wrote last, and a tie keeps the fuller tail
+    /// kept (the Codex reviews of #30739 at ea872ad4 and ed87dd77).
+    @Test func aHoversHandOverNeverReplacesTheSameOrANewerTail() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+        // Nothing kept: the hover's tail goes in.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(2, mark: "hover"), "ifNewer": true]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2])
+        // Another tab read on to 5: kept as ever.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(5, mark: "tab")]))
+        // A hover's older copy, written after it, is not kept.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3, mark: "hover"), "ifNewer": true]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3, 4, 5])
+        // One that ends on the same record, but holds less of the chat, is not kept either.
+        let shorter: [String: Any] = ["events": [["seq": 5, "kind": "user_message", "msg": ["text": "hover5"]]], "historyExhausted": false,
+                                      "queue": [], "configSeq": 0, "usageFromSeq": 0]
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": shorter, "ifNewer": true]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3, 4, 5])
+        // A newer one is.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(6, mark: "hover"), "ifNewer": true]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3, 4, 5, 6])
+        // The page host's op keeps the same rule.
+        let page = JSONValue.object(["sessionId": .string("s-1"), "ifNewer": .bool(true),
+                                     "tail": try #require(JSONValue(foundation: Self.tail(4, mark: "hover")))])
+        _ = try AgentPageProvider.tail("chat.tail", params: page, op: "chat.tail")
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3, 4, 5, 6])
+    }
+
     @Test func aTailOverTheCapIsRefusedWholeAndNeverCut() throws {
         defer { AgentPaneTailCache.shared.clear() }
         AgentPaneTailCache.shared.clear()

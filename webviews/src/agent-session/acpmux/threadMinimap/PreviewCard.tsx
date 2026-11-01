@@ -15,11 +15,12 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
   const side = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, side)}…${value.slice(-side)}`;
+  return `${sliceWhole(value, side)}…${sliceWholeEnd(value, side)}`;
 };
 
 const linkLabel = (href: string) => {
@@ -184,16 +185,21 @@ export const PreviewCard = React.forwardRef<
       } else {
         const lineHeight = Number.parseFloat(style.lineHeight) || 20;
         const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
-        const naturalReply = replyNode.cloneNode(true) as HTMLElement;
-        naturalReply.style.cssText =
-          "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
-        naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
-        node.append(naturalReply);
+        // The reply's natural height, read from the reply itself with its clamp lifted for the read
+        // (an inline style, put back before anything paints). A measuring copy appended to the card
+        // and removed again was two DOM insertions under the page's `:has()` rules on every row the
+        // pointer crossed, and each restyled the whole page (about 1,100 elements) twice per move.
+        const clamp = replyNode.getAttribute("style");
+        replyNode.style.setProperty("display", "block");
+        replyNode.style.setProperty("height", "auto");
+        replyNode.style.setProperty("max-height", "none");
+        replyNode.style.setProperty("-webkit-line-clamp", "unset");
         const naturalReplyLines = Math.max(
           1,
-          Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
+          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
         );
-        naturalReply.remove();
+        if (clamp === null) replyNode.removeAttribute("style");
+        else replyNode.setAttribute("style", clamp);
         // Match the old two-line prompt + four-line reply text budget for this same content. A
         // longer prompt spends only the reply lines it needs, so the card never grows because of it.
         const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
@@ -206,18 +212,38 @@ export const PreviewCard = React.forwardRef<
     },
     [place],
   );
+  /// The card's kind as of the last render, for the observer below, which outlives a content change.
+  const promptCard = useRef(prompt !== undefined);
+  promptCard.current = prompt !== undefined;
+  /// The card's size as of its last fit: a resize notification of that size (the observer's first,
+  /// or the one the fit's own budget change causes) fits nothing again.
+  const fitted = useRef({ width: -1, height: -1 });
+  const refit = useCallback(
+    (node: HTMLElement) => {
+      fit(node, promptCard.current);
+      // Laid out by the fit's own reads: these read no new layout.
+      fitted.current = { width: node.offsetWidth, height: node.offsetHeight };
+    },
+    [fit],
+  );
+  // A new prompt, reply or failure (the pointer reaching another row), or a change of kind: fit once.
+  useLayoutEffect(() => {
+    if (self.current) refit(self.current);
+  }, [metadata?.failure, metadata?.failed, prompt, reply, refit]);
+  // Content that grows or shrinks without a render (a font or an image loading, a wrap) fits again.
+  // One observer for the card's life, not one per row the pointer crosses (each new one notifies on
+  // observe, which fitted the card a second time per move). It stops with the card: disconnected in
+  // the cleanup when the card goes.
   useLayoutEffect(() => {
     const node = self.current;
-    if (!node) return;
-    const promptCard = prompt !== undefined;
-    const update = () => fit(node, promptCard);
-    update();
-    // Stops with the card's content (a new prompt, reply or failure, or a change of kind) or the
-    // card going: disconnected in the cleanup either way.
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
-    observer?.observe(node);
-    return () => observer?.disconnect();
-  }, [metadata?.failure, metadata?.failed, prompt, reply, fit]);
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height) return;
+      refit(node);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [refit]);
   const own = useCallback(
     (node: HTMLDivElement | null) => {
       self.current = node;

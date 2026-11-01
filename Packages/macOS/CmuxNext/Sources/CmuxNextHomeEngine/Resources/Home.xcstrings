@@ -12770,6 +12770,1062 @@
         }
       }
     },
+    "handlers.misc.home.deleteConversationTitle": {
+      "comment": "Home: the question Delete Conversation… asks.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد بالتأكيد حذف هذه المحادثة؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeste li sigurni da želite izbrisati ovaj razgovor?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Er du sikker på, at du vil slette denne samtale?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Möchtest du diese Unterhaltung wirklich löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to delete this conversation?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Seguro que quieres eliminar esta conversación?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voulez-vous vraiment supprimer cette conversation ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vuoi davvero eliminare questa conversazione?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この会話を削除してもよろしいですか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តើអ្នកប្រាកដថាចង់លុបការសន្ទនានេះទេ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 대화를 삭제하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Er du sikker på at du vil slette denne samtalen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czy na pewno chcesz usunąć tę rozmowę?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tem certeza de que deseja apagar esta conversa?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить этот разговор?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุณแน่ใจหรือไม่ว่าต้องการลบการสนทนานี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu konuşmayı silmek istediğinizden emin misiniz?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ви впевнені, що хочете видалити цю розмову?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bạn có chắc muốn xóa cuộc trò chuyện này không?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "确定要删除此对话吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確定要刪除此對話嗎？"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationMessage": {
+      "comment": "Home: the explanation under Delete Conversation…'s question.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ستُزال من قائمة الصفحة الرئيسية. تعيدها رسالة جديدة، ويعرضها «إظهار المحادثات المخفية» مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uklanja se s liste početne stranice. Nova poruka je vraća, a Prikaži skrivene razgovore je ponovo prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den fjernes fra din startliste. En ny besked bringer den tilbage, og Vis skjulte samtaler viser den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sie verschwindet aus deiner Startliste. Eine neue Nachricht bringt sie zurück, und „Ausgeblendete Unterhaltungen anzeigen“ listet sie wieder auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It leaves your Home list. A new message brings it back, and Show Hidden Conversations lists it again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sale de tu lista de Inicio. Un mensaje nuevo la recupera, y Mostrar conversaciones ocultas vuelve a mostrarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elle quitte votre liste d’accueil. Un nouveau message la fait revenir, et Afficher les conversations masquées la réaffiche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esce dal tuo elenco Home. Un nuovo messaggio la riporta, e Mostra conversazioni nascoste la elenca di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホームのリストから外れます。新しいメッセージが届くか、「非表示の会話を表示」で再び表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វានឹងចេញពីបញ្ជីទំព័រដើមរបស់អ្នក។ សារថ្មីនឹងនាំវាត្រឡប់មកវិញ ហើយ បង្ហាញការសន្ទនាដែលបានលាក់ នឹងបង្ហាញវាម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈 목록에서 사라집니다. 새 메시지가 오면 다시 나타나며, 숨긴 대화 보기로 다시 표시할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den fjernes fra startlisten din. En ny melding henter den tilbake, og Vis skjulte samtaler viser den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znika z listy strony głównej. Nowa wiadomość ją przywraca, a Pokaż ukryte rozmowy wyświetla ją ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ela sai da sua lista de Início. Uma nova mensagem a traz de volta, e Mostrar conversas ocultas a lista novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Он исчезнет из списка главной. Новое сообщение вернёт его, а «Показать скрытые разговоры» снова покажет его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสนทนาจะออกจากรายการหน้าหลักของคุณ ข้อความใหม่จะนำกลับมา และ แสดงการสนทนาที่ซ่อนไว้ จะแสดงอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana sayfa listenizden kalkar. Yeni bir mesaj onu geri getirir ve Gizli konuşmaları göster onu yeniden listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вона зникне зі списку головної. Нове повідомлення поверне її, а «Показати приховані розмови» знову покаже її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện sẽ rời khỏi danh sách Trang chủ. Tin nhắn mới sẽ đưa nó trở lại, và Hiện các cuộc trò chuyện đã ẩn sẽ liệt kê lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它会从主页列表中移除。收到新消息会让它回来，“显示隐藏的对话”也会再次列出它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它會從主頁列表中移除。收到新訊息會讓它回來，「顯示隱藏的對話」也會再次列出它。"
+          }
+        }
+      }
+    },
+    "handlers.misc.home.deleteConversationConfirm": {
+      "comment": "Home: Delete Conversation…'s confirm button.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apagar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除"
+          }
+        }
+      }
+    },
+    "home.chief.welcome.goTo": {
+      "comment": "Chief's welcome message: Markdown call-out of the Go to Workspace shortcut. %@ is the shortcut, such as ⌘P. Keep the ** and ` marks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Press `%@` to go anywhere.** It jumps to any open workspace, tab or agent, so it's the first shortcut to learn."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**اضغط `%@` للانتقال إلى أي مكان.** ينقلك إلى أي مساحة عمل أو علامة تبويب أو وكيل مفتوح، لذا فهو أول اختصار عليك تعلّمه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Pritisnite `%@` da odete bilo gdje.** Skače na bilo koji otvoreni radni prostor, karticu ili agenta, pa je to prva prečica koju treba naučiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Tryk på `%@` for at gå hvor som helst.** Den hopper til ethvert åbent arbejdsområde, fane eller agent, så det er den første genvej, du skal lære."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Drücke `%@`, um überallhin zu springen.** So erreichst du jeden offenen Workspace, Tab oder Agenten – das ist der erste Kurzbefehl, den du lernen solltest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Pulsa `%@` para ir a cualquier sitio.** Salta a cualquier espacio de trabajo, pestaña o agente abierto, así que es el primer atajo que conviene aprender."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Appuyez sur `%@` pour aller n'importe où.** Ce raccourci ouvre n'importe quel espace de travail, onglet ou agent ouvert : c'est le premier à retenir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Premi `%@` per andare ovunque.** Passa a qualsiasi spazio di lavoro, scheda o agente aperto, quindi è la prima scorciatoia da imparare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**`%@` を押せばどこへでも移動できます。** 開いているワークスペース、タブ、エージェントにすぐ移動できるので、最初に覚えるべきショートカットです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**ចុច `%@` ដើម្បីទៅកន្លែងណាក៏បាន។** វាលោតទៅកន្លែងធ្វើការ ផ្ទាំង ឬភ្នាក់ងារដែលបើកណាមួយ ដូច្នេះវាជាផ្លូវកាត់ដំបូងដែលត្រូវរៀន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**`%@`를 눌러 어디로든 이동하세요.** 열려 있는 워크스페이스, 탭, 에이전트로 바로 이동하므로 가장 먼저 익힐 단축키입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Trykk `%@` for å gå hvor som helst.** Den hopper til ethvert åpent arbeidsområde, fane eller agent, så det er den første snarveien du bør lære."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Naciśnij `%@`, aby przejść gdziekolwiek.** Przenosi do dowolnej otwartej przestrzeni roboczej, karty lub agenta, więc to pierwszy skrót, którego warto się nauczyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Pressione `%@` para ir a qualquer lugar.** Ele leva a qualquer espaço de trabalho, aba ou agente aberto, então é o primeiro atalho para aprender."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Нажмите `%@`, чтобы перейти куда угодно.** Это открывает любое рабочее пространство, вкладку или агента, поэтому это первое сочетание клавиш, которое стоит запомнить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**กด `%@` เพื่อไปที่ใดก็ได้** ใช้ข้ามไปยังเวิร์กสเปซ แท็บ หรือเอเจนต์ที่เปิดอยู่ จึงเป็นคีย์ลัดแรกที่ควรเรียนรู้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Her yere gitmek için `%@` tuşuna basın.** Açık olan herhangi bir çalışma alanına, sekmeye veya ajana atlar; öğrenilecek ilk kısayol budur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Натисніть `%@`, щоб перейти куди завгодно.** Це відкриває будь-який робочий простір, вкладку чи агента, тож це перше сполучення клавіш, яке варто запам'ятати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**Nhấn `%@` để đi đến bất cứ đâu.** Phím này chuyển đến mọi không gian làm việc, tab hoặc tác tử đang mở, nên đây là phím tắt đầu tiên cần học."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**按 `%@` 即可前往任何地方。** 它能跳转到任何已打开的工作区、标签页或代理，是最先该学会的快捷键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**按 `%@` 即可前往任何地方。** 它能跳到任何已開啟的工作區、分頁或代理，是最先該學會的快速鍵。"
+          }
+        }
+      }
+    },
+    "home.chief.welcome.shortcuts": {
+      "comment": "Chief's welcome message: heading over a list of keyboard shortcuts.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More shortcuts:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصارات أخرى:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još prečica:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flere genveje:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Kurzbefehle:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más atajos:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres raccourcis :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altre scorciatoie:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のショートカット："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លូវកាត់ផ្សេងទៀត៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 단축키:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flere snarveier:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Więcej skrótów:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais atalhos:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другие сочетания клавиш:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์ลัดอื่นๆ:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer kısayollar:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інші сполучення клавіш:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm phím tắt:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多快捷键："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多快速鍵："
+          }
+        }
+      }
+    },
+    "home.chief.welcome.examplesHeader": {
+      "comment": "Chief's welcome message: heading over example requests the user can send the Chief.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Things you can ask me:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمور يمكنك أن تطلبها مني:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šta me možete pitati:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ting, du kan bede mig om:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was du mich fragen kannst:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosas que puedes pedirme:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que vous pouvez me demander :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cose che puoi chiedermi:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "たとえばこんなことを頼めます："
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីដែលអ្នកអាចសួរខ្ញុំ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이런 걸 요청할 수 있어요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ting du kan spørre meg om:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O co możesz mnie poprosić:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coisas que você pode me pedir:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О чём можно меня попросить:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ่งที่คุณขอให้ฉันทำได้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benden isteyebilecekleriniz:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Про що можна мене попросити:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Những điều bạn có thể nhờ tôi:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以这样问我："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以這樣問我："
+          }
+        }
+      }
+    },
+    "home.chief.welcome.examples": {
+      "comment": "Chief's welcome message: four example requests, one Markdown list item per line. Keep the line breaks, the '- ' marks and the names Claude Code, Codex and localhost:3000.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Start a Claude Code agent to fix the failing tests in my repo\n- What are my agents working on right now?\n- Open localhost:3000 in a browser and tell me what's broken\n- Run three Codex agents on these issues, each in its own workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- شغّل وكيل Claude Code لإصلاح الاختبارات الفاشلة في مستودعي\n- على ماذا يعمل وكلائي الآن؟\n- افتح localhost:3000 في متصفح وأخبرني بما هو معطّل\n- شغّل ثلاثة وكلاء Codex على هذه المشكلات، كل منهم في مساحة عمل خاصة به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Pokreni Claude Code agenta da popravi neuspjele testove u mom repozitoriju\n- Na čemu moji agenti trenutno rade?\n- Otvori localhost:3000 u pregledniku i reci mi šta ne radi\n- Pokreni tri Codex agenta na ovim problemima, svakog u svom radnom prostoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Start en Claude Code-agent, der retter de fejlende tests i mit repo\n- Hvad arbejder mine agenter på lige nu?\n- Åbn localhost:3000 i en browser, og fortæl mig, hvad der er galt\n- Kør tre Codex-agenter på disse issues, hver i sit eget arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Starte einen Claude Code-Agenten, der die fehlschlagenden Tests in meinem Repo behebt\n- Woran arbeiten meine Agenten gerade?\n- Öffne localhost:3000 in einem Browser und sag mir, was kaputt ist\n- Setze drei Codex-Agenten auf diese Issues an, jeden in seinem eigenen Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Inicia un agente de Claude Code para arreglar las pruebas que fallan en mi repo\n- ¿En qué están trabajando mis agentes ahora mismo?\n- Abre localhost:3000 en un navegador y dime qué está roto\n- Ejecuta tres agentes de Codex con estas incidencias, cada uno en su propio espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Lance un agent Claude Code pour corriger les tests qui échouent dans mon dépôt\n- Sur quoi travaillent mes agents en ce moment ?\n- Ouvre localhost:3000 dans un navigateur et dis-moi ce qui ne va pas\n- Lance trois agents Codex sur ces tickets, chacun dans son propre espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Avvia un agente Claude Code per correggere i test che falliscono nel mio repo\n- Su cosa stanno lavorando i miei agenti adesso?\n- Apri localhost:3000 in un browser e dimmi cosa non funziona\n- Esegui tre agenti Codex su queste issue, ognuno nel proprio spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Claude Code エージェントを起動して、リポジトリの失敗しているテストを直して\n- いまエージェントたちは何をしている？\n- localhost:3000 をブラウザで開いて、どこが壊れているか教えて\n- この Issue に Codex エージェントを 3 つ、それぞれ別のワークスペースで走らせて"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- ចាប់ផ្ដើមភ្នាក់ងារ Claude Code ដើម្បីជួសជុលតេស្តដែលបរាជ័យក្នុង repo របស់ខ្ញុំ\n- តើភ្នាក់ងាររបស់ខ្ញុំកំពុងធ្វើអ្វីឥឡូវនេះ?\n- បើក localhost:3000 ក្នុងកម្មវិធីរុករក ហើយប្រាប់ខ្ញុំថាអ្វីខូច\n- ដំណើរការភ្នាក់ងារ Codex បីលើបញ្ហាទាំងនេះ ម្នាក់ៗក្នុងកន្លែងធ្វើការរបស់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Claude Code 에이전트를 시작해서 내 저장소의 실패하는 테스트를 고쳐 줘\n- 지금 내 에이전트들은 무슨 작업을 하고 있어?\n- 브라우저에서 localhost:3000을 열고 무엇이 망가졌는지 알려 줘\n- 이 이슈들에 Codex 에이전트 세 개를 각자 별도 워크스페이스에서 실행해 줘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Start en Claude Code-agent som fikser testene som feiler i repoet mitt\n- Hva jobber agentene mine med akkurat nå?\n- Åpne localhost:3000 i en nettleser og fortell meg hva som er galt\n- Kjør tre Codex-agenter på disse sakene, hver i sitt eget arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Uruchom agenta Claude Code, który naprawi nieprzechodzące testy w moim repozytorium\n- Nad czym teraz pracują moi agenci?\n- Otwórz localhost:3000 w przeglądarce i powiedz mi, co nie działa\n- Uruchom trzech agentów Codex do tych zgłoszeń, każdego w osobnej przestrzeni roboczej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Inicie um agente do Claude Code para corrigir os testes que estão falhando no meu repositório\n- No que meus agentes estão trabalhando agora?\n- Abra localhost:3000 em um navegador e me diga o que está quebrado\n- Rode três agentes do Codex nessas issues, cada um em seu próprio espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Запусти агента Claude Code, чтобы починить падающие тесты в моём репозитории\n- Над чем сейчас работают мои агенты?\n- Открой localhost:3000 в браузере и скажи, что сломано\n- Запусти трёх агентов Codex по этим задачам, каждого в своём рабочем пространстве"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- เริ่มเอเจนต์ Claude Code เพื่อแก้เทสต์ที่ล้มเหลวใน repo ของฉัน\n- ตอนนี้เอเจนต์ของฉันกำลังทำอะไรอยู่?\n- เปิด localhost:3000 ในเบราว์เซอร์แล้วบอกฉันว่าอะไรเสีย\n- รันเอเจนต์ Codex สามตัวกับ issue เหล่านี้ แต่ละตัวในเวิร์กสเปซของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Depomdaki başarısız testleri düzeltmesi için bir Claude Code ajanı başlat\n- Ajanlarım şu anda ne üzerinde çalışıyor?\n- localhost:3000'i bir tarayıcıda aç ve neyin bozuk olduğunu söyle\n- Bu sorunlar için her biri kendi çalışma alanında üç Codex ajanı çalıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Запусти агента Claude Code, щоб виправити тести, що падають, у моєму репозиторії\n- Над чим зараз працюють мої агенти?\n- Відкрий localhost:3000 у браузері й скажи, що зламано\n- Запусти трьох агентів Codex на ці задачі, кожного у власному робочому просторі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- Khởi động một tác tử Claude Code để sửa các bài kiểm thử đang lỗi trong repo của tôi\n- Các tác tử của tôi đang làm gì lúc này?\n- Mở localhost:3000 trong trình duyệt và cho tôi biết cái gì bị hỏng\n- Chạy ba tác tử Codex cho các issue này, mỗi tác tử trong không gian làm việc riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- 启动一个 Claude Code 代理，修复我仓库里失败的测试\n- 我的代理们现在在做什么？\n- 在浏览器中打开 localhost:3000，告诉我哪里坏了\n- 针对这些 issue 运行三个 Codex 代理，每个都在自己的工作区里"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "- 啟動一個 Claude Code 代理，修好我儲存庫裡失敗的測試\n- 我的代理們現在在做什麼？\n- 在瀏覽器中開啟 localhost:3000，告訴我哪裡壞了\n- 針對這些 issue 執行三個 Codex 代理，每個都在自己的工作區裡"
+          }
+        }
+      }
+    },
+    "home.chief.welcome.ask": {
+      "comment": "Chief's welcome message: its last line, what the user can ask the Chief about.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask me anything about cmux: how a feature works, managing your coding agents, or your browsers. Type below to start."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسألني أي شيء عن cmux: كيف تعمل ميزة ما، أو إدارة وكلاء البرمجة لديك، أو متصفحاتك. اكتب أدناه للبدء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitajte me bilo šta o cmux-u: kako radi neka funkcija, upravljanje vašim agentima za kodiranje ili vašim preglednicima. Pišite ispod da počnete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg mig om alt i cmux: hvordan en funktion virker, styring af dine kodeagenter eller dine browsere. Skriv nedenfor for at starte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frag mich alles zu cmux: wie eine Funktion arbeitet, wie du deine Coding-Agenten verwaltest oder deine Browser. Schreib unten, um loszulegen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregúntame cualquier cosa sobre cmux: cómo funciona una función, cómo gestionar tus agentes de programación o tus navegadores. Escribe abajo para empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posez-moi n'importe quelle question sur cmux : le fonctionnement d'une fonctionnalité, la gestion de vos agents de code ou de vos navigateurs. Écrivez ci-dessous pour commencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedimi qualsiasi cosa su cmux: come funziona una funzione, come gestire i tuoi agenti di programmazione o i tuoi browser. Scrivi qui sotto per iniziare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のことなら何でも聞いてください。機能の使い方、コーディングエージェントの管理、ブラウザのことまで。下に入力して始めましょう。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរខ្ញុំអ្វីក៏បានអំពី cmux៖ របៀបដែលមុខងារមួយដំណើរការ ការគ្រប់គ្រងភ្នាក់ងារសរសេរកូដរបស់អ្នក ឬកម្មវិធីរុករករបស់អ្នក។ វាយខាងក្រោមដើម្បីចាប់ផ្ដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 관한 건 무엇이든 물어보세요. 기능 사용법, 코딩 에이전트 관리, 브라우저까지요. 아래에 입력해 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør meg om hva som helst i cmux: hvordan en funksjon virker, styring av kodeagentene dine eller nettleserne dine. Skriv nedenfor for å begynne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj mnie o wszystko w cmux: jak działa dana funkcja, jak zarządzać agentami programistycznymi albo przeglądarkami. Napisz poniżej, aby zacząć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunte qualquer coisa sobre o cmux: como um recurso funciona, como gerenciar seus agentes de código ou seus navegadores. Digite abaixo para começar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивайте меня о чём угодно в cmux: как работает функция, как управлять агентами для кода или браузерами. Напишите ниже, чтобы начать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามฉันได้ทุกเรื่องเกี่ยวกับ cmux ไม่ว่าจะเป็นวิธีใช้ฟีเจอร์ การจัดการเอเจนต์เขียนโค้ด หรือเบราว์เซอร์ของคุณ พิมพ์ด้านล่างเพื่อเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hakkında bana her şeyi sorabilirsiniz: bir özelliğin nasıl çalıştığını, kodlama ajanlarınızı veya tarayıcılarınızı yönetmeyi. Başlamak için aşağıya yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питайте мене про будь-що в cmux: як працює функція, як керувати агентами для коду або браузерами. Напишіть нижче, щоб почати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy hỏi tôi bất cứ điều gì về cmux: một tính năng hoạt động thế nào, quản lý các tác tử lập trình hay trình duyệt của bạn. Nhập bên dưới để bắt đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于 cmux 的任何问题都可以问我：某个功能怎么用、如何管理你的编程代理，或你的浏览器。在下方输入即可开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關於 cmux 的任何問題都可以問我：某個功能怎麼用、如何管理你的程式代理，或你的瀏覽器。在下方輸入即可開始。"
+          }
+        }
+      }
+    },
     "home.engine.cropTitle": {
       "comment": "Title of the editor that moves and zooms a new Chief picture inside a circle before it is saved.",
       "extractionState": "manual",

@@ -17,7 +17,8 @@ each workspace count (the app holds that many terminal workspaces; the bench's i
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
 visible_ms, confirmed_ms and key_ms:
 
-  warm   the `idle` phase runs at the launched workspace count: each press after a shown terminal, its shell prompt
+  warm   the `idle` phase at every workspace count (`idle`, or `idle@<n>ws` with --workspaces; SUMMARY keeps each count
+         apart): each press after a shown terminal, its shell prompt
          (1 s), 0.4 s after the press before the undo, and 0.3 s after it, so the Ctrl-` stand-in and the New Tab
          page spare are ready
   quick  two quick presses (`--quick-runs`, default 6, per command): the command's key through `debug.key` (not
@@ -244,10 +245,13 @@ def arm_cold(relaunch):
 
 
 def arm_samples(rows, command, metric):
-    """{arm: samples} of `metric` for `command`: warm is the idle phase at the launched workspace count."""
+    """{arm: samples} of `metric` for `command`: warm is the idle phase at every workspace count, pooled (SUMMARY has each)."""
     out = {}
     if "warm" in ARMS:
-        out["warm"] = [r.get(metric) for r in rows if r.get("phase") == "idle" and not r.get("arm") and r.get("command") == command]
+        # The idle phase at every workspace count (`idle`, or `idle@<n>ws` with --workspaces): a phase name with a
+        # count never matched `== "idle"`, so a --workspaces run reported its warm arm as "no arm ran".
+        out["warm"] = [r.get(metric) for r in rows if (r.get("phase") or "").split("@")[0] == "idle" and not r.get("arm")
+                       and r.get("command") == command]
     for arm in ("quick", "cold"):
         if arm in ARMS:
             out[arm] = [r.get(metric) for r in rows if r.get("arm") == arm and r.get("command") == command]

@@ -27,6 +27,14 @@ struct HeaderPreviewTests {
         #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
     }
 
+    @Test func previewUsesTheChatAsItsPlacementSourceAfterATerminal() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        row.click("splitRight", toggles: toggles)
+        row.click("preview", toggles: toggles, url: Self.page)
+        #expect(row.invocations["openBrowser"]?.target?.id == row.chat)
+        #expect(row.invocations["openBrowser"]?.newColumnBeside == true)
+    }
+
     /// Browser and Preview both open browser tabs: each button keeps its own, wherever the user moves them.
     @Test func browserAndPreviewEachCloseTheirOwnTab() {
         let row = Row(), toggles = AgentChatSplitToggles()

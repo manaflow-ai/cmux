@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -344,7 +345,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source) { target, placed in
+        services.linkOpener.open(from: source, kind: .browser) { target, placed in
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }

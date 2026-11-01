@@ -31,7 +31,7 @@ enum RemoteGroupHandlers {
             // `cmux workspace group create --remote HOST --name N` names the group's header.
             let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let make = { (text: String) throws in
-                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
+                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive, byPerson: invocation.isPersonsRequest)
                 markWhenNamed(session, name: name)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
@@ -71,7 +71,7 @@ enum RemoteGroupHandlers {
             switch route(machine, machines) {
             case .wakeServer: machines.server(machine)?.wake()
             case .retryCloud: machines.session(machine)?.retry()
-            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine)))
+            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: invocation.origin))
             case .none: throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
         })

@@ -183,6 +183,36 @@
     },
     {
       "kind": "request",
+      "name": "agent-session-turn-prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent-session-turn-abandon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "trigger/chat.ensure",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "trigger/chat.send",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "trigger/chat.status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -380,6 +410,12 @@
     {
       "kind": "request",
       "name": "_acpmux/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workspace_purge",
       "params": true,
       "result": true
     },
@@ -764,7 +800,25 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/queue_approve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/queue_decline",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_text",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/queue_get",
       "params": true,
       "result": true
     },
@@ -1110,6 +1164,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -1276,6 +1336,30 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/api_key",
       "params": true,
       "result": true
     },
@@ -1466,6 +1550,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_notice",
       "params": true,
       "result": true
     },
@@ -1882,6 +1972,17 @@
       "additionalProperties": false,
       "description": "The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted\nthem, and accepted only from the unix socket or a peer forwarding for its own.",
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A link guest's prompts wait for the chat owner's approval."
+        },
         "id": {
           "description": "`tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes.",
           "type": "string"
@@ -1908,6 +2009,12 @@
         "name"
       ],
       "type": "object"
+    },
+    "AuthorApproval": {
+      "enum": [
+        "owner"
+      ],
+      "type": "string"
     },
     "AuthorMeta": {
       "properties": {
@@ -2197,6 +2304,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "promptIndex": {
+          "description": "Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,\nin one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -3447,6 +3561,9 @@
             "string",
             "null"
           ]
+        },
+        "source": {
+          "description": "The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise."
         }
       },
       "required": [
@@ -3469,6 +3586,11 @@
             }
           ],
           "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
+        },
+        "awaitingOwner": {
+          "default": false,
+          "description": "A person's prompt that waits for the chat's owner (`author.approval: \"owner\"`): the queue\nruns past it until the owner approves it (`_acpmux/queue_approve`, naming `turnId` and `revision`) or\ndeclines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.",
+          "type": "boolean"
         },
         "class": {
           "anyOf": [
@@ -3534,12 +3656,32 @@
           "minimum": 0,
           "type": "integer"
         },
+        "revision": {
+          "default": 0,
+          "description": "Its version for the owner's approval: 0 when queued, one more at each edit by its author.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subagentRetry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueuedSubagentRetry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "acpmux's own ask that the chat's agent resume a subagent that failed on a transient error\n(`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that\nsubagent's resume, not as the person's prompt. Null for any other prompt, and once edited\n(an edit drops the provenance)."
+        },
         "turnId": {
           "type": "string"
         }
       },
       "required": [
         "author",
+        "awaitingOwner",
         "class",
         "client",
         "fromAgent",
@@ -3551,7 +3693,38 @@
         "prompt",
         "promptId",
         "queuedAt",
+        "revision",
+        "subagentRetry",
         "turnId"
+      ],
+      "type": "object"
+    },
+    "QueuedSubagentRetry": {
+      "description": "The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).",
+      "properties": {
+        "agentId": {
+          "description": "The Agent tool's id for it, which the agent resumes it by.",
+          "type": "string"
+        },
+        "error": {
+          "description": "The transient error it failed on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Its task or name, when acpmux knew one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "agentId",
+        "error",
+        "name"
       ],
       "type": "object"
     },
@@ -4145,6 +4318,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "retiredAgentSessionIds": {
+          "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "retry": {
           "anyOf": [
             {
@@ -4680,6 +4860,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "retiredAgentSessionIds": {
+          "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "retry": {
           "anyOf": [
             {
@@ -4992,10 +5179,27 @@
     },
     "SessionsResult": {
       "properties": {
+        "delta": {
+          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "nextCursor": {
           "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "removed": {
+          "description": "With `delta`: the known sessions no longer listed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
             "null"
           ]
         },
@@ -5005,6 +5209,15 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
+        },
+        "unchanged": {
+          "description": "With `delta`: how many listed rows were left out as unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5304,6 +5517,16 @@
           "description": "Default true: every session's changes arrive as\n`_acpmux/session_changed`.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "known": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
+          "type": [
+            "object",
             "null"
           ]
         },

@@ -89,3 +89,78 @@ test("a project folder keeps its name", async () => {
   );
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web?");
 });
+
+test("a declined folder offers continuation without folder context", async () => {
+  let continued = 0;
+  await act(async () => {
+    root.render(
+      <TrustAsk
+        ask={{ state: "decided", level: "untrusted", cwd: "/Users/you/src/atlas-web" }}
+        agent="The agent"
+        onTrust={() => undefined}
+        onDistrust={() => undefined}
+        onUndo={() => undefined}
+        onContinueWithoutFolder={() => {
+          continued += 1;
+        }}
+      />,
+    );
+  });
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+    item.textContent?.includes("Continue without folder"),
+  );
+  expect(host.textContent).toContain("Attachments are not carried; they stay in the original chat.");
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+  expect(continued).toBe(1);
+});
+
+test("continuation disables duplicate clicks and reports a failed start for retry", async () => {
+  let reject!: (error: Error) => void;
+  let starts = 0;
+  let trusted = 0;
+  let undone = 0;
+  await act(async () =>
+    root.render(
+      <TrustAsk
+        ask={{ state: "decided", level: "untrusted", cwd: "/project" }}
+        agent="Agent"
+        onTrust={() => {
+          trusted += 1;
+        }}
+        onDistrust={() => {}}
+        onUndo={() => {
+          undone += 1;
+        }}
+        onContinueWithoutFolder={() => {
+          starts += 1;
+          return new Promise<void>((_, no) => {
+            reject = no;
+          });
+        }}
+      />,
+    ),
+  );
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent === "Continue without folder",
+  )!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  expect(starts).toBe(1);
+  expect(button.disabled).toBe(true);
+  const trust = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Trust folder");
+  const undo = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Undo");
+  expect(trust?.disabled).toBe(true);
+  expect(undo?.disabled).toBe(true);
+  await act(async () => {
+    trust?.click();
+    undo?.click();
+  });
+  expect(trusted).toBe(0);
+  expect(undone).toBe(0);
+  await act(async () => reject(new Error("offline")));
+  expect(button.disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+});

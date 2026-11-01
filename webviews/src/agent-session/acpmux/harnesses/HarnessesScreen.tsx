@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -173,7 +173,7 @@ export function HarnessesScreen({
         ids.map((id) =>
           callNative("harness.health", { id, refresh: true })
             .then((reply) => {
-              if (remember(id, reply)?.auth !== "signedOut") mark(id, undefined);
+              if (!needsLogin(remember(id, reply)?.auth)) mark(id, undefined);
             })
             .catch(() => {
               remember(id, { health: { id, auth: "unknown" } });
@@ -395,7 +395,7 @@ export function HarnessesScreen({
               <span className="acpmux-harness-text">
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span
-                  className="acpmux-harness-status"
+                  className="acpmux-harness-detail"
                   {...(doing?.kind === "failed" ? { title: doing.reason } : row.detail ? { title: row.detail } : {})}
                 >
                   {status}
@@ -421,7 +421,7 @@ export function HarnessesScreen({
       </ul>
       <button type="button" className="acpmux-harnesses-custom" data-harness-custom onClick={custom}>
         <span className="acpmux-harness-name">{t("harnesses.custom")}</span>
-        <span className="acpmux-harness-status">{t("harnesses.customDetail")}</span>
+        <span className="acpmux-harness-detail">{t("harnesses.customDetail")}</span>
       </button>
     </section>
   );

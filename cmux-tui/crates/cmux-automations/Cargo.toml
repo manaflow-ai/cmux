@@ -15,3 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 libc.workspace = true
+
+# Windows: whether a run's process is alive (OpenProcess, GetExitCodeProcess).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }

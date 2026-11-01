@@ -168,7 +168,7 @@ extension AppServices {
         let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID)
+        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).

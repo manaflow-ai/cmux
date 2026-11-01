@@ -19,6 +19,10 @@ fn check_local_resize_order(add_later_output: bool) {
     const WAIT: Duration = Duration::from_secs(5);
     let mux = Mux::new_for_test("local-resize-order", SurfaceOptions::default());
     let events = mux.subscribe();
+    // A second subscriber that the test drains first: once it has the last
+    // title, every title was published, and `events` has not been read yet,
+    // as a busy subscriber under the full suite's load had not.
+    let pace = mux.subscribe();
     let (reader, mut child) = UnixStream::pair().unwrap();
     let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
     let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
@@ -80,27 +84,42 @@ fn check_local_resize_order(add_later_output: bool) {
         surface.resize(40, 4)
     };
     let text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
+    // The drain parsed the queued title before the later output, on the old
+    // grid; the reader is still held here, so only the drain can have set it.
+    let drained_title = surface.as_pty().unwrap().title.lock().unwrap().clone();
     *surface.as_pty().unwrap().geometry_test_hook.lock().unwrap() = None;
     release_tx.send(()).unwrap();
     // No new output or EOF: the resize's wake must publish the drained title
     // without trying a blocking read on the readiness it already consumed.
+    let last_title = if add_later_output { "after-resize" } else { "resize-drained" };
     let deadline = Instant::now() + WAIT;
-    let mut title_published = false;
-    let later_output_published = loop {
+    loop {
+        match pace.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == last_title => break,
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    // The event bus keeps only a surface's newest title for a subscriber
+    // that has not read yet (event_bus.rs, CoalescedEventKey::Title). Read
+    // after `pace` saw the last title, `events` holds exactly that newest
+    // title: the drained one was published first and then replaced. The
+    // drain's own parse is checked through `drained_title` above; the order
+    // of publication comes from the design (one pending list, one publisher)
+    // and this test does not prove it.
+    let mut titles: Vec<String> = Vec::new();
+    loop {
         match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "resize-drained" => {
-                title_published = true;
-                if !add_later_output {
-                    break true;
+            Ok(MuxEvent::TitleChanged { title, .. }) => {
+                titles.push(title.to_string());
+                if title.as_ref() == last_title {
+                    break;
                 }
             }
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "after-resize" => {
-                break true;
-            }
             Ok(_) => continue,
-            Err(_) => break false,
+            Err(_) => break,
         }
-    };
+    }
     let later_text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
     drop(child);
     end_tx.send(()).unwrap();
@@ -108,8 +127,11 @@ fn check_local_resize_order(add_later_output: bool) {
     assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
     assert!(pty.reaper_completion.wait_until(Instant::now() + WAIT));
     resize.unwrap();
-    assert!(title_published, "the resize consumed output without publishing its title");
-    assert!(later_output_published, "output after the drain snapshot was not published");
+    assert_eq!(
+        drained_title, "resize-drained",
+        "the resize drained output without parsing its title"
+    );
+    assert_eq!(titles, [last_title], "a late subscriber sees exactly the newest title");
     assert_eq!(text.lines().next().unwrap_or_default().find('X'), Some(19), "{text:?}");
     if add_later_output {
         assert_eq!(

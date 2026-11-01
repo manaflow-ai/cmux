@@ -607,7 +607,7 @@ export type HarnessRow = {
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
@@ -908,6 +908,9 @@ export type ChannelBuild = {
   installed: boolean;
   /** This Mac kept a copy for rollback. */
   kept: boolean;
+  /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
+   * and pulled ones, on an app that follows a feed. Absent from older hosts. */
+  switch?: boolean;
   prs: { number: number; url: string }[];
 };
 
@@ -943,7 +946,16 @@ export type ChannelsState = {
   title: string;
   installed: string;
   switch: ChannelSwitch | null;
-  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  labels: {
+    you_are_here: string;
+    following: string;
+    kept: string;
+    compare: string;
+    commit: string;
+    release: string;
+    /** The rows' Switch button; absent from older hosts. */
+    switch?: string;
+  };
   tracks: ChannelTrack[];
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
@@ -965,6 +977,9 @@ export type SettingsOps = {
   /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   "cmux.settings.channels.update_machine": [{ id: string }, Record<string, never>];
+  /** Native: a build row's Switch: restarts once into that build, older or newer, downloading it
+   * first unless it is kept (the person's gesture only). */
+  "cmux.settings.channels.switch_build": [{ build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */

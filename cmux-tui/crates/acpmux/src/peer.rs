@@ -31,6 +31,9 @@ mod wanted;
 use wanted::BackoffWait;
 
 #[cfg(test)]
+#[path = "peer_features_tests.rs"]
+mod features_tests;
+#[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
 
@@ -169,14 +172,10 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
     native_history: AtomicBool,
-    /// Whether the peer saves a message's attachments (`attach.rs`).
-    send_attach: AtomicBool,
-    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
-    prompt_uploads: AtomicBool,
-    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
-    upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The features the peer listed at its last handshake (`lists`).
+    features: StdMutex<Vec<String>>,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
@@ -232,6 +231,12 @@ pub struct Peer {
     /// next frame, so a `session_changed` the peer sent after the reply reaches the hub after
     /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
+    /// Whether the peer answers a watch's `known` with a delta, and the rows the last list read
+    /// held (`watch_delta.rs`).
+    watch_delta: AtomicBool,
+    known: StdMutex<crate::watch_delta::Known>,
+    /// Whether the list `known` holds was read with tools: a delta is asked for the same way.
+    known_tools: AtomicBool,
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
@@ -304,10 +309,8 @@ impl Peer {
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             native_history: AtomicBool::new(false),
-            send_attach: AtomicBool::new(false),
-            prompt_uploads: AtomicBool::new(false),
-            upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            features: StdMutex::new(Vec::new()),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
@@ -332,6 +335,9 @@ impl Peer {
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
+            watch_delta: AtomicBool::new(false),
+            known: StdMutex::new(crate::watch_delta::Known::default()),
+            known_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
         })
     }
@@ -404,7 +410,17 @@ impl Peer {
     /// What its last handshake would have said of attachments: a test's peer that never ran.
     #[cfg(test)]
     pub(crate) fn seed_send_attach(&self, takes: bool) {
-        self.send_attach.store(takes, Ordering::SeqCst);
+        let mut features = self.features.lock_or_recover();
+        features.retain(|f| f != crate::attach::FEATURE);
+        if takes {
+            features.push(crate::attach::FEATURE.to_owned());
+        }
+    }
+
+    /// What its last handshake listed (`lists`): a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_features(&self, features: &[&str]) {
+        *self.features.lock_or_recover() = features.iter().map(|f| (*f).to_owned()).collect();
     }
 
     pub(crate) fn seed_cached_link(
@@ -744,6 +760,7 @@ impl Peer {
 
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
+        self.features.lock_or_recover().clear();
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
     }
@@ -764,11 +781,11 @@ impl Peer {
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
             "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
-            "localBuild": crate::hub::BUILD,
+            "localBuild": crate::hub::build(),
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
@@ -1271,11 +1288,14 @@ impl Peer {
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
             set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
-            set(&me.send_attach, crate::attach::FEATURE);
-            set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
-            set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
+            set(&me.watch_delta, crate::watch_delta::FEATURE);
+            // The rest are read from the list (`lists`): attachments, uploads, upload status,
+            // and holding a prompt for the owner.
+            let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
+            let listed = listed.into_iter().flatten().filter_map(Value::as_str);
+            *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init
@@ -1286,43 +1306,63 @@ impl Peer {
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            let watch = |tools| json!({"enabled": true, "withTools": tools});
+            // Without tools: an inventory is read per session, on an attachment (whose
+            // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
+            // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
+            // limit, and every link to it built and was refused one list before reading it
+            // again without them; without them 16.6 MB. A delta is asked for as the list it
+            // patches was read (`known_tools`).
+            let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
-            let first = if row_pages {
+            // A link that read the list before reads only what changed since (`watch_delta.rs`),
+            // with or without tools as that list was: a daemon serving it as a peer answers
+            // with a delta. One too large to send is read as the whole list is.
+            let delta =
+                me.watch_delta.load(Ordering::SeqCst) && me.served_as().as_deref() == Some("peer");
+            let known = delta.then(|| me.known.lock_or_recover().to_param());
+            let known = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty()));
+            let mut answered = None;
+            if let Some(known) = known {
+                let tools = me.known_tools.load(Ordering::SeqCst);
+                let mut asked = watch(tools);
+                asked.set("known", known);
+                match me.watch_paced(method::MUX_WATCH, asked, link).await {
+                    Err(e) if too_large(&e) => {
+                        tracing::warn!(peer = %me.name, "the watch delta is too large ({}); reading the whole list", e.message);
+                    }
+                    answer => answered = Some((answer?, tools)),
+                }
+            }
+            let first = if answered.is_some() {
+                answered
+            } else if row_pages {
                 tracing::info!(peer = %me.name, "the watch list needed pages of rows last time; reading it so");
                 me.watch_row_pages(link).await?;
                 None
             } else {
-                match me.watch_paced(method::MUX_WATCH, watch(true), link).await {
-                    // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
-                    // 2026-10-30) is read without them: the link connects with its rows' tools
-                    // missing rather than never. A peer on this build leaves its peers' rows out
-                    // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
+                match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
+                    // A peer from before #28182 sends a whole list in one message or not at
+                    // all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on 2026-10-30): it is
+                    // read in pages of a count of rows, which such a peer serves.
                     Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                        match me.watch_paced(method::MUX_WATCH, watch(false), link).await {
-                            // A peer from before #28182 sends a whole list in one message or not
-                            // at all (cosmic-gray's NIGHTLY, 16.4 MB without tools, on
-                            // 2026-10-30): it is read in pages of a count of rows, which such a
-                            // peer serves.
-                            Err(e) if too_large(&e) => {
-                                tracing::warn!(peer = %me.name, "the watch list is too large without tools ({}); reading it in pages", e.message);
-                                me.watch_row_pages(link).await?;
-                                *me.row_pages_for.lock_or_recover() = build.clone();
-                                None
-                            }
-                            answer => Some((answer?, false)),
-                        }
+                        tracing::warn!(peer = %me.name, "the watch list is too large ({}); reading it in pages", e.message);
+                        me.watch_row_pages(link).await?;
+                        *me.row_pages_for.lock_or_recover() = build.clone();
+                        None
                     }
-                    answer => Some((answer?, true)),
+                    answer => Some((answer?, false)),
                 }
             };
             // A list too large for one message comes in pages (a peer served as Web, over
             // plain ws://, gets the whole list): every page is read before the link connects,
             // and the reader publishes the list once, whole, after the last.
+            let tools = first.as_ref().is_some_and(|(_, tools)| *tools);
             if let Some((first, tools)) = first {
                 me.watch_pages(first, tools, link).await?;
             }
+            // Read whole (its last page too, or the delta): the next delta is asked for as this
+            // list was read (`watch_delta.rs`).
+            me.known_tools.store(tools, Ordering::SeqCst);
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -1524,6 +1564,15 @@ impl Peer {
                             if let (true, Ok(list)) = (watch, &reply) {
                                 let (mut rows, held) = paged.take().unwrap_or_default();
                                 rows.extend(watch_sessions(list));
+                                // The whole list a delta stands for; the rows of a whole list,
+                                // kept for the next link's delta (`watch_delta.rs`).
+                                let delta = crate::watch_delta::read_delta(list).map(|(_, removed)| removed);
+                                let last = matches!(page_cursor(list), Ok(None));
+                                match delta {
+                                    Some(removed) => rows = self.known.lock_or_recover().patched(std::mem::take(&mut rows), &removed),
+                                    None if last => self.known.lock_or_recover().listed(&rows),
+                                    None => {}
+                                }
                                 match page_cursor(list) {
                                     // More pages: the handshake asks for them.
                                     Ok(Some(_)) => {

@@ -12,6 +12,7 @@ app is uploaded. The Sentry upload stays non-fatal, as before.
 
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +30,7 @@ PROOF_START = "Prove the browser-data import is compiled out (cx-f58x notary tes
 PROOF_FINISH = "Finish the browser-data import proof"
 SENTRY_START = "Upload dSYMs to Sentry"
 SENTRY_FINISH = "Finish the dSYM upload to Sentry"
-PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback")
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
 
 
 def steps(job: str) -> list[dict]:
@@ -69,7 +70,12 @@ class BackgroundStepTests(unittest.TestCase):
         # Each step is its own shell, as on the runner: the background job
         # outlives the step that started it.
         env = {**os.environ, "PATH": self.path, "RUNNER_TEMP": str(self.runner_temp)}
-        return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
+        run = step(job, name)["run"]
+        # A step whose block moved to scripts/ci/nightly-steps/ calls it from the job's checkout.
+        for moved in re.findall(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh", run):
+            (self.ws / moved).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / moved, self.ws / moved)
+        return subprocess.run(["bash", "-e", "-c", run], cwd=self.ws, env=env,
                               text=True, capture_output=True, timeout=60)
 
     def test_the_proof_finishes_before_the_prepared_app_is_uploaded(self):

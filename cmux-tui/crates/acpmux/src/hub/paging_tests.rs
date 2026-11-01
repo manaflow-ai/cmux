@@ -384,3 +384,191 @@ fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
     let _ = std::fs::remove_dir_all(&root);
     (log_bytes, reads)
 }
+
+/// A reply whose session detail alone passes one message still fits (Astra review of #28754):
+/// the records go as stubs first, then the detail's own fields, largest first, each named.
+#[test]
+fn a_reply_fits_one_message_whatever_holds_its_bytes() {
+    let event = |seq: u64, text: &str| json!({"seq": seq, "kind": "agent_message_chunk", "msg": {"text": text}});
+    let mut reply = json!({
+        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(MAX_REPLY_BYTES), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
+        "events": [event(1, "a"), event(2, &"x".repeat(3 << 20))],
+        "turnOpener": event(0, "go"),
+    });
+    fit_reply(&mut reply);
+    let bytes = serde_json::to_string(&reply).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    // The large record is a stub; the small ones are as they were, never a larger stub.
+    assert_eq!(reply["events"][1]["msg"]["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
+    assert_eq!(reply["events"][0]["msg"]["text"], "a");
+    assert_eq!(reply["turnOpener"]["msg"]["text"], "go");
+    // Then the largest detail field went, and only as much as the reply needed.
+    let session = &reply["session"];
+    assert_eq!(session["configOptions"], Value::Null);
+    assert_eq!(session["models"].as_str().map(str::len), Some(5 << 20));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["configOptions"]));
+    assert_eq!(
+        (session["sessionId"].clone(), session["status"].clone()),
+        (json!("s"), json!("idle"))
+    );
+
+    // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
+    // from opening: past the detail, any field but the chat's identity goes to its empty value.
+    let mut titled = json!({
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(MAX_REPLY_BYTES), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "events": [event(1, "a")],
+        "turnOpener": null,
+    });
+    fit_reply(&mut titled);
+    let bytes = serde_json::to_string(&titled).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &titled["session"];
+    assert_eq!(session["title"], "");
+    assert_eq!(session["models"], Value::Null);
+    assert_eq!(session["tags"], json!(["a"]), "a small field stays");
+    assert_eq!((session["sessionId"].clone(), session["cwd"].clone()), (json!("s"), json!("/w")));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["models", "title"]));
+
+    // Not even the agent's own session id: the receipt that carries it goes last, after every
+    // other field (the title here), and the chat's sessionId stays.
+    let mut receipt = json!({
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(MAX_REPLY_BYTES)}},
+        "events": [],
+        "turnOpener": null,
+    });
+    fit_reply(&mut receipt);
+    let bytes = serde_json::to_string(&receipt).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &receipt["session"];
+    assert_eq!(session["sessionReceipt"], json!({}));
+    assert_eq!(
+        (session["sessionId"].clone(), session["status"].clone(), session["title"].clone()),
+        (json!("s"), json!("idle"), json!(""))
+    );
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["title", "sessionReceipt"]));
+
+    // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
+    let mut kind = json!({
+        "session": {"sessionId": "s", "status": "idle"},
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(MAX_REPLY_BYTES), "msg": {"a": 1}}],
+        "turnOpener": null,
+    });
+    fit_reply(&mut kind);
+    let bytes = serde_json::to_string(&kind).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    assert_eq!(
+        kind["events"][0],
+        json!({"seq": 7, "at": 1, "dir": "in", "kind": "", "msg": {"a": 1}})
+    );
+    assert_eq!(kind["session"], json!({"sessionId": "s", "status": "idle"}));
+
+    // A page counts a record's envelope as written: a kind of NULs is six bytes a character.
+    let nuls = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "in".into(),
+        kind: format!("claude.{}", "\0".repeat(169)),
+        msg: Value::Null,
+        host_seq: None,
+    };
+    let written = serde_json::to_string(&nuls).unwrap().len();
+    assert!(record_bytes(&nuls) >= written, "{} < {written}", record_bytes(&nuls));
+
+    // A reply that fits is left exactly as it is.
+    let small =
+        json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});
+    let mut same = small.clone();
+    fit_reply(&mut same);
+    assert_eq!(same, small);
+}
+
+#[test]
+fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    let mut log = codex_chat(30, 4, 64, false);
+    // A long pasted prompt, a steer and its id travel cut to the index's shape.
+    let long = "x".repeat(10_000);
+    let next = log.last().unwrap().seq + 1;
+    log.push(EventRecord {
+        seq: next,
+        at: next,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": long, "promptId": "p-long", "images": [{"data": "AAAA"}], "pasted": [[0, 10]]}),
+        host_seq: None,
+    });
+    log.push(EventRecord {
+        seq: next + 1,
+        at: next + 1,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": "steer", "steer": true, "promptId": "p-steer"}),
+        host_seq: None,
+    });
+    for rec in &log {
+        hub.store.append("c", rec).unwrap();
+    }
+    let all = hub.prompt_index("c", None).unwrap();
+    assert_eq!(all.len(), 32);
+    assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
+    assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
+    let cut = &all[30].msg;
+    assert_eq!(cut["promptId"], "p-long");
+    assert_eq!(cut["text"].as_str().unwrap().chars().count(), PROMPT_INDEX_TEXT_CHARS);
+    assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
+    assert_eq!(all[31].msg["steer"], true);
+    // `before` bounds it, as the pane asks for what precedes its open page.
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    assert_eq!(older.len(), 10);
+    assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// How long the rail waits for a long chat's every prompt: paging the transcript back (the pane's
+/// `loadOlder`, 400 records a page) against one prompt index read.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn prompt_index_perf() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-prompt-index-perf-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+    writer.save(&meta("c")).unwrap();
+    // 1,000 turns, each a command with 40 updates re-sending its output so far.
+    for rec in codex_chat(1000, 40, 200, false) {
+        writer.append("c", &rec).unwrap();
+    }
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let mut paged = Vec::new();
+    let mut indexed = Vec::new();
+    let mut pages_read = 0;
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let mut page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        let mut pages = 1;
+        let mut shown = prompts(&page);
+        while page.has_more {
+            let before = page.events.first().map(|r| r.seq);
+            page = hub
+                .events_page("c", 0, before, OPEN_LIMIT, Some(256 * 1024), true, &transcript(true))
+                .unwrap();
+            pages += 1;
+            shown += prompts(&page);
+        }
+        assert_eq!(shown, 1000);
+        paged.push(started.elapsed().as_secs_f64() * 1000.0);
+        pages_read = pages;
+        let started = std::time::Instant::now();
+        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
+        indexed.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);
+    println!(
+        "every prompt of 1000 turns: paging back {pages_read} pages {:.1} ms; prompt index 1 read {:.1} ms",
+        best(&paged),
+        best(&indexed)
+    );
+    std::fs::remove_dir_all(&root).ok();
+}

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Every sidebar card sits on one shared surface, `CardSurfaceView`: the neutral gray veil of
@@ -8,7 +9,7 @@ import Testing
 /// sidebar's own glass. Before 2026-10-20 that surface was the composer's 13% text fill
 /// (Leo 2026-10-13, cx-5dvig). The Update Ready card once drew an opaque elevated fill that hid the
 /// wallpaper, and the notice and tip cards drew Liquid Glass under a veil: three different cards.
-@MainActor @Suite(.serialized) struct SidebarCardSurfaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarCardSurfaceTests {
     /// The backmost fill that covers the whole card. Each covering layer draws first (it would on
     /// the next display pass), in the card's theme.
     static func fill(of card: NSView) -> NSColor? {

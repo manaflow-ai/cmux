@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextCompat
 @testable import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The control socket's JSON (CmuxNextDaemon has its own `JSONValue`).
 typealias NativeInputJSON = CmuxNextSettings.JSONValue
@@ -15,7 +17,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
 /// its default actions (Tab moves focus, a held button drags). Agents drive real sites, which check
 /// both. Page events stay only as the fallback when the page has no engine view (not in a window).
 /// These run the app's own engine (`AppBrowserPageEngine`) on a real WebKit page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageNativeInputTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageNativeInputTests {
     static let tabID = "tab_0123456789abcdef0123456789abcdef"
     static let html = """
     <!doctype html><title>native</title><style>
@@ -81,7 +83,27 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
                                                         screens: [ControlScreenInfo(id: "screen-1", handle: "1", panes: [pane])])]
             snapshot.topology = topology
             router.snapshots.publish { $0 = snapshot }
-            try await until("the page loads") { try await self.read("document.readyState === 'complete' && document.title") == "native" }
+            // A failed setup still closes the window and releases the page it made (no leak into the next test).
+            do {
+                try await loaded()
+            } catch {
+                close()
+                throw error
+            }
+        }
+
+        /// Waits for the page's load to end (WebKit's navigation callback, observed), not for a deadline: a
+        /// loaded host can take longer than any fixed wait to start a web content process. The suite's time
+        /// limit bounds a load that never ends.
+        func loaded() async throws {
+            let page = page
+            var failure: BrowserLoadError?
+            for await phase in ObservationStream({ page.state.phase }) {
+                if phase == .finished { break }
+                if case .failed(let error) = phase { failure = error; break }
+            }
+            try #require(failure == nil, "the page failed to load: \(failure.map { "\($0)" } ?? "")")
+            try #require(try await read("document.readyState === 'complete' && document.title") == "native", "the page did not load")
         }
 
         func call(_ verb: String, _ params: [String: NativeInputJSON]) async throws -> NativeInputJSON {
@@ -113,7 +135,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
 
         func close() {
             services.cache.release(BrowserPageNativeInputTests.tabID)
-            window.orderOut(nil)
+            window.closeAfterTest()
             try? FileManager.default.removeItem(at: folder)
         }
     }
@@ -200,7 +222,7 @@ typealias NativeInputJSON = CmuxNextSettings.JSONValue
         cover.backgroundColor = .black
         cover.level = .floating
         cover.orderFrontRegardless()
-        defer { cover.orderOut(nil) }
+        defer { cover.closeAfterTest() }
         try await fixture.until("the window is occluded") { !fixture.window.occlusionState.contains(.visible) }
         let at = try await fixture.center("list")
         let result = try await fixture.call("wheel", ["x": at.x, "y": at.y, "dy": 120])

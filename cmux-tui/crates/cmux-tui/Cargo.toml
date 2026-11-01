@@ -53,10 +53,11 @@ path = "src/bin/cmux-tui-host.rs"
 cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
-# `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
+cmux-conversation.workspace = true
 cmux-process.workspace = true
-# `cmux automation`: schedules, the local store and the runner.
-cmux-automations.workspace = true
+# `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
+# bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
+cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
@@ -76,7 +77,9 @@ bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: `cmux mcp serve` indexes the embedded v2 catalog without parsing it into one
+# tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
 cmux-panic-log.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
@@ -100,10 +103,19 @@ ring.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md), unix
 # only; on every platform, the tailnet CLI wrapper `remote_host` shares
 # (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
-acpmux = { path = "../acpmux" }
+# Without its `build-id` feature: this crate installs acpmux's build id at
+# start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
+# unix files and processes, so the crate does not build for Windows.
+cmux-automations.workspace = true
 cmux-holder.workspace = true
+# `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
+cmux-vnc.workspace = true
+flate2.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).

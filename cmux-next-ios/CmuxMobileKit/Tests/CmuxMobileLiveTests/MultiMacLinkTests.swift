@@ -72,6 +72,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(decision.nextExpiry == nil)
     }
 
+    /// Opening the Cloud sheet keeps the whole authenticated Mac directory
+    /// shown, so selecting one Cloud VM cannot evict another Mac's link.
+    @Test func cloudSheetKeepsOtherMacLinksShown() {
+        let all = Set(macs.map(\.id))
+        let decision = MacLinkPolicy(maxLinks: 4).decide(macs: macs, focused: "m1", showing: all, lastShown: [:], now: now)
+        #expect(decision.linked == ["m1", "m2", "m3", "m4"])
+    }
+
     /// Lazy: a Mac nothing shows, and never shown, is not dialed.
     @Test func aMacNothingShowsIsNotLinked() {
         let decision = MacLinkPolicy().decide(macs: macs, focused: "m1", showing: ["m1"], lastShown: [:], now: now)
@@ -218,6 +226,27 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(await live.terminalScreenText(tabID: "s1", macID: "m2") == "second Mac")
         #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m1")?.macName == "Aziz's MacBook Pro")
         #expect(live.terminalSession(tabID: "s1", programName: "zsh", macID: "m2")?.macName == "MacBook Pro")
+    }
+
+    /// A notification names the originating Mac. A stale push cannot use a
+    /// tab on another Mac, including when the same surface id exists on both.
+    @Test func notificationDestinationIsScopedToItsMac() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let live = coordinator(store: store, dialer: PerMacDialer())
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macDataPhase("m1") == .live && store.macDataPhase("m2") == .live }
+        let workspace = try #require(store.workspaces.first { $0.macID == "m1" })
+        let tab = try #require(workspace.tabs.first)
+        let destination = AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)
+
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m1") == destination)
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id, macID: "m2") == nil)
+        // An ordinary deep link has no source Mac; keep its existing lookup.
+        #expect(live.destination(sessionID: nil, workspaceID: workspace.id, tabID: tab.id) == destination)
     }
 
     /// Lazy and idle: a Mac no screen shows closes its link after the idle

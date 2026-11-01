@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
@@ -244,6 +245,29 @@ struct UnopenedCloudMachinesTests {
         let window = try #require(services.windows.openWindow(workspaces: ["ws-one", "ws-two"])?.state.id)
 
         #expect(services.windows.registry.value.owner(of: "ws-two-more") == window, "the second machine's other workspace stayed out")
+    }
+
+    /// Issue #28609: an agent's or the CLI's create on a machine nobody opened (no focus, so its claim
+    /// on the active window is quiet) is not the person opening that machine: neither the new
+    /// workspace nor the image's own joins the window.
+    @Test func aCreateWithoutFocusOpensNoMachine() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-cli", workspaces: ["ws-cli-image"])
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-person"]) }
+        services.windows.reconcileMembership()
+
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            services.windows.claimNew(workspaceID: "ws-cli-made", window: "w-person")
+        }
+        session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-vm-cli", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-cli-image"), name: "workspace-1"),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-cli-made"), name: "workspace-2"),
+        ]))
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.registry.value.owner(of: "ws-cli-made") == nil, "a create without focus put its workspace in the window")
+        #expect(services.windows.registry.value.owner(of: "ws-cli-image") == nil, "a create without focus opened the machine")
     }
 
     // MARK: Fixtures

@@ -11268,6 +11268,402 @@
         }
       }
     },
+    "handlers.refusal.gatherWhileCreating": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows while a window it would close is still creating a workspace.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new workspace is still opening in a window this would close. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال مساحة عمل جديدة قيد الفتح في نافذة سيغلقها هذا الإجراء. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostor se još otvara u prozoru koji bi ovo zatvorilo. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nyt arbejdsområde åbner stadig i et vindue, som dette ville lukke. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In einem Fenster, das dadurch geschlossen würde, wird noch ein neuer Arbeitsbereich geöffnet. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todavía se está abriendo un espacio de trabajo nuevo en una ventana que esto cerraría. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel espace de travail s'ouvre encore dans une fenêtre que cette action fermerait. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuovo spazio di lavoro si sta ancora aprendo in una finestra che questa azione chiuderebbe. Riprova tra un attimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作で閉じるウインドウで、新しいワークスペースをまだ開いています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីកំពុងបើកនៅឡើយក្នុងបង្អួចដែលសកម្មភាពនេះនឹងបិទ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업으로 닫힐 창에서 새 작업 공간이 아직 열리는 중입니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nytt arbeidsområde åpnes fortsatt i et vindu som dette ville lukket. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W oknie, które to zamknie, nadal otwiera się nowy obszar roboczy. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um novo espaço de trabalho ainda está abrindo em uma janela que isto fecharia. Tente novamente em um instante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В окне, которое это действие закроет, ещё открывается новое рабочее пространство. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่ยังเปิดอยู่ในหน้าต่างที่การทำงานนี้จะปิด โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunun kapatacağı bir pencerede yeni bir çalışma alanı hâlâ açılıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вікні, яке це закриє, ще відкривається новий робочий простір. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một không gian làm việc mới vẫn đang mở trong cửa sổ mà thao tác này sẽ đóng. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作将关闭的窗口中仍在打开新工作区。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作將關閉的視窗中仍在開啟新工作區。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.gatherLocalTabs": {
+      "comment": "Refusal of Move Space to This Window or Merge All Windows when a window it takes workspaces from keeps its own browser tabs (a daemon without frontend browser tabs).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحتفظ نافذة سيغيّرها هذا الإجراء بعلامات تبويب متصفح لا يمكن نقلها مع مساحات العمل الخاصة بها. أغلق علامات التبويب هذه أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prozor koji bi ovo promijenilo čuva kartice preglednika koje se ne mogu premjestiti s njegovim radnim prostorima. Prvo zatvorite te kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et vindue, som dette ville ændre, har browserfaner, der ikke kan flyttes med dets arbejdsområder. Luk de faner først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Fenster, das dadurch geändert würde, hat Browser-Tabs, die nicht mit seinen Arbeitsbereichen verschoben werden können. Schließe diese Tabs zuerst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una ventana que esto cambiaría tiene pestañas del navegador que no pueden moverse con sus espacios de trabajo. Cierra esas pestañas primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une fenêtre que cette action modifierait contient des onglets de navigateur qui ne peuvent pas suivre ses espaces de travail. Fermez d'abord ces onglets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una finestra che questa azione modificherebbe ha schede del browser che non possono spostarsi con i suoi spazi di lavoro. Chiudi prima quelle schede."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作で変わるウインドウに、ワークスペースと一緒に移動できないブラウザタブがあります。先にそれらのタブを閉じてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចដែលសកម្មភាពនេះនឹងផ្លាស់ប្តូរ មានផ្ទាំងកម្មវិធីរុករកដែលមិនអាចផ្លាស់ទីជាមួយកន្លែងធ្វើការរបស់វាបានទេ។ សូមបិទផ្ទាំងទាំងនោះជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업으로 바뀔 창에 작업 공간과 함께 옮길 수 없는 브라우저 탭이 있습니다. 먼저 해당 탭을 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et vindu som dette ville endre, har nettleserfaner som ikke kan flyttes med arbeidsområdene. Lukk disse fanene først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno, które to zmieni, ma karty przeglądarki, których nie można przenieść razem z jego obszarami roboczymi. Najpierw zamknij te karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma janela que isto mudaria tem abas do navegador que não podem ser movidas com os espaços de trabalho dela. Feche essas abas primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В окне, которое изменит это действие, есть вкладки браузера, которые нельзя перенести вместе с его рабочими пространствами. Сначала закройте эти вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างที่การทำงานนี้จะเปลี่ยนมีแท็บเบราว์เซอร์ที่ย้ายไปพร้อมพื้นที่ทำงานไม่ได้ โปรดปิดแท็บเหล่านั้นก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunun değiştireceği bir pencerede, çalışma alanlarıyla birlikte taşınamayan tarayıcı sekmeleri var. Önce bu sekmeleri kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вікні, яке це змінить, є вкладки браузера, які не можна перенести разом із його робочими просторами. Спершу закрийте ці вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một cửa sổ mà thao tác này sẽ thay đổi có các tab trình duyệt không thể di chuyển cùng không gian làm việc của nó. Hãy đóng các tab đó trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作将更改的窗口中有无法随其工作区移动的浏览器标签页。请先关闭这些标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作將變更的視窗中有無法隨其工作區移動的瀏覽器分頁。請先關閉這些分頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.windowNotReady": {
+      "comment": "Refusal of a window action (Move Space to This Window, Merge All Windows) before the window has registered, such as the launch window while restoring.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This window isn't ready yet. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه النافذة ليست جاهزة بعد. حاول مرة أخرى بعد لحظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj prozor još nije spreman. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vindue er ikke klar endnu. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Fenster ist noch nicht bereit. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ventana aún no está lista. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette fenêtre n'est pas encore prête. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa finestra non è ancora pronta. Riprova tra un attimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウはまだ準備ができていません。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចនេះមិនទាន់រួចរាល់នៅឡើយ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창은 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vinduet er ikke klart ennå. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To okno nie jest jeszcze gotowe. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta janela ainda não está pronta. Tente novamente em um instante."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это окно ещё не готово. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างนี้ยังไม่พร้อม โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu pencere henüz hazır değil. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Це вікно ще не готове. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ này chưa sẵn sàng. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗口尚未就绪。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此視窗尚未就緒。請稍後再試。"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -21096,6 +21492,138 @@
         }
       }
     },
+    "handlers.refusal.closeUnanswered": {
+      "comment": "Toast and CLI error when a workspace close got no answer from its machine within the safety bound and the workspace is still listed: the result is unknown, because a paused machine may still close it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its machine did not answer, so the workspace may still close."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが応答しなかったため、ワークスペースはこの後閉じる可能性があります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يستجب جهازها، لذا قد تُغلق مساحة العمل لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegova mašina nije odgovorila, pa se radni prostor možda ipak zatvori."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dets maskine svarede ikke, så arbejdsområdet kan stadig blive lukket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sein Rechner hat nicht geantwortet, daher wird der Arbeitsbereich möglicherweise noch geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su máquina no respondió, así que es posible que el espacio de trabajo aún se cierre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sa machine n’a pas répondu : l’espace de travail peut encore se fermer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sua macchina non ha risposto, quindi lo spazio di lavoro potrebbe ancora chiudersi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនរបស់វាមិនបានឆ្លើយតប ដូច្នេះកន្លែងធ្វើការអាចនៅតែបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 머신이 응답하지 않아 워크스페이스가 나중에 닫힐 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen svarte ikke, så arbeidsområdet kan fortsatt bli lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego maszyna nie odpowiedziała, więc obszar roboczy może jeszcze zostać zamknięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina dele não respondeu, então o espaço de trabalho ainda pode ser fechado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Его компьютер не ответил, поэтому рабочее пространство ещё может закрыться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องของพื้นที่ทำงานไม่ตอบสนอง พื้นที่ทำงานจึงอาจยังปิดลงในภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinesi yanıt vermedi; çalışma alanı yine de kapanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Його комп’ютер не відповів, тож робочий простір ще може закритися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy của nó không phản hồi, nên không gian làm việc vẫn có thể đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其机器没有响应，因此工作区仍可能会关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其機器沒有回應，因此工作區仍可能會關閉。"
+          }
+        }
+      }
+    },
     "handlers.refusal.topPageIsNotAWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -22140,6 +22668,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 仍在啟動背景服務。請稍後再試。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.incognitoUnanswered": {
+      "comment": "Toast and CLI error when a new incognito window's workspace got no answer from cmux's local background service within the safety bound and the service made no workspace: no window opens.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The incognito window did not open: cmux’s background service did not answer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットウィンドウを開けませんでした: cmux のバックグラウンドサービスが応答しませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح نافذة التصفح المتخفي: لم تستجب خدمة cmux في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimni prozor se nije otvorio: pozadinska usluga cmux-a nije odgovorila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet blev ikke åbnet: cmux’ baggrundstjeneste svarede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Inkognito-Fenster wurde nicht geöffnet: Der Hintergrunddienst von cmux hat nicht geantwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ventana de incógnito no se abrió: el servicio en segundo plano de cmux no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fenêtre de navigation privée ne s’est pas ouverte : le service d’arrière-plan de cmux n’a pas répondu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La finestra in incognito non si è aperta: il servizio in background di cmux non ha risposto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចអនាមិកមិនបានបើកទេ៖ សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនបានឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿 창이 열리지 않았습니다: cmux 백그라운드 서비스가 응답하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet ble ikke åpnet: Bakgrunnstjenesten til cmux svarte ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno incognito się nie otworzyło: usługa w tle cmux nie odpowiedziała."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A janela anônima não abriu: o serviço em segundo plano do cmux não respondeu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окно инкогнито не открылось: фоновая служба cmux не ответила."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างไม่ระบุตัวตนไม่เปิด: บริการเบื้องหลังของ cmux ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli pencere açılmadı: cmux’un arka plan hizmeti yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вікно інкогніто не відкрилося: фонова служба cmux не відповіла."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ ẩn danh không mở: dịch vụ nền của cmux không phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕窗口未打开：cmux 的后台服务没有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕視窗未開啟：cmux 的背景服務沒有回應。"
           }
         }
       }
@@ -24246,127 +24906,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent chats cannot be started from this Mac on a team VM yet."
+            "value": "%@ is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チーム VM では、まだこの Mac からエージェントチャットを開始できません。"
+            "value": "%@ はチームメイトのマシンなので、チャットはその所有者が開始します。自分のマシンを選ぶか、New Cloud Machine で作成してください。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن بدء دردشات الوكيل من جهاز Mac هذا على جهاز افتراضي لفريق بعد."
+            "state": "translated",
+            "value": "%@ جهاز أحد زملائك، لذا يبدأ مالكه المحادثات عليه. اختر جهازك الخاص، أو أنشئ جهازًا باستخدام New Cloud Machine."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent chatovi se još ne mogu pokrenuti s ovog Maca na timskom VM-u."
+            "state": "translated",
+            "value": "%@ je mašina tvog kolege, pa njen vlasnik tamo pokreće chatove. Izaberi svoju mašinu ili napravi novu pomoću New Cloud Machine."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchats kan endnu ikke startes fra denne Mac på en team-VM."
+            "state": "translated",
+            "value": "%@ er en holdkammerats maskine, så dens ejer starter chats der. Vælg din egen maskine, eller opret en med New Cloud Machine."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chats können auf einer Team-VM noch nicht von diesem Mac aus gestartet werden."
+            "state": "translated",
+            "value": "%@ ist die Maschine eines Teammitglieds, daher startet ihr Besitzer dort Chats. Wähle deine eigene Maschine oder erstelle eine mit New Cloud Machine."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Todavía no se pueden iniciar chats de agente desde este Mac en una VM de equipo."
+            "state": "translated",
+            "value": "%@ es la máquina de un compañero, así que su propietario inicia los chats allí. Elige tu propia máquina o crea una con New Cloud Machine."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les discussions d’agent ne peuvent pas encore être lancées depuis ce Mac sur une VM d’équipe."
+            "state": "translated",
+            "value": "%@ est la machine d’un coéquipier : c’est son propriétaire qui y démarre les discussions. Choisissez votre propre machine ou créez-en une avec New Cloud Machine."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Non è ancora possibile avviare chat con agenti da questo Mac su una VM del team."
+            "state": "translated",
+            "value": "%@ è la macchina di un collega, quindi è il proprietario ad avviarvi le chat. Scegli una tua macchina o creane una con New Cloud Machine."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនទាន់អាចចាប់ផ្ដើមការជជែកជាមួយភ្នាក់ងារពី Mac នេះនៅលើ VM របស់ក្រុមបានទេ។"
+            "state": "translated",
+            "value": "%@ គឺជាម៉ាស៊ីនរបស់មិត្តរួមក្រុម ដូច្នេះម្ចាស់របស់វាជាអ្នកចាប់ផ្ដើមការជជែកនៅទីនោះ។ ជ្រើសម៉ាស៊ីនផ្ទាល់ខ្លួនរបស់អ្នក ឬបង្កើតមួយដោយប្រើ New Cloud Machine។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 VM에서는 아직 이 Mac에서 에이전트 채팅을 시작할 수 없습니다."
+            "state": "translated",
+            "value": "%@은(는) 팀원의 머신이므로 채팅은 소유자가 시작합니다. 내 머신을 선택하거나 New Cloud Machine으로 새로 만드세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatter kan ennå ikke startes fra denne Macen på en team-VM."
+            "state": "translated",
+            "value": "%@ er en lagkamerats maskin, så eieren starter chatter der. Velg din egen maskin, eller opprett en med New Cloud Machine."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Czatów z agentem nie można jeszcze uruchamiać z tego Maca na maszynie wirtualnej zespołu."
+            "state": "translated",
+            "value": "%@ to maszyna członka zespołu, więc czaty uruchamia na niej jej właściciel. Wybierz własną maszynę lub utwórz ją za pomocą New Cloud Machine."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ainda não é possível iniciar chats de agente deste Mac em uma VM de equipe."
+            "state": "translated",
+            "value": "%@ é a máquina de um colega, então o dono dela é quem inicia chats lá. Escolha sua própria máquina ou crie uma com New Cloud Machine."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты с агентом пока нельзя запускать с этого Mac на командной ВМ."
+            "state": "translated",
+            "value": "%@ — машина вашего коллеги, поэтому чаты на ней запускает её владелец. Выберите свою машину или создайте её через New Cloud Machine."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังเริ่มแชทเอเจนต์จาก Mac เครื่องนี้บน VM ของทีมไม่ได้"
+            "state": "translated",
+            "value": "%@ เป็นเครื่องของเพื่อนร่วมทีม เจ้าของเครื่องจึงเป็นผู้เริ่มแชทบนเครื่องนั้น เลือกเครื่องของคุณเอง หรือสร้างเครื่องใหม่ด้วย New Cloud Machine"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbetleri henüz bu Mac’ten bir ekip VM’inde başlatılamaz."
+            "state": "translated",
+            "value": "%@ bir takım arkadaşının makinesi, bu yüzden sohbetleri orada sahibi başlatır. Kendi makineni seç ya da New Cloud Machine ile bir tane oluştur."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Чати з агентом поки не можна запускати з цього Mac на командній ВМ."
+            "state": "translated",
+            "value": "%@ — машина вашого колеги, тому чати на ній запускає її власник. Виберіть власну машину або створіть її через New Cloud Machine."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể bắt đầu trò chuyện với tác tử từ máy Mac này trên VM của nhóm."
+            "state": "translated",
+            "value": "%@ là máy của một đồng đội, nên chủ máy mới bắt đầu trò chuyện ở đó. Hãy chọn máy của bạn, hoặc tạo một máy bằng New Cloud Machine."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "暂时无法从这台 Mac 在团队虚拟机上开始代理聊天。"
+            "state": "translated",
+            "value": "%@ 是队友的机器，只有其所有者能在上面开始对话。请选择你自己的机器，或用 New Cloud Machine 新建一台。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "暫時無法從這台 Mac 在團隊虛擬機器上開始代理程式聊天。"
+            "state": "translated",
+            "value": "%@ 是隊友的機器，只有其擁有者能在上面開始對話。請選擇你自己的機器，或用 New Cloud Machine 新建一台。"
           }
         }
       }
@@ -24901,127 +25561,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a terminal in a folder on %@ first; the chat starts there."
+            "value": "%@ has no work folder to start in. Use Choose folder to pick one there."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "先に %@ のフォルダでターミナルを開いてください。チャットはそこで開始します。"
+            "value": "%@ には開始できる作業フォルダがありません。Choose folder でフォルダを選んでください。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "افتح طرفية في مجلد على %@ أولًا؛ ستبدأ الدردشة هناك."
+            "state": "translated",
+            "value": "لا يحتوي %@ على مجلد عمل للبدء فيه. استخدم Choose folder لاختيار مجلد هناك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prvo otvorite terminal u folderu na %@; chat počinje tamo."
+            "state": "translated",
+            "value": "%@ nema radni folder u kojem bi se pokrenulo. Koristi Choose folder da izabereš jedan tamo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn først en terminal i en mappe på %@; chatten starter der."
+            "state": "translated",
+            "value": "%@ har ingen arbejdsmappe at starte i. Brug Choose folder til at vælge en der."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Öffne zuerst ein Terminal in einem Ordner auf %@; der Chat startet dort."
+            "state": "translated",
+            "value": "%@ hat keinen Arbeitsordner zum Starten. Wähle mit Choose folder dort einen aus."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primero abre un terminal en una carpeta de %@; el chat empieza allí."
+            "state": "translated",
+            "value": "%@ no tiene una carpeta de trabajo donde empezar. Usa Choose folder para elegir una allí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrez d’abord un terminal dans un dossier de %@ ; la discussion y démarre."
+            "state": "translated",
+            "value": "%@ n’a pas de dossier de travail où démarrer. Utilisez Choose folder pour en choisir un sur cette machine."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri prima un terminale in una cartella su %@; la chat parte da lì."
+            "state": "translated",
+            "value": "%@ non ha una cartella di lavoro in cui iniziare. Usa Choose folder per sceglierne una lì."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សូមបើកទែមីណាល់ក្នុងថតមួយនៅលើ %@ ជាមុនសិន ការជជែកនឹងចាប់ផ្ដើមនៅទីនោះ។"
+            "state": "translated",
+            "value": "%@ មិនមានថតការងារសម្រាប់ចាប់ផ្ដើមទេ។ ប្រើ Choose folder ដើម្បីជ្រើសថតមួយនៅទីនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "먼저 %@의 폴더에서 터미널을 여세요. 채팅은 그곳에서 시작됩니다."
+            "state": "translated",
+            "value": "%@에 시작할 작업 폴더가 없습니다. Choose folder로 폴더를 선택하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne først en terminal i en mappe på %@; chatten starter der."
+            "state": "translated",
+            "value": "%@ har ingen arbeidsmappe å starte i. Bruk Choose folder for å velge en der."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Najpierw otwórz terminal w folderze na %@; czat zacznie się tam."
+            "state": "translated",
+            "value": "%@ nie ma folderu roboczego, w którym można zacząć. Użyj Choose folder, aby wybrać folder na tej maszynie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primeiro abra um terminal em uma pasta de %@; o chat começa lá."
+            "state": "translated",
+            "value": "%@ não tem uma pasta de trabalho para começar. Use Choose folder para escolher uma lá."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сначала откройте терминал в папке на %@: чат начнётся там."
+            "state": "translated",
+            "value": "На %@ нет рабочей папки для запуска. Выберите папку там с помощью Choose folder."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดเทอร์มินัลในโฟลเดอร์บน %@ ก่อน แชทจะเริ่มที่นั่น"
+            "state": "translated",
+            "value": "%@ ไม่มีโฟลเดอร์งานให้เริ่ม ใช้ Choose folder เพื่อเลือกโฟลเดอร์บนเครื่องนั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Önce %@ üzerindeki bir klasörde terminal açın; sohbet orada başlar."
+            "state": "translated",
+            "value": "%@ üzerinde başlanacak bir çalışma klasörü yok. Orada bir klasör seçmek için Choose folder'ı kullan."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Спершу відкрийте термінал у теці на %@: чат почнеться там."
+            "state": "translated",
+            "value": "На %@ немає робочої папки для запуску. Виберіть папку там за допомогою Choose folder."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy mở terminal trong một thư mục trên %@ trước; cuộc trò chuyện sẽ bắt đầu ở đó."
+            "state": "translated",
+            "value": "%@ không có thư mục làm việc để bắt đầu. Hãy dùng Choose folder để chọn một thư mục trên máy đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "请先在 %@ 上的某个文件夹中打开终端；聊天会从那里开始。"
+            "state": "translated",
+            "value": "%@ 上没有可用于开始的工作文件夹。请用 Choose folder 在那里选择一个。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "請先在 %@ 上的某個資料夾中開啟終端機；聊天會從那裡開始。"
+            "state": "translated",
+            "value": "%@ 上沒有可用於開始的工作資料夾。請用 Choose folder 在那裡選擇一個。"
           }
         }
       }
@@ -31052,6 +31712,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此工作區未停靠。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.diskFull": {
+      "comment": "A reason, after '<action> did not apply: ' and inside cmux-tui's start notice: the disk under cmux-tui's state is full. Lowercase fragment.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the disk is full"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص ممتلئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk je pun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Festplatte ist voll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el disco está lleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le disque est plein"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il disco è pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクがいっぱいです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាសពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 가득 찼습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disken er full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dysk jest pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o disco está cheio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заполнен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดิสก์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disk dolu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "диск заповнений"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ổ đĩa đã đầy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘已满"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟已滿"
           }
         }
       }
