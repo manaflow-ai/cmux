@@ -191,7 +191,9 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             return trace.samples;
           });
           expect(samples.length).toBeGreaterThan(0);
-          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBeGreaterThan(2);
+          // The rail is pinned to the pane edge (model.ts railPlacement), so Session Info and these
+          // resizes never move it; the card must stay on it on every painted frame.
+          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBe(1);
           expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
             [],
           );
