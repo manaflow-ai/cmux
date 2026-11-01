@@ -502,12 +502,18 @@ fn accepted(responder: &Responder, source: Source, state: &FocusState) -> Accept
             // 2026-11-01: the first line typed after a reopen went to the
             // sidebar list). A sidebar field is only ever focused on purpose
             // (a rename, a search), so its report still moves focus.
-            if source == Source::Programmatic
-                && matches!(responder, Responder::Sidebar {})
-                && !state.target.is_sidebar()
-                && state.pane.as_ref().is_some_and(|pane| state.topology.contains_pane(pane))
-            {
-                return Accepted::Reapply;
+            if source == Source::Programmatic && matches!(responder, Responder::Sidebar {}) {
+                // The list's echo of a sidebar focus the state already has
+                // (Focus Sidebar states its target, then moves the keyboard)
+                // keeps it as it is: a keyboard focus stays a keyboard focus.
+                if matches!(state.target, Target::Sidebar { .. }) {
+                    return Accepted::Same;
+                }
+                if !state.target.is_sidebar()
+                    && state.pane.as_ref().is_some_and(|pane| state.topology.contains_pane(pane))
+                {
+                    return Accepted::Reapply;
+                }
             }
             let target = if matches!(responder, Responder::Sidebar {}) {
                 Target::Sidebar { keyboard: source == Source::Keyboard }
