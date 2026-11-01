@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4134739895101",
+  "notes": "notes/4134739895101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31283,
+      "title": "docs(input-spec): name both code places of the input checks after #31265",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31230,
+      "title": "fix(webviews): context popover takes the menus' glass, a full-bleed details row and a centred chevron",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31227,
+      "title": "cmux next: the / and @ lists frost the chat behind them",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31226,
+      "title": "cmux next: a paste stays in the prompt up to 750 words",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31284,
+      "title": "ci: isolate owner waits and grant smoke reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31296,
+      "title": "composer: on New Tab /resume and /login are always cmux's, not the pane's last chat's harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31289,
+      "title": "cmux NEXT composer: /resume opens the chats search, /login signs in to the chat's agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31291,
+      "title": "ci(nightly): the warm nightly-only builder keeps its Swift packages, compile cache and DerivedData",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31281,
+      "title": "base red: the held queued card's tabIndex disable sits on its line (web lint)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31288,
+      "title": "Agent chat: a pull request chip's mark takes its state's colour (merged purple)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27047,
+      "title": "perf(cmux-next): hidden agent chat pages freeze like browser tabs; background-opened tabs start their hidden clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31242,
+      "title": "Settings > Updates: switch to any build a channel lists, older or newer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31287,
+      "title": "cmux NEXT composer: a bolt beside the model while Fast mode is on, Claude included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31285,
+      "title": "cmux NEXT sidebar: a picked-up workspace or group stays see-through (clear glass)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
