@@ -47,6 +47,7 @@ pub mod config;
 pub mod daemon_spec;
 #[cfg(unix)]
 pub mod github_cli;
+pub mod identity;
 mod json;
 #[cfg(target_os = "linux")]
 pub mod linux;

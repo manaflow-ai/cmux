@@ -493,6 +493,9 @@ type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 pub struct Mux {
     /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
     pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// The control socket actually bound at startup, including an explicit
+    /// --socket path. Internal clients must not reconstruct it from session.
+    pub(crate) bound_socket_path: OnceLock<std::path::PathBuf>,
     /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
