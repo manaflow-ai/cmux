@@ -198,80 +198,98 @@ try {
     dcl: number;
     scriptKiB: number;
     scripts: string[];
-    forced: { writes: number; writeMs: number; reads: number; readMs: number; byClass: Record<string, number>; log: string[] };
+    forced: {
+      writes: number;
+      writeMs: number;
+      reads: number;
+      readMs: number;
+      byClass: Record<string, number>;
+      log: string[];
+    };
   };
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
-    await page.addInitScript(([latestText, instrument]) => {
-      const forced = {
-        writes: 0,
-        writeMs: 0,
-        reads: 0,
-        readMs: 0,
-        byClass: {} as Record<string, number>,
-        log: [] as string[],
-      };
-      (window as unknown as { __forced: typeof forced }).__forced = forced;
-      // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
-      // or read after a DOM change is where the browser lays out synchronously).
-      if (instrument) {
-        const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-        Object.defineProperty(Element.prototype, "scrollTop", {
-          ...top,
-          set(this: Element, value: number) {
-            const started = performance.now();
-            top.set!.call(this, value);
-            forced.writes += 1;
-            forced.writeMs += performance.now() - started;
-            const key = String(this.className).split(" ")[0] || this.tagName;
-            forced.log.push(`${key} to ${Math.round(value)} at ${started.toFixed(0)} ms, ${(performance.now() - started).toFixed(1)} ms`);
-            forced.byClass[key] = (forced.byClass[key] ?? 0) + 1;
-          },
-        });
-        const rect = Element.prototype.getBoundingClientRect;
-        Element.prototype.getBoundingClientRect = function (this: Element) {
-          const started = performance.now();
-          const box = rect.call(this);
-          forced.reads += 1;
-          forced.readMs += performance.now() - started;
-          return box;
+    await page.addInitScript(
+      ([latestText, instrument]) => {
+        const forced = {
+          writes: 0,
+          writeMs: 0,
+          reads: 0,
+          readMs: 0,
+          byClass: {} as Record<string, number>,
+          log: [] as string[],
         };
-      }
-      const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
-      (window as unknown as { __open: typeof state }).__open = state;
-      const afterPaint = (done: () => void) => requestAnimationFrame(() => setTimeout(done, 0));
-      new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          state.longTasks += 1;
-          state.longMs += entry.duration;
-          state.activity = Math.max(state.activity, entry.startTime + entry.duration);
+        (window as unknown as { __forced: typeof forced }).__forced = forced;
+        // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
+        // or read after a DOM change is where the browser lays out synchronously).
+        if (instrument) {
+          const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+          Object.defineProperty(Element.prototype, "scrollTop", {
+            ...top,
+            set(this: Element, value: number) {
+              const started = performance.now();
+              top.set!.call(this, value);
+              forced.writes += 1;
+              forced.writeMs += performance.now() - started;
+              const key = String(this.className).split(" ")[0] || this.tagName;
+              forced.log.push(
+                `${key} to ${Math.round(value)} at ${started.toFixed(0)} ms, ${(performance.now() - started).toFixed(1)} ms`,
+              );
+              forced.byClass[key] = (forced.byClass[key] ?? 0) + 1;
+            },
+          });
+          const rect = Element.prototype.getBoundingClientRect;
+          Element.prototype.getBoundingClientRect = function (this: Element) {
+            const started = performance.now();
+            const box = rect.call(this);
+            forced.reads += 1;
+            forced.readMs += performance.now() - started;
+            return box;
+          };
         }
-      }).observe({ type: "longtask", buffered: true });
-      new PerformanceObserver((list) => {
-        for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean; startTime: number }[]) {
-          if (entry.hadRecentInput) continue;
-          state.shift += entry.value;
-          state.activity = Math.max(state.activity, entry.startTime);
-        }
-      }).observe({ type: "layout-shift", buffered: true });
-      const tick = () => {
-        const now = performance.now();
-        if (!state.firstRow && document.querySelector("[data-row-id]")) afterPaint(() => (state.firstRow ||= performance.now()));
-        if (!state.latest && document.body.textContent?.includes(latestText)) afterPaint(() => (state.latest ||= performance.now()));
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const top = scroller ? scroller.scrollTop + scroller.scrollHeight : -1;
-        if (top !== state.top) {
-          if (state.latest) state.drift += 1;
-          state.top = top;
-          state.activity = Math.max(state.activity, now);
-        }
+        const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
+        (window as unknown as { __open: typeof state }).__open = state;
+        const afterPaint = (done: () => void) => requestAnimationFrame(() => setTimeout(done, 0));
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            state.longTasks += 1;
+            state.longMs += entry.duration;
+            state.activity = Math.max(state.activity, entry.startTime + entry.duration);
+          }
+        }).observe({ type: "longtask", buffered: true });
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as unknown as {
+            value: number;
+            hadRecentInput: boolean;
+            startTime: number;
+          }[]) {
+            if (entry.hadRecentInput) continue;
+            state.shift += entry.value;
+            state.activity = Math.max(state.activity, entry.startTime);
+          }
+        }).observe({ type: "layout-shift", buffered: true });
+        const tick = () => {
+          const now = performance.now();
+          if (!state.firstRow && document.querySelector("[data-row-id]"))
+            afterPaint(() => (state.firstRow ||= performance.now()));
+          if (!state.latest && document.body.textContent?.includes(latestText))
+            afterPaint(() => (state.latest ||= performance.now()));
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          const top = scroller ? scroller.scrollTop + scroller.scrollHeight : -1;
+          if (top !== state.top) {
+            if (state.latest) state.drift += 1;
+            state.top = top;
+            state.activity = Math.max(state.activity, now);
+          }
+          requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    }, [LATEST, process.env.INSTRUMENT === "1"] as const);
+      },
+      [LATEST, process.env.INSTRUMENT === "1"] as const,
+    );
     attachedAt = 0;
     arrivals = new Map();
     socketOpenedAt = 0;
@@ -301,7 +319,11 @@ try {
       ).__open;
       const forced = (window as unknown as { __forced: unknown }).__forced;
       const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
-      const scripts = performance.getEntriesByType("resource").filter((r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js")) as PerformanceResourceTiming[];
+      const scripts = performance
+        .getEntriesByType("resource")
+        .filter(
+          (r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js"),
+        ) as PerformanceResourceTiming[];
       return {
         ...state,
         origin: performance.timeOrigin,
@@ -347,7 +369,10 @@ try {
     await page.waitForTimeout(500);
     const { profile } = (await cdp.send("Profiler.stop")) as {
       profile: {
-        nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
+        nodes: {
+          id: number;
+          callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+        }[];
         samples: number[];
         timeDeltas: number[];
       };
