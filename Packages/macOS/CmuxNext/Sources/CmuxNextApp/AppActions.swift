@@ -189,8 +189,8 @@ enum AppActions {
         registry.bind("focusSidebar") {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
-            window.sidebar.container.sidebarView.focusList()
             window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            window.sidebar.container.sidebarView.focusList()  // after the target: its report then matches the model
         }
     }
 }

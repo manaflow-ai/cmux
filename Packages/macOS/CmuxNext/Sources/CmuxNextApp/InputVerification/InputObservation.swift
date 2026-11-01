@@ -81,8 +81,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     // Transitions.
     case noSteal = "T1"
     case passiveEvents = "T2"
-    case monotonicGeneration = "T3"
-    case noUnrequestedResponderMove = "T4"
+    case monotonicGeneration = "T3", noUnrequestedResponderMove = "T4"
     // Key routing.
     case systemTierAlways = "K1"
     case navigationTier = "K2"
@@ -124,7 +123,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
         case .noSteal: "an expectation from an older intent never moves focus"
         case .passiveEvents: "key, activation, presentation and overlay events never retarget"
         case .monotonicGeneration: "the intent generation never decreases"
-        case .noUnrequestedResponderMove: "a responder AppKit picks with no input event never moves focus off the focused pane"
+        case .noUnrequestedResponderMove: "a responder AppKit picks itself never moves focus off the focused pane"
         case .systemTierAlways: "tier 0 keys always reach the router"
         case .navigationTier: "tier 1 keys reach the router unless browser focus mode"
         case .contentTierGuarded: "tier 2 never runs in a text input or focus mode"
