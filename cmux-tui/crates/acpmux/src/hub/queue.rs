@@ -189,7 +189,11 @@ impl Hub {
             // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
             None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
-                let turn_id = uuid::Uuid::now_v7().to_string();
+                // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
+                // immutable id so the platform fence covers exactly the turn that runs.
+                let turn_id = session
+                    .prepared_turn_id(p.prompt_id)
+                    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
                 // Another agent's message never overtakes the ones a failed turn held: they run
                 // again and it waits behind them, to go in with them (`digest.rs`).
                 if p.agent.is_some() {
@@ -257,6 +261,7 @@ impl Hub {
                             supersede: p.supersede.map(str::to_owned),
                             full_access_device: p.full_access_device.map(str::to_owned),
                         };
+                        session.accept_prepared(p.prompt_id, &turn_id);
                         return Ok((turn_id, false, TurnGuard::new(guard, slot), Arc::new(run)));
                     }
                     // The parent's run slots are all taken: it waits in the queue for one.
@@ -268,6 +273,7 @@ impl Hub {
                         let mark = self.mark_waiting_for_slot(&parent, session);
                         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                         let waits = self.enqueue(session, &p, position, &turn_id);
+                        session.accept_prepared(p.prompt_id, &turn_id);
                         accept(
                             json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
                         );

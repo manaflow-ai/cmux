@@ -12,6 +12,13 @@ pub(super) struct SteerNow {
     pub(super) step: std::collections::HashSet<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct PreparedTurn {
+    pub(super) prompt_id: String,
+    pub(super) turn_id: String,
+    pub(super) queued: bool,
+}
+
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
@@ -53,6 +60,10 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Cloud owner capture reservations. Pending reservations serialize prepare calls; accepted
+    /// reservations are retained briefly so a retried prepare can replay its stable turn id.
+    pub(super) prepared: StdMutex<std::collections::VecDeque<PreparedTurn>>,
+    pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
     pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
@@ -286,6 +297,86 @@ impl Session {
     }
     pub async fn wait_queue_moved(&self) {
         self.queue_moved.notified().await;
+    }
+
+    pub(crate) async fn prepare_turn(&self, prompt_id: &str) -> (String, bool, bool) {
+        loop {
+            let notified = self.queue_moved.notified();
+            {
+                let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(done) = self
+                    .prepared_done
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .find(|p| p.prompt_id == prompt_id)
+                    .cloned()
+                {
+                    return (done.turn_id, done.queued, true);
+                }
+                if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
+                    if pending.front().is_some_and(|p| p.prompt_id == prompt_id)
+                        && self.turn().is_none()
+                        && self.queue().iter().all(|q| q.held)
+                        && self.queued() == 0
+                    {
+                        return (existing.turn_id.clone(), existing.queued, false);
+                    }
+                } else {
+                    let queued = self.turn().is_some()
+                        || self.queued() != 0
+                        || self.queue().iter().any(|q| !q.held)
+                        || !pending.is_empty();
+                    pending.push_back(PreparedTurn {
+                        prompt_id: prompt_id.to_owned(),
+                        turn_id: uuid::Uuid::now_v7().to_string(),
+                        queued,
+                    });
+                    let first = pending.front().expect("prepared reservation").clone();
+                    if first.prompt_id == prompt_id
+                        && self.turn().is_none()
+                        && self.queue().iter().all(|q| q.held)
+                        && self.queued() == 0
+                    {
+                        return (first.turn_id, first.queued, false);
+                    }
+                }
+            }
+            notified.await;
+        }
+    }
+
+    pub(super) fn prepared_turn_id(&self, prompt_id: &str) -> Option<String> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|p| p.prompt_id == prompt_id)
+            .map(|p| p.turn_id.clone())
+    }
+
+    pub(crate) fn abandon_prepared(&self, prompt_id: &str) -> bool {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(pos) = pending.iter().position(|p| p.prompt_id == prompt_id) else { return false };
+        pending.remove(pos);
+        self.queue_moved.notify_waiters();
+        true
+    }
+
+    pub(super) fn accept_prepared(&self, prompt_id: &str, turn_id: &str) {
+        let mut pending = self.prepared.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(pos) = pending.iter().position(|p| p.prompt_id == prompt_id) else { return };
+        let mut item = pending.remove(pos).expect("prepared position");
+        debug_assert_eq!(item.turn_id, turn_id);
+        item.turn_id = turn_id.to_owned();
+        self.prepared_done
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(item);
+        while self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).len() > 64 {
+            self.prepared_done.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+        }
+        self.queue_moved.notify_waiters();
     }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()

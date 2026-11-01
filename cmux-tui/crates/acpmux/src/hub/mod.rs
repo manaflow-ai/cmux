@@ -1047,6 +1047,8 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            prepared: StdMutex::new(std::collections::VecDeque::new()),
+            prepared_done: StdMutex::new(std::collections::VecDeque::new()),
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),

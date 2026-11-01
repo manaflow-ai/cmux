@@ -3,6 +3,7 @@
 use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
@@ -232,6 +233,33 @@ impl Hub {
         result
     }
 
+    async fn finish_cloud_execution(
+        cloud_exec: &mut Option<(
+            crate::cloud_rewind::CloudTurnClient,
+            crate::cloud_rewind::TurnScope,
+        )>,
+        session: &Session,
+        turn_id: &str,
+    ) {
+        if let Some((cloud, scope)) = cloud_exec.take() {
+            let mut last = None;
+            for attempt in 0..3 {
+                match cloud.finish_execution(&scope).await {
+                    Ok(_) => return,
+                    Err(error) => {
+                        last = Some(error);
+                        if attempt < 2 {
+                            tokio::time::sleep(Duration::from_millis(100 * (attempt + 1))).await;
+                        }
+                    }
+                }
+            }
+            if let Some(error) = last {
+                tracing::warn!(session = %session.id, turn = %turn_id, "cloud turn finish failed after retries: {error}");
+            }
+        }
+    }
+
     async fn run_prompt_joined(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -420,7 +448,7 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
-        let cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
+        let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id || envelope.turn != turn_id {
                 let e =
                     RpcError::invalid_params("cloud turn capability does not match this prompt");
@@ -442,12 +470,6 @@ impl Hub {
                 auth,
             )
             .map_err(|e| RpcError::internal(e.to_string()))?;
-            if let Err(e) = cloud.claim_execution(&scope).await {
-                let e = RpcError::new(-32000, format!("cloud turn claim refused: {e}"));
-                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-                drop(guard);
-                return Err(e);
-            }
             Some((cloud, scope))
         } else {
             None
@@ -465,6 +487,17 @@ impl Hub {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
             let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        // Claim only after every dispatch fence that can refuse the prompt has passed. The
+        // capability is one-use; every successful claim is finished below or on each early exit.
+        if let Some((cloud, scope)) = cloud_exec.as_ref()
+            && let Err(error) = cloud.claim_execution(scope).await
+        {
+            let e = RpcError::new(-32000, format!("cloud turn claim refused: {error}"));
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -550,6 +583,7 @@ impl Hub {
             Ok(started) => started,
             Err(e) => {
                 self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -571,6 +605,7 @@ impl Hub {
             .await
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -580,6 +615,7 @@ impl Hub {
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -638,12 +674,14 @@ impl Hub {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
+                Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
@@ -664,6 +702,7 @@ impl Hub {
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
             self.forum_turn_end(session, &told, false);
+            Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
         }
@@ -889,11 +928,7 @@ impl Hub {
         let mut result = self
             .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
             .await;
-        if let Some((cloud, scope)) = cloud_exec {
-            if let Err(error) = cloud.finish_execution(&scope).await {
-                tracing::warn!(session = %session.id, turn = %turn_id, "cloud turn finish failed: {error}");
-            }
-        }
+        Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).

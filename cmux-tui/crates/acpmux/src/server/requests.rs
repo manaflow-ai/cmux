@@ -1294,11 +1294,12 @@ async fn dispatch_request(
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            let cloud_turn = match params.get("cloud_turn") {
+                Some(value) => Some(serde_json::from_value(value.clone()).map_err(|_| RpcError::invalid_params("cloud_turn is malformed"))?),
+                None => None,
+            };
             let opts = crate::hub::PromptOptions {
-                cloud_turn: params
-                    .get("cloud_turn")
-                    .cloned()
-                    .and_then(|v| serde_json::from_value(v).ok()),
+                cloud_turn,
                 prompt_id,
                 on_accepted: match &saved {
                     Some(saved) => saved.watch(on_accepted),
@@ -1861,10 +1862,35 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
-            while s.turn().is_some() {
-                s.wait_queue_moved().await;
+            let meta = s.meta();
+            if let Some(workspace) = params.get("workspace").and_then(Value::as_str)
+                && meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str) != Some(workspace)
+            {
+                return Err(RpcError::invalid_params("workspace does not match session"));
             }
-            Ok(json!({"session": s.id, "turn": prompt_id}))
+            if let Some(machine) = params.get("machine").and_then(Value::as_str)
+                && meta.session_env.get("CMUX_MACHINE_ID").map(String::as_str) != Some(machine)
+            {
+                return Err(RpcError::invalid_params("machine does not match session"));
+            }
+            if params.get("generation").is_some_and(|v| v.as_u64().is_none()) {
+                return Err(RpcError::invalid_params("generation must be a number"));
+            }
+            let (turn_id, queued, accepted) = s.prepare_turn(prompt_id).await;
+            if accepted {
+                Ok(json!({"accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}))
+            } else {
+                Ok(json!({"session": s.id, "turn": turn_id, "queued": queued}))
+            }
+        }
+        method::AGENT_SESSION_TURN_ABANDON => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            Ok(json!({"abandoned": s.abandon_prepared(prompt_id)}))
         }
         method::MUX_SET_TURN_CAP => {
             let s = hub.resolve(session_key(&params)?)?;

@@ -77,6 +77,21 @@ fn receive(hub: &Hub, session: &Session, id: &str) -> bool {
 }
 
 #[tokio::test]
+async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    let (first, queued, replay) = session.prepare_turn("p1").await;
+    assert!(!queued && !replay);
+    let (again, _, replay) = session.prepare_turn("p1").await;
+    assert_eq!(again, first);
+    assert!(!replay, "pending reservation is not accepted yet");
+    session.accept_prepared("p1", &first);
+    let (accepted, accepted_queued, replay) = session.prepare_turn("p1").await;
+    assert!(replay);
+    assert_eq!((accepted, accepted_queued), (first, false));
+}
+
+#[tokio::test]
 async fn information_never_queues_a_turn_and_retries_deduplicate_across_restarts() {
     let (hub, faults) = hub();
     let session = session(&hub);
