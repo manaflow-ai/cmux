@@ -20,6 +20,15 @@
 //! as `Control::Web`.
 
 use super::*;
+
+/// Modes offered to a phone by the native mobile host. Keep this in the
+/// dispatch side as a second check: the phone's own picker is advisory and a
+/// queued prompt must not inherit the ordinary Web Codex any-mode exception.
+pub(super) const PHONE_MODES: &[&str] = &["default", "plan", "ask"];
+
+pub(super) fn cloud_mobile_mode_asks(meta: &SessionMeta) -> bool {
+    crate::web_modes::mode_of(meta).is_some_and(|mode| PHONE_MODES.contains(&mode.as_str()))
+}
 use crate::web_modes::WebModeTable;
 use cmux_json::JsonSet as _;
 
@@ -250,6 +259,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         control: Control,
+        cloud_mobile: bool,
         trust_gate: bool,
         device: Option<&str>,
         prompt_id: &str,
@@ -259,6 +269,17 @@ impl Hub {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control)
+                .and_then(|()| {
+                    if cloud_mobile
+                        && control == Control::Web
+                        && !cloud_mobile_mode_asks(&m)
+                    {
+                        return Err(RpcError::invalid_params(
+                            "Cloud mobile requires an asking mode (default, plan or ask)",
+                        ));
+                    }
+                    Ok(())
+                })
                 .and_then(|()| self.full_access_hold(&m, control, device))
                 .err()
         };
@@ -583,6 +604,30 @@ mod mode_write_tests {
     /// sent) and later reports its current mode. The write used `modes["currentModeId"] = v`, which
     /// panics on an array, string, number or bool, under the session's meta lock: that poisoned it
     /// and every later `Session::meta()` panicked with it.
+    #[test]
+    fn cloud_mobile_mode_requires_a_phone_asking_mode() {
+        let meta = |mode: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": "cloud-mobile-test",
+                "name": "cloud mobile",
+                "harness": "codex",
+                "cwd": "/tmp",
+                "status": "running",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "modes": {"currentModeId": mode},
+            }))
+            .expect("session metadata")
+        };
+        for mode in ["default", "plan", "ask"] {
+            assert!(cloud_mobile_mode_asks(&meta(mode)), "{mode} should ask on phone");
+        }
+        for mode in ["agent", "full-access", "bypassPermissions"] {
+            assert!(!cloud_mobile_mode_asks(&meta(mode)), "{mode} must be refused on phone");
+        }
+    }
+
     #[tokio::test]
     async fn a_current_mode_written_over_modes_that_are_not_an_object_does_not_panic() {
         let hub = test_hub();

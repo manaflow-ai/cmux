@@ -436,6 +436,7 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
         blocks: vec![json!({"type": "text", "text": "[inbox digest] 1 message"})],
         display_parts: None,
         control: Control::default(),
+        cloud_mobile: false,
         trust_gate: false,
         provenance: Some(json!({"kind": super::digest::inbox_digest::KIND, "digestId": "d"})),
         agent: Some(super::digest::inbox_digest::SENDER.to_owned()),

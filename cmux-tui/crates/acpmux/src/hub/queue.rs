@@ -83,6 +83,7 @@ pub(super) struct PromptRun {
     /// records and used only to rebuild the transcript; it never crosses the agent boundary.
     pub(super) display_parts: Option<Value>,
     pub(super) control: Control,
+    pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
     pub(super) provenance: Option<Value>,
@@ -112,6 +113,7 @@ pub(super) struct Slot<'a> {
     pub(super) client: &'a str,
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
+    pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
     /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
     /// queue and the running turn stops.
@@ -333,6 +335,7 @@ impl Hub {
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
                                 control: p.control,
+                                cloud_mobile: p.cloud_mobile,
                                 trust_gate: p.trust_gate,
                                 provenance: p.provenance.cloned(),
                                 agent: p.agent.map(str::to_owned),
@@ -460,6 +463,7 @@ impl Hub {
             prompt_id,
             message_id: run.message_id.clone(),
             control,
+            cloud_mobile: run.cloud_mobile,
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
@@ -592,6 +596,7 @@ impl Hub {
                     blocks: p.blocks.to_vec(),
                     display_parts: p.display_parts.cloned(),
                     control: p.control,
+                    cloud_mobile: p.cloud_mobile,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
@@ -620,7 +625,7 @@ impl Hub {
         }
         // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
         // run it (`restore_queues`).
-        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate, "cloudMobile": p.cloud_mobile});
         if let Some(agent) = p.agent {
             queued.set("fromAgent", json!(agent));
         }
@@ -1218,6 +1223,7 @@ impl Hub {
             };
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
+            let cloud_mobile = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
             let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
             // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
             if super::inbox::is_notice(provenance.as_ref()) {
@@ -1253,6 +1259,7 @@ impl Hub {
                     display_parts,
                     control,
                     trust_gate,
+                    cloud_mobile,
                     provenance,
                     agent,
                     class,
@@ -1349,6 +1356,7 @@ impl Hub {
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),
                         control: q.run.control,
+                        cloud_mobile: q.run.cloud_mobile,
                         trust_gate: q.run.trust_gate,
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),

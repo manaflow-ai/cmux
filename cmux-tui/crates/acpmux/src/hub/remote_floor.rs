@@ -34,6 +34,9 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
+    /// The active Web turn was started by the native Cloud mobile relay.
+    /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
+    pub(super) cloud_mobile_turn: AtomicBool,
     /// The Web turn the floor cancelled: every later request in it is
     /// cancelled, also after a local restore of an asking mode.
     pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
@@ -118,8 +121,13 @@ impl Hub {
     /// and a mode the harness reported without declaring any.
     pub(super) fn session_asks_now(&self, session: &Session, meta: &SessionMeta) -> bool {
         // An authenticated remote connection runs the bridge in any mode.
-        if self.any_mode_for_web(meta) {
+        if self.any_mode_for_web(meta)
+            && !session.floor.cloud_mobile_turn.load(Ordering::SeqCst)
+        {
             return true;
+        }
+        if session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {
+            return super::web_control::cloud_mobile_mode_asks(meta);
         }
         let table = self.web_modes();
         if !table.session_asks(meta) {
