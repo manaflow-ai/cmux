@@ -56,6 +56,13 @@ expect_fail sheet-window surface-window 'final class DemoSheetWindow: NSWindow {
 expect_pass toast-window-glass 'final class DemoToastPanel: NSPanel {
     let surface = Glass.makeOverlayPanel(content: body, tone: .neutralGlass(.toast))
 }'
+expect_pass sheet-window-surface-role 'final class DemoSheetPanel: NSPanel {
+    let surface = Glass.makeSurface(.sheet, content: body)
+}'
+expect_fail dense-veil-surface-role dense-fill 'final class DemoCard: NSView {
+    let surface = Glass.makeSurface(.card, content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.95).cgColor }
+}'
 expect_pass card-window-raw-glass 'final class DemoCardPanel: NSPanel {
     let glass = Glass.makePanel(content: body, style: .regular, cornerRadius: 14)
 }'

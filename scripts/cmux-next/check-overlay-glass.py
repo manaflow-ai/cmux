@@ -105,7 +105,7 @@ SURFACE_WINDOW = re.compile(
     r"\bclass\s+\w*(Toast|Sheet|Dialog|Card|Banner|Bubble|Notice)\w*\s*:\s*(NSPanel|NSWindow)\b"
 )
 ANY_GLASS = re.compile(
-    r"\bGlass\.make(Overlay|Menu)?Panel\(|\b(OverlaySurfaceView|CardSurfaceView|GlassPanelView)\("
+    r"\bGlass\.make((Overlay|Menu)?Panel|Surface)\(|\b(OverlaySurfaceView|CardSurfaceView|GlassPanelView)\("
 )
 # A fill at 90% or more, in a file that builds a floating surface's glass.
 DENSE_FILL = re.compile(
