@@ -88,10 +88,6 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
-    /// Reads the Mac-local repository catalog through the local cmux daemon frame protocol.
-    var cloudRepositoryLocal: @MainActor () async throws -> Data = {
-        throw DaemonError.notConnected
-    }
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
@@ -428,12 +424,6 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
-        model.onCloudRepositoryLocal = cloudRepositoryLocal
-        if let remoteHost = paneHost as? AgentTabRemoteHost {
-            model.onCloudRepositoryRemote = { method, params, timeout in
-                try await remoteHost.cloudRepository(method: method, params: params, timeout: timeout)
-            }
-        }
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {

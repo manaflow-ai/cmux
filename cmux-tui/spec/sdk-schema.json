@@ -25873,57 +25873,6 @@
    "constraints": [
     "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
    ]
-  },
-  "cloud-environment": {
-   "authority": "local-admin",
-   "since": 12,
-   "capability": "cloud-environments-v1",
-   "request": {
-    "kind": "object",
-    "fields": {
-     "action": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     },
-     "params": {
-      "type": {
-       "kind": "ref",
-       "name": "JsonValue"
-      },
-      "presence": "required",
-      "nullable": true
-     },
-     "platform_origin": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     },
-     "access_token": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "JsonValue"
-   },
-   "stream": null,
-   "constraints": [
-    "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
-   ]
   }
  },
  "events": {
