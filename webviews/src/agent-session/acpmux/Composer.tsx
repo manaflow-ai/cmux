@@ -122,6 +122,7 @@ import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -620,10 +621,10 @@ export function Composer({
   // Whether Esc stops a turn on a double press (escapeStop.ts).
   const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
-  // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
-  // Codex keeps its action behavior even though the model moved.
+  // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
+  // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
-  const quietActions = plainFooter && look === "claude";
+  const quietActions = plainFooter;
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -1226,13 +1227,17 @@ export function Composer({
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
   };
+  // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
+  const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
     const next = `/${command.name} ${existing}`;
     pendingCaret.current = next.length;
@@ -2113,9 +2118,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's box draws no Send at rest until there is a draft, the mic alone on the right;
-      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right
-      // edge through a turn. Codex's look keeps Send's ↑ last, after the mic.
+      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
+      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn, in both looks.
       <button
         key="send"
         ref={sendButton}
@@ -2168,8 +2173,8 @@ export function Composer({
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
-      // The box inside draws Claude's compact grid (ComposerBox.tsx, composerLocation.css).
-      data-composer-grid={look === "codex" ? undefined : ""}
+      // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
+      data-composer-grid=""
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -2385,6 +2390,7 @@ export function Composer({
                 planning={planning}
                 entries={composerPlusRegistry({
                   commands,
+                  recentCommands: recentCommands(recentCommandNames, commands),
                   translate: t,
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
@@ -2418,6 +2424,7 @@ export function Composer({
                 }}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
                 onSlash={pickFromPlus}
+                onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}
           </>

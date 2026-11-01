@@ -35,12 +35,28 @@ pub const GIT_SEED_COMMANDS: [&str; 2] = ["git.seed.start", "git.seed.status"];
 
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 
+/// Test seam, debug builds only: `CMUX_TEST_GIT_SEED_GITHUB=<absolute dir>`
+/// makes the daemon's seeds clone `https://github.com/OWNER/NAME.git` from
+/// `file://<dir>/OWNER/NAME.git`, with no GitHub path
+/// ([`GitSeedService::with_test_github`]). Release builds never read it.
+#[cfg(debug_assertions)]
+const TEST_GITHUB_VAR: &str = "CMUX_TEST_GIT_SEED_GITHUB";
+
 /// The seed owner, when this daemon serves `fs-v1` (it seeds under the same
 /// roots).
 #[must_use]
 pub fn installed() -> Option<&'static GitSeedService> {
     let fs = crate::fs_ops::installed()?;
-    Some(SERVICE.get_or_init(|| GitSeedService::new(fs.roots().clone())))
+    Some(SERVICE.get_or_init(|| {
+        #[cfg(debug_assertions)]
+        if let Some(dir) = std::env::var_os(TEST_GITHUB_VAR)
+            .map(std::path::PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+        {
+            return GitSeedService::with_test_github(fs.roots().clone(), &dir);
+        }
+        GitSeedService::new(fs.roots().clone())
+    }))
 }
 
 /// The capability to advertise in `identify`, when served.
