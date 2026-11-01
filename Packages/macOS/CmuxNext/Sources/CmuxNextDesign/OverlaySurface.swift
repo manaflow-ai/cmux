@@ -60,6 +60,32 @@ public final class OverlaySurfaceView: NSView {
 
     private var blending: NSVisualEffectView.BlendingMode { samplesBehindWindow ? .behindWindow : .withinWindow }
 
+    /// Draws the frosted blur where this Mac would draw Liquid Glass (Reduce Transparency still
+    /// draws the solid surface). Set it, with `samplesBehindWindow`, for a surface on a clear
+    /// window that floats over another window (the page overlay host over a Chromium page):
+    /// Liquid Glass there has nothing in its own window to refract, and its lens bends the clear
+    /// pixels into a dark, heavy 1 px outline (Lawrence 2026-10-31, the Import Cookies banner:
+    /// "border here looks bad"). The blur samples the page behind the window instead.
+    public var prefersBlurToLiquidGlass = false {
+        didSet { if prefersBlurToLiquidGlass != oldValue { refreshMaterial() } }
+    }
+
+    /// Clear Liquid Glass with no tint: the surface shows what is under it, marked only by the
+    /// glass's lens (and a shadow its owner draws). For a piece of the window picked up over its
+    /// own window (a dragged sidebar row), which carries no more text than it did in place (Leo
+    /// 2026-10-23: "the workspaces on the sidebar, they become solid. I feel like they don't need
+    /// to be solid when you pick them up"). The blur before macOS 26 and the Reduce Transparency
+    /// surface are unchanged.
+    public var isClear = false {
+        didSet {
+            guard isClear != oldValue else { return }
+            (materialView as? GlassPanelView)?.style = glassStyle
+            applyTheme()
+        }
+    }
+
+    private var glassStyle: Glass.Style { isClear ? .clear : .regular }
+
     /// `material` pins one material (tests, previews); nil follows
     /// `reduceTransparency` on this Mac.
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
@@ -103,7 +129,8 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? Self.systemMaterial(reduceTransparency)
+        var next = materialOverride ?? Self.systemMaterial(reduceTransparency)
+        if prefersBlurToLiquidGlass, materialOverride == nil, next == .liquidGlass { next = .vibrancy }
         guard next != material else { return }
         material = next
         rebuild()
@@ -138,10 +165,10 @@ public final class OverlaySurfaceView: NSView {
                     contentView.topAnchor.constraint(equalTo: fill.topAnchor),
                     contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
                 ])
-                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
+                glass = Glass.makePanel(content: fill, style: glassStyle, cornerRadius: cornerRadius, activeLook: activeLook)
                 tintView = fill
             } else {
-                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
+                glass = Glass.makePanel(content: contentView, style: glassStyle, cornerRadius: cornerRadius, activeLook: activeLook)
             }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass
@@ -243,7 +270,7 @@ public final class OverlaySurfaceView: NSView {
             let card = isCard ? cardMaterial : nil
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = look?.veil.nsColor ?? overlayTint
+                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : look?.veil.nsColor ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor

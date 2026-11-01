@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
-import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
 
@@ -251,7 +251,7 @@ export function ContextMenu({
             // An older legacy bridge can acknowledge an unknown method with a successful null
             // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
             // page menu so a right-click never disappears without an actionable surface.
-            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+            if (!hasNativeMenuPick(reply)) {
               setNativeOpen(false);
               setPoint(at);
               return;

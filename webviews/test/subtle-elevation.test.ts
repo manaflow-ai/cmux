@@ -23,7 +23,7 @@ const sheets = (dir: string): string[] =>
     return entry.name.endsWith(".css") ? [file] : [];
   });
 
-// The OptChat inspector is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
+// The OptChat Session Info is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
 // with no desktop layer, so the scale's tokens are not defined there.
 const STANDALONE = ["optchat-inspector/"];
 

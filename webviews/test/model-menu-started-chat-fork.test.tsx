@@ -310,11 +310,14 @@ for (const [id, name, family] of [
   ["claude-sr", "Claude (sr)", "claude"],
 ])
   test(`a started chat forks to the launch profile ${id} from its Account route`, async () => {
+    // A Codex chat: a Claude profile is no target of a Claude chat's own family (continueTargets).
+    // Claude Code is in the catalog, so the profile is a route of the Claude tab, never a tab.
     const catalog = [
+      { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
       { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: id!, name: name!, family: family!, models: [{ id: "opus", name: "Opus" }] },
     ] as Snapshot["catalog"];
-    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    const { forked, switched } = await mount(1, { ready: true }, "codex", catalog);
     await open();
     expect(tabNames()).not.toContain(name);
     await showTab(name!);
@@ -415,10 +418,11 @@ for (const [id, label] of [
 ]) {
   test(`a folded family forks to the exact ${id} launch entry`, async () => {
     const catalog = [
+      { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
       { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: id!, name: id!, family: "claude", models: [{ id: "opus", name: "Opus" }] },
     ] as Snapshot["catalog"];
-    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    const { forked, switched } = await mount(1, { ready: true }, "codex", catalog);
     await open();
     expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
     await showTab(label!);
@@ -524,14 +528,78 @@ test("while the chat's handoff review is open, the composer's Fork to is disable
   await forkToCodexDisabled(await mountChat(snapshot));
 });
 
-test("when no other harness can take the chat, the composer's Fork to is disabled and sends nothing", async () => {
-  // A harness whose probe failed stays in the picker's rail (ComposerPickers) but is no Continue In…
-  // target (continueTargets): here every harness but the chat's own.
+test("when no other harness can take the chat, the composer offers no Fork to and sends nothing", async () => {
+  // A failed probe is no Continue In… target, so it is no Fork to destination either.
+  // Here every harness but the chat's own failed its probe.
   const catalog = (await acpmuxCatalog()).map((harness) =>
     harness.id === "claude" ? harness : { ...harness, unavailable: "probe failed", probeFailed: true },
   ) as Snapshot["catalog"];
   const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>);
-  await forkToCodexDisabled(await mountChat(snapshot));
+  const calls = await mountChat(snapshot);
+  await open();
+  expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Claude Code"]);
+  expect(
+    itemsOf(menu()!)
+      .map(labelOf)
+      .some((label) => label.startsWith("Fork to ")),
+  ).toBe(false);
+  expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
+});
+
+test("another profile of the chat's own family is no Fork to target (the daemon refuses same_harness)", async () => {
+  const { continueTargets } = await import("../src/agent-session/acpmux/cmuxCommands");
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude" },
+    { id: "cmux", name: "cmux router", family: "claude" },
+    { id: "codex", name: "Codex", family: "codex" },
+  ];
+  expect(continueTargets(catalog, "claude").map((target) => target.id)).toEqual(["codex"]);
+  expect(continueTargets(catalog, "cmux", "claude").map((target) => target.id)).toEqual(["codex"]);
+  expect(continueTargets(catalog, "codex").map((target) => target.id)).toEqual(["claude", "cmux"]);
+});
+
+for (const [source, catalogFamily] of [
+  ["claude", "claude"],
+  ["work", "codex"],
+])
+  test(`the composer excludes same-family forks while another family can take the chat (${source})`, async () => {
+    const catalog = [
+      { id: source!, name: "Claude Code", family: catalogFamily!, models: [{ id: "opus", name: "Opus" }] },
+      { id: "claude-sr", name: "Claude (sr)", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+      { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
+    ] as Snapshot["catalog"];
+    const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
+    snapshot.summary = { ...snapshot.summary!, harness: source!, family: "claude" };
+    const calls = await mountChat(snapshot);
+    await open();
+    expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (sr)");
+    expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]').length).toBeGreaterThan(0);
+    expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
+    await showTab("Codex");
+    // A folded profile with no models launches from the rail tab; otherwise its row confirms it.
+    const popup = menu();
+    if (popup) {
+      const fork = itemsOf(popup).find((item) => labelOf(item) === "Fork to Codex")!;
+      expect(fork.hasAttribute("data-disabled")).toBe(false);
+      await act(async () => fork.click());
+      await settle();
+    }
+    expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
+      { method: "chat.handoff.prepare", params: { harness: "codex" } },
+    ]);
+  });
+
+test("Continue In uses the live session's family after its profile is reloaded", async () => {
+  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
+  const catalog = [
+    { id: "work", name: "Work", family: "codex" },
+    { id: "codex", name: "Codex", family: "codex" },
+  ] as Snapshot["catalog"];
+  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
+  snapshot.summary = { ...snapshot.summary!, harness: "work", family: "claude" };
+  expect(canContinueIn(snapshot)).toBe(true);
+  snapshot.catalog = [catalog[0]!, { id: "claude", name: "Claude", family: "claude" }] as Snapshot["catalog"];
+  expect(canContinueIn(snapshot)).toBe(false);
 });
 
 test("canContinueIn is Continue In…'s whole check", async () => {

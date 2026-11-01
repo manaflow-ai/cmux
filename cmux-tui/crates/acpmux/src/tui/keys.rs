@@ -509,6 +509,7 @@ impl App {
                 KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
                 KeyCode::Char('n') => self.run_action(Action::Deny, &[]),
                 KeyCode::Char('x') => self.run_action(Action::Cancel, &[]),
+                KeyCode::Char('R') => self.run_action(Action::Retry, &[]),
                 _ => {}
             },
             Focus::Sidebar => match key.code {

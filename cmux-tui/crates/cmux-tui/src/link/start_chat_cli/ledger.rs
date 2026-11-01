@@ -11,10 +11,11 @@
 //!
 //! Apart from the sends, the machine each recent Mac workspace that sent to
 //! Cloud picked, under its account too: a workspace keeps its machine however
-//! many sends ran since, and many workspaces may pick one machine. The newest
-//! [`WORKSPACE_LIMIT`] workspaces are remembered; that bounds this file, not
-//! how many machines or workspaces a person has (an older workspace's next
-//! send reuses a machine again).
+//! many sends ran since. The file can hold many workspaces on one machine;
+//! that a machine serves one workspace for now is the pick's policy
+//! ([`super::pick`]), not this file's shape. The newest [`WORKSPACE_LIMIT`]
+//! workspaces are remembered; that bounds this file, not how many machines or
+//! workspaces a person has (an older workspace's next send gets a new machine).
 //!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
@@ -47,6 +48,14 @@ pub(crate) struct Send {
 impl Send {
     pub(crate) fn new(key: &str, account: &str) -> Self {
         Self { key: key.to_lowercase(), account: account.to_lowercase() }
+    }
+
+    pub(crate) fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub(crate) fn account(&self) -> &str {
+        &self.account
     }
 }
 
@@ -83,7 +92,8 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
-/// The machine a Mac workspace picked, in the account it sent in. Other workspaces may pick it too.
+/// The machine a Mac workspace picked, in the account it sent in. The file allows other
+/// workspaces on it too; the pick gives each workspace its own for now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
     workspace: String,
@@ -133,6 +143,16 @@ impl Ledger {
             .iter()
             .find(|binding| binding.workspace == workspace && binding.account == account)
             .map(|binding| binding.machine_id.clone())
+    }
+
+    /// Whether a Mac workspace other than `workspace` picked `machine` in `account`.
+    pub(crate) fn held_by_another(&self, machine: &str, workspace: &str, account: &str) -> bool {
+        let account = account.to_lowercase();
+        self.workspaces.iter().any(|binding| {
+            binding.machine_id == machine
+                && binding.account == account
+                && binding.workspace != workspace
+        })
     }
 
     /// The machines some workspace in `account` picked.
@@ -186,12 +206,18 @@ impl Ledger {
             .and_then(|entry| entry.copied_chat.clone())
     }
 
-    /// `send`'s copy to `machine` starts now, into `place`, a folder no copy
-    /// used before. Kept before anything is copied, and never handed out
-    /// again: a copy whose answer was lost (the push may have finished on
-    /// the machine), or one still running, is never written over, so a retry
-    /// copies into a new folder instead (`cmux link sync push` rewrites every
-    /// file the machine changed).
+    /// The folder of `send`'s copy to `machine` that started and did not
+    /// finish: a retry resumes it while no live copy holds it
+    /// ([`super::StartCopy::run`]).
+    pub(crate) fn copy_place(&self, send: &Send, machine: &str) -> Option<String> {
+        self.entry(send)
+            .filter(|entry| entry.machine_id == machine && entry.copied_chat.is_none())
+            .and_then(|entry| entry.place.clone())
+    }
+
+    /// `send`'s copy to `machine` starts now, into `place`. Kept before
+    /// anything is copied: a retry of a copy that does not finish resumes
+    /// it there, unless a live copy still holds it ([`super::Lease`]).
     pub(crate) fn start_copy(&mut self, send: &Send, machine: &str, place: &str) {
         self.put(Entry {
             key: send.key.clone(),

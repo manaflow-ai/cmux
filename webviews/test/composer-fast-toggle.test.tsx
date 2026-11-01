@@ -1,8 +1,10 @@
 // l10n-allow-file: test fixtures.
 // Fast mode per harness: every composer's model picker owns one compact toggle row. The row is
 // checked for every tier past off, and turning it back on restores the previously selected tier.
-// The composer never draws a separate bolt; the model button keeps the effort label and the menu
-// keeps Fast mode for Claude, Codex and other harnesses alike.
+// The composer never draws a separate bolt button; while Fast mode is on the model button draws a
+// bolt right beside the model's name (Leo 2026-10-23: "even on, I think Claude mode, you just want
+// the lightning bolt to be right beside the model"), and the menu keeps the toggle for Claude, Codex
+// and other harnesses alike.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -188,6 +190,7 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
+const chipBolt = () => chip().querySelector(".acpmux-model-name ~ .acpmux-model-bolt");
 const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
 const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
 const rows = () =>
@@ -211,10 +214,11 @@ const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: 
 
 const claude = { harness: "claude", model: "claude-opus-5-5" };
 const codex = { harness: "codex", model: "gpt-6-astra" };
-test("Claude: the composer draws no bolt; the model menu toggles Fast mode", async () => {
+test("Claude: no bolt button; a bolt beside the model while Fast is on; the menu toggles it", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, claude));
   expect(host.querySelector(".acpmux-fast")).toBeNull();
+  expect(chipBolt()).toBeNull();
   expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
   expect(rows().at(-1)).toBe("Fast mode");
@@ -223,22 +227,27 @@ test("Claude: the composer draws no bolt; the model menu toggles Fast mode", asy
   expect(sent).toEqual(["fast-mode=on"]);
 
   await render(snapshot({ options: twoState, current: "on" }, claude));
+  expect(chipBolt()).not.toBeNull();
+  expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: Fast mode uses the same picker row and has no composer bolt", async () => {
+test("Codex: the same picker row, and the same bolt beside the model while Fast is on", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, codex));
   expect(host.querySelector(".acpmux-fast")).toBeNull();
+  expect(chipBolt()).toBeNull();
   await open();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on"]);
 
   await render(snapshot({ options: twoState, current: "on" }, codex));
+  expect(chipBolt()).not.toBeNull();
+  expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   expect(fastRow()!.getAttribute("aria-checked")).toBe("true");
   await toggleFast();

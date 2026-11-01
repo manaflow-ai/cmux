@@ -3,8 +3,8 @@ import CoreGraphics
 /// The agent chat's look (Settings > Appearance > Agent Chat; plans/cmux-next/chat-display-settings-DESIGN.md):
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
-/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx), and `environment.placement`
+/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Session Info
+/// opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx), and `environment.placement`
 /// controls the machine · folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows

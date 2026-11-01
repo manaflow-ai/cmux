@@ -52,6 +52,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             menu.addItem(.separator())
             creation.forEach(menu.addItem)
         }
+        Self.keepOneTextColumn(menu)
         return menu
     }
 
@@ -59,7 +60,10 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// and the team (its row opens the team picker) on top and Sign Out at the end; signed out
     /// (`who` nil), Sign In at the end.
     public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?) {
-        if let item = registry.makeMenuItem(for: who == nil ? "palette.auth.signIn" : "palette.auth.signOut") {
+        defer { Self.keepOneTextColumn(menu) }
+        let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
+        if let item = registry.makeMenuItem(for: auth) {
+            item.image = registry.descriptor(for: auth).flatMap { ActionRegistry.menuIcon($0.symbol) }
             menu.addItem(.separator())
             menu.addItem(item)
         }
@@ -116,6 +120,29 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         item.image = Self.symbol(row.symbol, label: item.title)
         return item
     }
+
+    /// One text column (design/grid.md 5.3: "a row without an icon still starts its text on
+    /// `text`"). AppKit starts a row's title after that row's own image, so in a menu where some
+    /// rows have an icon, a row without one (the account's name and email, Sign Out, a profile
+    /// with no avatar) starts its text an icon's width left of the others. Such a row gets an
+    /// empty image the size of the grid's icon box: every row's text on one column, and the
+    /// header lines read as the rows' labels, not as a column of their own.
+    static func keepOneTextColumn(_ menu: NSMenu) {
+        let rows = menu.items.filter { !$0.isSeparatorItem && $0.view == nil }
+        guard rows.contains(where: { $0.image != nil }) else { return }
+        for row in rows where row.image == nil { row.image = emptyIcon() }
+    }
+
+    /// An empty image in the grid's icon box (`MenuMetrics.iconSize`, kept in step by
+    /// `ProfileMenuColumnTests`), so `themeRows` leaves it as it is.
+    static func emptyIcon() -> NSImage {
+        let image = NSImage(size: NSSize(width: emptyIconSide, height: emptyIconSide))
+        image.isTemplate = true
+        return image
+    }
+
+    /// `MenuMetrics.iconSize` (CmuxNextDesign, which this module does not import).
+    static let emptyIconSide: CGFloat = 14
 
     /// `makeMenuItem(for:)` for an action this build registers.
     private func boundMenuItem(_ id: ActionID) -> NSMenuItem? {

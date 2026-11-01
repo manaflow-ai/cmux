@@ -90,7 +90,7 @@ extension AppActions {
                 guard let reason = await services.home.archiveChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            registry.trackOrRefuse(work)
         })
         registry.bind("home.deleteChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
@@ -101,7 +101,7 @@ extension AppActions {
                 guard let reason = await services.home.deleteChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            registry.track(work)
+            registry.trackOrRefuse(work)
         })
         // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
         // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.

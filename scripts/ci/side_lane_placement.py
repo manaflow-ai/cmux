@@ -55,7 +55,12 @@ contains(' <key> ') matches whole keys only:
   runner is no longer than Blacksmith 6 vCPU's queue per slot. A label whose queue is
   deeper than the pool (#26809, 2026-10-29: eleven swift tests queued behind nine busy
   gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
-  Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
+  Blacksmith macOS leg instead of joining it. A label the janitor's snapshot lists as
+  unserved (a job queued on it, none running or started within ten minutes) has no room
+  either, unless one of its runners is idle, and this holds before the stalled-overflow and
+  health-contract keeps below: cmux#24295's daemon tests waited 90 minutes on a session label
+  whose five online runners were busy, while the gui label moved. An empty session_runner
+  sends those jobs to gui_runner. With no snapshot to weigh, the live label
   stays (today's route; the rescue still watches it). While that leg is itself stalled or
   dead (overflow_stalled(), read from a snapshot up to 45 minutes old too), a role label with
   an online runner stays, full or deep: a busy owned queue moves, a stalled Blacksmith one does not;
@@ -107,6 +112,7 @@ is preferred for Release compile and Blacksmith is the immediate overflow.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import math
@@ -292,12 +298,20 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
     next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
     queue is unknown and the label stays, as before this check.
+
+    A label the janitor found unserved (`seen.unserved`: a job queued on it and none running or started
+    within starved_labels.STARVED_AFTER) has no room whatever its counts say, unless a runner carrying it is
+    idle now: its queue is not moving. On 2026-10-29 cmux#24295's daemon tests waited 90 minutes on
+    glaeda-session-std-xcode-26.6, twice, with five session runners online and busy and the queue shorter
+    than them, while the gui label beside it started jobs within a minute.
     """
     online, idle = _role_online(candidate, runners)
     if not online:
         return False
     if idle:
         return True
+    if candidate in (getattr(seen, "unserved", None) or ()):
+        return False
     queues = getattr(seen, "owned_queued", None)
     if queues is None:
         return True
@@ -333,6 +347,13 @@ def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, s
     """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
     if not live or runners is None:
         return live
+    # An unserved label (Seen.unserved: a job queued on it, none running or started within
+    # starved_labels.STARVED_AFTER) is not a busy queue that moves, so neither keep below holds it: with no idle
+    # runner it has no room (role_room()). cmux#24295's daemon tests waited 90 minutes on such a session label,
+    # twice, on 2026-10-29 while Blacksmith had no free slot; an empty session_runner sends them to gui_runner.
+    idle = _role_online(live, runners)[1]
+    if live in (getattr(seen, "unserved", None) or ()) and not idle:
+        return ""
     # A busy owned queue still moves; a stalled or dead Blacksmith 6 vCPU queue does not. While the overflow
     # is not moving, a role label with an online runner stays, full or deep (run 41163886431, #28823,
     # 2026-10-31: the gui label read full, 37 queued on 10 busy runners, so swift-test took
@@ -588,6 +609,31 @@ def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return taken
 
 
+def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                  gateway: str, taken: Mapping[str, int] | None = None) -> Any:
+    """`placed` with its fleet_jobs kept only while `gateway` has an idle runner for each of them.
+
+    A listed job's build-fleet client (cmux-next.yml's <job>-fleet) runs on gateway_runner beside
+    GATEWAY_JOBS, so it needs an idle runner there beyond theirs and beyond the run's own jobs (`taken`,
+    as gateway_route() counts them). Without one the client would queue behind another gateway job
+    until its timeout and report no verdict, so placement lists nothing and the job keeps its route
+    (it waits on the owned label as before). No gateway (none idle, unread runners, a re-run) lists
+    nothing either.
+    """
+    if not placed.fleet_jobs:
+        return placed
+    want = len((env.get("GATEWAY_JOBS") or "").split()) + len(placed.fleet_jobs)
+    room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
+            if gateway and runners is not None else 0)
+    if room >= want:
+        return placed
+    clients = ", ".join(f"{job}-fleet" for job in placed.fleet_jobs)
+    where = f"`{gateway}`" if gateway else "the gateway"
+    return dataclasses.replace(placed, fleet_jobs=(), why=(
+        f"{placed.why}; {where} has no idle runner left for {clients} ({max(room, 0)} for {want} gateway jobs), "
+        f"so {', '.join(placed.fleet_jobs)} keep their route"))
+
+
 def without_cascade(env: Mapping[str, str], job: str) -> dict[str, str]:
     """`env` with `job` dropped from CASCADE_RUNS and FIRST_JOBS."""
     trimmed = dict(env)
@@ -664,6 +710,8 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
     placed = cascade.place(env, owned, live, waiting, seen, saturated=runners is not None,
                            route_wait=route_wait(label, runners, seen))
+    # A re-run emits no gateway_runner, so no build-fleet client runs (fleet_gateway()).
+    placed = fleet_gateway(placed, env, runners, "")
     overflow = "" if free_gui else gui_overflow(env, live, waiting, seen, placed)
     gui_why = (f"the GUI jobs take idle `{free_gui}`" if free_gui
                else f"no idle GUI runner, so the GUI jobs take `{overflow}`")
@@ -735,7 +783,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
                      "like the other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
-    gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
+    taken = gateway_taken(env, runners, fast)
+    gateway = gateway_route(env, runners, taken)
     if gateway_label:
         if gateway:
             why += f"; the build-fleet compiles take idle `{gateway}`"
@@ -769,6 +818,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     # for longer than 6 vCPU's oldest job has waited, or one host alone serves it), they take 6 vCPU.
     placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
                            saturated=runners is not None, route_wait=route_wait(route, runners, seen))
+    # A job listed for the build fleet runs its client on the gateway only with an idle runner of its own there.
+    placed = fleet_gateway(placed, env, runners, gateway, taken)
     # With no GUI route that has room, the GUI jobs take the largest Blacksmith macOS size that starts them now,
     # after the slots this run's cascade just took (gui_overflow()). An unread fleet vouches for no owned GUI
     # queue either, so it overflows too, as it did before (the step's synthesized `runner` sent it to 6 vCPU).
@@ -811,6 +862,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
     """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
     output = env.get("GITHUB_OUTPUT")
     if output:
+        retry_jobs = cascade.delimited(cascade.candidates(env, ())[:cascade.MAX_PER_RUN])
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(
                 f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
@@ -820,6 +872,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
                 f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
                 f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
                 f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
+                f"retry_jobs={retry_jobs}\n"
             )
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:

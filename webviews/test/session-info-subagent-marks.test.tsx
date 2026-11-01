@@ -8,8 +8,8 @@
 // fallback, so a harness acpmux has no drawable icon for (a glyph) still shows it.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChildSessionRows } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
-import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
+import { ChildSessionRows } from "../src/agent-session/acpmux/session-info/ChildSessionRows";
+import { SubagentsSection } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import { rowIconSize } from "../src/agent-session/acpmux/icons/iconSize";
 import { agentTone } from "../src/agent-session/acpmux/subagents/agentTones";

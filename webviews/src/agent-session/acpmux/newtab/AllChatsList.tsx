@@ -274,11 +274,17 @@ export function useChatPages(load: LoadChatsPage) {
               const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
               return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
             }
+            // An index-ready first page without a cursor is the whole list: rows omitted from it
+            // were deleted or archived. A paged first page cannot distinguish those from rows
+            // that merely moved to a later page, so retain older fetched rows in that case.
+            const complete = page.ready !== false && !page.nextCursor;
             const named = new Set(fresh.map((row) => row.key));
-            const rows = mergeFirstPage(
-              fresh,
-              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-            );
+            const rows = complete
+              ? fresh
+              : mergeFirstPage(
+                  fresh,
+                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+                );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -289,8 +295,9 @@ export function useChatPages(load: LoadChatsPage) {
                     row.updatedAt === s.rows[i]?.updatedAt &&
                     row.title === s.rows[i]?.title &&
                     row.cwd === s.rows[i]?.cwd),
-              );
-            return same ? s : { ...s, rows };
+              ) &&
+              (!complete || (s.nextCursor === undefined && s.ready));
+            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
           });
         }
         const again = refreshing.current === "again";
@@ -665,7 +672,9 @@ export function AllChatsList({
                   <span className="nt-all-glyph">
                     <AgentMark harness={chat.harness} />
                   </span>
-                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-title" title={chat.title}>
+                    {chat.title}
+                  </span>
                   <span className="nt-all-state">{chat.label}</span>
                 </button>
               </ContextMenu>

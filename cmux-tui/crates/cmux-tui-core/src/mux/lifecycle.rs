@@ -189,6 +189,8 @@ impl Mux {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
         if self.journal_ingress.is_current_writer_thread() {
+            // The readers stopped: the store's last write is safe here too.
+            self.output_store.shutdown(self);
             if !terminal_gaps.is_empty() {
                 eprintln!(
                     "cmux-tui: {context} on the session journal writer could not durably record \

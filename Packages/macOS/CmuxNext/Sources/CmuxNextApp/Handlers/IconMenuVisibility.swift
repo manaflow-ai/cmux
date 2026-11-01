@@ -15,7 +15,7 @@ enum IconMenuVisibility {
         hide("browserProfile.clearIcon", registry) { lookup(try? context.browserProfile($0)) { $0.icon } }
         hide("tab.clearIcon", registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return nil }
-            return lookup(context.services.locateTab(target.id)?.0) { $0.userIcon }
+            return lookup(context.targetTab(target.id, invocation)?.0) { $0.userIcon }
         }
         hide("screenGroup.clearIcon", registry) { invocation in
             guard let target = invocation.target, target.kind == .screenGroup else { return nil }

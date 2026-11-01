@@ -1,5 +1,6 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -44,13 +45,15 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
+import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
+import { backdropLayer } from "./backdropLayer";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
-import { contextBreakdown } from "./inspector/ContextSection";
+import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -158,8 +161,6 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  /** Granted folder trust and chat-wide permission state, folded into the Access menu. */
-  permissionAccess?: ComposerPermissionAccess;
   onModel(modelId: string): void;
   /** A rejected promise (or a throw) means the agent refused the mode: the access chip goes back to the mode in force. */
   onMode(modeId: string): void | Promise<unknown>;
@@ -204,16 +205,6 @@ type Props = {
   startsChat?: boolean;
 };
 
-export type ComposerPermissionGrant = {
-  id: string;
-  label: string;
-  onRemove(): void;
-};
-
-export type ComposerPermissionAccess = {
-  grants: readonly ComposerPermissionGrant[];
-};
-
 /// The composer bar's controls after the + button: one model button that names the model and its
 /// effort (its tooltip says how much of the context window the chat has used; its menu holds
 /// Effort, More models, Account and Fast mode), the permission mode (in the warning color when it
@@ -222,7 +213,6 @@ export type ComposerPermissionAccess = {
 /// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
-  permissionAccess,
   onModel,
   onMode,
   onEffort,
@@ -301,7 +291,6 @@ export function ComposerPickers({
   // Plan is its own toggle, unless the harness's own menu lists it as a mode (Claude Code's does).
   const plan = modeMenu?.rows.some((row) => isPlan(row.id)) ? undefined : allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
-  const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
@@ -1013,7 +1002,17 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
+          {...(locked && fork
+            ? {
+                fork: {
+                  ready: fork.ready,
+                  to: forkTo,
+                  targets: new Set(
+                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
+                  ),
+                },
+              }
+            : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1050,20 +1049,14 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel &&
-        modes.length === 0 &&
-        !hasGrants &&
-        startMode &&
-        startModeName &&
-        pendingAccessModes.length === 0 && (
-          <PendingMode
-            label={startModeName}
-            modeId={shownStart?.modeId}
-            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
-          />
-        )}
-      {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
-      {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
+      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingMode
+          label={startModeName}
+          modeId={shownStart?.modeId}
+          icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
+        />
+      )}
+      {(modes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
@@ -1074,7 +1067,6 @@ export function ComposerPickers({
           managedReason={t(PICKER_LABELS.fullAccessManaged)}
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
-          permissionAccess={permissionAccess}
           approvesAll={summary?.enforcement?.policy === "approve-all"}
           onMode={onMode}
           {...(pendingMenu
@@ -1146,9 +1138,11 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
   );
 }
 
-/** The permission control stays quiet in the footer: the mode's shield names the control (a lock
- * when the harness offers no modes and only grants remain) and the menu carries the mode title
- * and one-line explanation, each row with its own shield. Base UI owns focus, typeahead and Escape. */
+/** The permission control stays quiet in the footer: the mode's shield names the control and the
+ * menu carries the mode title and one-line explanation, each row with its own shield. The menu
+ * lists the modes alone: granted folder trust and chat allowance are revoked from the chat menu's
+ * Revoke Granted Access (header/grantsMenu.ts) and Session Info's Environment, not here (Leo,
+ * 2026-10-29). Base UI owns focus, typeahead and Escape. */
 /// Runs a mode pick; resolves false when the agent refused it (a rejected promise or a throw).
 function settle(run: () => void | Promise<unknown>): Promise<boolean> {
   try {
@@ -1171,7 +1165,6 @@ function AccessMenu({
   managedReason,
   help,
   refusedReason,
-  permissionAccess,
   approvesAll = false,
   onMode,
   heading,
@@ -1187,7 +1180,6 @@ function AccessMenu({
   managedReason: string;
   help: string;
   refusedReason: string;
-  permissionAccess?: ComposerPermissionAccess;
   /// acpmux's policy for the chat answers every permission prompt (approve-all, `enforcement`), so
   /// the chat acts without asking whatever its harness mode is (cmux#27847).
   approvesAll?: boolean;
@@ -1230,7 +1222,6 @@ function AccessMenu({
     ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
     : reportedMode;
   const fullAccess = answeredForYou || unrestricted(value);
-  const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     if (blocked(next)) return;
     setOptimistic({ sessionId, modeId: next });
@@ -1250,10 +1241,9 @@ function AccessMenu({
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
-  // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
+  // Nothing left to pick (every other mode refused): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
-    grants.length === 0 &&
     // A full-access row managed off, the current one included, keeps the menu: it stays, disabled
     // and saying why (reviews 37 and 48).
     modes.every(
@@ -1290,9 +1280,9 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+          <ModeIcon modeId={value} icon={currentMode?.icon} />
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
-            {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+            {currentMode?.name ?? label}
           </span>
           <ChevronIcon />
         </MenuButton>
@@ -1348,24 +1338,6 @@ function AccessMenu({
               ))}
             </MenuRadioGroup>
           )}
-          {grants.length > 0 && (
-            <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
-              <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
-              {grants.map((grant) => (
-                <div className="acpmux-access-grant" key={grant.id}>
-                  <span className="acpmux-access-grant-label">{grant.label}</span>
-                  <button
-                    type="button"
-                    className="acpmux-access-grant-remove"
-                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
-                    onClick={grant.onRemove}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </fieldset>
-          )}
         </MenuPopup>
       </Menu>
     </span>
@@ -1384,7 +1356,7 @@ const TABBABLE =
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
 /// (contextCard.css).
@@ -1401,7 +1373,7 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
 }) {
   const t = useT();
@@ -1617,6 +1589,8 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
+  overBackdrop = false,
+  onOpen,
 }: {
   label: string;
   className: string;
@@ -1631,8 +1605,15 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
+  /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
+  /// frosts what is behind the composer instead of letting it show through sharp.
+  overBackdrop?: boolean;
+  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
+  const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -1670,7 +1651,8 @@ export function Picker({
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
     };
     const blur = () => setOpen(false);
     // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
@@ -1688,6 +1670,8 @@ export function Picker({
   const show = () => {
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
+    setLayer(overBackdrop ? backdropLayer(root.current) : null);
+    onOpen?.();
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
@@ -1755,6 +1739,17 @@ export function Picker({
   };
 
   let index = -1;
+  // Out of the backdrop root (overBackdrop): in a box-less wrapper that carries the picker's classes,
+  // so its rules (`.acpmux-composer-plus .acpmux-menu`) and its rows' selectors still reach the menu.
+  const placeMenu = (popup: React.ReactElement) =>
+    layer
+      ? createPortal(
+          <div className={`acpmux-picker-layer ${className}`} style={{ display: "contents" }}>
+            {popup}
+          </div>,
+          layer,
+        )
+      : popup;
   return (
     <span
       ref={root}
@@ -1790,76 +1785,81 @@ export function Picker({
         {button}
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
-      {open && (
-        <div
-          ref={attach}
-          style={menuStyle}
-          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
-          data-side="above"
-        >
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" aria-label={heading ?? label}>
-            {heading && (
-              <div className="acpmux-menu-heading" aria-hidden="true">
-                {heading}
-              </div>
-            )}
-            {sections.map((section, s) => {
-              const titled = section.title && sections.length > 1;
-              return (
-                <div
-                  key={s}
-                  className="acpmux-menu-section"
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="group"
-                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                  aria-label={titled ? undefined : label}
-                >
-                  {titled && (
-                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                      {section.title}
-                    </div>
-                  )}
-                  {section.choices.map((choice) => {
-                    index += 1;
-                    const at = index;
-                    const current = choice.id === section.current;
-                    return (
-                      <div
-                        key={choice.id}
-                        id={`${menuId}-${at}`}
-                        data-value={choice.id}
-                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                        role="option"
-                        tabIndex={-1}
-                        // `aria-selected` is the option's value; the combobox's
-                        // `aria-activedescendant` carries the keyboard highlight.
-                        aria-selected={section.current === undefined ? false : current}
-                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                        onMouseMove={() => {
-                          if (at !== selected) setActive(at);
-                        }}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          pick(at);
-                        }}
-                      >
-                        {choice.icon}
-                        <span className="acpmux-menu-text">
-                          <span className="acpmux-menu-label">{choice.name}</span>
-                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                        </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                        {current && <CheckIcon />}
-                      </div>
-                    );
-                  })}
+      {open &&
+        placeMenu(
+          <div
+            ref={attach}
+            style={menuStyle}
+            className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+            data-side="above"
+          >
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div id={menuId} role="listbox" aria-label={heading ?? label}>
+              {heading && (
+                <div className="acpmux-menu-heading" aria-hidden="true">
+                  {heading}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              )}
+              {sections.map((section, s) => {
+                const titled = section.title && sections.length > 1;
+                return (
+                  <div
+                    key={s}
+                    className="acpmux-menu-section"
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                    role="group"
+                    aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
+                    aria-label={titled ? undefined : label}
+                  >
+                    {titled && (
+                      <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
+                        {section.title}
+                      </div>
+                    )}
+                    {section.choices.map((choice) => {
+                      index += 1;
+                      const at = index;
+                      const current = choice.id === section.current;
+                      return (
+                        <div
+                          key={choice.id}
+                          id={`${menuId}-${at}`}
+                          data-value={choice.id}
+                          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                          role="option"
+                          tabIndex={-1}
+                          // `aria-selected` is the option's value; the combobox's
+                          // `aria-activedescendant` carries the keyboard highlight.
+                          aria-selected={section.current === undefined ? false : current}
+                          className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                          onMouseMove={() => {
+                            if (at !== selected) setActive(at);
+                          }}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            pick(at);
+                          }}
+                        >
+                          {choice.icon}
+                          <span className="acpmux-menu-text">
+                            <span className="acpmux-menu-label">{choice.name}</span>
+                            {choice.description && (
+                              <span className="acpmux-menu-description" data-popup-detail="">
+                                {choice.description}
+                              </span>
+                            )}
+                          </span>
+                          {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                          {current && <CheckIcon />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>,
+        )}
     </span>
   );
 }
@@ -1917,12 +1917,6 @@ const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
 const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
   <Icon shield={shield}>
     <path d={SHIELD} />
-  </Icon>
-);
-export const LockIcon = () => (
-  <Icon>
-    <rect x="3.5" y="7" width="9" height="7" rx="1.5" />
-    <path d="M5.5 7V5.6a2.5 2.5 0 0 1 5 0V7" />
   </Icon>
 );
 /** One shield family for the permission mode, the same on the trigger and in the menu: the mark
