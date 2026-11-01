@@ -245,6 +245,7 @@ fn normalize_history(raw: Value, session_id: &str) -> Result<Value, (&'static st
                 .get("kind")
                 .or_else(|| record.get("type"))
                 .or_else(|| record.pointer("/params/update/sessionUpdate"))
+                .or_else(|| event.pointer("/msg/params/update/sessionUpdate"))
                 .or_else(|| event.get("kind"))
                 .or_else(|| event.get("type"))
                 .and_then(Value::as_str)
