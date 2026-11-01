@@ -573,7 +573,12 @@ for (const { revision, timestamp, previousStatus } of [
     const fake = client([message(1)], [latest]);
     const store = new HomeChannelsStore(fake.api as never);
     store.runs.setSteps(
-      { ...latest, rev: revision === 0 ? 0 : 1, updatedAt: timestamp === 0 ? 0 : 2, status: previousStatus },
+      {
+        ...latest,
+        rev: revision === 0 ? 0 : 1,
+        updatedAt: timestamp === 0 ? 0 : 2,
+        status: previousStatus,
+      },
       [
         {
           id: "report:a1:1:0",
@@ -757,5 +762,27 @@ test("a slow failing later history page does not hide messages already found", a
   } finally {
     release();
     stop();
+  }
+});
+
+test("Transcript discovers run summaries but reads steps only when the view asks", async () => {
+  const { setPresentation } = await import("../src/pages/home-channels/presentation");
+  setPresentation("chief-conv", "transcript");
+  const fake = client([message(1)], [run(1, "m1")]);
+  const store = new HomeChannelsStore(fake.api as never);
+  const finished = trackRunLoads(store);
+  const stop = store.subscribe(() => {});
+  try {
+    await store.start();
+    await finished();
+    const entry = store.runs.get("chief-conv", "chief", "r1");
+    expect(entry).toBeDefined();
+    expect(entry?.complete).toBe(false);
+    expect(fake.calls.filter((call) => call.op === HomeOps.run)).toHaveLength(0);
+    await store.loadRunSteps(entry!.run);
+    expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+  } finally {
+    stop();
+    setPresentation("chief-conv", "messages");
   }
 });
