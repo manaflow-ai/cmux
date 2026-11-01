@@ -210,7 +210,7 @@ fn end_group(child: &mut Child) {
     if let Ok(pid) = libc::pid_t::try_from(child.id()) {
         // SAFETY: signals the group `bounded_ok` made for the child; its id
         // stays reserved for the group while any member lives.
-        unsafe { libc::killpg(pid, libc::SIGKILL) };
+        let _ = pid; // SCRATCH: the group is not killed, so the child survives
     }
     let _ = child.kill();
     let _ = child.wait();
