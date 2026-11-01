@@ -4921,11 +4921,14 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   padding-top: var(--cv-footer-drop);
   padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
 }
-/* The chat's last footer keeps the normal turn gap above the composer, and its line stays put:
-   under it is the rest gap over the composer (model.ts REST_GAP), not a next row to centre on. */
+/* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
+  padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
+}
+/* The footer that ends the chat has no next row to centre on: under it is the rest gap over the
+   composer (model.ts REST_GAP), so its line stays put. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer:not(:has(~ .acpmux-row)) {
   --cv-footer-drop: 0px;
-  padding-bottom: var(--cv-turn-gap);
 }
 .acpmux-row.acpmux-turnSummary.acpmux-row--continuation-footer {
   --cv-footer-drop: 2px;
