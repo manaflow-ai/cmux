@@ -19,6 +19,7 @@ struct SidebarToggleSettlementTests {
         var card: CGRect
         var content: CGRect
         var moving: Bool
+        var held: Bool
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"),
@@ -84,7 +85,7 @@ struct SidebarToggleSettlementTests {
                                   drawnWidth: (layer.presentation() ?? layer).bounds.width,
                                   constraint: sidebar.widthConstraint.constant,
                                   card: root.contentHost.frame, content: content.frame,
-                                  moving: sidebar.isWidthAnimating))
+                                  moving: sidebar.isWidthAnimating, held: root.contentHost.contentHold != nil))
             if leg == 0, width > min(start, target) + 1, width < max(start, target) - 1 {
                 intermediate += 1
                 if reverse && intermediate == 3 {
@@ -115,8 +116,13 @@ struct SidebarToggleSettlementTests {
             // At a reversal the compositor can still show the previous display frame. The global
             // endpoints remain hard bounds; per-leg monotonicity is checked below.
             #expect(sample.drawnWidth >= min(start, target) - tolerance && sample.drawnWidth <= max(start, target) + tolerance)
-            #expect(abs(sample.content.width - sample.card.width) <= tolerance,
-                    "content width \(sample.content.width) must follow card \(sample.card.width)")
+            if sample.held {
+                #expect(sample.content.width >= sample.card.width - tolerance,
+                        "held content must cover the moving card")
+            } else {
+                #expect(abs(sample.content.width - sample.card.width) <= tolerance,
+                        "settled content must fit the final card")
+            }
             #expect(abs(sample.content.minX) <= tolerance && abs(sample.content.minY) <= tolerance)
             #expect(abs(sample.content.height - sample.card.height) <= tolerance)
         }
@@ -132,6 +138,7 @@ struct SidebarToggleSettlementTests {
         let settled = samples.filter { $0.leg == finalLeg && !$0.moving }
         try #require(settled.count >= 6, "must sample after settlement, not only during motion")
         let first = try #require(settled.first)
+        #expect(settled.allSatisfy { !$0.held }, "settlement must release the content hold")
         for sample in settled {
             #expect(abs(sample.width - finalTarget) <= tolerance)
             #expect(abs(sample.drawnWidth - finalTarget) <= tolerance)

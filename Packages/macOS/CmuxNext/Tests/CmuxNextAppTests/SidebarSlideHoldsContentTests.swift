@@ -8,7 +8,7 @@ import Testing
 /// GPU audit 2026-10-21, offender #1: the sidebar's show/hide slide moved the main pane's edge on
 /// every frame, and the card resized its content with it, so every pane, terminal and Chromium page
 /// laid out at a new width per frame (6.7 to 7.4 ms of main thread a frame, 81 to 89% of a 120 Hz
-/// frame). This opt-in prototype keeps one width for the whole slide, the widest the card reaches, rides
+/// frame). The content now keeps one width for the whole slide, the widest the card reaches, rides
 /// the moving edge, and lays out once: at the start of a hide, at the landing of a show.
 @MainActor @Suite(.serialized)
 struct SidebarSlideHoldsContentTests {
@@ -16,6 +16,7 @@ struct SidebarSlideHoldsContentTests {
     /// and is sized in `layout()`, so a frame change reaches it only on the next layout pass.
     private final class DeferredLayoutContent: NSView {
         let child = SettleProbe()
+        var resizedWidths: [CGFloat] = []
         override init(frame: NSRect) {
             super.init(frame: frame)
             child.autoresizingMask = []
@@ -26,6 +27,10 @@ struct SidebarSlideHoldsContentTests {
         override func layout() {
             super.layout()
             child.frame = bounds
+        }
+        override func setFrameSize(_ newSize: NSSize) {
+            if newSize.width != frame.width { resizedWidths.append(newSize.width) }
+            super.setFrameSize(newSize)
         }
     }
 
@@ -71,12 +76,12 @@ struct SidebarSlideHoldsContentTests {
         root.layoutSubtreeIfNeeded()
     }
 
-    @Test func contentFollowsTheFrameByDefault() {
-        withHold(nil) { #expect(!SidebarTunables.slideHoldsContent.value) }
+    @Test func holdingIsTheDefault() {
+        withHold(nil) { #expect(SidebarTunables.slideHoldsContent.value) }
     }
 
     @Test func aHideSizesTheContentOnceAndItRidesTheEdge() throws {
-        try withHold(true) {
+        try withHold(nil) {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, card = root.contentHost.frame
@@ -103,7 +108,7 @@ struct SidebarSlideHoldsContentTests {
     }
 
     @Test func aShowKeepsTheWideContentUntilTheLanding() throws {
-        try withHold(true) {
+        try withHold(nil) {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width
@@ -126,7 +131,7 @@ struct SidebarSlideHoldsContentTests {
     /// A toggle mid-slide turns the animation around from where it is: the content keeps the
     /// widest width either leg needs instead of resizing for the second one.
     @Test func aSlideThatTurnsAroundKeepsOneWidth() throws {
-        try withHold(true) {
+        try withHold(nil) {
             let (window, root, content) = openRoot()
             defer { window.close() }
             let sidebar = root.sidebar.frame.width, held = root.contentHost.frame.width + sidebar
@@ -145,7 +150,7 @@ struct SidebarSlideHoldsContentTests {
     /// laid it out at the landed width, so it flushed the held (wide) grid first. A hide reversed
     /// into a show must settle the terminal once, at the final width.
     @Test func aReversedSlideSettlesTheTerminalAtTheLandedWidth() throws {
-        try withHold(true) {
+        try withHold(nil) {
             let (window, root, _) = openRoot()
             defer { window.close() }
             let content = DeferredLayoutContent()
@@ -166,7 +171,37 @@ struct SidebarSlideHoldsContentTests {
         }
     }
 
-    /// The default follows the card on every frame; Debug Settings can opt into the hold.
+    /// Auto Layout may still owe the final frame when the animator completes. Releasing the
+    /// hold first resized content to that stale width, then resized it again in the same turn.
+    @Test func pendingFinalLayoutReleasesContentOnlyAtItsFinalWidth() throws {
+        try withHold(nil) {
+            let (window, root, _) = openRoot()
+            defer { window.close() }
+            let content = DeferredLayoutContent()
+            root.show(content)
+            root.layoutSubtreeIfNeeded()
+            content.frame = root.contentHost.bounds
+            let sidebar = root.sidebar.frame.width
+            let finalWidth = root.contentHost.bounds.width
+            root.sidebar.isWidthAnimating = true
+            root.sidebar.onWidthMotionStart?(sidebar, 0)
+            frame(root, width: sidebar / 2)
+            root.sidebar.onWidthMotionStart?(sidebar / 2, sidebar)
+            content.resizedWidths = []
+            content.child.settledWidths = []
+            root.sidebar.widthConstraint.constant = sidebar
+            // Exercise the window's completion path directly, with its final layout pending.
+            root.sidebar.isWidthAnimating = false
+            #expect(content.resizedWidths == [finalWidth],
+                    "content visited stale widths before landing: \(content.resizedWidths)")
+            #expect(content.child.settledWidths == [finalWidth])
+            #expect(content.frame == root.contentHost.bounds)
+            root.layoutSubtreeIfNeeded()
+            #expect(content.resizedWidths == [finalWidth], "the next layout must not correct the width")
+        }
+    }
+
+    /// Debug Settings can turn the hold off: the content then follows the card on every frame.
     @Test func withTheHoldOffTheContentResizesEveryFrame() throws {
         try withHold(false) {
             let (window, root, content) = openRoot()
@@ -185,7 +220,7 @@ struct SidebarSlideHoldsContentTests {
     /// content wider than itself it clips, so nothing shows past its edge, and Chromium pages and
     /// the overlay's rings see that edge (`CEFClipShape.clips(around:)`, `OverlayPlane.roundedClip`).
     @Test func aSquareMainPaneClipsOnlyWhileItHolds() throws {
-        try withHold(true) {
+        try withHold(nil) {
             let (window, root, content) = openRoot()
             defer { window.close() }
             root.contentHost.setCornerRadius(0)
