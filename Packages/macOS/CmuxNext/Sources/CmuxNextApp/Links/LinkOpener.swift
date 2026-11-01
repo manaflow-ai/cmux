@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextLayout
 import CmuxNextSettings
@@ -291,16 +292,21 @@ final class LinkOpener {
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is.
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
+    func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
+            if let machine, !machine.isLocal {
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
+                                                      shownInPlace: inPlace)
+            }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)
         }
@@ -490,14 +496,14 @@ extension LinkOpener {
         }
     }
 
-    /// `pane`'s width as the window shows it, nil until it is in a window: a pane view starts at its
-    /// 400 pt placeholder frame (PaneContentView) before any layout, which is no measure, so an unshown
-    /// pane sets no floor and is never taken for one too narrow to split (fleet runs of #28044 at
-    /// 8e520360 and caf8e69e: SideOpenStripTests' windowless pane opened its links in place).
+    /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
+    /// right reads (links, and agent opens through ``rightColumn(beside:)``). Not its view's bounds: right after a
+    /// split the source still shows its old width and the new pane a sliver, so a link opened at once in a narrow
+    /// window split below the pane on the right instead of a tab in it (review of #29787 at 29861047). Nil for a
+    /// pane its workspace has not laid out (its view's 400 pt placeholder is no measure, so it sets no floor:
+    /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
-        guard pane.view.window != nil else { return nil }
-        let width = pane.view.bounds.width
-        return width > 0 ? width : nil
+        pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
     }
 
     /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
