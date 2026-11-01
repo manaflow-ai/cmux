@@ -196,13 +196,27 @@ impl Adapter {
             Reply::Directory => {
                 let tabs = discover(&data)?;
                 let summaries = tabs.values().map(|t| t.summary.clone()).collect::<Vec<_>>();
-                self.surface_sessions =
+                let next: HashMap<_, _> =
                     tabs.iter().map(|(session, tab)| (tab.surface, session.clone())).collect();
+                let stale: Vec<_> = self
+                    .attached
+                    .iter()
+                    .copied()
+                    .filter(|surface| self.surface_sessions.get(surface) != next.get(surface))
+                    .collect();
+                let mut reply = answer(phone, json!({"sessions":summaries}));
+                for surface in stale {
+                    self.attached.remove(&surface);
+                    reply.to_native.push(json!({"cmd":"agent-session-detach","surface":surface}));
+                }
+                self.surface_sessions = next;
                 self.tabs = tabs;
-                Ok(answer(phone, json!({"sessions":summaries})))
+                Ok(reply)
             }
             Reply::Page { session, surface, info } => {
-                if data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str()) {
+                if self.surface_sessions.get(&surface) != Some(&session)
+                    || data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str())
+                {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
@@ -212,7 +226,9 @@ impl Adapter {
                 Ok(answer(phone, if info { data["session"].clone() } else { data }))
             }
             Reply::Prepare { session, surface, command, kind } => {
-                if data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str()) {
+                if self.surface_sessions.get(&surface) != Some(&session)
+                    || data.pointer("/session/sessionId").and_then(Value::as_str) != Some(session.as_str())
+                {
                     return Ok(error(phone, -32000, "Cloud tab no longer names the selected chat"));
                 }
                 self.attached.insert(surface);
@@ -476,6 +492,28 @@ mod tests {
             respond(&mut other, &request.to_native[0], json!({"session":{"sessionId":"different"}}));
         assert!(rejected.to_native.is_empty());
         assert!(rejected.to_phone[0].get("error").is_some());
+    }
+
+    #[test]
+    fn directory_refresh_detaches_stale_surfaces_and_refuses_inflight_old_pages() {
+        let mut a = adapter();
+        directory(&mut a);
+        let attach = phone(&mut a, 2, "_acpmux/attach", json!({"sessionId":"sess_a"}));
+        respond(&mut a, &attach.to_native[0], json!({"session":{"sessionId":"sess_a"}}));
+        let stale = phone(&mut a, 3, "_acpmux/attach", json!({"sessionId":"sess_a"}));
+        let refresh = phone(&mut a, 4, "_acpmux/sessions", json!({}));
+        let removed = respond(&mut a, &refresh.to_native[0], json!({"workspaces":[]}));
+        assert_eq!(removed.to_native, vec![json!({"cmd":"agent-session-detach","surface":7})]);
+        assert!(!a.attached.contains(&7));
+        let late = respond(&mut a, &stale.to_native[0], json!({"session":{"sessionId":"sess_a"}}));
+        assert!(late.to_phone[0].get("error").is_some());
+        assert!(!a.attached.contains(&7));
+        let event = a
+            .native(
+                json!({"event":"agent-session-record","surface":7,"record":{"sessionId":"sess_a","seq":58}}),
+            )
+            .unwrap();
+        assert!(event.to_phone.is_empty());
     }
 
     #[test]
