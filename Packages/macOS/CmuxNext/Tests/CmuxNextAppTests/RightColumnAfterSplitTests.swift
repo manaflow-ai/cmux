@@ -52,7 +52,8 @@ struct RightColumnAfterSplitTests {
             defer { root.driver.isManual = false }
 
             let right = try await Self.splitRight(services, content)
-            try #require(root.screenViews.values.contains(where: \.hasMotion), "fixture: the split's spring has landed already")
+            let springing = root.screenViews.values.contains { $0.hasMotion }
+            try #require(springing, "fixture: the split's spring has landed already")
             try #require(LinkOpener.rightPanes(beside: pane.layoutPaneID, in: content) == [right.layoutPaneID],
                          "fixture: the right column is not the split's pane")
             try #require(!LinkOpener.holds(right, .browser), "fixture: the pane on the right holds a browser")
