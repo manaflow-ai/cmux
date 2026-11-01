@@ -38,7 +38,7 @@ test("every strings table gen-strings.mjs writes is ignored", () => {
 // table is a change to every agent pane dev server watching it, which full-reloads the page of each
 // browser test running beside that process (agent-pane-older-rows-fade lost its page mid-test that way).
 test("writing an unchanged table that is already current leaves it untouched", () => {
-  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
   const table = path.join(repo, PAGES.agentPane.out);
   const inputs = [
     path.join(repo, "webviews/scripts/pages/gen-strings.mjs"),
@@ -48,6 +48,7 @@ test("writing an unchanged table that is already current leaves it untouched", (
   const current = new Date(Math.max(...inputs.map((file) => fs.statSync(file).mtimeMs)) + 1000);
   fs.utimesSync(table, current, current);
   const before = fs.statSync(table).mtimeMs;
-  writeStrings({ only: ["agentPane"], bestEffort: true, log: () => {} });
+  expect(before).toBe(current.getTime());
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
   expect(fs.statSync(table).mtimeMs).toBe(before);
 });
