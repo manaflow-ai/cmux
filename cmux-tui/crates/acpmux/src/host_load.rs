@@ -116,10 +116,10 @@ pub fn classify(comm: &str, argv: &[&str]) -> Option<Heavy> {
     if let Some(zero) = arg(0) {
         asks.push((program(zero), arg(1)));
         // `node …/vitest.mjs run`, `bun x tsc`: the script is the tool.
-        if matches!(program(zero), "node" | "bun") {
-            if let Some(script) = arg(1) {
-                asks.push((program(script), arg(2)));
-            }
+        if matches!(program(zero), "node" | "bun")
+            && let Some(script) = arg(1)
+        {
+            asks.push((program(script), arg(2)));
         }
     }
     let mut best: Option<Heavy> = None;
