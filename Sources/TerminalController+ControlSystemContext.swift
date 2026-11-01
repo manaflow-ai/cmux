@@ -325,10 +325,10 @@ extension TerminalController: ControlSystemContext {
                 source: source
             )
             // Count what restore will actually open: crash-diagnostic windows
-            // are dropped and the window count is capped.
+            // are dropped, crash-duplicate windows merged, and the window
+            // count is capped.
             let windowCount = min(
-                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
-                    .snapshot?.windows.count ?? 0,
+                SessionPersistencePolicy.snapshotForLiveRestore(snapshot)?.windows.count ?? 0,
                 SessionPersistencePolicy.maxWindowsPerSnapshot
             )
             guard appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false) else {
