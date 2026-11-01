@@ -349,21 +349,31 @@ jobs:
           directory.relative_to(root)
           command_text = os.environ['FAST_CHECKS_COMMAND']
           command_words = shlex.split(command_text)
-          if '--display' in command_words:
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          display_command = (
+              command_words[:2] == ['cmux-ci', 'run']
+              and '--display' in command_words
+              and not any(operator in command_text for operator in ('&&', '||', ';', '|', '\n'))
+          )
+          if display_command:
               result = dict(
-                  source_sha=os.environ['FAST_CHECKS_SOURCE'],
+                  source_sha=actual,
+                  source_tree=tree,
+                  head_after=actual,
+                  command_started_at=time.time(),
+                  command_seconds=0,
                   skipped_display=True,
-                  exit_code=0,
                   command=os.environ['FAST_CHECKS_COMMAND'],
                   run_id=os.environ['GITHUB_RUN_ID'],
+                  cpu_count=os.cpu_count(),
+                  exit_code=0,
               )
               print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
               print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
               pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
               raise SystemExit(0)
-          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
-          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(
