@@ -8,10 +8,11 @@
 // reply and a harness notice; a steer, a sent message and three paragraphs; a steer, a run of
 // commands, a one-line reply, a run, an answered question and its answer), measured in Chromium in
 // light and dark from one block's last drawn text line to the next block's first, each gap equals what
-// feat-cmux-next 8f5dfe06ee58 (2026-10-30) drew for the same fixture, to 0.5px. Two of them moved
+// feat-cmux-next 8f5dfe06ee58 (2026-10-30) drew for the same fixture. Two of them moved
 // with the per-reply action row's removal on 2026-10-31 and come back here: a reply to the status row
 // under it (17.75px before, 43.75px after) and a reply to the next prompt (21.75 before, 49.75 after).
-// The rest never moved and are asserted so they stay. No per-reply action row comes back.
+// Those two are asserted to 0.5px; the rest are logged beside their 2026-10-30 values, since later
+// settled designs own them (the one-line row pitch, #29965). No per-reply action row comes back.
 //
 // CAPTURE keeps the capture's own gaps, read from its pixels, for reference only: they are not the
 // 2026-10-30 build's, and a follow-up decides whether they become the target
@@ -165,6 +166,11 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
     "prompt -> run summary": 51.75,
     "card -> prompt": 28,
   };
+  /**
+   * The gaps this test holds to OCT_30: the two under a reply, which the reply's kept room sets. The
+   * others are logged beside them; later settled designs own them (the one-line row pitch, #29965).
+   */
+  const MOVED = ["reply -> notice", "paragraph -> prompt"] as const;
   const TOLERANCE = 0.5;
 
   /**
@@ -190,7 +196,7 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
         const measured = await measure(page);
         console.log(`TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} capture ${JSON.stringify(CAPTURE)}`);
         if (LOG_ONLY) return;
-        const off = Object.entries(OCT_30)
+        const off = MOVED.map((name) => [name, OCT_30[name]!] as const)
           .filter(([name, want]) => measured[name] === null || Math.abs(measured[name]! - want) > TOLERANCE)
           .map(([name, want]) => `${name}: ${measured[name]}px, not ${want}px`);
         expect(off).toEqual([]);
