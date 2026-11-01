@@ -34,7 +34,7 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|sign_owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
                          r"|matrix\.")
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
@@ -45,8 +45,8 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
     "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-build", "signer-app", "signer-app-notary",
     "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
-    "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
-    "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
+    "report-visual-gate-nightly",
+    "keep-published-dsyms", "legacy-identity-target",
     "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
     "report-nightly-failure", "close-nightly-failure-issue",

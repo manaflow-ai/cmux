@@ -73,7 +73,8 @@ ENABLED_VALUE = "1"
 # lists equal): the workflow file and the job's display name (its `name:` or id; a matrix adds " (...)").
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization", "sign-nightly-identity-legacy",
-                    "generate-nightly-deltas"),
+                    "generate-nightly-deltas", "publish-nightly", "publish-nightly-next-github",
+                    "publish-nightly-next-github-names"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

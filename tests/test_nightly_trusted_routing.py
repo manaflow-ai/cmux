@@ -276,6 +276,33 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertIn(selected, {'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                                           'blacksmith-32vcpu-ubuntu-2404'})
 
+    def test_credentialed_publish_controls_use_owned_claim_then_linux_overflow(self):
+        # Release App publication jobs may use a drained owned Mac, but only the
+        # picker output is trusted and their claim gate runs before checkout or
+        # any protected environment secret. A rerun keeps the measured Linux
+        # overflow instead of reusing an older owned label.
+        jobs = DOC["jobs"]
+        route = (
+            "needs.pick-nightly-sign-runner.outputs.attempt",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned",
+            "fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)",
+        )
+        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+            with self.subTest(job=name):
+                job = jobs[name]
+                runs_on = str(job["runs-on"])
+                for term in route:
+                    self.assertIn(term, runs_on)
+                self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
+                steps = job["steps"]
+                self.assertEqual(steps[0]["name"], "Hold the whole Mac before any credential")
+                self.assertEqual(steps[0]["id"], "credential-claim-gate")
+                self.assertIn("GLAEDA_JOB_CLAIM", steps[0]["run"])
+                self.assertIn("glaeda-signing-hooks.txt", steps[0]["run"])
+                self.assertNotIn("secrets.", steps[0]["run"])
+                needs = job["needs"]
+                self.assertIn("pick-nightly-sign-runner", needs)
+
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
         # (empty, the overflow switch's hosted value, an old 4 vCPU value, 16 or 32).

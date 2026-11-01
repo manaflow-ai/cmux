@@ -81,6 +81,8 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
     ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
+    ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
+    ("nightly.yml", "publish-nightly-next-github-names"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
