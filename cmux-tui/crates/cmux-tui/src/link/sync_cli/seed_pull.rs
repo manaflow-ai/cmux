@@ -189,9 +189,17 @@ pub(crate) fn seed_pull(
     git_back::quarantined(&quarantine, &dirs.common)?;
     receive(&quarantine, &bundle, &exported)?;
 
+    // The branch and the staged changes are read on both sides of the
+    // snapshot the merge decides from, so the decision and the check in
+    // [`move_git`] see one state.
+    let here_git = git_back::base_of(&folder)?;
     let here = super::super::seed::plan::current(&folder)
         .map_err(|fallback| anyhow::anyhow!("cannot read this folder: {}", fallback.why))?;
-    let here_git = git_back::base_of(&folder)?;
+    if git_back::base_of(&folder)? != here_git {
+        bail!(
+            "this Mac's branch or staged changes changed during the pull; nothing was brought back"
+        );
+    }
     let hooks = pull::hook_folders(&folder)?;
     let q = Quarantine(&quarantine);
     let mut conflicts = Vec::new();
@@ -283,10 +291,13 @@ pub(crate) fn seed_pull(
     let mut steps = Vec::new();
     let mut bytes = 0u64;
     for (relative, here_entry, machine) in planned {
-        let expected = match here_entry {
-            Some(_) => match disk_file(&root, &relative)? {
+        let expected = match &here_entry {
+            Some((_, blob)) => match disk_file(&root, &folder, &staging, &relative, blob)? {
                 Some(expected) => Some(expected),
-                None => return Ok(SeedPulled::Conflict(vec![relative], Vec::new())),
+                None => {
+                    let why = format!("{relative}: it changed here during the pull");
+                    return Ok(SeedPulled::Conflict(vec![relative], vec![why]));
+                }
             },
             None => None,
         };
@@ -561,19 +572,35 @@ impl Quarantine<'_> {
 
 /// This Mac's regular file at `relative` as a transaction checks it; None
 /// when it is not a regular file reached without a symlink.
-fn disk_file(root: &Dir, relative: &str) -> anyhow::Result<Option<Expected>> {
+fn disk_file(
+    root: &Dir,
+    folder: &Path,
+    staging: &Staging,
+    relative: &str,
+    blob: &str,
+) -> anyhow::Result<Option<Expected>> {
     let Ok(Some((dir, name))) = place::parent_of(root, relative) else { return Ok(None) };
     let Entry::File { mode } = dir.entry(&name)? else { return Ok(None) };
     let mut file = dir.open_file(&name)?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    let sha256 = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    // One read: the bytes hashed for the transaction are the bytes checked
+    // against the blob the merge planned from (as `git add` would store
+    // them, through the path's filters). A file saved since the snapshot,
+    // or one git was told to assume unchanged, is not that blob.
+    let (copy, sha256) = staging.copy(&mut file)?;
+    let stored =
+        checked(local(folder).args(["hash-object", "--path"]).arg(relative).arg("--").arg(&copy))?;
+    let _ = std::fs::remove_file(&copy);
+    if String::from_utf8_lossy(&stored).trim() != blob {
+        return Ok(None);
+    }
     Ok(Some(Expected { sha256, permissions: permissions_of(mode) }))
 }
 
 /// Moves HEAD's branch (compare-and-swap) and then the index, once this
 /// Mac's branch and staged changes are checked to be still `planned`. The
-/// branch moves back if the index can't follow.
+/// branch moves back if the index can't follow. The index is git's own
+/// `index.lock` from that check until the new index is in place, so nothing
+/// staged in between is lost.
 fn move_git(
     folder: &Path,
     planned: &GitBase,
@@ -583,6 +610,7 @@ fn move_git(
     if head.is_none() && staged.is_none() {
         return Ok(());
     }
+    let lock = staged.map(|_| IndexLock::take(folder)).transpose()?;
     if git_back::base_of(folder)? != *planned {
         bail!("this Mac's branch or staged changes changed during the pull");
     }
@@ -599,8 +627,8 @@ fn move_git(
     if let Some(head) = head {
         move_ref(head, &old).context("cannot move the branch")?;
     }
-    if let Some(tree) = staged
-        && let Err(error) = checked(local(folder).arg("read-tree").arg(tree))
+    if let (Some(tree), Some(lock)) = (staged, &lock)
+        && let Err(error) = lock.replace(folder, tree)
     {
         if let Some(head) = head {
             let _ = move_ref(&old, head);
@@ -608,6 +636,57 @@ fn move_git(
         return Err(error.context("cannot stage the machine's changes"));
     }
     Ok(())
+}
+
+/// git's `index.lock` of a working copy, held: no git command stages while
+/// it is there. Dropped, it goes.
+struct IndexLock {
+    index: PathBuf,
+    lock: PathBuf,
+}
+
+impl IndexLock {
+    fn take(folder: &Path) -> anyhow::Result<Self> {
+        let path = checked(local(folder).args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "index",
+        ]))?;
+        let index = PathBuf::from(String::from_utf8_lossy(&path).trim_end_matches('\n'));
+        let lock = index.with_extension("lock");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&lock)
+            .with_context(|| format!("another git process is using {}", lock.display()))?;
+        Ok(Self { index, lock })
+    }
+
+    /// Writes the index of `tree` to a new file beside the index and renames
+    /// it over the index while the lock is held.
+    fn replace(&self, folder: &Path, tree: &str) -> anyhow::Result<()> {
+        let fresh = self.index.with_extension(format!("cmux-seed-pull-{}", std::process::id()));
+        let _ = std::fs::remove_file(&fresh);
+        let written =
+            checked(local(folder).env("GIT_INDEX_FILE", &fresh).arg("read-tree").arg(tree))
+                .and_then(|_| {
+                    std::fs::rename(&fresh, &self.index)
+                        .with_context(|| format!("cannot write {}", self.index.display()))
+                });
+        if written.is_err() {
+            let _ = std::fs::remove_file(&fresh);
+        }
+        written
+    }
+}
+
+impl Drop for IndexLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock);
+    }
 }
 
 /// Puts back what `transaction` changed after `error`. A file that changed
@@ -650,6 +729,32 @@ impl Staging {
             .create(&path)
             .with_context(|| format!("cannot make {}", path.display()))?;
         Ok(Self { path, files: std::cell::Cell::new(0), keep: std::cell::Cell::new(false) })
+    }
+
+    /// Copies `file` to a new file here as it reads it; the copy and the
+    /// SHA-256 of what was read.
+    fn copy(&self, file: &mut std::fs::File) -> anyhow::Result<(PathBuf, String)> {
+        let number = self.files.get() + 1;
+        self.files.set(number);
+        let path = self.path.join(format!("here-{number}"));
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 1 << 16];
+        loop {
+            let read = std::io::Read::read(file, &mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+            out.write_all(&buffer[..read])?;
+        }
+        let sha256 = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+        Ok((path, sha256))
     }
 
     /// Writes the blob `id` of the quarantine to a new file here with the

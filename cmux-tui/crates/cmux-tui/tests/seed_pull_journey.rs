@@ -308,6 +308,45 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     assert_eq!(everything(&repo), before, "a conflict changed something here");
     assert!(world.leftover_bundles().is_empty());
 
+    // A file git was told to assume unchanged, edited here: the snapshot
+    // reads it as the seed's, but the bytes on disk are not; a conflict,
+    // nothing changes.
+    write(&repo.join("notes"), "notes\nfrom the vm\n");
+    write(&vm.join("notes"), "notes\nfrom the vm\n");
+    write(&vm.join("other"), "would come back\n");
+    let (ok, settled) = world.pull(&repo, "app", Some(&base));
+    assert!(ok, "{settled}");
+    let base = Base {
+        head: settled["base"]["head"].as_str().unwrap().to_owned(),
+        index: settled["base"]["index"].as_str().unwrap().to_owned(),
+        work: settled["base"]["work"].as_str().unwrap().to_owned(),
+    };
+    git(&repo, &["update-index", "--assume-unchanged", "a"]);
+    write(&repo.join("a"), "a\nedited on the mac, hidden from git\n");
+    write(&vm.join("a"), "a\nedited on the vm\n");
+    let before = everything(&repo);
+    let (ok, refused) = world.pull(&repo, "app", Some(&base));
+    assert!(!ok, "{refused}");
+    assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
+    assert_eq!(conflicted(&refused), vec!["a"], "{refused}");
+    assert_eq!(everything(&repo), before, "the hidden edit was overwritten");
+    git(&repo, &["update-index", "--no-assume-unchanged", "a"]);
+    write(&repo.join("a"), "a\nedited on the vm\n");
+
+    // Another git process holds the index while the VM staged something:
+    // nothing changes, and its lock stays.
+    write(&vm.join("b"), "b\nedited on the vm\nstaged there\n");
+    git(&vm, &["add", "b"]);
+    write(&repo.join(".git/index.lock"), "");
+    let before = everything(&repo);
+    let (ok, refused) = world.pull(&repo, "app", Some(&base));
+    assert!(!ok, "{refused}");
+    assert_eq!(everything(&repo), before, "a held index changed something here");
+    assert!(repo.join(".git/index.lock").exists(), "another process's lock was removed");
+    fs::remove_file(repo.join(".git/index.lock")).unwrap();
+    git(&vm, &["reset", "-q", "b"]);
+    write(&vm.join("b"), "b\nedited on the vm\n");
+
     // The VM rewrote history: a conflict, nothing changes.
     write(&repo.join("notes"), "notes\nfrom the vm\n");
     git(&vm, &["commit", "-q", "--amend", "-am", "rewritten on the vm"]);
