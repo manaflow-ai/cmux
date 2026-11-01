@@ -42,14 +42,14 @@ struct AgentSessionGroupPlacementTests {
         let sidebar = controller.sidebar
         sidebar.resync()
         let drawn = sidebar.model.sections
-        try #require(AgentSessionWorkspace.group(named: "lanes", accepting: SidebarWorkspaceID("existing"), in: drawn)?.rawValue == group.rawValue)
+        try #require(SidebarEdits.group(named: "lanes", accepting: SidebarWorkspaceID("existing"), in: drawn)?.rawValue == group.rawValue)
 
         let choices = Choices()
         let newIDs = ["lane-one", "lane-two"]
         for id in newIDs {
             NewWorkspacePlacements.expect(id, in: controller.state.id, byDefault: nil, then: { id, bridge in
                 guard let bridge = bridge as? SidebarBridge else { Issue.record("placement supplied no sidebar"); return }
-                choices.groups.append(AgentSessionWorkspace.group(named: "lanes", accepting: SidebarWorkspaceID(id), in: bridge.model.sections))
+                choices.groups.append(SidebarEdits.group(named: "lanes", accepting: SidebarWorkspaceID(id), in: bridge.model.sections))
             }, windows: windows)
         }
         let live = ["existing"] + newIDs

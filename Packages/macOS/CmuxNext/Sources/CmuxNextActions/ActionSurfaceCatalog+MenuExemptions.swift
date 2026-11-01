@@ -135,6 +135,8 @@ nonisolated extension ActionSurfaceCatalog {
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
             "space.moveToStart", "space.moveToEnd",
+            // A row drag drops next to any row; the row menu offers Move to Top, Up, Down and Bottom (cmux#29907).
+            "workspace.moveAbove", "workspace.moveBelow",
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
