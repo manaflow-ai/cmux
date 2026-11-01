@@ -53,9 +53,24 @@ const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { readPersistedDraft, writePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
 const host = document.getElementById("composer")!;
 let root: ReturnType<typeof createRoot>;
+// acpmux's draft store: a chat hydrates only once its read answers (composerDraft.ts
+// readDurableDraftState), so the fixture answers it as acpmux does, from what was written.
+const daemonDrafts = new Map<string, string>();
+const page = dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> };
+page.cmuxAcpmuxActions = {
+  "chat.readDraft": async (params) => ({
+    draft: daemonDrafts.get(String((params as { sessionId: string }).sessionId)),
+  }),
+  "chat.writeDraft": async (params) => {
+    const { sessionId, text } = params as { sessionId: string; text: string };
+    if (text.trim()) daemonDrafts.set(sessionId, text);
+    else daemonDrafts.delete(sessionId);
+  },
+};
 afterEach(() => {
   act(() => root.unmount());
   dom.window.localStorage.clear();
+  daemonDrafts.clear();
 });
 afterAll(() => {
   dom.window.close();
