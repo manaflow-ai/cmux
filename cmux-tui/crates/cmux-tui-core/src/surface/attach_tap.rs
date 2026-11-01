@@ -813,6 +813,12 @@ impl AttachTap {
                 return true;
             }
         }
+        if matches!(frame, AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) {
+            // A grid replacement broadcast under the terminal lock (a hosted
+            // terminal's own resize replay) is the terminal at this cut: it
+            // is the replay this viewer waits for, so it builds no other.
+            queue.needs_replay = false;
+        }
         let queue_retained_bytes = queue.retained_bytes;
         let queue_max_retained_bytes = queue.max_retained_bytes;
         if let Some(QueuedFrame::Frame(pending)) = queue.frames.back_mut() {
