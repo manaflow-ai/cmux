@@ -64,13 +64,10 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
     None
 }
 
-/// Refuse a tell when the current daemon cannot verify its target's identity.
+/// Do not send into a child whose current daemon no longer verifies its identity.
 /// A name-to-id lookup and the subsequent info read are separate requests; the
 /// session may have ended or its peer may have gone away between them.
-fn checked_tell_target(
-    id: &str,
-    summary: Option<SessionSummary>,
-) -> Result<SessionSummary, String> {
+fn checked_tell_target(id: &str, summary: Option<SessionSummary>) -> Result<SessionSummary, String> {
     let session = summary.ok_or_else(|| {
         format!("tell: cannot verify acpmux session {id}; refresh control(action: \"sessions\")")
     })?;
@@ -125,19 +122,16 @@ pub(super) fn reply_note(name: &str, text: &str) -> String {
 }
 
 /// One bounded page of the eligible sessions, sorted by stable name and id.
-/// `n` in control(action: "sessions", n: N) is the zero-based offset.
+/// \`n\` in control(action: "sessions", n: N) is the zero-based offset.
 /// The daemon's census remains the owner; these are ephemeral read results.
 pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> String {
     let mut eligible: Vec<&SessionSummary> = sessions
         .iter()
         .filter(|session| refusal(session).is_none())
         .collect();
-    eligible.sort_unstable_by(|a, b| (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id)));
-    let duplicates: std::collections::HashSet<String> = eligible
-        .windows(2)
-        .filter(|pair| pair[0].name == pair[1].name)
-        .map(|pair| pair[0].name.clone())
-        .collect();
+    eligible.sort_unstable_by(|a, b| {
+        (&a.name, &a.session_id).cmp(&(&b.name, &b.session_id))
+    });
     let total = eligible.len();
     if total == 0 {
         return "outcome: done. No acpmux sessions to tell.".to_owned();
@@ -153,9 +147,6 @@ pub(super) fn sessions_list(sessions: &[SessionSummary], offset: usize) -> Strin
         .take(LISTED)
         .map(|s| {
             let mut row = format!("- {PREFIX}{} ({}, {})", s.name, s.harness, status(s));
-            if duplicates.contains(s.name.as_str()) {
-                row.push_str(" [ambiguous name: rename one session before telling]");
-            }
             if let Some(line) = s
                 .last_message
                 .as_ref()
@@ -326,6 +317,7 @@ mod tests {
         assert!(!list.contains("optchat"), "{list}");
     }
 
+
     #[test]
     fn sessions_page_through_three_hundred_and_explain_the_next_call() {
         let sessions: Vec<SessionSummary> = (0..300)
@@ -338,10 +330,7 @@ mod tests {
         assert!(first.contains("- session:lane-059"), "{first}");
         assert!(!first.contains("- session:lane-060"), "{first}");
         assert!(first.contains("Showing 1-60 of 300"), "{first}");
-        assert!(
-            first.contains("control(action: \"sessions\", n: 60)"),
-            "{first}"
-        );
+        assert!(first.contains("control(action: \"sessions\", n: 60)"), "{first}");
 
         let middle = sessions_list(&sessions, 120);
         assert_eq!(middle.matches("- session:").count(), 60);
@@ -361,44 +350,22 @@ mod tests {
     }
 
     #[test]
-    fn session_list_marks_duplicate_names_as_unsafe_to_tell() {
-        let mut first = summary("dup", json!({}));
-        first.session_id = "one".into();
-        let mut second = summary("dup", json!({}));
-        second.session_id = "two".into();
-        let independent = summary("unique", json!({}));
-        let list = sessions_list(&[first, second, independent], 0);
-        assert_eq!(list.matches("[ambiguous name:").count(), 2, "{list}");
-        assert!(list.contains("- session:unique (claude, idle)"), "{list}");
-        assert!(
-            !list.contains("session:unique (claude, idle) [ambiguous"),
-            "{list}"
-        );
-    }
-
-    #[test]
     fn tell_refuses_a_missing_mismatched_or_chief_internal_target() {
         let lane = summary("lane-a", json!({}));
-        assert!(
-            checked_tell_target("id-lane-a", None)
-                .unwrap_err()
-                .contains("cannot verify")
-        );
-        assert!(
-            checked_tell_target("id-another", Some(lane.clone()))
-                .unwrap_err()
-                .contains("identity changed")
-        );
+        assert!(checked_tell_target("id-lane-a", None)
+            .unwrap_err()
+            .contains("cannot verify"));
+        assert!(checked_tell_target("id-another", Some(lane.clone()))
+            .unwrap_err()
+            .contains("identity changed"));
         assert_eq!(
             checked_tell_target("id-lane-a", Some(lane)).unwrap().name,
             "lane-a"
         );
         let chief = summary("turn-1", json!({crate::acpmux::CHIEF_TAG: "home"}));
-        assert!(
-            checked_tell_target("id-turn-1", Some(chief))
-                .unwrap_err()
-                .contains("Chief's own")
-        );
+        assert!(checked_tell_target("id-turn-1", Some(chief))
+            .unwrap_err()
+            .contains("Chief's own"));
     }
 
     #[test]
