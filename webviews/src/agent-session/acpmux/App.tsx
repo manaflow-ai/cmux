@@ -525,6 +525,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
+import { cloudAgentLogin } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -7513,6 +7514,20 @@ function AcpmuxPane() {
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => directClient.current ?? undefined,
       ),
+      // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
+      // important"): its own login, never this Mac's. Its page opens as a link click does here.
+      cloudSignIn: cloudAgentLogin({
+        connected,
+        machineID: cloudMachineID,
+        sessionId: snapshot.sessionId,
+        harness: snapshot.summary?.harness,
+        supported: directClient.current?.supportsAgentLogin === true,
+        gesture: (intent) =>
+          postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+        openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+        isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+        currentClient: () => directClient.current ?? undefined,
+      }),
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
