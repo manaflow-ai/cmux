@@ -269,6 +269,11 @@
    as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
    shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
 .acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
+  /* A 28 px control with 8 px over and under it (composerLook.css --acpmux-codex-row), and + as far
+     off the box's left as off its bottom. */
+  --acpmux-row-edge: calc((var(--acpmux-codex-row) - var(--acpmux-composer-control)) / 2);
+  min-height: var(--acpmux-codex-row);
+  padding-block: 0;
   padding-inline: var(--acpmux-row-edge);
 }
 .acpmux-mode .acpmux-mode-text { display: none; }
@@ -1503,7 +1508,7 @@
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
-  border-radius: 999px;
+  border-radius: var(--ui-row-radius);
   padding-inline: 8px;
 }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */

@@ -494,6 +494,27 @@ fn accepted(responder: &Responder, source: Source, state: &FocusState) -> Accept
             if state.sidebar_hidden {
                 return Accepted::Reapply;
             }
+            // The list as a responder the platform picked on its own (no input
+            // event, no intent of ours: AppKit's first key view as a restored
+            // window comes forward before its pane's content is presented)
+            // never takes a pane's keyboard. Only the person (a click, a key)
+            // or an intent (`FocusTarget`) puts it on the sidebar (QUIT P0,
+            // 2026-11-01: the first line typed after a reopen went to the
+            // sidebar list). A sidebar field is only ever focused on purpose
+            // (a rename, a search), so its report still moves focus.
+            if source == Source::Programmatic && matches!(responder, Responder::Sidebar {}) {
+                // The list's echo of a sidebar focus the state already has
+                // (Focus Sidebar states its target, then moves the keyboard)
+                // keeps it as it is: a keyboard focus stays a keyboard focus.
+                if matches!(state.target, Target::Sidebar { .. }) {
+                    return Accepted::Same;
+                }
+                if !state.target.is_sidebar()
+                    && state.pane.as_ref().is_some_and(|pane| state.topology.contains_pane(pane))
+                {
+                    return Accepted::Reapply;
+                }
+            }
             let target = if matches!(responder, Responder::Sidebar {}) {
                 Target::Sidebar { keyboard: source == Source::Keyboard }
             } else {

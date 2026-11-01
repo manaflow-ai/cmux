@@ -250,6 +250,9 @@ pub struct Session {
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
+    /// Counts status changes (`Hub::write_status`): a step that may or may not set the status
+    /// reads it before and after, as an adoption does around its recovery (`hosts.rs`).
+    pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -326,6 +329,8 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
+    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
@@ -380,6 +385,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap_or_else(|e| e.into_inner()))
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
@@ -408,6 +418,9 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status
