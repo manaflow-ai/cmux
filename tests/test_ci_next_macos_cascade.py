@@ -2075,6 +2075,15 @@ class DeadEndRoute(unittest.TestCase):
         seen = cascade.seen(snap, NOW)
         self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
         self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+        self.assertEqual(seen.unserved, frozenset())
+
+    def test_seen_reads_the_janitors_unserved_owned_labels(self):
+        # queue_janitor.py writes starved_labels.unserved(): fleet label keys, joined with "+" for a job asking
+        # for several. Only a single owned label says that label starts nothing.
+        snap = snapshot(minutes_old=5)
+        snap["unserved"] = ["glaeda-session-std-xcode-26.6", "glaeda-ios-sim+glaeda-std-xcode-26.6",
+                            "blacksmith-6vcpu-macos-26", 7]
+        self.assertEqual(cascade.seen(snap, NOW).unserved, frozenset({"glaeda-session-std-xcode-26.6"}))
 
 
 def observed_dead(minutes_old: float = 2, *, dead: str = LARGE, **overrides: dict) -> dict:

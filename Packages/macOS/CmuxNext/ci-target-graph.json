@@ -1266,7 +1266,8 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
-        "CmuxNextHomeEngine"
+        "CmuxNextHomeEngine",
+        "CmuxNextRemote"
       ],
       "packages": []
     },

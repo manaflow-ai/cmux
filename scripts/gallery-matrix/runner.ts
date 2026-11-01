@@ -324,8 +324,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const clip = await captureClip(page);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
+    // The design specs' geometry rules, read from the stage as screenshotted (webviews/src/gallery/invariants.ts): gallery health's geometry gate.
+    const invariants = await page.evaluate(() => (window as unknown as { cmuxGalleryInvariants?: () => unknown }).cmuxGalleryInvariants?.() ?? null).catch(() => null);
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, load, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
     if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);

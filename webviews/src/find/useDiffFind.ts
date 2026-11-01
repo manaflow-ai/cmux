@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { DiffItem } from "../diff-stream";
-import { collectFindMatches, foldFindText, reanchorActiveMatch, type FindMatch } from "./model";
+import { foldFind } from "./fold";
+import { collectFindMatches, reanchorActiveMatch, type FindMatch } from "./model";
 import { installFindHighlightPainter, type FindHighlightPainter, type FindPaintSnapshot } from "./highlight";
 
 export type FindDispatch = React.Dispatch<
@@ -62,7 +63,7 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  const normalizedQuery = open ? foldFindText(query) : "";
+  const normalizedQuery = open ? foldFind(query) : "";
   const matches = useMemo(
     () => (normalizedQuery === "" ? [] : collectFindMatches(items.filter(isSearchableItem), normalizedQuery)),
     [items, normalizedQuery],

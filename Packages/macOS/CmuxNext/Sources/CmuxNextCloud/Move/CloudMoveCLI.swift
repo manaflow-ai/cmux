@@ -196,10 +196,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
-                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots)
+                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
         guard !run.answer.ok || chat.hasPrefix("/") else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false, false))
@@ -215,9 +215,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// One run's answer, with its JSON line (nil when it printed none) and exit status.
-    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
+    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: timeout ?? self.timeout, clock: ContinuousClock())
+                                                 timeout: timeout ?? self.timeout, stderrLine: stderrLine, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],

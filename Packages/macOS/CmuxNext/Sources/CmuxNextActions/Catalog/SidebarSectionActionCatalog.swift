@@ -339,7 +339,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "sidebar.compactList.toggle", title: t("action.sidebar.compactList.toggle", "Compact Workspace List"),
-                keywords: ["sidebar", "workspace", "compact", "one line", "tabs"], category: .sidebar, symbol: "list.dash",
+                keywords: ["sidebar", "workspace", "compact", "one line", "tabs"], category: .sidebar, symbol: "rectangle.grid.1x2",
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options)])
             ),

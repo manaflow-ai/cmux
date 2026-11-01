@@ -81,13 +81,16 @@ export const personalTenantStack = (env: Env, http: (request: Request) => Promis
       }
       return created
     },
+    // Stack lists a team's members at /team-member-profiles (as stack-server.ts reads them); /team-memberships
+    // only adds and removes one, so a GET there answers 404 and a found tenant never became ready.
     members: async (tenant) => {
       const out: string[] = [], seen = new Set<string>()
       let cursor: string | undefined
       for (let page = 0; page < 1000; page++) {
-        const q = new URLSearchParams({ team_id: tenant, limit: "100" })
+        // No limit: this route does not page and refuses an unknown query field (400 SCHEMA_ERROR).
+        const q = new URLSearchParams({ team_id: tenant })
         if (cursor) q.set("cursor", cursor)
-        const answer = await call<{ items?: Array<{ user_id?: unknown }>; pagination?: { next_cursor?: unknown } | null }>("members", "GET", `/team-memberships?${q}`)
+        const answer = await call<{ items?: Array<{ user_id?: unknown }>; pagination?: { next_cursor?: unknown } | null }>("members", "GET", `/team-member-profiles?${q}`)
         if (!Array.isArray(answer.items) || answer.items.some((m) => !validTenantId(m.user_id))) throw shape("members")
         for (const m of answer.items) if (typeof m.user_id === "string") out.push(m.user_id)
         const next = answer.pagination?.next_cursor
