@@ -677,7 +677,9 @@ impl Session {
         }) else {
             return;
         };
-        let item = pending.remove(pos).expect("prepared position");
+        let Some(item) = pending.remove(pos) else {
+            return;
+        };
         let mut done = self.prepared_done.lock().unwrap_or_else(|e| e.into_inner());
         done.push_back(item);
         while done.len() > 64 {
