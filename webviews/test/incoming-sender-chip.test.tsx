@@ -182,3 +182,35 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
     }
   });
 }
+
+test("a mounted agent identity takes a late profile icon without a parent render", async () => {
+  const { AgentIdentity } = await import("../src/agent-session/acpmux/subagents/AgentIdentity");
+  const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <div>
+        <span data-identity="unknown">
+          <AgentIdentity harness="late-identity-profile" tone={2} />
+        </span>
+        <span data-identity="known-family">
+          <AgentIdentity harness="claude-late-identity-profile" tone={3} />
+        </span>
+      </div>,
+    ),
+  );
+  const unknown = host.querySelector('[data-identity="unknown"]')!;
+  const known = host.querySelector('[data-identity="known-family"]')!;
+  expect(unknown.querySelector('[data-agent-tone="2"]')).not.toBeNull();
+  expect(known.querySelector(".agent-mark")).not.toBeNull();
+  expect(known.querySelector("[data-agent-tone]")).toBeNull();
+  await act(async () =>
+    rememberHarnessIcons([
+      { id: "late-identity-profile", iconSpec: { kind: "emoji", text: "🦊", source: "profile" } },
+      { id: "claude-late-identity-profile", iconSpec: { kind: "emoji", text: "🦉", source: "profile" } },
+    ]),
+  );
+  expect(unknown.textContent).toBe("🦊");
+  expect(known.textContent).toBe("🦉");
+  expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
+});

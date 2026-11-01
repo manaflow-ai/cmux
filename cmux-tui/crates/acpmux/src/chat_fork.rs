@@ -70,6 +70,10 @@ async fn run(
         cmd.env_remove(k);
     }
     let env: &BTreeMap<String, String> = &profile.env;
+    // As `agent.rs` spawns: never on stale or revoked delivered secrets.
+    if !crate::login_env::machine_env_fresh_before_spawn().await {
+        return Err(RpcError::internal("machine environment changed; login env refresh failed"));
+    }
     crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
     cmd.args(rest)
