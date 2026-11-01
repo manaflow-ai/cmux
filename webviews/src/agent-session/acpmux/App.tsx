@@ -2168,7 +2168,11 @@ class OlderRowFade {
   private readonly pending = new Set<string>();
   private readonly waiting = new Map<Element, () => void>();
   private intersections: IntersectionObserver | undefined;
-  constructor(private readonly root: () => HTMLElement | null) {}
+  constructor(
+    private readonly root: () => HTMLElement | null,
+    /// The scroll offset the rows are placed for, which the DOM offset may not have reached yet.
+    private readonly placedTop: () => number | undefined = () => undefined,
+  ) {}
   add(id: string) {
     this.pending.add(id);
   }
@@ -2185,7 +2189,11 @@ class OlderRowFade {
   fadesOnMount(node: HTMLElement): boolean {
     const root = this.root();
     if (!root) return false;
-    return olderRowFadesOnMount(node.getBoundingClientRect(), root.getBoundingClientRect());
+    // A prepend's anchor correction writes the offset after this mount: judge the row where the
+    // reader will see it, at the offset this commit placed the rows for.
+    const pending = (this.placedTop() ?? root.scrollTop) - root.scrollTop;
+    const box = node.getBoundingClientRect();
+    return olderRowFadesOnMount({ top: box.top - pending, bottom: box.bottom - pending }, root.getBoundingClientRect());
   }
   /// Releases the first copy's observation when it intersects; returns the unwatch.
   watch(node: HTMLElement, shown: () => void): () => void {
@@ -2830,7 +2838,13 @@ export function VirtualTranscript({
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
-  olderRows.current ??= new OlderRowFade(() => ref.current);
+  /// The scroll offset this commit's rows are placed at (`renderScroll.top`): on a prepend the DOM
+  /// offset catches up only in the placement effect, after the rows' own mount effects ran.
+  const placedScrollTop = useRef<number | undefined>(undefined);
+  olderRows.current ??= new OlderRowFade(
+    () => ref.current,
+    () => placedScrollTop.current,
+  );
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
   if (sessionChanged) olderRows.current.clear();
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
@@ -3472,6 +3486,7 @@ export function VirtualTranscript({
       : undefined;
   const placementDelta = projectedTop === undefined ? 0 : projectedTop - (unplacedScroll.top - origin);
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
+  placedScrollTop.current = renderScroll.top;
   const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.

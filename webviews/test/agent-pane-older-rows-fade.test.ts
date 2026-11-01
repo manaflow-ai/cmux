@@ -262,6 +262,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
     // and no row the chat opened with did either.
     expect(target).toBeLessThan(openedFrom);
     expect(turns).toEqual([]);
+    expect(fades).toEqual([]);
     // The fade is opacity only, and settles to full ink.
     const settled = await page.evaluate(() => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
