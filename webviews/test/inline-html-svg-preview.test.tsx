@@ -64,8 +64,14 @@ const PANE = new URL("cmux-agent://pane/index.html");
 const GALLERY = new URL("http://127.0.0.1/gallery/frame.html?entry=agent-pane.inline-preview");
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { INLINE_PREVIEW_MAX_HEIGHT, INLINE_PREVIEW_SIZE, inlinePreviewDocument, inlinePreviewHtml, inlinePreviewKind } =
-  await import("../src/agent-session/acpmux/conversation/previewDocument");
+const {
+  INLINE_PREVIEW_MAX_HEIGHT,
+  INLINE_PREVIEW_SIZE,
+  inlinePreviewDocument,
+  inlinePreviewHtml,
+  inlinePreviewKind,
+  nativePassiveHtml,
+} = await import("../src/agent-session/acpmux/conversation/previewDocument");
 
 async function show(source: string, streaming = false, page = PANE) {
   scope.location = page;
@@ -117,7 +123,9 @@ test("in the app a closed svg fence draws in the native artifact frame, sandboxe
   await post(iframe.contentWindow, { type: "cmux-render-ready" });
   expect(sent).toHaveLength(1);
   expect(sent[0]!.type).toBe("cmux-render");
-  expect(sent[0]!.html).toBe(inlinePreviewHtml("svg", SVG));
+  // The inert document behind a policy of its own that runs no script (the frame's allows inline script).
+  expect(sent[0]!.html).toBe(nativePassiveHtml(inlinePreviewHtml("svg", SVG)));
+  expect(sent[0]!.html).toStartWith(`<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`);
   expect(sent[0]!.html).toContain(SVG);
 });
 

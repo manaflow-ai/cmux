@@ -96,6 +96,11 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
           const messages = await draw(engine, name, nativePassiveHtml(inert!));
           expect(messages.some((message) => message.type === "probe-ran")).toBe(false);
           expect(messages.some((message) => message.type === "cmux-render-size")).toBe(true);
+          // The control: the same inert document without that policy does run its handler there, so
+          // this harness sees one when it runs (the hole the router review found on cmux#31174).
+          if (code !== DOCUMENTS[0]) continue;
+          const control = await draw(engine, name, inert!);
+          expect(control.some((message) => message.type === "probe-ran")).toBe(true);
         }
       });
 

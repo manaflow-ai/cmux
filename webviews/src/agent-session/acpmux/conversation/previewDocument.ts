@@ -93,6 +93,23 @@ export function passiveDocument(html: string): string | undefined {
   return artifactNeedsRun(html) || artifactNeedsRun(inert) ? undefined : inert;
 }
 
+/// A policy of its own for a passive document in the native artifact frame, which writes the document
+/// into itself under the frame's policy, and that allows inline script (Run uses the same frame). The
+/// browser enforces every policy a document has, so with this one no script, handler or `javascript:`
+/// URL the document carries runs, whatever `artifactNeedsRun` missed (its fragment parse never sees
+/// `<body onload>`). The frame's own height reporter is not affected: it ran before the document did.
+/// The document's own `http-equiv` was made inert (`inertDocument`), so only this meta is live.
+const NO_SCRIPT = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`;
+/// A leading doctype (after any comments) stays first, so the document keeps its standards mode.
+const LEADING_DOCTYPE = /^(?:\s*<!--[\s\S]*?-->)*\s*<!doctype[^>]*>/i;
+
+/// The document the native artifact frame is sent for an inert, script-free preview (the inline
+/// preview's and the side panel's): `NO_SCRIPT` first.
+export function nativePassiveHtml(inert: string): string {
+  const doctype = LEADING_DOCTYPE.exec(inert)?.[0] ?? "";
+  return `${doctype}${NO_SCRIPT}${inert.slice(doctype.length)}`;
+}
+
 /// Turns off the browser's own DNS prefetch of the document's link targets.
 const NO_DNS_PREFETCH = '<meta http-equiv="x-dns-prefetch-control" content="off">';
 

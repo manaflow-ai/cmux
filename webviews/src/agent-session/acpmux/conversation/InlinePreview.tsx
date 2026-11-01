@@ -29,6 +29,7 @@ import {
   INLINE_PREVIEW_SANDBOX,
   inlinePreviewDocument,
   inlinePreviewHtml,
+  nativePassiveHtml,
   previewNonce,
   reportedHeight,
 } from "./previewDocument";
@@ -157,7 +158,7 @@ function NativeFrame({
   onHeight(height: number): void;
 }) {
   const t = useT();
-  const html = useMemo(() => inlinePreviewHtml(kind, code), [kind, code]);
+  const html = useMemo(() => nativePassiveHtml(inlinePreviewHtml(kind, code)), [kind, code]);
   const { frame, height } = useRenderFrame(html);
   useEffect(() => onHeight(height), [onHeight, height]);
   return (

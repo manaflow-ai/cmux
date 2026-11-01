@@ -24,7 +24,13 @@ import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
-import { INLINE_PREVIEW_SANDBOX, passiveDocument, previewFrameDocument, previewNonce } from "./previewDocument";
+import {
+  INLINE_PREVIEW_SANDBOX,
+  nativePassiveHtml,
+  passiveDocument,
+  previewFrameDocument,
+  previewNonce,
+} from "./previewDocument";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -296,7 +302,8 @@ function PassiveFrame({ html, title, onLeave }: { html: string; title: string; o
 }
 
 function NativePassiveFrame({ html, title, url }: { html: string; title: string; url: string }) {
-  const { frame } = useRenderFrame(html);
+  const sent = useMemo(() => nativePassiveHtml(html), [html]);
+  const { frame } = useRenderFrame(sent);
   return (
     <iframe
       ref={frame}

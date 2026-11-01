@@ -190,7 +190,11 @@ test("the side panel's passive frame is sent the inert document: no refresh, no 
   expect(frame.getAttribute("src")).toBe("cmux-agent://render/artifact");
   const html = sentDocument(frame);
   expect(html).toBeDefined();
-  expect(html).not.toMatch(/\shttp-equiv=/i);
+  // The only live http-equiv is the client's own policy that runs no script (nativePassiveHtml).
+  expect([...html!.matchAll(/\shttp-equiv="([^"]*)"\s+content="([^"]*)"/gi)].map((m) => `${m[1]}: ${m[2]}`)).toEqual([
+    "Content-Security-Policy: script-src 'none'",
+  ]);
+  expect(html).not.toMatch(/\shttp-equiv="refresh"/i);
   expect(html).not.toMatch(/<link[\s/>]/i);
   expect(html).not.toMatch(/\s(?:xlink:)?href="https:/i);
   expect(html).toContain('href="#in"');
