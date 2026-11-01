@@ -145,15 +145,13 @@ fn configured(attachment: &Attachment) -> Result<CloudTurnConfig, Refusal> {
         return Err(Refusal::Unavailable);
     }
     let mux = attachment.mux.upgrade().ok_or(Refusal::Unavailable)?;
-    let result = mux
-        .control_clients
+    mux.control_clients
         .agent_sessions
         .cloud_turn
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
-        .ok_or(Refusal::Unavailable);
-    result
+        .ok_or(Refusal::Unavailable)
 }
 
 pub(super) fn prepare(attachment: &Attachment, request: Prepare) -> Result<Value, Refusal> {

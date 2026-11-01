@@ -71,15 +71,15 @@ fn turn_command(command: &str, surface: SurfaceId) -> Value {
 fn cloud_turn_transport_is_conditional_and_preserves_scope_and_capability() {
     let fake = FakeAcpmux::start("turn-bridge");
     let mux = mux_with(&fake, "turn-bridge");
-    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(!identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     configure_turns(&mux);
-    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(!identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "turn-bridge");
     assert_eq!(attach(&mut client, surface)["ok"], true);
     assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
-    assert!(capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     let reply = client.request(turn_command("agent-session-turn-prepare", surface));
     assert_eq!(
         reply["data"],
@@ -222,7 +222,7 @@ fn configured_machine_with_old_acpmux_keeps_plain_prompts_without_advertising_re
     assert_eq!(attached["data"]["cloud_turn_supported"], false);
     assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
-    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(!identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     assert_eq!(
         client.request(json!({"cmd":"agent-session-prompt","surface":surface,
         "prompt_id":"legacy","text":"hello"}))["ok"],
@@ -248,6 +248,6 @@ fn uncertain_turn_support_fails_attach_instead_of_allowing_uncaptured_prompts() 
     let mut client = Client::connect(&mux, "turn-unknown");
     assert_code(&attach(&mut client, surface), "agent_session.unavailable");
     assert_eq!(fake.frame()["method"], "initialize");
-    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    assert!(!identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
     fake.no_frame();
 }
