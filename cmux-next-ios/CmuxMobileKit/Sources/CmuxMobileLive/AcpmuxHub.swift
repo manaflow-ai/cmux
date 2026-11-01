@@ -26,7 +26,7 @@ public final class AcpmuxHub {
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
-    @ObservationIgnored private var sources: [String: WeakSource] = [:]
+    @ObservationIgnored private var sources: [String: [WeakSource]] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
     @ObservationIgnored public var onWatchEvent: (@MainActor (AcpmuxHub.WatchEvent) -> Void)?
     /// Signs an Allow or an answer with the phone's approval key after Face ID
@@ -85,6 +85,11 @@ public final class AcpmuxHub {
     }
 
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
+    /// A chat with an expired replay cache may still have an open reader. Keep routing
+    /// to it while a new reader loads its own complete snapshot from the Mac.
+    private var liveSources: [AcpmuxSessionSource] {
+        sources.values.flatMap { $0.compactMap(\.source) }
+    }
 
     public init() {}
 
@@ -96,8 +101,7 @@ public final class AcpmuxHub {
         isReady = false
         lastError = nil
         fullAccess = false
-        lastError = nil
-        for entry in sources.values { entry.source?.linkDown() }
+        for source in liveSources { source.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)
         self.connection = connection
@@ -113,7 +117,7 @@ public final class AcpmuxHub {
             self.isReady = false
             self.fullAccess = false
             self.lastError = self.lastError ?? "acpmux channel closed"
-            for entry in self.sources.values { entry.source?.linkDown() }
+            for source in self.liveSources { source.linkDown() }
         }
         do {
             let initialized = try await connection.request("initialize", .object([
@@ -136,7 +140,7 @@ public final class AcpmuxHub {
             readyWaiters = [:]
             for waiter in waiters.values { waiter.resume(returning: true) }
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
-            for entry in sources.values { entry.source?.linkUp() }
+            for source in liveSources { source.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             await seedPending(connection, requestTimeout: requestTimeout)
             try Task.checkCancellation()
@@ -146,7 +150,7 @@ public final class AcpmuxHub {
             isReady = false
             fullAccess = false
             lastError = LinkController.reason(error)
-            for entry in sources.values { entry.source?.linkDown() }
+            for source in liveSources { source.linkDown() }
             await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }
@@ -231,11 +235,13 @@ public final class AcpmuxHub {
         try await connection.notify(method, params)
     }
 
-    /// The chat source for an acpmux session (one per session).
+    /// Reuse a complete replay; after its budget expires, a new reader gets a fresh
+    /// attach instead of a suffix whose first deltas have no message to append to.
     public func source(sessionID: String, summary: AgentSessionSummary) -> AcpmuxSessionSource {
-        if let existing = sources[sessionID]?.source { return existing }
+        let existing = (sources[sessionID] ?? []).compactMap(\.source)
+        if let source = existing.last(where: { !$0.replay.requiresResync }) { return source }
         let source = AcpmuxSessionSource(hub: self, sessionID: sessionID, summary: summary)
-        sources[sessionID] = WeakSource(source: source)
+        sources[sessionID] = (existing + [source]).map { WeakSource(source: $0) }
         return source
     }
 
@@ -337,7 +343,7 @@ public final class AcpmuxHub {
     /// Full access mode again.
     func fullAccessRefused() {
         fullAccess = false
-        for entry in sources.values { entry.source?.fullAccessChanged(false) }
+        for source in liveSources { source.fullAccessChanged(false) }
     }
 
     private func handle(_ notification: AcpmuxConnection.Notification) {
@@ -345,7 +351,9 @@ public final class AcpmuxHub {
         let sessionID = params["sessionId"]?.stringValue
         switch notification.method {
         case "_acpmux/event":
-            if let sessionID { sources[sessionID]?.source?.receive(record: params) }
+            if let sessionID {
+                for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
+            }
         case "_acpmux/session_changed":
             guard let value = params["session"], let session = AcpmuxSession(value) else { return }
             sessions[session.id] = session
@@ -361,7 +369,7 @@ public final class AcpmuxHub {
             // Missed notifications: attached chats fill their gap, and watch runs again. The
             // chats first, before the next notification: a record after the dropped ones must
             // be held for the refill, not applied ahead of it.
-            for entry in sources.values { entry.source?.refill() }
+            for source in liveSources { source.refill() }
             Task { [weak self] in
                 guard let self, let connection = self.connection else { return }
                 _ = try? await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
@@ -380,8 +388,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     let sessionID: String
     private weak var hub: AcpmuxHub?
     private let records: AcpmuxRecords
-    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
-    private var replay: [AgentSessionEvent] = []
+    private var continuations: [UUID: AsyncStream<AgentSessionEvent>.Continuation] = [:]
+    fileprivate var replay = AcpmuxReplay<AgentSessionEvent>(limit: AcpmuxSessionSource.maxHistory)
     private var lastSeq = 0
     private var attached = false
     private var attaching = false
@@ -415,9 +423,31 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        if replay.requiresResync {
+            guard let hub else {
+                continuation.yield(.clientError("Reconnect to load this chat."))
+                continuation.finish()
+                return stream
+            }
+            let source = hub.source(sessionID: sessionID, summary: summary)
+            let upstream = source.events()
+            let task = Task {
+                // The proxy reader owns its fresh source until cancellation; the hub's
+                // registry remains weak, so closing a chat releases its replay too.
+                defer { withExtendedLifetime(source) {} }
+                for await event in upstream { continuation.yield(event) }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+            return stream
+        }
         // What this source already has is history to a new reader: one change, drawn in place.
-        if !replay.isEmpty { continuation.yield(.batch(replay)) }
-        continuations.append(continuation)
+        if !replay.events.isEmpty { continuation.yield(.batch(replay.events)) }
+        let id = UUID()
+        continuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in self?.continuations.removeValue(forKey: id) }
+        }
         return stream
     }
 
@@ -1217,8 +1247,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let events = history else { return }
         history = nil
         guard !events.isEmpty else { return }
-        replay.append(contentsOf: events)
-        for continuation in continuations { continuation.yield(.batch(events)) }
+        replay.append(events)
+        for continuation in continuations.values { continuation.yield(.batch(events)) }
     }
 
     private func emit(_ event: AgentSessionEvent) {
@@ -1230,8 +1260,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 history?.append(event)
                 return
             }
-            replay.append(event)
+            replay.append([event])
         }
-        for continuation in continuations { continuation.yield(event) }
+        for continuation in continuations.values { continuation.yield(event) }
     }
 }

@@ -107,7 +107,11 @@ public final class WorkspaceSync {
     /// agents, list workspaces. The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
-    public nonisolated static func prepare(_ channel: any LinkChannel, deviceID: String, deviceName: String) async -> Prepared {
+    public nonisolated static func prepare(
+        _ channel: any LinkChannel, deviceID: String, deviceName: String,
+        authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
+        replyTimeout: Duration = DaemonClient.defaultDeadline
+    ) async -> Prepared {
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -121,7 +125,9 @@ public final class WorkspaceSync {
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
                 ("list-workspaces", [:]),
-            ])
+            ], deadline: authorizationTimeout + replyTimeout)
+            // This eager batch can be held behind auth's human approval. Only
+            // setup gets that grace; subsequent daemon reads keep their normal bound.
             ConnectTimeline.shared.mark("first_daemon_response")
             return replies
         }
