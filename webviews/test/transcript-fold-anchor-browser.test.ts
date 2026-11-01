@@ -233,6 +233,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadAnimations).toBe(1);
     expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    expect(opened.moved).toBeGreaterThan(1);
     await settle(page);
     const aboveAfter = await page.locator("[data-above-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
     const earlierAfter = await page.locator("[data-earlier-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
@@ -269,7 +270,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
     expect(reopened.threadAnimations).toBe(1);
-    expect(reopened.moved).toBeGreaterThan(1);
+    expect(reopened.moved).toBeLessThanOrEqual(1);
     expect(await scrollHeight(page)).toBe(expandedEnd);
     expect(await atLatest(page)).toBe(true);
     await page.close();
