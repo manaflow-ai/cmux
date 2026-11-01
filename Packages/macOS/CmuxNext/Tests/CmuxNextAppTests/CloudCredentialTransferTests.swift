@@ -180,6 +180,18 @@ struct CloudCredentialTransferTests {
         #expect(CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "a") != CloudCredentialLogin.name(provider: .claude, teamID: "t", userID: "b"))
     }
 
+    /// The cached login is read back as `security find-generic-password -w` prints what `cloud secret set`
+    /// stored: the envelope on one line. Anything else is no login (the start asks once), never a hang.
+    @Test func cachedLoginEnvelopeReadsAsSecurityPrintsIt() {
+        let envelope = #"{"created":1767225600,"credential":"\#(Self.token.base64EncodedString())"}"#
+        #expect(CloudCredentialLogin.credential(envelope: Data((envelope + "\n").utf8)) == Self.token)
+        #expect(CloudCredentialLogin.credential(envelope: Data(envelope.utf8)) == Self.token)
+        #expect(CloudCredentialLogin.credential(envelope: Data(#"{"created":0,"credential":"eA=="}"#.utf8)) == nil)
+        #expect(CloudCredentialLogin.credential(envelope: Data("not json\n".utf8)) == nil)
+        #expect(CloudCredentialLogin.service == "cmux-cloud-secret")
+        #expect(CloudCredentialLogin.readTimeout <= .seconds(30))
+    }
+
     @Test(arguments: [CloudCredentialTransfer.Provider.claude, .codex], [false, true])
     func installerAcceptsShippedPlaneButRejectsCustomEndpoints(provider: CloudCredentialTransfer.Provider, custom: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("transfer-test-\(UUID().uuidString)")
