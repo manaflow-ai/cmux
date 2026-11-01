@@ -3149,9 +3149,9 @@ impl Drop for Terminal {
     }
 }
 
-/// Tests: text layouts (formatter passes) since the thread started.
 #[cfg(test)]
 thread_local! {
+    /// Tests: text layouts (formatter passes) since the thread started.
     static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: lay the text out twice, as before the reuse.
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
