@@ -2738,6 +2738,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod incognito_orphans;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
