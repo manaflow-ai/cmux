@@ -72,13 +72,12 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     const off = (a: number, b: number) => Math.abs(a - b) > TOLERANCE;
     const f = (n: number) => n.toFixed(2);
     // design/grid.md 5.1: a one-line box is 44 px with a 12 px radius, the text's optical center
-    // (baseline less half the cap height) is the + glyph's, and its ink starts on the 44 px text line.
+    // (baseline less half the cap height) is the + glyph's. (The text's start on the 44 px line is the
+    // placeholder-gap check below.)
     if (off(m.box.bottom - m.box.top, 44)) out.push(`box height ${f(m.box.bottom - m.box.top)} is not 44`);
     if (off(parseFloat(m.dom.boxRadius), 12)) out.push(`box radius ${m.dom.boxRadius} is not 12px`);
     if (m.placeholderOptical && m.plusGlyph && off(m.placeholderOptical.cy, m.plusGlyph.cy))
       out.push(`optical text center ${f(m.placeholderOptical.cy)} differs from + center ${f(m.plusGlyph.cy)}`);
-    if (m.placeholderOptical && off(m.placeholderOptical.inkLeft - m.box.left, 44))
-      out.push(`text ink starts ${f(m.placeholderOptical.inkLeft - m.box.left)} px from edge, not 44`);
     const plus = m.plusButton;
     const plusGlyph = m.plusGlyph;
     const placeholder = m.placeholder;

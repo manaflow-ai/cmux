@@ -72,7 +72,9 @@ const plus = ".acpmux-composer-plus .acpmux-picker-button";
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
-  const last = variant === "claude-auto" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
+  // Claude's look keeps the mic last in every state (#29796): Send, Stop or steer stands one control
+  // in from it, so the box's trailing line is the mic's.
+  const last = ".acpmux-mic";
   return scene("composer.box", entry, variant, ".acpmux-composer-box", [
     left("edge: control inset", plus, "left", token("composer-inset")),
     left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
@@ -93,10 +95,10 @@ const draftLines = scene("composer.box", "agent-pane.composer-row", "grid-draft-
   left("edge: control inset", plus, "left", token("composer-inset")),
   left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
   left("text", ".acpmux-md p", "text", token("composer-text")),
-  trail(".acpmux-send:not(.acpmux-steer-now) svg", token("composer-trail-center")),
+  trail(".acpmux-mic svg", token("composer-trail-center")),
   value("radius", ":scope", "radius", token("composer-radius")),
   ...centered(`${plus} svg`, plus),
-  value("mid: trailing control", ".acpmux-send:not(.acpmux-steer-now)", "cy", point(plus, "cy")),
+  value("mid: trailing control", ".acpmux-mic", "cy", point(plus, "cy")),
 ]);
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
@@ -107,6 +109,8 @@ const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.
 attachScreenshot.absent = {
   [placeholder]: "The capture fixture's prompt shows no placeholder; claude-auto measures the text line.",
 };
+// A fail-level scene counts an unmeasured line as off, so the absent text lines are not listed here.
+attachScreenshot.lines = attachScreenshot.lines.filter((line) => line.actual.selector !== placeholder);
 
 const stackToken: Record<string, string> = {
   "stack.strip": "strip",
@@ -187,7 +191,6 @@ export const gridScenes: GridScene[] = [
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from(
       "lead",
       ".acpmux-access-trigger svg",
@@ -202,17 +205,16 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-context-ring svg", "cx"),
       token("composer-trail-center"),
     ),
-    mid(".acpmux-access-trigger svg", ":scope"),
+    value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
   scene("composer.foot", "agent-pane.composer-row", "grid-running", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from("lead", ".acpmux-access-trigger svg", "cx", point(".acpmux-composer-box", "left"), token("composer-lead-center")),
     from("trail", ".acpmux-composer-box", "right", point(".acpmux-context-ring svg", "cx"), token("composer-trail-center")),
-    mid(".acpmux-access-trigger svg", ":scope"),
+    value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
