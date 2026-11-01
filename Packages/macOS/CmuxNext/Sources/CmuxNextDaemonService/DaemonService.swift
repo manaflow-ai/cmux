@@ -36,6 +36,9 @@ public final class DaemonService {
     #endif
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
+    /// The last ordered send to each terminal surface (``sendInOrder(_:to:_:)``): the next one waits for it.
+    @ObservationIgnored var orderedSends: [SurfaceID: (serial: UInt64, work: ActionWork)] = [:]
+    @ObservationIgnored var orderedSendSerial: UInt64 = 0
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.close.hold` / `debug.close.release`: this daemon's close warning reads that a test holds.
     public let closeReadHold = DebugCloseReadHold()
@@ -176,7 +179,7 @@ public final class DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {
-                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
             }
         }
@@ -206,15 +209,23 @@ public final class DaemonService {
         }
         // After an update the daemon may still be the previous build's: hand
         // it off to the bundled build before attaching; terminals survive
-        // (their hosts are adopted by the new daemon). The bundled build's
-        // commit is read while the first connect runs, off its path.
+        // (their hosts are adopted by the new daemon). The bundled build
+        // (`--version --json`) is read while the first connect runs, off its path.
         let logger = logger
-        // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
+        // task-owner: one `--version --json` run per start; the handoff check awaits it
+        let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
-            let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)
-            guard case .restart(let running, let target) = decision else { return false }
+            let bundled = await bundledBuild.value
+            var decision = DaemonService.launchVersionCheck(identity: identity, bundled: bundled)
+            if case .restart = decision {
+                decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
+            }
+            guard case .restart(let running, let target) = decision else {
+                if case .keep(let reason) = decision, reason != "same build" {
+                    logger.notice("daemon \(identity.pid) kept: \(reason, privacy: .public)")
+                }
+                return false
+            }
             DaemonService.launchMark("daemon_version_handoff")
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")
             return true
@@ -255,7 +266,7 @@ public final class DaemonService {
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
-                await exiting.close()
+                await exiting.closeAndWait()
                 // The first connect was in time; the deadline now covers
                 // the successor's start.
                 self?.armStartupDeadline()
@@ -267,7 +278,7 @@ public final class DaemonService {
             }
             guard let (connection, identity) = connected else { return }
             guard let self, !Task.isCancelled else {
-                await connection.close()
+                await connection.closeAndWait()
                 return
             }
             await connection.observePaneNotReady(self.paneNotReadyReporter)
@@ -330,7 +341,7 @@ public final class DaemonService {
                     await weakSelf?.noteStartupFailure(error)
                 }
                 if Task.isCancelled {
-                    await connected?.0.close()
+                    await connected?.0.closeAndWait()
                     return
                 }
                 guard let (connection, identity) = connected else {
@@ -339,7 +350,7 @@ public final class DaemonService {
                     continue
                 }
                 guard let self, !Task.isCancelled else {
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 do {
@@ -351,14 +362,14 @@ public final class DaemonService {
                     let show = !Task.isCancelled
                     self.shutdownConnection()
                     if show { store.markFailed(String(describing: error)) }
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
-                await connection.observePaneNotReady(self.paneNotReadyReporter)
+                await self.observeRemote(connection)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
-                await connection.close()
+                await connection.closeAndWait()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
@@ -391,13 +402,12 @@ public final class DaemonService {
         relaunchKeptLayoutIfNeeded(connection)
     }
 
-    /// Records a failed first-connect attempt. Shows as unavailable once the
-    /// deadline has passed, or at once when retrying cannot help.
-    func noteStartupFailure(_ error: DaemonError) {
+    /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
+    func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
-        store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) {
+        if startup.showsFailure(error, retries: retries) { store.markFailed(error.description) }
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) || !retries {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
@@ -417,12 +427,13 @@ public final class DaemonService {
         armStartupDeadline()
     }
 
-    private func armStartupDeadline() {
+    func armStartupDeadline() {
         startupDeadlineTimer?.cancel()
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
         }
@@ -550,7 +561,20 @@ public final class DaemonService {
         return failure
     }
 
+    /// Teardown that must finish before the caller removes a test session's state or reaps its owner.
+    public func shutdownConnectionAndWait() async {
+        let startup = runTask
+        let connected = detachConnection()
+        await connected?.closeAndWait()
+        await startup?.value
+    }
+
     public func shutdownConnection() {
+        // task-owner: teardown hop; close() is idempotent and finishes the store pump
+        if let connection = detachConnection() { Task { await connection.close() } }
+    }
+
+    private func detachConnection() -> DaemonConnection? {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()
@@ -563,8 +587,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
-        // task-owner: teardown hop; close() is idempotent and finishes the store pump
-        if let connection { Task { await connection.close() } }
+        let connected = connection
         connection = nil
+        return connected
     }
 }

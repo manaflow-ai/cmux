@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTerminal
 import Foundation
 import Testing
 
@@ -34,12 +35,27 @@ struct SecondCreationKeysTests {
     /// The app on a fresh daemon with two confirmed terminal panes side by side, the first left of the second (made by two
     /// splits: the test app's first pane is an agent chat, not a terminal); `body` runs with them.
     private static func withTwoTerminals(_ body: (Panes) async throws -> Void) async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await PinnedPageTests.withApp(heldKeyReplay: Self.testWindowReplay) { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             let window = try #require(content.layoutView.window)
             let first = try await splitToTerminal("first", services: services, content: content, window: window)
             let second = try await splitToTerminal("second", services: services, content: content, window: window)
+            // The workspace's create chain is quiet before the test types: a create pressed later waits for it.
+            let chain = await Self.settles(content.pendingCreate, within: .seconds(10))
+            try #require(chain, "the setup's create chain did not end within 10 s after both panes showed: \(describe(content, window, services))")
             try await body(Panes(services: services, connection: connection, content: content, window: window, first: first, second: second))
+        }
+    }
+
+    /// Whether `work` ends within `bound` (no work: true).
+    private static func settles(_ work: ActionWork?, within bound: Duration) async -> Bool {
+        guard let work else { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { _ = await work.value; return true }
+            group.addTask { try? await Task.sleep(for: bound); return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
         }
     }
 
@@ -136,11 +152,28 @@ struct SecondCreationKeysTests {
 
     /// Held keys run again as `CmuxApplication.sendEvent` runs a key (the key router, then the window): a test window is
     /// never key, so `NSApp.sendEvent` would deliver them nowhere.
+    private static let testWindowReplay: HeldKeyReplay = { event, window, router in
+        if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+    }
+
+    /// The creation hold of `p`'s app, with a short bound (its keys run again in the test window: ``testWindowReplay``).
     private static func replayInTestWindow(_ p: Panes) -> CreationInputCoordinator {
-        let router = p.services.keyRouter, coordinator = router.creationInputCoordinator
+        let coordinator = p.services.keyRouter.creationInputCoordinator
         coordinator.holdLimit = .milliseconds(300)
-        coordinator.runKey = { event, window in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
         return coordinator
+    }
+
+    /// Whether the byte reader's result line (`K42x<nonce><hex>K`) on `surface` matches `pattern` within 20 s. It polls
+    /// read-screen (returns at once, runs after the sends before it) and joins the screen's lines first: a narrow pane
+    /// wraps the result line.
+    private static func readerGot(_ pattern: String, on surface: SurfaceID, in p: Panes) async throws -> Bool {
+        let regex = try Regex(pattern)
+        let deadline = ContinuousClock.now + .seconds(20)
+        repeat {
+            if await screen(surface, in: p).replacingOccurrences(of: "\n", with: "").contains(regex) { return true }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ContinuousClock.now < deadline
+        return false
     }
 
     private static func screen(_ surface: SurfaceID, in p: Panes) async -> String {
@@ -236,7 +269,7 @@ struct SecondCreationKeysTests {
             coordinator.resolve(firstCreation, landed: true, in: p.window)
             coordinator.resolve(secondCreation, landed: true, in: p.window)
 
-            let inFirst = try await Self.ran("K42x\(nonce)03(1b5b41|1b4f41)K", on: p.first.surface, in: p)
+            let inFirst = try await Self.readerGot("K42x\(nonce)03(1b5b41|1b4f41)K", on: p.first.surface, in: p)
             let second = await Self.screen(p.second.surface, in: p)
             let first = await Self.screen(p.first.surface, in: p)
             #expect(!second.contains("K42x\(nonce)"), "a key held for the first terminal reached the second one: \(second.suffix(300))")
@@ -272,7 +305,7 @@ struct SecondCreationKeysTests {
             try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
             coordinator.resolve(creation, landed: true, in: p.window)
 
-            let inFirst = try await Self.ran("K42x\(nonce)6c731b(5b|4f)4103K", on: p.first.surface, in: p)
+            let inFirst = try await Self.readerGot("K42x\(nonce)6c731b(5b|4f)4103K", on: p.first.surface, in: p)
             @MainActor func split() -> SurfaceID? {
                 p.content.panes.filter { !before.contains($0.key) }.values.compactMap { pane in
                     pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
@@ -370,6 +403,200 @@ struct SecondCreationKeysTests {
                 let text = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? ""
                 #expect(!text.contains("w9x\(nonce)"), "keys typed for the closed split reached another terminal: \(text.suffix(200))")
             }
+        }
+    }
+
+    /// P0 1193 follow-up (review finding 1): a held Control shortcut typed for a terminal that is not focused at the
+    /// hold's end runs as that shortcut on that terminal's pane, as a key press there would; it is never typed into the
+    /// terminal as a byte (Ctrl-` is New Terminal Tab; before, only Command chords went through app dispatch).
+    @Test func aHeldControlShortcutRunsOnTheTerminalItWasTypedFor() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let firstTabs = p.first.pane.pane.tabs.count, secondTabs = p.second.pane.pane.tabs.count
+            // The first creation has no early view: the key typed for it waits for it, on any build.
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let held = try Self.press("`", [.control], keyCode: 50, in: p)
+            try #require(held, "the test needs Ctrl-` held for the first creation")
+            // The hold ends with the keyboard on the second terminal.
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            coordinator.resolve(creation, landed: true, in: p.window)
+            try await PinnedPageTests.until({ p.first.pane.pane.tabs.count == firstTabs + 1 || p.second.pane.pane.tabs.count != secondTabs },
+                                            within: .seconds(10), report: {
+                "waited for a new tab in the first terminal's pane; saw first \(p.first.pane.pane.tabs.count) tabs (was \(firstTabs)), second \(p.second.pane.pane.tabs.count) (was \(secondTabs))"
+            })
+            #expect(p.second.pane.pane.tabs.count == secondTabs, "the held Ctrl-` opened a tab in the focused pane, not in the pane it was typed for")
+            #expect(p.first.pane.pane.tabs.count == firstTabs + 1, "the held Ctrl-` did not run as New Terminal Tab in the first terminal's pane")
+        }
+    }
+
+    /// P0 1193 follow-up (review finding 2): keys held for two creations, and a replayed key of the first opens a new
+    /// creation (a held Cmd-D). The keys typed after it for the OTHER terminal stay that terminal's: each key goes to the
+    /// terminal the focus named when it was typed. Before, every key after the replayed Cmd-D went to the new split.
+    @Test func aReplayedCreationKeepsTheOtherTerminalsKeys() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            var refusals: [String] = []
+            let previous = p.services.registry.refusalObserver
+            p.services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
+            defer { p.services.registry.refusalObserver = previous }
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            // Two creations, neither with an early view: every key below waits, on any build.
+            let firstCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let secondCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.second.tab))
+            var held = [try Self.press("d", [.command], keyCode: 2, in: p)] // for the first terminal
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            held += try Self.type("echo l2x\(nonce)x$((6*7))\r", in: p) // for the second terminal
+            try #require(held.allSatisfy { $0 }, "the test needs every key held: \(held)")
+
+            let before = Set(p.content.panes.keys)
+            coordinator.resolve(firstCreation, landed: true, in: p.window)
+            coordinator.resolve(secondCreation, landed: true, in: p.window)
+            @MainActor func split() -> SurfaceID? {
+                p.content.panes.filter { !before.contains($0.key) }.values.compactMap { pane in
+                    pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
+                }.first
+            }
+            // First the held split's pane and the end of its hold, read from the app (no daemon request): a test's wait-for
+            // runs on the app's own daemon connection, whose requests run in order, so a wait-for sent now would hold the
+            // split's request back until it timed out (and the line waits for that split).
+            try await PinnedPageTests.until({ split() != nil && !coordinator.isHolding(in: p.window) }, report: {
+                "waited for the held Cmd-D's pane and the end of its hold; saw refusals \(refusals), \(Self.describe(p.content, p.window, p.services))"
+            })
+            let inSecond = try await Self.ran("l2x\(nonce)x42", on: p.second.surface, in: p)
+            let made = split()
+            let madeScreen = if let made { await Self.screen(made, in: p) } else { "" }
+            let second = await Self.screen(p.second.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            // What the replayed Cmd-D did, for a failure report: the router's last action, refusals, the hold and the panes.
+            let splitEnded = await Self.settles(p.content.pendingCreate, within: .seconds(1))
+            let replay = "the held split's create work ended: \(splitEnded), "
+                + "refusals \(refusals), holding \(coordinator.isHolding(in: p.window)), \(Self.describe(p.content, p.window, p.services)), "
+                + "first terminal: \(first.suffix(200))"
+            // The outcome the person sees first.
+            #expect(!madeScreen.contains("l2x\(nonce)"), "the line typed for the second terminal ran in the new split: \(madeScreen.suffix(300))")
+            #expect(inSecond, "the line typed for the second terminal did not run there: \(second.suffix(300)); \(replay)")
+            #expect(made != nil, "the held Cmd-D made no pane; \(replay)")
+        }
+    }
+
+    /// P0 1193 follow-up (coordinator 17:2xZ, from #29530's review): the hold ends at its bound while the focus names the
+    /// terminal but its view is not in the window (a remount), so the window itself has the keyboard. The keys typed for
+    /// the terminal go to it (its own encoder), never into whatever has the keyboard: before, the focused lane's keys ran
+    /// again as typed (`NSApplication.sendEvent`) and were lost. A text field that takes the keyboard moves the focus
+    /// model with it (the keys then already go to the terminal), so a remount is the way to make this state.
+    @Test func heldKeysReachTheirTerminalWhenItsViewIsOffAtTheHoldsEnd() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let held = try Self.type("echo v1x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // The first terminal's view leaves the window (a remount); the focus model still names it.
+            guard case .terminal(let entry)? = p.first.pane.currentContent else {
+                Issue.record("the first pane shows no terminal")
+                return
+            }
+            let surface = entry.session.surfaceView
+            let parent = try #require(surface.superview, "the terminal's view is not in a view")
+            surface.removeFromSuperview()
+            defer { parent.addSubview(surface) }
+            let focused = p.content.focus.state.resolved == .terminal(pane: p.first.pane.paneKey, tab: p.first.tab)
+            try #require(focused && !(p.window.firstResponder is TerminalSurfaceView),
+                         "the test needs the focus on the first terminal while no terminal view has the keyboard; saw focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))")
+            // The hold waits for a responder that takes the keys, then ends at its bound (300 ms after the reply).
+            coordinator.resolve(creation, landed: true, in: p.window)
+            let inFirst = try await Self.ran("v1x\(nonce)x42", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inFirst, "the line typed for the first terminal did not run there (lost at the hold's end): \(first.suffix(300)); holding \(coordinator.isHolding(in: p.window)), end \(String(describing: coordinator.lastHoldEnd(in: p.window)))")
+        }
+    }
+
+    /// P0 1193 follow-up (review of #29693 at bd1112a1cfa, defect 1): keys held for a terminal whose view is gone (its
+    /// workspace hidden and its surface evicted) are typed by the daemon, in the order they were typed: "text, Return,
+    /// Ctrl-C" never arrives as "text, Ctrl-C, Return". Before, a chord that is no app shortcut went out as its own daemon
+    /// send, which can pass the send before it.
+    @Test func heldKeysForAnEvictedTerminalKeepTheirOrder() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 4, on: p.first.surface, in: p)
+            // The first creation has no early view: the keys typed for it wait for it, on any build.
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            var held = try Self.type("ab", in: p)
+            held.append(try Self.press("\r", [], keyCode: 36, in: p))
+            held.append(try Self.press("\u{3}", [.control], keyCode: 8, ignoring: "c", in: p))
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // Another workspace shows, and the first one hibernates (the product's own path: unmounted, its surfaces freed),
+            // so the first terminal has no view and only the daemon can type the keys.
+            let store = p.services.machines.local.store
+            let firstWorkspace = try #require(store.workspace(containing: p.first.pane.pane.handle)?.id, "the first terminal's pane is in no workspace")
+            #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
+                                            report: { "waited for another workspace in the window; it still shows the first one" })
+            p.services.hibernateWorkspace(firstWorkspace)
+            try await PinnedPageTests.until({ p.services.cache.existingTerminal(p.first.tab) == nil }, within: .seconds(5), report: {
+                "waited for the first terminal's view to be evicted; it is still in the content cache"
+            })
+            coordinator.resolve(creation, landed: true, in: p.window)
+            // The hold ends (app state) before any daemon read: a wait-for sent first on the app's connection would run
+            // before the held keys' send-key and hold it back (the connection runs its requests in order).
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) }, within: .seconds(5), report: {
+                "waited for the hold to end after the reply; saw end \(String(describing: coordinator.lastHoldEnd(in: p.window)))"
+            })
+            // The reader prints the hex of the 4 bytes it got: "ab", Return (0d), Ctrl-C (03), in that order. Read-screen
+            // returns at once and runs after the sends before it, so poll it.
+            let inOrder = try await Self.readerGot("K42x\(nonce)61620d03K", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inOrder, "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
+        }
+    }
+
+    /// P0 1193 (re-review of #29693 at bc84781571b, lead 00:2xZ): two typing runs held for one terminal whose view is gone
+    /// (keys for another terminal typed between them) reach that terminal in the order they were typed. Each run is its
+    /// own daemon send; before, a run of more than one request ("ab", then Return) could let the next run ("cd") in
+    /// between its requests, so the shell got "ab", "cd", Return.
+    @Test func twoHeldRunsForAnEvictedTerminalKeepTheirOrder() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            try await Self.startByteReader(nonce: nonce, count: 5, on: p.first.surface, in: p)
+            // Two creations with no early view: every key below waits, on any build.
+            let first = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let second = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.second.tab))
+            var held = try Self.type("ab", in: p)
+            held.append(try Self.press("\r", [], keyCode: 36, in: p)) // run 1 for the first terminal: "ab", then Return
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            held += try Self.type("x", in: p) // for the second terminal, between the two runs
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            held += try Self.type("cd", in: p) // run 2 for the first terminal
+            try #require(held.allSatisfy { $0 }, "the test needs every key held: \(held)")
+
+            // Another workspace shows and the first one hibernates: both terminals lose their views, so the daemon types.
+            let store = p.services.machines.local.store
+            let firstWorkspace = try #require(store.workspace(containing: p.first.pane.pane.handle)?.id, "the first terminal's pane is in no workspace")
+            #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
+                                            report: { "waited for another workspace in the window; it still shows the first one" })
+            p.services.hibernateWorkspace(firstWorkspace)
+            try await PinnedPageTests.until({ p.services.cache.existingTerminal(p.first.tab) == nil }, within: .seconds(5), report: {
+                "waited for the first terminal's view to be evicted; it is still in the content cache"
+            })
+            coordinator.resolve(first, landed: true, in: p.window)
+            coordinator.resolve(second, landed: true, in: p.window)
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) }, within: .seconds(5), report: {
+                "waited for the hold to end after the replies; saw end \(String(describing: coordinator.lastHoldEnd(in: p.window)))"
+            })
+            // The reader prints the hex of the 5 bytes it got: a b Return c d, in that order.
+            let inOrder = try await Self.readerGot("K42x\(nonce)61620d6364K", on: p.first.surface, in: p)
+            let screen = await Self.screen(p.first.surface, in: p)
+            #expect(inOrder, "the two runs held for the evicted terminal did not arrive as typed (61 62 0d 63 64): \(screen.suffix(300))")
         }
     }
 }

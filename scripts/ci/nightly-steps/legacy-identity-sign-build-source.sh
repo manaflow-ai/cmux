@@ -21,6 +21,10 @@ esac
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$sha"
+# An owned Mac keeps its workspace between jobs while the runner empties RUNNER_TEMP, so an
+# earlier job's build-src can still be registered there: drop registrations whose folder is gone.
+# Without it the second sign on one Mac fails ("a missing but already registered worktree").
+git worktree prune
 git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
 (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
 echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"

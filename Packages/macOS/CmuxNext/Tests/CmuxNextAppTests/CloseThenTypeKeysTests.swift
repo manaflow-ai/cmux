@@ -16,7 +16,7 @@ import Testing
 ///
 /// The keys go through the app's key path (the key router, then the window's first responder, as
 /// `CmuxApplication.sendEvent` does). A test window is never key, so a held key that runs again goes the same way here
-/// (`CreationInputCoordinator.runKey`), not through `NSApp.sendEvent`.
+/// (the app's `heldKeyReplay`, set by `PinnedPageTests.withApp`), not through `NSApp.sendEvent`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloseThenTypeKeysTests {
     private typealias Terminal = (pane: PaneController, tab: String, surface: SurfaceID)
@@ -32,7 +32,11 @@ struct CloseThenTypeKeysTests {
 
     /// The app on a fresh daemon with two confirmed terminal panes side by side (Cmd-D), the right one focused.
     private static func withTwoTerminals(_ body: (Panes) async throws -> Void) async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        // A held key runs again through the same key path as a typed one (the test window is never key, so
+        // `NSApp.sendEvent` would deliver it nowhere).
+        try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }) { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             // The window's first pane may show an agent chat, not a terminal: both terminals are new panes (Cmd-D twice,
             // the second split from the first new terminal, so it opens on its right).
@@ -61,11 +65,6 @@ struct CloseThenTypeKeysTests {
             let window = try #require(content.layoutView.window)
             let coordinator = services.keyRouter.creationInputCoordinator
             try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "waiting for the splits' creation hold to end" })
-            // A held key runs again through the same key path as a typed one (the test window is never key).
-            let router = services.keyRouter
-            coordinator.runKey = { [weak router] event, window in
-                if router?.interceptKeyDown(event, in: window) != true { window.sendEvent(event) }
-            }
             let p = Panes(services: services, connection: connection, content: content, window: window, left: first, right: second)
             try await Self.focus(p.right, in: p)
             try await body(p)

@@ -175,10 +175,6 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -250,6 +246,28 @@ public final class LayoutRootView: NSView {
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
         return view.navigationFrames
+    }
+
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
+        return view.navigationFrames
+    }
+
+    /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
+    /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
+    /// less the pane padding. A split's or a close's panes read their final widths from the turn the
+    /// layout changes, not what a running spring shows: the source of a split keeps its old width until
+    /// the spring lands, and the new pane starts as a zero-width sliver (review of #29787 at 29861047).
+    /// No layout pass: the geometry is computed when the layout syncs. Nil for a pane no screen view
+    /// lays out, or one not sized yet.
+    public func restingContentWidth(of pane: PaneID) -> CGFloat? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0,
+              let cell = view.baseGeometry.panes[pane] else { return nil }
+        let width = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: cell.size), style: context.style).width
+        return width > 0 ? width : nil
     }
 
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
@@ -459,7 +477,10 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
+        if needsFrames { driver.start() }
+        // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
+        // frame (shortcut hint chips) hears it here, as it would from the tick.
+        else if snapshot.gestureActive { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

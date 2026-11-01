@@ -90,6 +90,7 @@ export default diffPageEntry({
   covers: [
     "page:cmux.diff",
     "App.tsx",
+    "diff-viewer/freshness.ts",
     "DiffToolbar.tsx",
     "BranchBasePicker.tsx",
     "diff-viewer/FileHeader.tsx",
@@ -99,6 +100,21 @@ export default diffPageEntry({
     "diff-viewer/WorkerRenderOptionsSync.tsx",
   ],
   variants: {
+    "cloud-offline": {
+      note: "The loaded Cloud diff stays visible with its machine's offline reason.",
+      title: "Build VM changes",
+      fingerprintError: {
+        code: "cmux.diff.machine_offline",
+        message: "Build VM is offline. Reconnect to see its diff.",
+      },
+      files: [{ path: "src/net/client.ts", before, after }],
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".file-header") && ctx.document.querySelector(".diff-files-changed"),
+          { capMs: 10_000 },
+        );
+      },
+    },
     "small-split": {
       note: "Two files, split layout: one changed, one added.",
       files: [

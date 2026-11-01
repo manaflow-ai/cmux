@@ -171,7 +171,7 @@ const DETAIL_SITES: usize = 20;
 /// Power-of-two histogram of one site: 256 bytes, updated under the
 /// `sites` table lock that the release already takes, so a site costs no
 /// allocation after its first acquisition.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct OctaveHistogram {
     counts: [u64; SITE_OCTAVES],
     total_us: u64,
@@ -211,7 +211,7 @@ impl OctaveHistogram {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
@@ -319,10 +319,16 @@ impl LockStats {
     /// section: the [`DETAIL_SITES`] sites with the most total hold time,
     /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
     pub fn detail(&self) -> LockDetailSnapshot {
-        let all: Vec<LockSiteDetail> = self
+        // Copy the raw records out, then format the labels after the unlock:
+        // every release of this lock takes the `sites` mutex.
+        let raw: Vec<(LockSite, SiteStats)> = self
             .sites
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (*site, *stats))
+            .collect();
+        let all: Vec<LockSiteDetail> = raw
             .iter()
             .map(|(site, stats)| LockSiteDetail {
                 site: site_label(site),
@@ -646,12 +652,44 @@ pub struct ConnectionStats {
     reclaimed: AtomicU64,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
+    /// terminal connection gives this slot back with its main one
+    /// (`connection_leases`).
+    terminal_active: AtomicU64,
     /// The socket these connections come in on, once a server attached the
     /// session to it.
     socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64) -> bool {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed =
+            self.terminal_active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim).is_ok();
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self
+                .terminal_active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, claim)
+                .is_ok();
+        }
+        if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    pub fn release_terminal(&self) {
+        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     /// At the limit it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`): a connection thread parked on the registry lock
