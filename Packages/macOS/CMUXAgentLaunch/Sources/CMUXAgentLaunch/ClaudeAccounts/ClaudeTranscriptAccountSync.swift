@@ -62,8 +62,9 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 /// already holds the whole source is kept, and copies that diverged are refused with
 /// ``ClaudeTranscriptAccountSyncError/diverged(targetIsNewer:)`` without touching either one.
 /// A target whose copy is only in the other transcript layout is refused the same way
-/// (``ClaudeTranscriptAccountSyncError/layoutMismatch``). The target's sidecar follows its transcript: it is replaced only on a refresh, or filled in
-/// when the copies are identical and the target has none.
+/// (``ClaudeTranscriptAccountSyncError/layoutMismatch``). The target's sidecar follows its
+/// transcript: it is replaced only on a refresh, or filled in when the copies are identical and
+/// the target has none.
 ///
 /// Nothing is ever deleted from the source, and a target with turns the source lacks is never
 /// overwritten. The transcript and the sidecar are each staged as a temporary sibling in the
