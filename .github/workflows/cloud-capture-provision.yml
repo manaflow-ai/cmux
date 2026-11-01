@@ -8,9 +8,22 @@ name: Cloud capture account provision
 #
 # The password exists only inside the Provision step: masked as soon as it is made, sent to Stack, sealed
 # and dropped. Every run is a rotation, so rerunning is how the credential is replaced. Dispatch it on main.
+#
+# With grant_plan_user_id and grant_plan_email set, the run only gives that existing staging user the `pro`
+# operator plan (--grant-plan-only): no password rotation, no sealing, no artifact. Either input set means
+# grant-only, and the script refuses unless both are.
 
 on:
   workflow_dispatch:
+    inputs:
+      grant_plan_user_id:
+        description: "Grant-only: staging Stack user id to give cmuxVmPlan=pro (no rotation, no sealing)"
+        required: false
+        default: ""
+      grant_plan_email:
+        description: "Grant-only: that user's primary email (must match)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -38,6 +51,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
+        if: inputs.grant_plan_user_id == '' && inputs.grant_plan_email == ''
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -45,7 +59,18 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends libsodium23
           fi
 
+      - name: Grant the pro plan only
+        if: inputs.grant_plan_user_id != '' || inputs.grant_plan_email != ''
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          GRANT_USER_ID: ${{ inputs.grant_plan_user_id }}
+          GRANT_EMAIL: ${{ inputs.grant_plan_email }}
+        run: python3 scripts/ci/cloud_capture_provision.py --grant-plan-only --user-id "$GRANT_USER_ID" --email "$GRANT_EMAIL"
+
       - name: Provision and seal
+        if: inputs.grant_plan_user_id == '' && inputs.grant_plan_email == ''
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -53,6 +78,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
+        if: inputs.grant_plan_user_id == '' && inputs.grant_plan_email == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets

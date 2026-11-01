@@ -17,6 +17,12 @@ TLS, sealed, and dropped. It is never printed, written to disk, put in an enviro
 argument. Every run is a rotation: the old password stops working, so no other copy is worth keeping.
 Stack's response bodies are never echoed (they hold account data), only status codes.
 
+Grant-only mode (`--grant-plan-only --user-id ID --email EMAIL`) gives one other staging account the
+same `cmuxVmPlan: "pro"` grant and nothing else: it GETs the user, refuses unless its primary email is
+EMAIL, merges the plan into client_read_only_metadata (other keys kept), PATCHes only that field, reads
+it back, and prints only status codes and the plan value. No password is made or rotated and nothing
+is sealed.
+
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
@@ -26,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import sys
 import urllib.error
@@ -52,6 +59,7 @@ TARGET_KEY = "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY="
 EMAIL_SECRET = "CLOUD_CAPTURE_STACK_EMAIL"
 PASSWORD_SECRET = "CLOUD_CAPTURE_STACK_PASSWORD"
 REQUEST_SECONDS = 30
+USER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class ProvisionError(Exception):
@@ -99,6 +107,10 @@ class Stack:
         self.project_id, self.server_key, self.client_key, self.transport = project_id, server_key, client_key, transport
 
     def server(self, method, path, body=None, ok=(200, 201)):
+        return self.server_status(method, path, body, ok)[1]
+
+    def server_status(self, method, path, body=None, ok=(200, 201)):
+        """Like server(), but also returns the HTTP status: (status, parsed)."""
         headers = {"content-type": "application/json", "x-stack-access-type": "server",
                    "x-stack-project-id": self.project_id, "x-stack-secret-server-key": self.server_key}
         status, reply_headers, parsed = self.transport(method, STACK_API + path, headers, body)
@@ -106,7 +118,7 @@ class Stack:
             known = reply_headers.get("x-stack-known-error", "")
             raise ProvisionError(f"Stack {method} {path.split('?')[0]} answered HTTP {status}"
                                  + (f" ({known})" if known else ""))
-        return parsed or {}
+        return status, parsed or {}
 
     def find(self, email):
         """The one user whose primary email is EMAIL, or None. Two would be ambiguous: refuse."""
@@ -186,14 +198,56 @@ def provision(stack, out, log=print, lib=None, key_id=TARGET_KEY_ID, key=TARGET_
     return action
 
 
+def grant_plan(stack, user_id, email, log=print):
+    """Give one existing staging user the operator plan and nothing else. Prints only status codes and
+    the plan value. Returns the plan read back."""
+    if stack.project_id != STAGING_PROJECT_ID:
+        raise ProvisionError("the Stack project is not the staging project; refusing to touch it")
+    if not USER_ID_RE.match(user_id or ""):
+        raise ProvisionError("--user-id is not a Stack user id (lowercase UUID)")
+    if not email or "@" not in email:
+        raise ProvisionError("--email is not an email address")
+    path = f"/users/{urllib.parse.quote(user_id)}"
+    status, user = stack.server_status("GET", path, ok=(200,))
+    if str(user.get("id") or "") != user_id:
+        raise ProvisionError(f"GET {path} HTTP {status} returned a different user; refusing")
+    if str(user.get("primary_email") or "").lower() != email.lower():
+        raise ProvisionError(f"GET {path} HTTP {status}: the user's primary email does not match --email; refusing")
+    metadata = user.get("client_read_only_metadata")
+    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    log(f"GET {path} HTTP {status}; before {PLAN_KEY}={metadata.get(PLAN_KEY)!r}")
+    metadata[PLAN_KEY] = PLAN
+    status, _ = stack.server_status("PATCH", path, {"client_read_only_metadata": metadata}, ok=(200,))
+    log(f"PATCH {path} HTTP {status}")
+    status, user = stack.server_status("GET", path, ok=(200,))
+    after = user.get("client_read_only_metadata")
+    after = after.get(PLAN_KEY) if isinstance(after, dict) else None
+    log(f"GET {path} HTTP {status}; after {PLAN_KEY}={after!r}")
+    if after != PLAN:
+        raise ProvisionError(f"the user's {PLAN_KEY} did not read back as {PLAN!r}")
+    return after
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", required=True, help="where to write the sealed bundle (ciphertext only)")
+    parser.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
+    parser.add_argument("--grant-plan-only", action="store_true",
+                        help="only give --user-id the pro plan: no password rotation, no sealing")
+    parser.add_argument("--user-id", help="grant-only: the staging Stack user id")
+    parser.add_argument("--email", help="grant-only: that user's primary email (must match)")
     args = parser.parse_args(argv)
+    if args.grant_plan_only:
+        if not args.user_id or not args.email or args.out:
+            parser.error("--grant-plan-only takes --user-id and --email, and no --out")
+    elif not args.out or args.user_id or args.email:
+        parser.error("--out is required (and --user-id/--email only go with --grant-plan-only)")
     try:
         stack = Stack(os.environ.get("NEXT_PUBLIC_STACK_PROJECT_ID", ""), os.environ.get("STACK_SECRET_SERVER_KEY", ""),
                       os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""))
-        provision(stack, args.out)
+        if args.grant_plan_only:
+            grant_plan(stack, args.user_id, args.email)
+        else:
+            provision(stack, args.out)
     except (ProvisionError, sealed_secrets.SealError) as error:
         print(f"::error::cloud capture provision: {error}", flush=True)
         return 1
