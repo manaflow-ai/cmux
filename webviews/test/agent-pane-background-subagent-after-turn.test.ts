@@ -28,7 +28,9 @@ const update = (update: Record<string, unknown>, { sessionId = CHAT, tag, subage
   params: {
     sessionId,
     update,
-    ...((tag || subagents) && { _meta: { acpmux: { ...(tag && { subagent: tag }), ...(subagents && { subagents }) } } }),
+    ...((tag || subagents) && {
+      _meta: { acpmux: { ...(tag && { subagent: tag }), ...(subagents && { subagents }) } },
+    }),
   },
 });
 const record = (steps: Step[], from = 1) =>
@@ -45,7 +47,14 @@ const shell = (id: string, command: string, params: Params): Step => [
   "in",
   "tool_call",
   update(
-    { sessionUpdate: "tool_call", toolCallId: id, title: command, kind: "execute", status: "in_progress", rawInput: { command } },
+    {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title: command,
+      kind: "execute",
+      status: "in_progress",
+      rawInput: { command },
+    },
     params,
   ),
 ];
@@ -68,7 +77,14 @@ const finishedTurn = (spawn: boolean): Step[] => [
             { sessionUpdate: "subagent_spawned", name: HELPER_NAME, background: true },
             {
               subagents: [
-                { id: HELPER, parent: null, name: HELPER_NAME, kind: "general-purpose", state: "running", background: true },
+                {
+                  id: HELPER,
+                  parent: null,
+                  name: HELPER_NAME,
+                  kind: "general-purpose",
+                  state: "running",
+                  background: true,
+                },
               ],
             },
           ),
@@ -172,7 +188,7 @@ const holdsCall = (rows: readonly AcpmuxRow[], id: string) =>
 /// What the finished turn draws after its footer (its summary row): nothing of the helper's.
 function afterFooter(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   const drawn = turnViewFrom(rows, new Set(), { now: START + 600_000, working: false, lineBelow: true }).rows;
-  const footer = drawn.findLastIndex((row) => row.kind === "turnSummary");
+  const footer = drawn.map((row) => row.kind).lastIndexOf("turnSummary");
   expect(footer).toBeGreaterThanOrEqual(0);
   return drawn.slice(footer + 1);
 }
