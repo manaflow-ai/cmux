@@ -20,7 +20,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, groupId, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, groupId, isDraftCall, isFailed as callFailed, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -991,13 +991,14 @@ function liveTurn(
 function codexLiveTurn(
   user: AcpmuxRow,
   drawn: AcpmuxRow[],
-  rows: AcpmuxRow[],
+  runs: AcpmuxRow[],
   last: AcpmuxRow | undefined,
   named: LineCall | undefined,
   at: number,
   clockOffset: number,
   sessionStatus: boolean,
 ): AcpmuxRow[] {
+  let rows = runs;
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
@@ -1021,6 +1022,22 @@ function codexLiveTurn(
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
   const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  // With a todo list and no answer streaming, the activity line under the list is the live line
+  // (below), which names the plan's step, so no call leaves its run for it.
+  if (!named && !answering && !plan) {
+    // Between calls the line keeps the latest finished step ("Ran grep …") instead of a separate
+    // "Thinking" under it, shimmering and timed from the prompt like any step: the line is the
+    // turn's current activity and just keeps going (Leo, 2026-11-01: "this should be replacing
+    // the thinking area and its shimmer across things", "like the thinking or whatever it should
+    // just keep going"). The step leaves its run while the line names it, so it reads once.
+    const lifted = liftedStep(rows, last);
+    if (lifted) {
+      rows = lifted.rows;
+      line.doing = lifted.doing;
+      line.doingShell = lifted.shell;
+      line.doingDone = true;
+    }
+  }
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list, the line under both.
@@ -1040,6 +1057,51 @@ function codexLiveTurn(
     ),
   ];
 }
+
+/// The latest run's last finished call, lifted out of the run for the live line to name: a command
+/// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
+/// call keeps its mark in the run, a command sent to the background keeps its state there, and
+/// messages, sub-sessions, render cards and edits keep their own rows. Nil when the latest step is anything else.
+function liftedStep(
+  rows: AcpmuxRow[],
+  last: AcpmuxRow,
+): { rows: AcpmuxRow[]; doing: string; shell: boolean } | undefined {
+  if (last.kind !== "activity") return undefined;
+  // A run that a short note joined to an earlier one keeps the earlier one's id (mergeShortNotes).
+  const at = rows.findIndex((row) => row.id === last.id || row.joined?.includes(last.id));
+  const run = rows[at];
+  if (!run?.foldRun) return undefined;
+  const items = run.items ?? [];
+  // Thoughts after it are the agent thinking about it; the line still names the call.
+  let index = items.length - 1;
+  while (index >= 0 && !items[index]!.tool) index -= 1;
+  const item = items[index];
+  const call = item?.tool;
+  if (
+    !call ||
+    isRunning(call) ||
+    call.background !== undefined ||
+    callFailed(call) ||
+    isEditTool(call) ||
+    renderCall(call) ||
+    subsessionCall(call) ||
+    agentMessage(call) ||
+    acpmuxSendCalls(call) ||
+    acpmuxMcpSends(call)
+  )
+    return undefined;
+  const shell =
+    call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
+  const doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, item!.text);
+  const kept = items.filter((_, position) => position !== index);
+  const next = rows.slice();
+  if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
+  else next.splice(at, 1);
+  return { rows: next, doing, shell };
+}
+/// A run with its last call on the live line differs from the same run whole. (Not a sixth
+/// `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
+const LIFTED_STATES = 2;
 
 /// The newest call still running in a live turn's latest row.
 function runningCall(

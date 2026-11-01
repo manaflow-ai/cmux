@@ -30,7 +30,16 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import {
+  PASTE_CHIP_HEIGHT,
+  type PasteRange,
+  HUGE_PROMPT_HEAD_CHARS,
+  collapsedPromptHeight,
+  hasHugeTypedPart,
+  isHugePrompt,
+  promptHead,
+  promptParts,
+} from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
@@ -374,6 +383,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// `doing` names the latest step, finished, which the live line holds until the next step
+  /// (conversation/turns.ts `liftedStep`): "Ran grep …".
+  doingDone?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
@@ -1718,6 +1730,23 @@ function measuredRowHeight(
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
+  // its height is those lines and Show more, never a lex or measure of megabytes of text.
+  // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
+  if (
+    row.kind === "user" &&
+    !pasted &&
+    row.from !== "chief" &&
+    isHugePrompt(row.text) &&
+    (!row.inlineParts || hasHugeTypedPart(row.inlineParts)) &&
+    !chiefEnvelope(row.text)
+  ) {
+    const height =
+      messageBelow(beforeFooter) +
+      chromeHeight(row, actions) +
+      collapsedPromptHeight(Number.POSITIVE_INFINITY, metrics().lineHeight);
+    return finish(beforeFooter ? height : Math.max(34, height));
+  }
   const plainUser =
     row.kind === "user" &&
     !pasted &&
@@ -1752,7 +1781,17 @@ function measuredRowHeight(
         contentHeight +=
           part.kind === "paste"
             ? PASTE_CHIP_HEIGHT
-            : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+            : Math.max(
+                lineHeight,
+                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
+                // head is all there is to measure.
+                textHeight(
+                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
+                  contentWidth,
+                  entry.prepared,
+                  usedPrepared,
+                ),
+              );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
