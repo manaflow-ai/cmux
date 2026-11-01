@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4131908227901",
+  "notes": "notes/4131908227901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30940,
+      "title": "Agent pane: a look at a video's frames draws as a filmstrip card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31028,
+      "title": "Bring Back Local pulls a seeded git project back as the seed's diff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31026,
+      "title": "fix(keybindings): a failed Overwrite removal is shown by the recorder that asked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28894,
+      "title": "fix(next): settle sidebar geometry before releasing pane content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28955,
+      "title": "acpmux: a link guest's relayed prompt always waits for the owner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31010,
+      "title": "measure(close-flash): Close Window and close-key commit time in an active app",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
