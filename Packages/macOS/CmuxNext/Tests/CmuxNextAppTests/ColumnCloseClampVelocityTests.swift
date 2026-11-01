@@ -40,4 +40,13 @@ struct ColumnCloseClampVelocityTests {
         #expect(state.spring.value == 600)
         #expect(state.spring.velocity == 0, "the camera still moves past the strip's end at \(state.spring.velocity) pt/s")
     }
+
+    /// Two half-width columns fit the window: a camera coming back toward 0 would pass the leading
+    /// edge (with pane motion off, nothing carries the panes to hide it), so it stops at 0.
+    @Test func aCloseToAStripThatFitsStopsTheCameraAtZero() {
+        var state = Self.moving(value: 845, velocity: -14_854, target: 0)
+        state.reduce(.sync(Self.strip(2), focused: "p1", source: .programmatic, animated: true))
+        #expect(state.spring.value == 0)
+        #expect(state.spring.velocity == 0, "the camera moves past the leading edge at \(state.spring.velocity) pt/s")
+    }
 }
