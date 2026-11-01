@@ -180,6 +180,21 @@ struct PushRegistrationTests {
         #expect(server.preferences == original)
     }
 
+    /// A writer created but not yet started when sign-out begins must not wait
+    /// on the cleanup that waits on it.
+    @Test func signOutRightAfterAQueuedWriteDoesNotDeadlock() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        #expect(registration.task != nil)
+
+        await registration.unregister()
+
+        #expect(server.events == ["delete"])
+        #expect(server.preferences == nil)
+    }
+
     /// The sign-out hook is bounded and cancels its caller; the DELETE still runs.
     @Test func aCancelledSignOutStillDeletes() async {
         let server = RegistrationServer()

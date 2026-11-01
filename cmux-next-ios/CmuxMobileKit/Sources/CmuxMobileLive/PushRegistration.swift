@@ -122,10 +122,20 @@ public final class PushRegistration {
         let previous = cleanup
         let delete = self.delete
         // Unstructured, so the sign-out hook's 3 s bound (which cancels its
-        // caller) never cancels the DELETE. The bearer is read first, while the
-        // session is still valid: sign-out clears it after that bound.
+        // caller) never cancels the DELETE. Created before any await, so a quick
+        // sign-in's writer always finds it as `cleanup` and goes after it.
         let work = Task {
-            let pinned = (try? await oldAPI.pinningToken()) ?? oldAPI
+            // The bearer is read first, while the session is still valid: sign-out
+            // clears it after that bound, and a later sign-in's token must never
+            // carry this device's DELETE. No bearer, no DELETE (fail closed).
+            let pinned: LiveAPI
+            do {
+                pinned = try await oldAPI.pinningToken()
+            } catch {
+                log.error("push unregister skipped: no access token: \(String(describing: error), privacy: .public)")
+                await inFlight?.value
+                return
+            }
             await previous?.value
             // Let the in-flight PUT settle before DELETE; otherwise a late PUT can
             // restore the token after sign-out. The generation guard stops new PUTs.
@@ -154,12 +164,15 @@ public final class PushRegistration {
         pending = registration
         let id = UUID()
         taskID = id
+        // Each writer waits only for the sign-out cleanup that existed when it
+        // was created; a cleanup that awaits this writer never waits on itself.
+        let after = cleanup
         task = Task { [weak self] in
-            await self?.sendPending(id: id)
+            await self?.sendPending(id: id, after: after)
         }
     }
 
-    private func sendPending(id: UUID) async {
+    private func sendPending(id: UUID, after cleanup: Task<Void, Never>?) async {
         defer {
             if taskID == id {
                 task = nil
