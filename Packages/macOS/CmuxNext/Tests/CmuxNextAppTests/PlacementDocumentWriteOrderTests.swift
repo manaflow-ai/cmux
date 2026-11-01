@@ -15,7 +15,7 @@ import Testing
 /// reports them. The document mirror moves synchronously, while the sidebar
 /// model normally follows on a later turn. Every placement must use the order
 /// the preceding placement produced, even before that observation runs.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore)
+@MainActor @Suite(.serialized)
 struct PlacementDocumentWriteOrderTests {
     private static let original = ["k4", "k3", "k2", "k1"]
     private static let expected = ["k1", "k2", "k3", "k4"]
@@ -108,11 +108,9 @@ struct PlacementDocumentWriteOrderTests {
     @Test func aDocumentBurstUsesEachPrecedingMoveBeforeTheModelObservationRuns() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        // Its lazy initializer installs the app document store. Finish that
-        // before replacing current, so opening the window cannot replace ours.
+        // Its lazy initializer installs the app's document store. Finish that
+        // before replacing it, so opening the window cannot replace ours.
         _ = services.sidebarLayout
-        let savedDocument = SidebarDocStore.current
-        defer { SidebarDocStore.current = savedDocument }
         let initial = try Self.document(order: Self.original, revision: 1)
         let clientMirror = try #require(SidebarMirror.make(), "this regression requires the real Rust sidebar mirror FFI")
         let serverMirror = try #require(SidebarMirror.make())
@@ -120,7 +118,7 @@ struct PlacementDocumentWriteOrderTests {
         let remote = Remote(document: initial, reducer: serverMirror)
         defer { remote.close() }
         let document = SidebarDocStore(remote: remote, mirror: clientMirror)
-        SidebarDocStore.current = document
+        services.sidebarDoc.store = document
         document.refresh()
         try await Self.wait("placement document load") { document.isActive }
 
@@ -158,7 +156,7 @@ struct PlacementDocumentWriteOrderTests {
                          "the active document owns mixed order even without the legacy mixed-order capability")
             try #require(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == Self.original)
             try #require(clientMirror.rows(SidebarViewRequest(live: Self.live))?.compactMap(\.ref?.workspaceID) == Self.original)
-            try #require(SidebarDocStore.current === document)
+            try #require(services.sidebarDoc.store === document)
             windows.applyPendingPlacements(live: Set(Self.expected))
             #expect(!controller.sidebar.model.ungroupedFirst,
                     "document placement resync must not enable legacy ungrouped-first drop targeting")
@@ -194,7 +192,7 @@ struct PlacementDocumentWriteOrderTests {
             // document drag cached. Resync must leave normal personal-order drop targeting active;
             // using `model.docDrag == nil` here misses the disconnect and keeps document mode.
             controller.sidebar.model.docDrag = cachedDocumentDrag
-            SidebarDocStore.current = nil
+            services.sidebarDoc.store = nil
             controller.sidebar.resync()
             #expect(controller.sidebar.model.ungroupedFirst,
                     "inactive document resync must restore legacy ungrouped-first targeting even with cached docDrag")

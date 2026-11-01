@@ -108,7 +108,7 @@ final class AppServices {
     /// Set and Clear Space Terminal Defaults…: one run at a time per space.
     let roomDefaults = RoomDefaultsUpdates()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
-    private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, document: { [weak self] in self?.sidebarDoc.store.flatMap { $0.isActive ? $0 : nil } }, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// Each window's own Home (cmux#27880).
     private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
@@ -332,9 +332,11 @@ final class AppServices {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
-        SidebarDocWiring.start(self, layout: service)
+        sidebarDoc.start(self, layout: service)
         return service
     }()
+    /// This app's own sidebar document (sidebar-v2), whose store starts with `sidebarLayout`; apps never share one.
+    private(set) lazy var sidebarDoc = SidebarDocument(stores: { [machines] in machines.daemons.map(\.store) }, machine: { [machines] in machines.daemon(machine: $0)?.store })
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),

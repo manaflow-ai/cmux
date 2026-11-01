@@ -51,10 +51,10 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     }
 
     /// Whether a window's rows built at `rowsAt` (the document's `shownChanges` then; nil: not built from its
-    /// projection) are behind the sidebar document: its drawn projection is behind its version, or the window's
-    /// rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
-    static func layoutCatchingUp(rowsAt: UInt64? = nil) -> Bool {
-        guard let store = SidebarDocStore.current, store.isActive else { return false }
+    /// projection) are behind the app's sidebar document `store`: its drawn projection is behind its version, or the
+    /// window's rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
+    static func layoutCatchingUp(_ store: SidebarDocStore?, rowsAt: UInt64? = nil) -> Bool {
+        guard let store, store.isActive else { return false }
         return store.shown == nil || store.shownVersion != store.version || rowsAt != store.shownChanges
     }
 

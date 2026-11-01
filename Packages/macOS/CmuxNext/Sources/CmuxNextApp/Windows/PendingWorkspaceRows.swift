@@ -88,11 +88,12 @@ final class PendingWorkspaceRows {
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
     /// Also while the sidebar document does not place the daemon's workspace yet: the document lists it last until its
     /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot.
-    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+    /// `doc`: the app's own sidebar document.
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry, doc: SidebarDocument) -> [SidebarRowSection] {
         Self.removing(ids(in: window) { id in
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
-            guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
+            guard doc.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
         }, from: listed)

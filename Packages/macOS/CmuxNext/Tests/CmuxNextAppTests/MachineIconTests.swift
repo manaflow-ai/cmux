@@ -51,7 +51,7 @@ struct MachineIconTests {
 
     /// This Mac's sidebar header.
     static func header(_ services: AppServices) -> SidebarMachine? {
-        SidebarBridge.sections(services.machines, profile: .defaultProfile).lazy.compactMap(\.machine).first { $0.kind == .local }
+        SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine).first { $0.kind == .local }
     }
 
     static func favicon() throws -> SidebarFavicon {
@@ -241,7 +241,7 @@ struct MachineIconTests {
         ])
         services.machines.local.store.apply(snapshot: tree)
 
-        let header = SidebarBridge.sections(services.machines, profile: .defaultProfile).lazy.compactMap(\.machine)
+        let header = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine)
             .first { $0.id.rawValue == "vm-icon1" }
         #expect(header?.icon == .emoji("🚀"), "the stopped Cloud machine's header draws its record's icon")
         #expect(services.machines.icon(machine: ssh.machineID) == "star.fill", "an SSH machine, by its route")
