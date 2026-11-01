@@ -155,6 +155,64 @@ struct CloudSpaceTests {
         #expect(plain["default_session_id"] == nil && plain["follows"] == nil, "a plain space sends neither")
     }
 
+    private struct Commands: DaemonRequest {
+        typealias Response = CmuxNextDaemon.JSONValue
+        static let command = "test-commands"
+    }
+
+    /// This Mac's daemon, faked: it answers every command and lists the commands it was sent.
+    private static let localDaemon = #"""
+    import json, sys
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    commands = []
+    for line in sys.stdin:
+        frame = json.loads(line)
+        command = frame.get('cmd')
+        commands.append(command)
+        if command == 'identify':
+            data = {'app': 'cmux-tui', 'protocol': 12, 'generation': 'cloud-space-test', 'capabilities': ['profiles-v1']}
+        elif command == 'test-commands':
+            data = {'commands': commands}
+        elif command in ('list-workspaces',):
+            data = {'workspaces': []}
+        elif command == 'create-workspace':
+            data = {'workspace': 5, 'key': frame.get('key'), 'workspace_revision': 1, 'replayed': False}
+        else:
+            data = {}
+        print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+    """#
+
+    /// A script's create that names a machine this app cannot resolve (unknown, or Cloud off) is refused: it never
+    /// falls back to this Mac's connected daemon, so a command meant for that machine never runs on the person's
+    /// Mac (fail closed, REVIEW.md 5).
+    @Test func aScriptsCreateOnAnUnknownMachineIsRefusedNotMadeOnTheMac() async throws {
+        let services = Self.services()
+        let local = services.machines.local
+        let connection = DaemonConnection(
+            endpoint: .init(socketPath: "/tmp/cmux-cloud-space-\(UUID().uuidString).sock",
+                            bridge: .fakePython(["-c", Self.localDaemon])),
+            configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(1), spawnTimeout: .seconds(1),
+                                 terminalEnvironment: nil))
+        let identity = try await connection.start()
+        local.start(first: { .success((connection, identity)) }, makeConnection: { connection })
+        defer { local.shutdownConnection() }
+        await local.firstConnection()
+        try #require(local.connection != nil, "the test needs this Mac's daemon connected")
+
+        let invocation = ActionInvocation(arguments: ["machine": .string("vm-unknown"), "command": .string("echo hi")],
+                                          origin: .script)
+        // The handler's own work, awaited to its end: no yield count decides the result.
+        let work = services.registry.capturingWork { _ = services.registry.perform("newTab", invocation: invocation) }
+        try #require(work.count == 1, "the create reported \(work.count) works")
+        var failures: [ActionWorkFailure?] = []
+        for task in work { failures.append(await task.value) }
+        let sent = try await connection.request(Commands())
+        await connection.closeAndWait()
+        let commands = sent["commands"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        #expect(failures.map { $0?.message } == [WorkspaceVerbStrings.machineNotConnected], "the create was not refused: \(failures)")
+        #expect(!commands.contains("create-workspace"), "a create for an unknown machine was made on this Mac: \(commands)")
+    }
+
     @Test func newCloudSpaceIsOnEverySurface() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "space.newCloud" })
         #expect(descriptor.cliName == "space new-cloud")
