@@ -62,7 +62,8 @@ final class CloudService {
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
     /// The install guest links' owner tokens come from (``CloudConfiguration/shareAPIBaseURL(environment:)``):
-    /// ``installIdentity`` when both name one API, else a second install there, bound and revoked with it.
+    /// ``installIdentity`` when both name one API, else a second install there, registered at the first share
+    /// (``shareOwnerToken()``) and revoked with it.
     @ObservationIgnored let shareInstallIdentity: MacInstallIdentity
     /// `phone.cloudReplica`: this Mac's workspace list for phones while it is off.
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
@@ -889,11 +890,20 @@ final class CloudService {
         } catch {
             logger.error("install registration failed: \(String(describing: error), privacy: .public)")
         }
-        guard shareInstallIdentity !== installIdentity else { return }
+    }
+
+    /// A guest link's owner token from ``shareInstallIdentity``, registering that install first when sign-in
+    /// did not: a DEV build on the local backend never calls the Cloud API (``mayCallCloud``), but its links'
+    /// room is a Worker's. Nil signed out, or with Cloud off for the organization or its team missing.
+    func shareOwnerToken() async -> String? {
+        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        let auth = auth
         do {
             try await shareInstallIdentity.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
+            return try await shareInstallIdentity.installToken()
         } catch {
-            logger.error("share install registration failed: \(String(describing: error), privacy: .public)")
+            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }
