@@ -65,7 +65,8 @@ fn scope_rejects_wrong_audience_operations_and_guest_key() {
 
     let mut value = principal(chrono::Utc::now().timestamp_millis() as u64);
     value["guestKey"] = json!("sha256:not-a-key");
-    assert!(scope_from(&value).is_err());
+    let candidate = scope_from(&value).expect("guest key shape is checked against identity");
+    assert!(validate_claims(&value, &candidate, "trigger-1", &identity()).is_err());
 }
 
 #[test]
