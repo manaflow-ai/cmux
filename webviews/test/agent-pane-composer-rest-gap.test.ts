@@ -210,7 +210,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
 
   /// Installed before the page's own scripts. `__restGap()` reads the gap as laid out now: the stack's
   /// top (its first drawn part: the tray, a queue, or the composer card) less the bottom of the newest
-  /// row's ink (its text and icons, its action row's included; not the row's own trailing gap). `__frames` holds it
+  /// row's content (its last line or action row; not the turn gap the row keeps under it). `__frames` holds it
   /// for every painted frame from the first that draws both: read in a ResizeObserver made after the
   /// pane's own observers (which place the rows and the room under them before paint), on a probe
   /// resized in each frame's callbacks, so each read is of the layout that frame paints.
@@ -219,25 +219,12 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       __restGap: () => number | undefined;
       __frames: { t: number; gap: number }[];
     };
-    /// The bottom of what a row paints: its text's line boxes and its icons, not the boxes around
-    /// them (a row's box runs on through its own trailing gap).
-    const inkBottom = (row: Element) => {
-      let bottom: number | undefined;
-      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        let rects: DOMRect[] = [];
-        if (node.nodeType === Node.TEXT_NODE) {
-          if (!node.textContent?.trim()) continue;
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          rects = [...range.getClientRects()];
-        } else if (["svg", "img", "canvas"].includes((node as Element).localName)) {
-          rects = [(node as Element).getBoundingClientRect()];
-        } else continue;
-        for (const rect of rects)
-          if (rect.width > 0 && rect.height > 0) bottom = Math.max(bottom ?? -Infinity, rect.bottom);
-      }
-      return bottom;
+    /// The bottom of the newest row's drawn content: its box, less the turn gap it keeps under itself
+    /// (`.acpmux-row__gap`). For a turn's footer that is its 24px action row; for the live line, its
+    /// 24px line; for a reply, its last line box.
+    const contentBottom = (row: Element) => {
+      const spacer = [...row.children].findLast((child) => child.classList.contains("acpmux-row__gap"));
+      return spacer ? spacer.getBoundingClientRect().top : row.getBoundingClientRect().bottom;
     };
     /// The top of the bottom stack's first drawn part: the tray, a question, the queue or the card.
     const stackTop = (dock: Element) => {
@@ -258,7 +245,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
       );
-      const bottom = inkBottom(last);
+      const bottom = contentBottom(last);
       const top = stackTop(dock);
       return bottom === undefined || top === undefined ? undefined : top - bottom;
     };
@@ -393,6 +380,23 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const streamed = await frames(page);
       console.log(`${name} streaming: ${streamed.length} frames, gaps ${[...new Set(streamed.map((f) => f.gap))].join(", ")}`);
       seen.streaming = await gap(page);
+      console.log(
+        `${name} streaming rows: ` +
+          (await page.evaluate(() => {
+            const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")]
+              .sort((a, b) => Number(a.getAttribute("aria-posinset")) - Number(b.getAttribute("aria-posinset")))
+              .slice(-2);
+            const dock = document.querySelector(".acpmux-dock")!.getBoundingClientRect();
+            const after = document.querySelector(".acpmux-transcript-after-latest");
+            const box = (node: Element) => `${node.getBoundingClientRect().top.toFixed(1)}-${node.getBoundingClientRect().bottom.toFixed(1)}`;
+            const describe = (node: Element, depth: number): string =>
+              depth > 2
+                ? ""
+                : `${"  ".repeat(depth)}${node.localName}.${[...node.classList].join(".")} ${box(node)}\n` +
+                  [...node.children].map((child) => describe(child, depth + 1)).join("");
+            return `dock ${dock.top.toFixed(1)} after-latest ${after ? box(after) : "none"}\n${rows.map((row) => describe(row, 0)).join("")}`;
+          })),
+      );
       shifts.streaming = off(streamed, REST_GAP);
 
       // (d) The running tray comes into the stack over the composer: the rows keep the gap above it.
