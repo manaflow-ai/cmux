@@ -176,7 +176,7 @@ const ALT_IN_BOX_ROW = `
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-composer-inner > .acpmux-composer-plus { grid-row: 3; align-self: center; margin: 0 0 0 12px; }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box .acpmux-composer-inner > .acpmux-composer-actions { grid-row: 3; align-self: center; margin: 0 12px 0 0; }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-chrome-area > .acpmux-composer-foot {
-  position: relative; z-index: 2; height: 52px; margin: -52px 0 0; padding-inline: 50px 84px;
+  position: relative; z-index: calc(var(--layer-raised, 1) + 1); height: 52px; margin: -52px 0 0; padding-inline: 50px 84px;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-access { margin-inline-start: 0; }`;
 
