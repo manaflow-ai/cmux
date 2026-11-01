@@ -340,7 +340,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
-    lazy var creationInputCoordinator = CreationInputCoordinator(router: self, replay: heldKeyReplay)
+    lazy var creationInputCoordinator: CreationInputCoordinator = {
+        let coordinator = CreationInputCoordinator()
+        coordinator.host = self // the window's focus and views, close keys, the replay (Focus/CreationInputCoordinator.swift)
+        return coordinator
+    }()
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit()
 
