@@ -337,17 +337,19 @@ impl Hidden {
     }
 
     /// Whether row or event `object` names a hidden object in one of its
-    /// own fields. An `ids` row names its object by `kind`, `id` and
-    /// `short_id`.
+    /// own fields or in an object it holds (not in its lists, which are
+    /// pruned row by row). An `ids` row names its object by `kind`, `id` and
+    /// `short_id`; a sidebar item's `ref` by `kind` and `value`.
     fn row_named(&self, object: &serde_json::Map<String, Value>) -> bool {
-        let id_row = object
-            .get("kind")
-            .and_then(Value::as_str)
-            .is_some_and(|kind| matches!(kind, "workspace" | "screen" | "pane" | "surface"));
+        let id_row = object.get("kind").and_then(Value::as_str).is_some_and(|kind| {
+            matches!(kind, "workspace" | "screen" | "pane" | "surface" | "tab" | "terminal")
+        });
         object.iter().any(|(key, value)| {
-            ((is_target_key(key) || (id_row && matches!(key.as_str(), "id" | "short_id")))
+            ((is_target_key(key)
+                || (id_row && matches!(key.as_str(), "id" | "short_id" | "value")))
                 && self.names(key, value))
                 || self.mentions_saved(value)
+                || value.as_object().is_some_and(|inner| self.row_named(inner))
         })
     }
 
@@ -551,13 +553,14 @@ impl EventFilter {
         filter
     }
 
-    /// Whether `value`, the wire form of `event`, is kept from `client`.
+    /// Whether `value`, the wire form of `event`, is kept from `client`;
+    /// when it is not, the rows of it that name a hidden object are left out.
     pub(super) fn hides(
         &mut self,
         mux: &Mux,
         client: u64,
         event: &crate::MuxEvent,
-        value: &Value,
+        value: &mut Value,
     ) -> bool {
         if !is_remote_device(mux, client) {
             return false;
@@ -576,6 +579,9 @@ impl EventFilter {
             self.hidden.learn(value, false);
             return true;
         }
+        // An event about shared state (a sidebar layout, a group) keeps only
+        // its rows that name nothing hidden.
+        self.hidden.prune_reply(value);
         false
     }
 }
@@ -767,6 +773,24 @@ mod tests {
         assert!(hidden.saved_in(&json!({"saved": "ssaved_other"})).is_none());
         let failing_closed = Hidden { all: true, ..Hidden::default() };
         assert!(failing_closed.mentions_saved(&json!({"saved": "saved_x"})));
+    }
+
+    #[test]
+    fn sidebar_items_and_ungrouped_rows_of_a_hidden_workspace_are_left_out() {
+        let hidden =
+            Hidden { names: HashSet::from(["ws_hidden".to_string()]), ..Hidden::default() };
+        let mut reply = json!({"ok": true, "result": {"value": {
+            "sections": [{"id": "sec_pinned", "items": [
+                {"id": "i1", "ref": {"kind": "workspace", "value": "ws_hidden"}},
+                {"id": "i2", "ref": {"kind": "workspace", "value": "ws_shown"}},
+            ]}],
+            "ungrouped": [{"workspace": {"workspace_id": "ws_hidden"}},
+                          {"workspace": {"workspace_id": "ws_shown"}}],
+        }}});
+        hidden.prune_reply(&mut reply);
+        let text = reply.to_string();
+        assert!(!text.contains("ws_hidden"), "{text}");
+        assert_eq!(text.matches("ws_shown").count(), 2, "{text}");
     }
 
     #[test]

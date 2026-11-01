@@ -92,7 +92,7 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            let value = match &event {
+            let mut value = match &event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {
@@ -290,7 +290,7 @@ pub(super) fn subscribe_command(
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
-            if incognito.hides(&event_mux, client, &event, &value) {
+            if incognito.hides(&event_mux, client, &event, &mut value) {
                 continue;
             }
             if let Some(events) = page_events
