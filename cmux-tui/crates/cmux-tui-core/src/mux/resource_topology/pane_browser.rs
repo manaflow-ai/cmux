@@ -163,6 +163,8 @@ impl Mux {
         argv: Option<Vec<String>>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
+        name: Option<String>,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<SpawnedPaneSurface<'_>> {
         let fields =
             intent["fields"].as_object().context("stored topology intent omitted fields")?;
@@ -188,12 +190,15 @@ impl Mux {
             workspace_key,
             argv.as_deref(),
             cwd.as_deref(),
-            None,
+            name.as_deref(),
             size,
-            None,
+            on_exit,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(workspace_key, cwd, size, argv, reservation)?;
+        if let Some(name) = name {
+            surface.set_name(Some(name));
+        }
         Ok(SpawnedPaneSurface::Terminal(surface))
     }
 
