@@ -17,7 +17,8 @@ from test_nightly_trusted_routing import evaluate, parse_expression
 LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
 EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-         "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner")
+         "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
+         "build-nightly-ghostty-cli-helper")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
@@ -81,6 +82,16 @@ class DedicatedMini(unittest.TestCase):
             for key in ("owned", "helper", "dedicated", "runner"):
                 self.assertEqual(out[key], LABEL)
             self.assertEqual(out["trusted"], "")
+            values = context(**{f"needs.pick-nightly-build-runner.outputs.{key}": value
+                                for key, value in out.items()})
+            self.assertEqual(selected("build-nightly-app", values), LABEL)
+            # The legacy helper selector rejects helper == dedicated. The new
+            # all-nightly reservation admits both, including cache-hit controls.
+            for hit, resume in (("false", ""), ("true", ""), ("false", "123")):
+                with self.subTest(hit=hit, resume=resume):
+                    routed = {**values, "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": hit,
+                              "inputs.nightly_next_unsigned_run": resume}
+                    self.assertEqual(selected("build-nightly-ghostty-cli-helper", routed), LABEL)
 
     def test_picker_exception_does_not_capture_reruns_forks_or_other_tracks(self):
         for changes in ({"GITHUB_RUN_ATTEMPT": "2"}, {"GITHUB_REPOSITORY": "another/repo"},
