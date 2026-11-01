@@ -225,6 +225,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(single_size(runs_on))
         self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
 
+    def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
+        # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
+        # stalled 32 vCPU size while every webview shard waited behind it.
+        document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
+        runs_on = document["jobs"]["web-subarea-scope"]["runs-on"]
+        self.assertFalse(single_size(runs_on))
+        self.assertNotIn("LINUX_RUNNER", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()
         grown = {name: (count, SINGLE_SIZE.get(name, 0)) for name, count in found.items()
