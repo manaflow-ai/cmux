@@ -273,26 +273,76 @@ pub(super) fn valid_repo(repo: &str) -> bool {
         && matches!(repo.split_once('/'), Some((owner, name)) if part(owner) && part(name))
 }
 
-/// The GitHub repository of the folder `local`: its `origin` remote, when that is GitHub's.
+/// The GitHub repository of the folder `local` (absolute): its repository's `origin` remote, when that is
+/// GitHub's. Read from the repository's config file, never by running git: no hooks, no inherited `GIT_*`
+/// variables, no Command Line Tools prompt, nothing that can wait on a credential.
 fn folder_repo(local: &str) -> Option<String> {
-    let output = cmux_process::Command::new("git")
-        .args(["-C", local, "remote", "get-url", "origin"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    if !output.status.success() {
+    let local = Path::new(local);
+    if !local.is_absolute() {
         return None;
     }
-    github_repo(String::from_utf8_lossy(&output.stdout).trim())
+    let config = std::fs::read_to_string(git_common_dir(local)?.join("config")).ok()?;
+    github_repo(&origin_url(&config)?)
 }
 
-/// `owner/name` of a GitHub remote URL (https, ssh or scp-like), None for any other host.
+/// The git directory that holds the config of the repository `folder` is in: the nearest `.git` at or above
+/// it, followed through a worktree's `gitdir:` file and its `commondir`.
+fn git_common_dir(folder: &Path) -> Option<PathBuf> {
+    let dot_git =
+        folder.ancestors().map(|dir| dir.join(".git")).find(|dot_git| dot_git.exists())?;
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    let link = std::fs::read_to_string(&dot_git).ok()?;
+    let gitdir = link.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim();
+    let gitdir = dot_git.parent()?.join(gitdir);
+    match std::fs::read_to_string(gitdir.join("commondir")) {
+        Ok(common) => Some(gitdir.join(common.trim())),
+        Err(_) => Some(gitdir),
+    }
+}
+
+/// The `url` of `[remote "origin"]` in a git config file's text (the last one wins, as in git).
+pub(super) fn origin_url(config: &str) -> Option<String> {
+    let mut in_origin = false;
+    let mut url = None;
+    for line in config.lines().map(str::trim) {
+        if let Some(section) = line.strip_prefix('[') {
+            let section = section.split(']').next().unwrap_or("");
+            let (name, sub) = section.split_once(char::is_whitespace).unwrap_or((section, ""));
+            in_origin = name.eq_ignore_ascii_case("remote") && sub.trim() == "\"origin\"";
+        } else if in_origin {
+            if let Some((key, value)) = line.split_once('=') {
+                if key.trim().eq_ignore_ascii_case("url") {
+                    url = Some(value.trim().trim_matches('"').to_string());
+                }
+            }
+        }
+    }
+    url
+}
+
+/// `owner/name` of a GitHub remote URL (https, ssh or scp-like, any case, with or without a user), None for
+/// any other host.
 pub(super) fn github_repo(url: &str) -> Option<String> {
-    let path =
-        ["https://github.com/", "http://github.com/", "ssh://git@github.com/", "git@github.com:"]
-            .iter()
-            .find_map(|prefix| url.strip_prefix(prefix))?;
+    let rest = ["https://", "http://", "ssh://", "git+ssh://"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|s| s.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    let path = match rest {
+        Some(rest) => {
+            let (host, path) = rest.split_once('/')?;
+            let host = host.rsplit('@').next()?;
+            host.eq_ignore_ascii_case("github.com").then_some(path)?
+        }
+        None => {
+            // scp-like: [user@]github.com:owner/name
+            let (host, path) = url.split_once(':')?;
+            let host = host.rsplit('@').next()?;
+            host.eq_ignore_ascii_case("github.com").then_some(path)?
+        }
+    };
     let path = path.trim_end_matches('/');
     let path = path.strip_suffix(".git").unwrap_or(path);
     valid_repo(path).then(|| path.to_string())
@@ -398,7 +448,7 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
             }),
             None => refused("bad_answer", "the cmux platform answered without the machine"),
         },
-        Err(E::Status { status: 404, code: "" }) => {
+        Err(E::Status { status: 404, code: "" | "not_found" }) => {
             refused("unavailable", "this cmux platform has no workspace machines (it answered 404)")
         }
         Err(E::Status { status, code }) => refused(

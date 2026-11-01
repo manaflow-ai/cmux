@@ -10,8 +10,9 @@ use serde_json::{Value, json};
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::{
-    Ensure, Flags, Keys, StartCopy, ensure_answer, github_repo, import, percent_segment, pin, plan,
-    remote_name, valid_environment, valid_key, valid_repo, valid_workspace,
+    Ensure, Flags, Keys, StartCopy, ensure_answer, github_repo, import, origin_url,
+    percent_segment, pin, plan, remote_name, valid_environment, valid_key, valid_repo,
+    valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -988,6 +989,9 @@ fn the_folders_github_remote_is_the_repo() {
         "https://github.com/manaflow-ai/cmux/",
         "git@github.com:manaflow-ai/cmux.git",
         "ssh://git@github.com/manaflow-ai/cmux.git",
+        "https://user@GitHub.com/manaflow-ai/cmux",
+        "HTTPS://github.com/manaflow-ai/cmux.git",
+        "github.com:manaflow-ai/cmux",
     ] {
         assert_eq!(github_repo(url).as_deref(), Some("manaflow-ai/cmux"), "{url}");
     }
@@ -997,6 +1001,8 @@ fn the_folders_github_remote_is_the_repo() {
         "https://github.com/a/b/c",
         "https://github.com/../x",
         "/srv/git/cmux.git",
+        "https://github.com.evil.example/a/b",
+        "git@gitlab.com:a/b.git",
         "",
     ] {
         assert_eq!(github_repo(url), None, "{url}");
@@ -1014,20 +1020,10 @@ fn plan_answers_the_folders_repo_and_echoes_the_environment() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let folder = dir.path().join("project");
-    std::fs::create_dir_all(&folder).unwrap();
-    let git = |args: &[&str]| {
-        let ok = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&folder)
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .expect("git")
-            .status
-            .success();
-        assert!(ok, "git {args:?}");
-    };
-    git(&["init", "-q"]);
+    let sub = folder.join("web");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(folder.join(".git/config"), "[core]\n\tbare = false\n").unwrap();
     let request = |environment: Value| {
         json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true, "machines": [],
                "local": folder.to_str().unwrap(), "environment": environment})
@@ -1038,7 +1034,11 @@ fn plan_answers_the_folders_repo_and_echoes_the_environment() {
     assert_eq!(answer["ok"], json!(true), "{answer}");
     assert_eq!(answer["repo"], Value::Null);
     assert_eq!(answer["environment"], Value::Null);
-    git(&["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"]);
+    std::fs::write(
+        folder.join(".git/config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:manaflow-ai/cmux.git\n",
+    )
+    .unwrap();
     let answer = plan(&path, &request(json!(ENV)));
     assert_eq!(answer["repo"], json!("manaflow-ai/cmux"), "{answer}");
     assert_eq!(answer["environment"], json!(ENV));
