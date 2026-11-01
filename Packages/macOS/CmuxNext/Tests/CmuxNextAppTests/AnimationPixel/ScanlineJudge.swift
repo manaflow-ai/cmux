@@ -16,7 +16,11 @@ struct ScanlineSpan {
     /// The color the palette knows it by: every divider line draws the one separator color.
     var color: String { ScanlineSpan.color(of: label) }
 
-    static func color(of label: String) -> String { label.hasPrefix("divider") ? "divider" : label }
+    static func color(of label: String) -> String {
+        if label.hasPrefix("divider") { return "divider" }
+        if label.hasPrefix("rowedge") { return "rowedge" }
+        return label
+    }
 
     /// `spans` cut to 0..<length, in order, with "background" spans filling what lies between
     /// and around them: the whole scanline.

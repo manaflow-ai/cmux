@@ -177,6 +177,15 @@ struct AnimationPixelRun {
             let rect = geometry.fixedSplits.contains(divider.id) ? divider.frame : divider.frame.offsetBy(dx: shift, dy: 0)
             add("divider:\(divider.id.rawValue)", rect, exact: thickness)
         }
+        // A row edge draws its idle line (the separator at 0.32) centered in its hit band, in the row gap.
+        if axis == .column {
+            let line = fixture.model.style.dividerThickness
+            for edge in geometry.rowEdges {
+                let rect = CGRect(x: edge.hitFrame.minX, y: edge.hitFrame.midY - line / 2, width: edge.hitFrame.width, height: line)
+                add("rowedge:\(edge.upper.rawValue)", geometry.scrolls(pane: geometry.panes.keys.first { geometry.rowColumnOfPane[$0] == edge.column } ?? "")
+                    ? rect.offsetBy(dx: shift, dy: 0) : rect, exact: thickness)
+            }
+        }
         return ScanlineSpan.tile(found, length: length)
     }
 }
