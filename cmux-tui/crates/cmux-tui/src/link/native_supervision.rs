@@ -76,8 +76,11 @@ async fn read_complete_frame(role: &mut UnixStream) -> anyhow::Result<Zeroizing<
     role.read_exact(&mut prefix).await?;
     let length = NativeBootstrap::frame_length(prefix).map_err(anyhow::Error::msg)?;
     let mut frame = Zeroizing::new(vec![0; length]);
-    frame[..4].copy_from_slice(&prefix);
-    role.read_exact(&mut frame[4..]).await?;
+    let (head, body) = frame
+        .split_at_mut_checked(4)
+        .ok_or_else(|| anyhow::anyhow!("cloud.receiver.invalid_bootstrap_frame"))?;
+    head.copy_from_slice(&prefix);
+    role.read_exact(body).await?;
     // Strict validation before starting a child; decoding itself grants no
     // authority. The child still fetches fresh original policy before READY.
     drop(NativeBootstrap::decode(&frame).map_err(anyhow::Error::msg)?);
@@ -202,8 +205,7 @@ impl NativeChild {
         owned.child.verify(&control)?;
         control.set_nonblocking(true)?;
         owned.lifetime = Some(UnixStream::from_std(parent.into_inner())?);
-        owned.control = Some(UnixStream::from_std(control)?);
-        let control = owned.control.as_mut().expect("installed child control");
+        let control = owned.control.insert(UnixStream::from_std(control)?);
         control.write_all(frame).await?;
         if control.read_u8().await? != 1 {
             anyhow::bail!("cloud.receiver.invalid_readiness");
@@ -212,8 +214,13 @@ impl NativeChild {
     }
 
     async fn ended(&mut self) {
-        let control = self.control.as_mut().expect("installed child control");
-        let lifetime = self.lifetime.as_mut().expect("installed child lifetime");
+        // start() installs both channels before it returns a child. Without
+        // either there is nothing left to supervise: report the child ended so
+        // the caller drops it, which kills and reaps it.
+        let (Some(control), Some(lifetime)) = (self.control.as_mut(), self.lifetime.as_mut())
+        else {
+            return;
+        };
         tokio::select! {
             _ = wait_child(&self.child) => {},
             _ = closed(control) => {},
