@@ -51,6 +51,22 @@ public final class KeyboardClaims {
         claims[number] = nil
     }
 
+    /// The create behind `ticket` failed (or a close took it): its claim on `window` ends at once, so nothing keeps the
+    /// person's keys for a terminal that will not come. False when `window`'s claim is another create's.
+    @discardableResult
+    public func endFailed(by ticket: CreationInputBuffer.Ticket, in window: NSWindow) -> Bool {
+        guard claims[window.windowNumber]?.ticket == ticket else { return false }
+        claims[window.windowNumber] = nil
+        return true
+    }
+
+    /// `reason` (why the person's new terminal was not made) with the note that the keys typed for it were not
+    /// delivered: they were dropped, never typed into what had the focus (an agent's composer).
+    public static func undeliveredKeys(after reason: String) -> String {
+        String(format: String(localized: "creationInput.keysNotDelivered", defaultValue: "%@ (the keys typed for it were not delivered)",
+                              table: "CreationInput", bundle: .module), reason)
+    }
+
     /// The create behind `ticket` made `workspace`. False when `window`'s claim is not that create's (a later press
     /// replaced it): the reply then names nothing.
     public func noteMade(_ workspace: String, by ticket: CreationInputBuffer.Ticket, in window: NSWindow) -> Bool {

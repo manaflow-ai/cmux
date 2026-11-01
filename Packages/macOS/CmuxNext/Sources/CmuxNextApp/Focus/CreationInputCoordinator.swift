@@ -162,17 +162,21 @@ final class CreationInputCoordinator {
     }
 
     /// The new workspace behind `ticket` (``beginWorkspace(in:)``) was made (`workspace`, its id) or not (nil: it
-    /// failed or a close took it, and the keys typed for it go with it).
-    func resolve(_ ticket: CreationInputBuffer.Ticket?, workspace: String?, in window: NSWindow?) {
+    /// failed or a close took it: its claim ends at once, and the keys typed for it go with it).
+    /// - Returns: How many held keys typed for a workspace that was not made were dropped (the person is told).
+    @discardableResult
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, workspace: String?, in window: NSWindow?) -> Int {
         resolve(ticket, landed: workspace != nil, workspace: workspace, in: window)
     }
 
-    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
+    @discardableResult
+    private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) -> Int {
         // The window may show the claimed workspace already (its delta came before the reply): the claim ends here.
         if let ticket, let window, let workspace, claims.noteMade(workspace, by: ticket, in: window) { _ = claimHolds(in: window) }
-        guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
+        if !landed, let ticket, let window { claims.endFailed(by: ticket, in: window) }
+        guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return 0 }
         if !landed { failedCreation.insert(window.windowNumber) }
-        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
+        let dropped = buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
         // the keys go on `holdLimit` after the reply at the latest.
@@ -181,6 +185,7 @@ final class CreationInputCoordinator {
             guard let self, buffers[number] === buffer else { return }
             if let window { flush(in: window, force: true, end: .limitReached) } else { buffers[number] = nil }
         }
+        return dropped
     }
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
@@ -307,7 +312,7 @@ final class CreationInputCoordinator {
         // person's next intent, so a primary input (Home's message box) still does not take the keyboard.
         let unshown = buffer.waitsForWorkspace(other: shown)
         let pending = buffer.take(shown: shown)
-        if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+        if unshown || failed, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
