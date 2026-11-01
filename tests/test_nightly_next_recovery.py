@@ -317,7 +317,13 @@ class WorkflowTests(unittest.TestCase):
         gate_index = job["steps"].index(gate)
         self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publish ref")))
         self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
-        self.assertGreater(job["steps"].index(step(job, "Claim the whole Mac for signing")), gate_index)
+        helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
+        self.assertGreater(helper_index, gate_index)
+        credential_indices = [index for index, item in enumerate(job["steps"])
+                              if "secrets." in json.dumps(item)]
+        self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
+        self.assertLess(gate_index, min(credential_indices))
+        self.assertLess(helper_index, min(credential_indices))
         self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
