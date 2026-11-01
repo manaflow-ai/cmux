@@ -1211,6 +1211,13 @@ class DiskVolume:
             os.fsync(f.fileno())
         return self.free()
 
+    def trim(self, margin_mb):
+        """Shrinks the filler so the image has at least margin_mb free again (after a fill to margin 0)."""
+        need = margin_mb * (1 << 20) - self.free()
+        if need > 0 and os.path.exists(self.filler):
+            os.truncate(self.filler, max(0, os.path.getsize(self.filler) - need))
+        return self.free()
+
     def unfill(self):
         try:
             os.remove(self.filler)
@@ -1434,12 +1441,14 @@ def recover_after_space(target, old_daemons):
 
 
 def app_view():
-    """{"app": workspace ids the app shows, "daemon": workspace ids the daemon lists, "notices": toasts + dialogs
-    shown, "texts": their text, "raw": the raw answers}."""
+    """{"readable": both topologies were read, "app": workspace ids the app shows, "daemon": workspace ids the daemon
+    lists, "notices": toasts + dialogs shown, "texts": their text, "raw": the raw answers}. An unreadable view never
+    counts as "no ghost": the probe makes it "not run"."""
     snap = rpc("snapshot.get")
     topo = snap.get("topology") if isinstance(snap, dict) else None
-    app_ids = {w.get("id") for w in (topo or {}).get("workspaces", []) if w.get("id")}
+    app_ids = {w.get("id") for w in (topo or {}).get("workspaces", []) if isinstance(w, dict) and w.get("id")}
     wsl, _ = cli("workspace", "list")
+    daemon_read = isinstance(value(wsl), list) or (isinstance(wsl, dict) and "error" not in wsl)
     daemon_ids = {first(w, "id", "workspace_id") for w in listed(wsl, "workspaces")} - {None}
     toast = rpc("debug.toast", {})
     dialog = rpc("debug.dialog", {})
@@ -1451,80 +1460,132 @@ def app_view():
     if isinstance(dialog, dict):
         items += list(dialog.get("dialogs") or [])
     texts, count = [json.dumps(item)[:300] for item in items], len(items)
-    return {"app": app_ids, "daemon": daemon_ids, "notices": count, "texts": texts,
+    return {"readable": isinstance(topo, dict) and daemon_read, "app": app_ids, "daemon": daemon_ids,
+            "notices": count, "texts": texts,
             "raw": {"toast": json.dumps(toast)[:600], "dialog": json.dumps(dialog)[:600]}}
+
+
+CREATE_REFUSAL_WORDS = re.compile(r"workspace|disk|space|create|storage", re.I)
+DISK_FULL = re.compile(r"disk is full|no space left|ENOSPC|SQLITE_FULL|disk full", re.I)
+
+
+def new_refusal_texts(before, after):
+    """Notice texts that are new after the create and are about it (a workspace create or the full disk); a toast
+    for another cause, or an old refusal still in the history, does not count."""
+    old = {}
+    for t in before.get("texts") or []:
+        old[t] = old.get(t, 0) + 1
+    fresh = []
+    for t in after.get("texts") or []:  # a multiset difference: the same refusal shown again is new
+        if old.get(t):
+            old[t] -= 1
+        elif CREATE_REFUSAL_WORDS.search(t):
+            fresh.append(t)
+    return fresh
 
 
 def judge_app_create(before, after, relaunched):
     """Problems of the app-path create under a full disk: a workspace the app shows and the daemon does not (a ghost),
-    now or after a relaunch (a saved record); a refusal with no toast or dialog for the person."""
+    now or after a relaunch (a saved record); a refusal with no new toast or dialog about it for the person."""
     problems = []
     for label, view in (("after the create", after), ("after the relaunch", relaunched)):
         ghost = (view["app"] - view["daemon"]) - (before["app"] - before["daemon"])
         if ghost:
             problems.append(f"{label}: ghost workspace(s) {sorted(ghost)} in the app, not in the daemon")
     made = after["daemon"] - before["daemon"]
-    if not made and after["notices"] <= before["notices"]:
-        problems.append("the create was refused, but no visible refusal (no new toast or dialog) for the person")
+    if not made and not new_refusal_texts(before, after):
+        problems.append("the create was refused, but no visible refusal (no new toast or dialog about it) for the person")
     return problems
 
 
+def disk_full_refusal(answer):
+    """Is a CLI create answer the daemon's typed disk-full refusal (not a dead socket, a stall or bad output)?"""
+    return (isinstance(answer, dict) and "error" in answer and typed_error(answer)
+            and bool(DISK_FULL.search(json.dumps(answer.get("error")))))
+
+
+PROBE_SETTLE = 5.0  # seconds from the action to the after view (the refusal toast shows)
+PROBE_BOUND = 240  # seconds the probe may take at most: fills, CLI creates, the action, a relaunch and 3 view reads
+
+
+def probe_record(verdict, problems, **extra):
+    rec = {"probe": "app_create", "verdict": verdict, "problems": problems}
+    for key, view in extra.items():
+        rec[key] = {k: sorted(v) if isinstance(v, set) else v for k, v in view.items()} if isinstance(view, dict) else view
+    with open(os.path.join(opts.out, "app-create-probe.json"), "w") as f:
+        json.dump(rec, f, indent=1, default=str)
+    say(f"  app create probe: {verdict} {'; '.join(problems)[:300]}")
+    return rec
+
+
 def app_create_probe():
-    """The person's create (action.run newWorkspace) on the full disk, judged by judge_app_create. Runs once per
-    diskfull run, before the iterations. Returns a record for iterations.jsonl-style evidence."""
-    # First make sure the daemon refuses a create now: fill again (margin 0 on the second try) until a CLI create
-    # answers an error. A create that still works is closed again; if none is refused, the probe does not run.
+    """The person's create (New Workspace, debug.toast perform "newTab" as origin user) on the full disk, judged by
+    judge_app_create. Runs once per diskfull run, before the iterations. A fail only when every view was read and the
+    daemon really refused a CLI create for the full disk just before; otherwise "not run". Leaves the image at
+    --disk-margin-mb free again."""
     vol = DISK["volume"]
+    try:
+        return run_app_create_probe(vol)
+    finally:
+        vol.trim(opts.disk_margin_mb)
+
+
+def run_app_create_probe(vol):
+    if time.time() > T0 + opts.max_seconds - PROBE_BOUND:
+        return probe_record("not run", ["no time left in the lease for the probe"])
+    # First make sure the daemon refuses a create for the full disk now: fill again (margin 0 on the second try)
+    # until a CLI create answers a typed disk-full error. A create that still works is closed again.
     refused = None
     for margin in (opts.disk_margin_mb, 0, 0):
         vol.fill(margin)
         answer, _ = cli("workspace", "create", "--name", "fz-probe-check")
-        if isinstance(answer, dict) and "error" in answer:
+        if disk_full_refusal(answer):
             refused = answer
             break
         made = value(answer).get("workspace_id") if isinstance(value(answer), dict) else None
         if made:
             cli("workspace", made, "close")
     if refused is None:
-        rec = {"probe": "app_create", "verdict": "not run", "problems": ["the daemon never refused a create on the full disk"]}
-        say("  app create probe: not run (the daemon still accepted creates)")
-        return rec
+        return probe_record("not run", ["the daemon gave no typed disk-full refusal of a CLI create on the full disk"])
     before = app_view()
+    if not before["readable"]:
+        return probe_record("not run", ["the app or daemon topology could not be read before the create"], before=before)
     # The person's New Workspace: action id "newTab", titled "New Workspace" (CmuxNextActions WorkspaceActionCatalog).
     # As a person runs it (debug.toast perform: origin user), so it gets the refusal a person gets.
     answer = rpc("debug.toast", {"perform": "newTab"}, timeout=20)
-    time.sleep(2)
+    err = answer.get("error") if isinstance(answer, dict) else None
+    if err is not None and not isinstance(err, dict):
+        # rpc() gives a bare string for a socket timeout, a closed socket or bad output: the app hung or went away.
+        return probe_record("fail", [f"the app gave no answer to New Workspace on the full disk: {str(err)[:200]}"],
+                            before=before, action_answer=json.dumps(answer)[:400])
     if isinstance(answer, dict) and answer.get("performed") is False:
-        rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action did not run: {json.dumps(answer)[:200]}"]}
-        say(f"  app create probe: not run (performed false) {json.dumps(answer)[:200]}")
-        return rec
-    if isinstance(answer, dict) and (answer.get("error") or {}).get("code") == "not_found":
-        rec = {"probe": "app_create", "verdict": "not run", "problems": [f"the action is unknown: {json.dumps(answer)[:200]}"]}
-        say(f"  app create probe: not run (unknown action) {json.dumps(answer)[:200]}")
-        return rec
-    time.sleep(3)
+        return probe_record("not run", [f"the action did not run: {json.dumps(answer)[:200]}"])
+    if isinstance(err, dict) and err.get("code") == "not_found":
+        return probe_record("not run", [f"the action is unknown: {json.dumps(answer)[:200]}"])
+    time.sleep(PROBE_SETTLE)
     after = app_view()
+    if not after["readable"]:
+        return probe_record("not run", ["the app or daemon topology could not be read after the create"],
+                            before=before, after=after)
+    made = after["daemon"] - before["daemon"]
+    if made:
+        for ws_id in made:
+            cli("workspace", ws_id, "close")
+        return probe_record("not run", ["the app's create was not refused (the CLI create just before was): "
+                                        "no refusal to judge"], action_answer=json.dumps(answer)[:400])
     stop_build_processes(exclude=set(APP.daemon_pids()) | set(APP.acpmux_pids()))
     relaunched_ok = APP.relaunch()
-    wait(lambda: app_state() and app_state()[1], 30, 0.5)
-    relaunched = app_view() if relaunched_ok else {"app": set(), "daemon": set(), "notices": 0, "texts": []}
-    problems = judge_app_create(before, after, relaunched)
+    loaded = relaunched_ok and wait(lambda: app_state() and app_state()[1], 30, 0.5)
+    relaunched = app_view() if loaded else None
     if not relaunched_ok:
-        problems.append("the app did not answer after the relaunch")
-    if not problems and after["daemon"] - before["daemon"]:
-        rec = {"probe": "app_create", "verdict": "not run", "action_answer": json.dumps(answer)[:400],
-               "problems": ["the app's create was not refused (the CLI create just before was): no refusal to judge"]}
-        say("  app create probe: not run (the app's create was accepted)")
-        return rec
-    rec = {"probe": "app_create", "action_answer": json.dumps(answer)[:400], "problems": problems,
-           "verdict": "fail" if problems else "pass",
-           "before": {k: sorted(v) if isinstance(v, set) else v for k, v in before.items()},
-           "after": {k: sorted(v) if isinstance(v, set) else v for k, v in after.items()},
-           "relaunched": {k: sorted(v) if isinstance(v, set) else v for k, v in relaunched.items()}}
-    with open(os.path.join(opts.out, "app-create-probe.json"), "w") as f:
-        json.dump(rec, f, indent=1, default=str)
-    say(f"  app create probe: {rec['verdict']} {'; '.join(problems)[:300]} notices {after['notices']} {after['texts'][:2]}")
-    return rec
+        return probe_record("fail", ["the app did not answer after the relaunch"], before=before, after=after)
+    if not relaunched or not relaunched["readable"]:
+        return probe_record("not run", ["the topology could not be read after the relaunch: the saved-record check "
+                                        "was not done"], before=before, after=after)
+    problems = judge_app_create(before, after, relaunched)
+    return probe_record("fail" if problems else "pass", problems, action_answer=json.dumps(answer)[:400],
+                        before=before, after=after, relaunched=relaunched,
+                        new_refusals=new_refusal_texts(before, after))
 
 
 def teardown_diskfull():
@@ -1615,7 +1676,10 @@ def start_chaos():
     elif opts.chaos == "diskfull":
         why = setup_diskfull()
         if not why:
-            PROBE.append(app_create_probe())
+            try:
+                PROBE.append(app_create_probe())
+            except HarnessInvalid as error:
+                why = str(error)
         if why:
             teardown_diskfull()
             say(f"RESTORE-FUZZ SUMMARY seed=none chaos=diskfull iterations=0 judged=0 not_run=0 violations=0 "
@@ -1740,6 +1804,9 @@ def main():
         if p["verdict"] == "fail":
             violations.append({"record": {"seed": seed, "iteration": "probe", "target": "app-create", "point": "full disk",
                                           "problems": p["problems"]}, "shrink": None})
+    if any(p["verdict"] == "fail" for p in PROBE):
+        with open(os.path.join(opts.out, "violations.json"), "w") as f:
+            json.dump(violations, f, indent=1, default=str)
     for v in violations:
         r = v["record"]
         say(f"RESTORE-FUZZ VIOLATION seed={r['seed']} iter={r['iteration']} chaos={opts.chaos} target={r.get('target')} "
