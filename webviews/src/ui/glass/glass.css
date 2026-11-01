@@ -142,7 +142,8 @@
    page's flow (a user's bubble, a settings card) has nothing under it and keeps its tint, as in
    WebKit. WebKit (which keeps -webkit-backdrop-filter), an opaque window and the lens (whose canvas
    is under the glass) keep the tint alone. The strength is the experiment chromium-glass-underlay
-   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). */
+   (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). A surface whose page blurs
+   itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
   --glass-underlay: 70%;
 }
@@ -162,6 +163,18 @@
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+    /* THE PAGE BLURS ITSELF UNDER THE GLASS (Leo 2026-10-30, on the Summary popover: "I don't like
+       the non-glassness"). A surface that uses seeThroughBlur.ts (data-glass-over) makes what it
+       covers blur its own pixels inside the surface's rounded rect: each covered element
+       (data-glass-under) draws through its own SVG filter. The text under the glass is then
+       blurred in place, as WebKit's backdrop draws it, so the surface needs no underlay to hide it:
+       its tint and that blur carry the legibility (design/overlay-surfaces.md). */
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under] {
+      filter: var(--glass-under-filter);
+    }
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
+      --glass-underlay: 0%;
     }
   }
 }
