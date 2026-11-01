@@ -65,6 +65,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
+pub(in crate::hub) use restart_resume::Cut;
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -400,6 +401,7 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
@@ -409,6 +411,7 @@ impl TurnInfo {
             turn_seq: 0,
             control,
             doing: Default::default(),
+            notice: false,
             persons: false,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
@@ -424,6 +427,12 @@ impl TurnInfo {
     /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
     pub(super) fn shown_as(mut self, line: &str) -> Self {
         self.show(line);
+        self
+    }
+
+    /// The turn with `notice` as whether its prompt is acpmux's notice (`TurnInfo::notice`).
+    pub(super) fn noticed(mut self, notice: bool) -> Self {
+        self.notice = notice;
         self
     }
 

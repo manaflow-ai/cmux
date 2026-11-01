@@ -155,7 +155,9 @@ export function UserBubble({
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
         )}
-        {!row.failed && !row.queued && (text || pending) && (
+        {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
+            moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
+        {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={pending}

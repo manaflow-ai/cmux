@@ -69,66 +69,6 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
-    /// A machine action (Kill, Pause, Resume, Rename, idle pause, resize, snapshots, restore) on a
-    /// Worker machine: its app server op, never `/api/vm`, where the machine has no record.
-    /// `byPerson`: the person's own gesture in this app, already confirmed where the action needs it
-    /// (the registry's sheet for Kill). Only then is a server-held approval answered with the
-    /// person's own session. Any other caller (the CLI, MCP, an agent, a script) sends the op as
-    /// `script` and gets the server's `approval.pending` back, for the person to answer in the feed.
-    @discardableResult
-    func appServerMachineCall(_ op: String, _ machineID: String, _ fields: [String: JSONValue] = [:], byPerson: Bool) async throws -> JSONValue {
-        var args = fields
-        args["machine"] = .string(machineID)
-        return try await appServerCall(op, args: .object(args), byPerson: byPerson)
-    }
-
-    /// One app server mutation, by the person (approval loop, `user`) or not (`script`, no approval answered).
-    func appServerCall(_ op: String, args: JSONValue, byPerson: Bool) async throws -> JSONValue {
-        guard byPerson else { return try await appOps(op, args, UUID().uuidString, .script) }
-        return try await appServerApprovedCall(op, args: args, confirm: { true })
-    }
-
-    /// `cloud.machine.get`: a Worker machine's live record (the classic `/api/vm/{id}` read).
-    func appServerMachine(_ machineID: String) async throws -> CloudMachine {
-        let answer = try await appOps("cloud.machine.get", .object(["machine": .string(machineID)]), nil, .script)
-        guard let machine = CloudMachine(next: answer) ?? answer["machine"].flatMap(CloudMachine.init(next:)) else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.get answered no machine")
-        }
-        return machine
-    }
-
-    /// `cloud.machine.resize` with the classic resize's fields (vCPUs, MiB of memory and disk).
-    func appServerResize(_ machineID: String, cpu: Int?, memoryMb: Int?, storageMb: Int?, byPerson: Bool) async throws {
-        var size: [String: JSONValue] = [:]
-        if let cpu { size["cpu"] = .number(Double(cpu)) }
-        if let memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
-        if let storageMb { size["disk_mb"] = .number(Double(storageMb)) }
-        try await appServerMachineCall("cloud.machine.resize", machineID, ["size": .object(size)], byPerson: byPerson)
-    }
-
-    /// `cloud.snapshot.create`: the new snapshot's id.
-    func appServerSnapshot(_ machineID: String, name: String?, byPerson: Bool) async throws -> String {
-        let answer = try await appServerMachineCall("cloud.snapshot.create", machineID, name.map { ["name": .string($0)] } ?? [:], byPerson: byPerson)
-        guard let id = answer["snapshot"]?["id"]?.stringValue else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.snapshot.create answered no snapshot")
-        }
-        return id
-    }
-
-    /// `cloud.snapshot.delete`.
-    func appServerDeleteSnapshot(_ snapshotID: String, byPerson: Bool) async throws {
-        _ = try await appServerCall("cloud.snapshot.delete", args: .object(["snapshot": .string(snapshotID)]), byPerson: byPerson)
-    }
-
-    /// `cloud.snapshot.restore`: the new machine's id.
-    func appServerRestore(snapshotID: String, byPerson: Bool) async throws -> String {
-        let answer = try await appServerCall("cloud.snapshot.restore", args: .object(["snapshot": .string(snapshotID)]), byPerson: byPerson)
-        guard let id = answer["machine"]?["id"]?.stringValue else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.snapshot.restore answered no machine")
-        }
-        return id
-    }
-
     /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
     /// (the dialog then offers only a new one).
     func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {

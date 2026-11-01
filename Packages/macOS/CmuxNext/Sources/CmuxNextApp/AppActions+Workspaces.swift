@@ -166,7 +166,7 @@ extension AppActions {
         spawn.inputToken = keys
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
-        services.registry.track(Task {
+        services.registry.trackOrReport(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
@@ -184,7 +184,7 @@ extension AppActions {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
             }
-        })
+        }, as: "newTab")
     }
 
     /// Close Workspace. With no target, a close pressed while the window's

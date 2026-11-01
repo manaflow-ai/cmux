@@ -6,7 +6,7 @@
 //   copy goes on its animationend (or its fallback timer), or at once when a card comes back;
 // - its words tick: the old words stay in the cell until their exit ends, then go;
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
@@ -91,6 +91,7 @@ const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { Tick, TRAY_ENTER_ATTR, TRAY_GHOST } = await import("../src/agent-session/acpmux/subagents/trayMotion");
+const { rememberTrayOpen, resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").TrayItem;
 setPaneLanguage("en");
 
@@ -239,6 +240,13 @@ describe("subagent tray motion", () => {
 });
 
 describe("subagent tray motion edges", () => {
+  // These edges are about the card's entrance and its copy, with its list open: the person opened
+  // this chat's tray before (a headed tray starts folded, cmux#28875).
+  beforeEach(() => {
+    resetTrayOpenMemory();
+    rememberTrayOpen("chat-a", true);
+  });
+  afterEach(() => resetTrayOpenMemory());
   const draw = (
     root: ReturnType<typeof createRoot>,
     shown: { current: string | undefined },
@@ -248,7 +256,15 @@ describe("subagent tray motion edges", () => {
     act(async () =>
       root.render(
         items.length
-          ? createElement(SubagentTray, { items, working: true, waiting: NONE, onOpen: () => {}, shown, enters })
+          ? createElement(SubagentTray, {
+              items,
+              working: true,
+              waiting: NONE,
+              onOpen: () => {},
+              shown,
+              enters,
+              chat: "chat-a",
+            })
           : null,
       ),
     );

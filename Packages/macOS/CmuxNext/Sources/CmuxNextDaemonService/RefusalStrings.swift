@@ -120,6 +120,9 @@ public nonisolated enum RefusalStrings {
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
+    /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
+    /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
+    public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {

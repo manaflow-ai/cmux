@@ -201,7 +201,7 @@ function resolveBillingContext(
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
 /**
- * The largest machine Pro, Team, and Founder's Edition may start: the lg row,
+ * The largest machine Pro, Team, and legacy lifetime grants may start: the lg row,
  * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max sells;
  * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
  * the same upgrade.
@@ -472,7 +472,7 @@ export function isVmFreeAccessExpired(
   return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
 }
 
-/** Go, Pro, Team, and Founder's Edition are paid Cloud VM plans. */
+/** Go, Pro, Team, and legacy lifetime grants are paid Cloud VM plans. */
 export function isPaidVmPlan(planId: string): boolean {
   return isPaidPlanId(normalizedPlanId(planId));
 }

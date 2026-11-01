@@ -248,7 +248,7 @@ enum CloudHandlers {
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !(await current()), await !CloudMove.holds(within: limit, until: current) {
+        if !(await current()), await !CloudWait.holds(within: limit, until: current) {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
         return store.workspaces.first?.id
@@ -280,9 +280,8 @@ enum CloudHandlers {
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
             let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
             let unavailable = CloudStrings.desktopUnavailable(title)
-            // The person's mark goes on right before the tab appears (after the host start and token
-            // read), in the person's run scope captured here, so its window never runs out first.
-            let scope = ActionRunScope.current, pages = services.remoteViewPages
+            // The person's run scope, captured here: their approval goes on the tab this open makes.
+            let scope = ActionRunScope.current, cache = services.cache
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
                 if rd {
@@ -298,8 +297,11 @@ enum CloudHandlers {
                     guard token.count == 64 else { throw ActionFailure(message: unavailable) }
                     await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
                 }
-                await MainActor.run { pages.personOpens(record.url, scope: scope) }
-                _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                // The approval goes on the exact tab the daemon made for this open, never on whichever
+                // tab first shows the same address (#29208): until then the tab asks for Connect.
+                let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
+                await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
                 if let surface = terminal.surface { try await connection.closeTab(surface) }
             }
             return
@@ -383,7 +385,7 @@ enum CloudHandlers {
         session.attach(origin: connectOrigin(for: invocation))
         guard session.resuming else { return }
         let daemon = session.daemon
-        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }

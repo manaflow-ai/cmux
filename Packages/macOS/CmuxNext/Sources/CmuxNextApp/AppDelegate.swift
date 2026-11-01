@@ -176,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -327,19 +328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
-        services.chatsFeed?.keepCurrent()
-        services.projectsImport.start(feed: services.chatsFeed)
-        if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
+        let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
-        NewTabPlacesFeed.wire(services.agentTabs, services: services)
-        NewTabWeather.wire(services.agentTabs, services: services)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.

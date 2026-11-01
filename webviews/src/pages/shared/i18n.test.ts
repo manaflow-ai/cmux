@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createStrings } from "./i18n";
+import { createStrings, formatString } from "./i18n";
 
 // A plural string is `key#<category>` for every category, in every locale (gen-strings.mjs).
 const table = {
@@ -39,4 +39,14 @@ test("a string with no plural forms formats as before", () => {
 test("a language whose catalog gave it no plural forms uses its plain string, not English", () => {
   const plain = { ...table, ja: { "updates.available": "%@件のアップデートがあります", "updates.version": "v%@" } };
   expect(createStrings(plain, ["ja"]).format("updates.available", "1")).toBe("1件のアップデートがあります");
+});
+
+// Xcode's catalog compiler refuses a plural variation without an integer specifier, so a plural
+// catalog string uses %lld (store.updates.available after #30288 broke the package build).
+test("integer specifiers format like %@, in order and by position", () => {
+  expect(formatString("%lld updates available", ["3"])).toBe("3 updates available");
+  expect(formatString("يتوفر تحديثان (%lld)", ["2"])).toBe("يتوفر تحديثان (2)");
+  expect(formatString("%d of %ld, %@", ["1", "2", "x"])).toBe("1 of 2, x");
+  expect(formatString("%2$lld before %1$@", ["a", "9"])).toBe("9 before a");
+  expect(formatString("100%% of %lld", ["4"])).toBe("100% of 4");
 });
