@@ -67,8 +67,8 @@ class Run:
         return any(DEEP_GLOB_WORD in line for line in self.trace.splitlines())
 
 
-def run_wrapper(arrange, current_root: str | None = "foreign") -> Run:
-    """Lay out a home with `arrange(home)` and resume SESSION_ID through the wrapper.
+def run_wrapper(arrange, current_root: str | None = "foreign", session_id: str = SESSION_ID) -> Run:
+    """Lay out a home with `arrange(home)` and resume a session through the wrapper.
 
     `current_root` names the inherited CLAUDE_CONFIG_DIR under the home, and is
     created with an empty projects/ folder. None leaves it unset, so the current
@@ -136,7 +136,7 @@ exit 0
             env["CLAUDE_CONFIG_DIR"] = str(current)
         try:
             proc = subprocess.run(
-                ["/usr/bin/env", "bash", "-x", str(wrapper), "--resume", SESSION_ID],
+                ["/usr/bin/env", "bash", "-x", str(wrapper), "--resume", session_id],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -268,6 +268,18 @@ def check_what_counts_as_a_transcript(failures: list[str]) -> None:
         expect(failures, f"hidden folder {folders}", relative_config_dir(run) == "foreign", run.config_dir)
 
 
+def check_hidden_folders_skip_but_a_dot_led_session_resolves(failures: list[str]) -> None:
+    dot_led = ".dot-led-session"
+
+    def deep_dot_led(home: Path) -> None:
+        directory = home / ".claude" / "projects" / "a" / "b"
+        directory.mkdir(parents=True)
+        (directory / f"{dot_led}.jsonl").write_text("{}\n", encoding="utf-8")
+
+    run = run_wrapper(deep_dot_led, session_id=dot_led)
+    expect(failures, "dot-led session id", relative_config_dir(run) == ".claude", run.config_dir)
+
+
 def check_symlinks_resolve_as_the_globs_did(failures: list[str]) -> None:
     def linked_projects(home: Path) -> None:
         write_transcript(home / "elsewhere", "a", "b")
@@ -314,6 +326,7 @@ def main() -> int:
     check_depth_is_relative_to_the_root(failures)
     check_every_supported_depth_still_resolves(failures)
     check_what_counts_as_a_transcript(failures)
+    check_hidden_folders_skip_but_a_dot_led_session_resolves(failures)
     check_symlinks_resolve_as_the_globs_did(failures)
     if failures:
         print("FAIL:")
