@@ -38,7 +38,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   person's New Terminal (and New Browser, with tileBrowsers) takes the Auto Layout path; a browser
   opens as a tab, then moves into its own pane. CLI, MCP and scripts always get a tab. Settings
   window (General > Columns) and cmux.json; `PanePlacementSettingsTests` checks the defaults.
-- New Column is Ctrl-Shift-Cmd-L and New Row Ctrl-Shift-Cmd-J (key set B, Lawrence 2026-11-01). The pattern: the focus keys plus Shift: Ctrl-Cmd-L / J move right / down, Ctrl-Shift-Cmd-L / J make a column / row there (PaneCreateKeySetTests).
+- New Column is Ctrl-Opt-Cmd-L and New Row Ctrl-Opt-Cmd-J (key set B, Lawrence 2026-11-01). The pattern: the focus keys plus Option: Ctrl-Cmd-L / J move right / down, Ctrl-Opt-Cmd-L / J make a column / row there (PaneCreateKeySetTests).
   New Column was Ctrl-Cmd-D (2026-10-02), but macOS's Look Up (system hot key 70, on by default)
   takes a real Ctrl-Cmd-D in every app before cmux sees it, so New Column never ran on a Mac with
   default settings; Split Browser Right's Opt-Cmd-D was macOS's Dock hiding (hot key 52). It is now
@@ -53,7 +53,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 
 - Cmd-D / Cmd-Shift-D always split the focused pane inside its own column: never create a column,
   never scroll. Too narrow at the minimum pane width: refuse with a short HUD message.
-- New Column (default Ctrl-Shift-Cmd-L) appends a column right after the
+- New Column (default Ctrl-Opt-Cmd-L) appends a column right after the
   current one and scrolls to reveal it; the only creating command that scrolls.
 - `layout.splitSizing`: `even` (default; every pane along the split axis in that column gets equal
   size) | `halve` (only the split pane halves).

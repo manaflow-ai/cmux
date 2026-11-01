@@ -355,7 +355,7 @@ in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bound
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
 than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
 also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
-a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-D): every existing column
+a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Opt-Cmd-L): every existing column
 (matched by its panes, width from the float view frames) keeps exactly its width, and there is one
 more column each time (`smoke_same_widths`; each old and new width in the result). Cmd-D (Split
 Right) is not used here: it never opens a column (`SplitRoomCheck.toolSplit`), it splits the pane.

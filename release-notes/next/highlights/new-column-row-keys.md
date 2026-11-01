@@ -1,5 +1,5 @@
-title: New Column ⌃⇧⌘L and New Row ⌃⇧⌘J work on every Mac
+title: Add a column or row with ⌃⌥⌘L and ⌃⌥⌘J
 category: fixed
-action: newColumn | Try it
+action: newColumn | Open a new column
 
-macOS kept ⌃⌘D and ⌥⌘D, so New Column and Split Browser Right never ran. Add ⇧ to the focus keys ⌃⌘L and ⌃⌘J to make a column or row there.
+New Column is ⌃⌥⌘L and New Row ⌃⌥⌘J: the focus keys ⌃⌘L and ⌃⌘J plus ⌥. Split Browser Right is ⌥⌘L. The old keys never reached cmux, because macOS keeps them.

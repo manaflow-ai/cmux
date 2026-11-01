@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// R3b end to end (Lawrence 2026-10-31: "creating new columns must never resize existing
-/// columns"; cmux-ad 08:06Z scope). Real keys through the window's key router (Ctrl-Shift-Cmd-L New
+/// columns"; cmux-ad 08:06Z scope). Real keys through the window's key router (Ctrl-Opt-Cmd-L New
 /// Column, Cmd-D Split Right) and the registry's action path, against a same-tree cmux-tui, in the
 /// real window. After each create has settled (3 s: cmux-ad saw a column go from 732 to 286 pt
 /// 1.5 s after the second New Column key), every column that was there keeps its width in points in
@@ -26,7 +26,7 @@ struct NewColumnKeepsWidthJourneyTests {
         case action(ActionID)
     }
 
-    static let newColumnKey = Start.key("l", [.control, .shift, .command], keyCode: 37)
+    static let newColumnKey = Start.key("l", [.control, .option, .command], keyCode: 37)
     static let cmdD = Start.key("d", [.command], keyCode: 2)
 
     @Test func newColumnsNeverResizeTheColumnsThere() async throws {
@@ -44,9 +44,9 @@ struct NewColumnKeepsWidthJourneyTests {
             let a = try #require(Self.shown(controller, workspace: id).first)
             content.focus.send(.focusPane(a.paneKey, source: .programmatic))
 
-            // Ctrl-Shift-Cmd-L beside the workspace's only pane, then again from the new column it focused.
-            try await Self.create(Self.newColumnKey, at: nil, controller, workspace: id, expecting: 2, what: "Ctrl-Shift-Cmd-L beside one pane")
-            try await Self.create(Self.newColumnKey, at: nil, controller, workspace: id, expecting: 3, what: "the second Ctrl-Shift-Cmd-L")
+            // Ctrl-Opt-Cmd-L beside the workspace's only pane, then again from the new column it focused.
+            try await Self.create(Self.newColumnKey, at: nil, controller, workspace: id, expecting: 2, what: "Ctrl-Opt-Cmd-L beside one pane")
+            try await Self.create(Self.newColumnKey, at: nil, controller, workspace: id, expecting: 3, what: "the second Ctrl-Opt-Cmd-L")
             // Cmd-D splits the focused pane inside its own column: no other column changes width.
             try await Self.create(Self.cmdD, at: nil, controller, workspace: id, expecting: 4, what: "Cmd-D in a column", splitsColumn: true)
             // The action path under fitScreen, right and left of a column.

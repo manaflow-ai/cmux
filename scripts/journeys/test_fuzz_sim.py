@@ -116,7 +116,7 @@ class FakeApp:
             tab = {"id": f"tab_{next(ids)}", "kind": "page", "term": None}
             pane["tabs"].append(tab)
             pane["selected"] = tab["id"]
-        elif key == "d" and mods in ({"cmd"}, {"cmd", "shift"}, {"control", "cmd"}) and pane:
+        elif ((key == "d" and mods in ({"cmd"}, {"cmd", "shift"})) or (key == "l" and mods == {"control", "option", "cmd"})) and pane:
             if "second_split_lost" in self.bugs and time.monotonic() - self.last_split < 0.5:
                 return {"handled_by": "keyRouter"}
             self.last_split = time.monotonic()
@@ -129,7 +129,7 @@ class FakeApp:
                 return {"handled_by": "app"}
             self.splits_made = getattr(self, "splits_made", 0) + 1
             ws = self.ws()
-            column = mods == {"control", "cmd"}  # New Column adds a column; Cmd-D and Cmd-Shift-D split inside one
+            column = key == "l"  # New Column (Ctrl-Opt-Cmd-L) adds a column; Cmd-D and Cmd-Shift-D split inside one
             new = {"id": f"pane_{next(ids)}", "column": (max(p["column"] for p in ws["panes"]) + 1) if column else pane["column"],
                    "width": 600.0 if column else pane["width"],
                    "tabs": [{"id": f"tab_{next(ids)}", "kind": "terminal", "term": self.new_term()}]}
