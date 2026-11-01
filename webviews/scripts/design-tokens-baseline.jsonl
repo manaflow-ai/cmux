@@ -34,10 +34,10 @@
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"height","property":"height","values":{"calc(100% - 12px)":1,"18px":1}}
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"gap","values":{"10px":1}}
 {"file":"agent-session/acpmux/composer/dropOverlay.css","kind":"spacing","property":"padding","values":{"6px 16px 6px 6px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1,"44px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"height","values":{"56px":2,"38px":1,"min(280px, 58vh)":1,"9px":1,"1.5px":1,"42px":1,"4px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerAttachments.css","kind":"height","property":"min-height","values":{"44px":1,"300px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1,"2px":1}}
-{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1,"0 28px 0 10px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"gap","values":{"3px":2,"6px":2,"13px":1,"2px 6px":1}}
+{"file":"agent-session/acpmux/composerAttachments.css","kind":"spacing","property":"padding","values":{"0 32px 0 10px":1,"0 10px 0 14px":1,"7px 10px":1,"7px 24px 7px 8px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"height","property":"height","values":{"1px":1,"calc(23.5px * var(--cmux-interface-scale, 1))":1,"calc(15px * var(--cmux-interface-scale, 1))":1,"3px":1,"16px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/composerControls.css","kind":"spacing","property":"padding","values":{"0 8px 6px":1,"6px 10px 4px":1,"0 6px 0 8px":1}}
@@ -49,7 +49,6 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-inline","values":{"calc(var(--acpmux-top-strip-edge) - 6px)":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-right","values":{"calc( var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px))) )":1}}
-{"file":"agent-session/acpmux/composerLook.css","kind":"height","property":"height","values":{"16px":3}}
 {"file":"agent-session/acpmux/composerLook.css","kind":"spacing","property":"padding-block","values":{"2px var(--acpmux-tray-tuck)":1}}
 {"file":"agent-session/acpmux/ComposerPickers.gallery.css","kind":"height","property":"min-height","values":{"210px":1}}
 {"file":"agent-session/acpmux/ComposerPickers.gallery.css","kind":"spacing","property":"gap","values":{"14px":1}}

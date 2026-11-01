@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { REST_GAP } from "../src/agent-session/acpmux/model";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -230,10 +231,10 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(12);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(20);
-    // The last footer uses that same turn gap before the floating composer; there is no extra
-    // runway under every transcript.
-    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
-    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
+    // The last footer rests the rest gap over the floating composer (model.ts REST_GAP, about two
+    // and a half body lines, as Codex leaves; agent-pane-composer-rest-gap.test.ts holds it in every
+    // state).
+    expect(Math.abs(measured.lastFooterToComposer - REST_GAP)).toBeLessThanOrEqual(1);
     await page.close();
   });
 });

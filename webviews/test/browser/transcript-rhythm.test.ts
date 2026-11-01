@@ -3,6 +3,8 @@ import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
+import { REST_GAP } from "../../src/agent-session/acpmux/model";
+import { restBand } from "../../src/agent-session/acpmux/transcriptGrid";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -113,6 +115,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
                 gaps: [message.top - header.bottom, group.top - message.bottom, live.top - group.bottom],
                 inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
                 composerGap: composer.top - live.bottom,
+                floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),
                 chevronCenters,
                 firstInk,
               };
@@ -134,7 +137,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               expect(Math.abs(state.actionMid - 12 * scale), "action glyph center in block gap").toBeLessThanOrEqual(0.5);
             for (const gap of state.gaps) expect(Math.abs(gap - 24 * scale), "block gap").toBeLessThanOrEqual(0.5);
             expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.composerGap - 16 * scale), "composer gap").toBeLessThanOrEqual(0.5);
+            // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
+            // 2026-11-01: "more space between composer and latest messages"); docked in flow, the
+            // composer gap.
+            expect(Math.abs(state.composerGap - (state.floating ? REST_GAP : 16 * scale)), "composer gap").toBeLessThanOrEqual(0.5);
             for (const box of [state.message, state.headerIcon, state.toolIcon, state.live, ...(state.copy ? [state.copy] : [])]) {
               expect(Math.abs(box.left - state.composer.left), "col-left").toBeLessThanOrEqual(0.5);
             }
@@ -191,10 +197,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           const composer = await rectOf(page, ".acpmux-composer-box");
           const above = indicator.top - prompt.bottom;
           const below = composer.top - indicator.bottom;
+          const floating = await page.evaluate(() => Boolean(document.querySelector(".acpmux-main[data-dock=float]")));
           console.log(`TRANSCRIPT_WAITING ${JSON.stringify({ width, theme, above, below })}`);
           await shot(page, `waiting-${theme}-${width}`);
           expect(Math.abs(above - 24), "block gap above the waiting indicator").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(below - 24), "block gap below the waiting indicator").toBeLessThanOrEqual(0.5);
+          // Over a floating stack the indicator, the newest line, rests the rest gap over it.
+          expect(Math.abs(below - (floating ? REST_GAP : 24)), "gap below the waiting indicator").toBeLessThanOrEqual(0.5);
         } finally {
           await page.close();
         }
@@ -237,11 +245,14 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           );
           const after = await rectOf(page, '[data-row-id="grid-message"] .cv-md');
           const gap = composer.top - message.bottom;
+          const floating = await page.evaluate(() => Boolean(document.querySelector(".acpmux-main[data-dock=float]")));
           console.log(
             `TRANSCRIPT_SETTLED ${JSON.stringify({ width, theme, gap, glyphTop: glyph.top - message.bottom, glyphRoom: composer.top - glyph.bottom })}`,
           );
           await shot(page, `settled-${theme}-${width}`);
-          expect(Math.abs(gap - 24), "composer gap after a message").toBeLessThanOrEqual(0.5);
+          // Docked in flow, the block gap the action row lies in; over a floating stack that band
+          // (to the action row's bottom edge, restBand) and then the rest gap.
+          expect(Math.abs(gap - (floating ? restBand(true) + REST_GAP : 24)), "composer gap after a message").toBeLessThanOrEqual(0.5);
           expect(Math.abs(glyph.top - message.bottom - 4), "action glyph top 4 under the message").toBeLessThanOrEqual(0.5);
           expect(composer.top - glyph.bottom, "room under the action row").toBeGreaterThanOrEqual(3.5);
           expect(after, "showing the action row moves nothing").toEqual(message);

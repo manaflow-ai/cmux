@@ -60,6 +60,14 @@ export function tailGap(last: number, beforeLast: number, footerAfter = false): 
   return TRANSCRIPT_COMPOSER_GAP;
 }
 
+/// Over a floating stack (model.ts `REST_GAP`), the band under the last drawn row that comes before
+/// the rest gap: a trailing turn footer's action row is laid centred in the block gap under its reply
+/// (conversation.css `.cv-turn-actions`), so the rest gap starts at that row's bottom edge; with no
+/// footer the rest gap starts at the row itself (a live line, a streaming reply).
+export function restBand(footerAfter: boolean): number {
+  return footerAfter ? (TRANSCRIPT_BLOCK_GAP + gridLength("transcript-action-control")) / 2 : 0;
+}
+
 /// Whether a turn footer follows the last drawn row: only the trailing rows that draw nothing.
 export function footerAfter(marks: Uint8Array | undefined, heights: Float64Array): boolean {
   if (!marks) return false;
