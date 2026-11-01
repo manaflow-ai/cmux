@@ -44,19 +44,22 @@ pub(super) fn connect_and_attach(
             return;
         }
     };
-    let cloud_turn_supported = author.is_none()
+    let cloud_turn_supported = if author.is_none()
         && !read_only
         && sessions.cloud_turn.read().unwrap_or_else(|e| e.into_inner()).is_some()
-        && link.call("initialize", json!({"protocolVersion":1}), CALL_TIMEOUT).is_ok_and(
-            |initialized| {
-                initialized
-                    .pointer("/_meta/acpmux/capabilities")
-                    .and_then(Value::as_array)
-                    .is_some_and(|caps| {
-                        caps.iter().any(|cap| cap.as_str() == Some("cloud-turn-prepare-v1"))
-                    })
-            },
-        );
+    {
+        match turn::support(&link) {
+            Ok(supported) => supported,
+            Err(refusal) => {
+                release(sessions);
+                link.close();
+                refuse(&writer, id, refusal);
+                return;
+            }
+        }
+    } else {
+        false
+    };
     let page = match link.call("_acpmux/attach", params, CALL_TIMEOUT) {
         Ok(page) => bound_page(page, newest_first),
         Err(error) => {

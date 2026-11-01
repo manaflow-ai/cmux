@@ -77,7 +77,7 @@ public actor AgentSessionAttachClient {
     /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
     /// replaced only together with it.
     private var served = Served()
-    private var cloudTurnsSupported = false
+    private var cloudTurnsSupported: Bool?
     /// Counts the connections this client began to make (``connect(quiet:)``).
     private var connectsBegun = 0
     /// The newest connection made: its number in ``connectsBegun`` and whether its close tells
@@ -128,6 +128,7 @@ public actor AgentSessionAttachClient {
     /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
+        cloudTurnsSupported = nil
         handler.set(events)
         // One attach at a time: the daemon refuses a second attach of the tab while the first still
         // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
@@ -146,8 +147,12 @@ public actor AgentSessionAttachClient {
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
-    public func supportsCloudTurns() async -> Bool {
+    public func supportsCloudTurns() async throws -> Bool {
+        _ = try await liveConnection()
         await attachTail?.value
+        guard let cloudTurnsSupported else {
+            throw AgentSessionAttachError(code: "agent_session.unavailable", message: "The attachment has not verified Cloud turn support.")
+        }
         return cloudTurnsSupported
     }
 
@@ -528,7 +533,7 @@ public actor AgentSessionAttachClient {
     }
 
     private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
-        cloudTurnsSupported = false
+        cloudTurnsSupported = nil
         connectsBegun += 1
         let number = connectsBegun
         let transport: LineTransport

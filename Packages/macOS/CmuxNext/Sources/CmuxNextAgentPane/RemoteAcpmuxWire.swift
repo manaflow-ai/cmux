@@ -207,7 +207,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let session = state.withLock { $0.resolved ?? $0.session } ?? ""
             run(id) { [weak self, cloudTurn] client in
                 let accepted: Data
-                if let cloudTurn, await client.supportsCloudTurns() {
+                if let cloudTurn, try await client.supportsCloudTurns() {
                     let ownerState = try await cloudTurn.state()
                     var submitting = false
                     do {

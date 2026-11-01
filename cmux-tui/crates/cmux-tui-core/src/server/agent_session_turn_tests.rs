@@ -204,3 +204,19 @@ fn configured_machine_with_old_acpmux_keeps_plain_prompts_without_advertising_re
     );
     fake.no_frame();
 }
+
+#[test]
+fn uncertain_turn_support_fails_attach_instead_of_allowing_uncaptured_prompts() {
+    let fake = FakeAcpmux::start_with(
+        "turn-unknown",
+        Fixture { turn_initialize_malformed: true, ..Fixture::default() },
+    );
+    let mux = mux_with(&fake, "turn-unknown");
+    configure_turns(&mux);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "turn-unknown");
+    assert_code(&attach(&mut client, surface), "agent_session.unavailable");
+    assert_eq!(fake.frame()["method"], "initialize");
+    assert!(!capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
+    fake.no_frame();
+}

@@ -51,6 +51,17 @@ fn valid_id(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
 }
 
+pub(super) fn support(link: &AcpmuxLink) -> Result<bool, Refusal> {
+    let initialized =
+        link.call("initialize", json!({"protocolVersion":1}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let capabilities = initialized
+        .pointer("/_meta/acpmux/capabilities")
+        .and_then(Value::as_array)
+        .filter(|caps| caps.iter().all(Value::is_string))
+        .ok_or(Refusal::Unavailable)?;
+    Ok(capabilities.iter().any(|cap| cap.as_str() == Some("cloud-turn-prepare-v1")))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Prepare {
