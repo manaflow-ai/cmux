@@ -243,6 +243,9 @@ impl Mux {
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
             ResourceCreationEvidence::AmbiguousLive => {
+                // The terminal's outcome is unknown, but the creation did not
+                // report success: a workspace it staged does not stay behind.
+                self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
                 Ok(ResourceCreationSettlement::Indeterminate)
             }
@@ -274,6 +277,8 @@ impl Mux {
         }
     }
 
+    /// Roll back the workspace a creation staged, when it is not public.
+    /// Memory always lets it go, even when the store refuses the close.
     pub(super) fn rollback_interrupted_workspace_creation(
         &self,
         intent: &Value,
@@ -300,14 +305,28 @@ impl Mux {
         }
         let workspace =
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
-        if let Some(workspace) = workspace {
-            anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
-                    .is_some(),
-                "interrupted staged workspace {public_id} disappeared during rollback"
-            );
+        let Some(workspace) = workspace else {
+            return Ok(());
+        };
+        match self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => {
+                anyhow::bail!(
+                    "interrupted staged workspace {public_id} disappeared during rollback"
+                )
+            }
+            Err(error) => {
+                // The store refused the close (a full disk). The workspace
+                // still leaves memory and its subscribers, so no client shows
+                // a workspace the store never published (fuzz restore h1).
+                // The error goes on, so the receipt stays unsettled and the
+                // creation's recovery closes the stored row later.
+                self.discard_unpublished_workspace_from_memory(workspace);
+                Err(error.context(format!(
+                    "staged workspace {public_id} left memory, but the store refused its close"
+                )))
+            }
         }
-        Ok(())
     }
 
     pub(super) fn persisted_creation_settlement(

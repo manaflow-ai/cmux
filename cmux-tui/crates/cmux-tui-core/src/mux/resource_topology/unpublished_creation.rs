@@ -31,13 +31,21 @@ impl Mux {
         }
         // The terminal ends first: if that fails (or the daemon stops here),
         // the receipt's evidence is a closed terminal, whose settlement
-        // already rolls the workspace back. A rollback that fails leaves the
-        // effect indeterminate, as before.
-        let rolled_back = match recovery.intent["terminal_reservation"]["terminal_id"].as_str() {
+        // already rolls the workspace back. Both leave memory even when the
+        // store refuses their writes (a full disk), so no client keeps a
+        // workspace or a tab the store never published (fuzz restore h1). A
+        // rollback whose write fails leaves the effect indeterminate, as
+        // before.
+        let terminal_closed = match recovery.intent["terminal_reservation"]["terminal_id"].as_str()
+        {
             Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
             None => Ok(()),
+        };
+        let workspace_rolled_back = self.rollback_interrupted_workspace_creation(&recovery.intent);
+        if let (Err(_), Err(error)) = (&terminal_closed, &workspace_rolled_back) {
+            eprintln!("cmux-tui: a failed creation's workspace could not be closed: {error:#}");
         }
-        .and_then(|()| self.rollback_interrupted_workspace_creation(&recovery.intent));
+        let rolled_back = terminal_closed.and(workspace_rolled_back);
         if let Err(error) = rolled_back {
             eprintln!("cmux-tui: a failed creation could not be rolled back: {error:#}");
             self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
@@ -71,22 +79,27 @@ impl Mux {
 
     /// End a created terminal that was never published: tombstone its
     /// durable row, remove its runtime and views from memory, then signal
-    /// its host. The creation fence is already held by the caller, so this
-    /// does not go through `close_terminal_guarded` (which takes it).
+    /// its host. The runtime leaves memory and ends even when the store
+    /// refuses the tombstone (a full disk); that error comes back after.
+    /// The creation fence is already held by the caller, so this does not
+    /// go through `close_terminal_guarded` (which takes it).
     fn close_unpublished_terminal(&self, terminal_id: &str) -> anyhow::Result<()> {
-        {
+        let tombstoned = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let commit = registry.close_terminal(
-                &WorkspaceMutation::daemon_local("cmux-tui"),
-                None,
-                None,
-                terminal_id,
-                None,
-            )?;
-            // Subscribers saw the terminal's Launching and Running rows.
-            self.emit_terminal_registry_changed(&registry, commit.revision);
-        }
+            registry
+                .close_terminal(
+                    &WorkspaceMutation::daemon_local("cmux-tui"),
+                    None,
+                    None,
+                    terminal_id,
+                    None,
+                )
+                .map(|commit| {
+                    // Subscribers saw the terminal's Launching and Running rows.
+                    self.emit_terminal_registry_changed(&registry, commit.revision);
+                })
+        };
         let (runtime, removed) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let runtime = state
@@ -113,6 +126,6 @@ impl Mux {
             }
             None => self.terminate_discovered_terminal_host(terminal_id, None),
         }
-        Ok(())
+        tombstoned
     }
 }
