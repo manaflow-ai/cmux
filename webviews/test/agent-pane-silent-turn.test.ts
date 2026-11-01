@@ -270,10 +270,11 @@ test("a summary naming the next turn keeps the live turn until the stream reache
     await until(() => snapshot.summary?.title === "next", "the next turn's summary");
     expect((client as any).runningTurnId).toBe("t1");
     expect(snapshot.turnStartedAtMs).toBe(START + 2_000);
-    const ended = snapshot.turnsEnded;
     daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 3));
-    await until(() => snapshot.turnsEnded === ended + 1, "T1's end");
+    // T1's footer (its turn summary row) and its cleanup: no open turn, no Thinking row.
+    await until(() => (client as any).rows.has("summary-t1"), "T1's footer");
     expect((client as any).turnOpen).toBe(false);
+    expect((client as any).rows.has("typing")).toBe(false);
     daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 30));
     await until(() => snapshot.isWorking === true, "T2's start");
     expect((client as any).runningTurnId).toBe("t2");

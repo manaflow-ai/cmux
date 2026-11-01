@@ -4085,6 +4085,17 @@ export class AcpmuxDirectClient {
     const turnId = typeof turn.turnId === "string" && turn.turnId ? turn.turnId : undefined;
     if (turnId !== undefined && (this.endedTurns.has(turnId) || this.supersededTurns.has(turnId))) return;
     if (this.turnStartedAtMs !== undefined && turn.startedAt < this.turnStartedAtMs) return;
+    // A summary already naming the next turn while a turn live events opened (and named) still
+    // runs: keep that turn until the stream reaches the next one's start. Its result and footer,
+    // and its cleanup, are still its own; the next turn opens on its own `turn_started`.
+    if (
+      this.turnOpen &&
+      !this.turnAdopted &&
+      this.runningTurnId !== undefined &&
+      turnId !== undefined &&
+      turnId !== this.runningTurnId
+    )
+      return;
     this.turnStartedAtMs = turn.startedAt;
     // The turn live events opened already: the summary only dates it. When its opener named no
     // turn (a resumed turn's old prompt), the summary alone says which turn runs, so it may end it.
