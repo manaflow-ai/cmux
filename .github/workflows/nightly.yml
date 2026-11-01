@@ -3348,6 +3348,26 @@ jobs:
             echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
             echo "- already published: $already_published"
           } >> "$GITHUB_STEP_SUMMARY"
+      # The selected build source can differ from this workflow's control SHA.
+      - name: Record pending tree dependency
+        id: tree-source
+        continue-on-error: true
+        env:
+          TREE_PENDING: ${{ steps.pending.outputs.tree_pending }}
+          TREE_KEY: ${{ steps.pending.outputs.key }}
+          BUILD_SHA: ${{ steps.build.outputs.build_sha }}
+        run: python3 scripts/ci/nightly_tree_source.py dependency
+      - name: Upload pending tree dependency
+        if: steps.tree-source.outputs.name != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.tree-source.outputs.name }}
+          path: ${{ steps.tree-source.outputs.path }}
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
       - name: Compute portable OptChat Chief input key
         id: chief-key
         if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
