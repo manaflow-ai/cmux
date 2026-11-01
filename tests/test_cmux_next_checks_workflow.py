@@ -812,6 +812,7 @@ class PathRoutingStructure(unittest.TestCase):
                         "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
                         "needs.macos-placement.outputs.placed_attempt": "1",
                         "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
+                        "vars.CI_PR_POOL_OWNED": "1",
                     }
                     # GUI/session routes need a fresh reading on human reruns too. Discover the role
                     # consumer from the expression, so this also covers a newly added job.
