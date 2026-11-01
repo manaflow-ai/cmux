@@ -906,3 +906,175 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
         "the resumed agent answered the send: {later:?}"
     );
 }
+
+/// The variables an agent's shell has that prove its session to acpmux (`hub/person.rs` (a)),
+/// read from chat `caller`'s own agent (the test agent answers `envs:` with them).
+fn caller_shell(daemon: &Daemon, caller: &str) -> Vec<(String, String)> {
+    let names = ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"];
+    let mut acp = Acp::connect(daemon);
+    let id = acp.send(
+        "session/prompt",
+        json!({"sessionId": caller,
+               "prompt": [{"type": "text", "text": format!("envs: {}", names.join(","))}]}),
+    );
+    let mut text = String::new();
+    loop {
+        let mut line = String::new();
+        assert_ne!(acp.reader.read_line(&mut line).unwrap(), 0, "acpmux closed");
+        let message: Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == id {
+            break;
+        }
+        let update = &message["params"]["update"];
+        if message["method"] == "session/update" && update["sessionUpdate"] == "agent_message_chunk"
+        {
+            text.push_str(update["content"]["text"].as_str().unwrap_or_default());
+        }
+    }
+    let env: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("no env: {text}"));
+    names
+        .iter()
+        .map(|name| {
+            let value = env[name].as_str().filter(|value| !value.is_empty());
+            (name.to_string(), value.unwrap_or_else(|| panic!("no {name}: {env}")).to_owned())
+        })
+        .collect()
+}
+
+/// A chat an agent starts with `chat new` from its own shell is an ordinary top-level chat,
+/// as New Agent Chat makes, never that agent's subagent: it lists on its own and outlives the
+/// agent. As its subagent it folded under a Chief turn or a launcher chat, and once that one
+/// ended it was an orphan whose root no list had: the GUI said "Can't find this chat" (#27879).
+#[test]
+fn a_chat_an_agent_starts_from_its_shell_is_top_level_and_outlives_it() {
+    let daemon = machine("chat-new-root");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let shell = caller_shell(&daemon, &caller);
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let mut command = cmux(&daemon, Some(&caller));
+    command.envs(shell.iter().map(|(name, value)| (name, value)));
+    command.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, created) = chat_json(
+        command,
+        &["new", "--workspace", &workspace, "--cwd", work.to_str().unwrap(), "--name", "helper"],
+    );
+    assert_eq!(code, Some(0), "{created}");
+    let started = created["result"]["chat"].as_str().unwrap_or_else(|| panic!("{created}"));
+
+    let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": started}));
+    let info = &info["result"];
+    assert_eq!(info["parent"], Value::Null, "not the caller's subagent: {info}");
+    assert_eq!(info["spawnedBy"], Value::Null, "{info}");
+    assert_eq!(info["depth"], 0, "{info}");
+    assert_eq!(info["root"], started, "{info}");
+
+    // The caller ends (a Chief turn, a launcher chat): the chat stays, listed on its own.
+    let killed =
+        Acp::connect(&daemon).call("_acpmux/kill", json!({"sessionId": caller, "purge": true}));
+    assert!(killed.get("error").is_none(), "{killed}");
+    let listed = Acp::connect(&daemon).call("_acpmux/sessions", json!({}));
+    let row = listed["result"]["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["sessionId"] == started)
+        .unwrap_or_else(|| panic!("the chat is not listed: {listed}"));
+    assert_eq!(row["depth"], 0, "{row}");
+    assert_eq!(row["root"], started, "{row}");
+}
+
+/// A fake cmux app control socket at `socket` whose `agent.acpmux` fails as a busy or broken
+/// app's does; every other method is not in this app.
+fn fake_app_without_acpmux_answer(socket: &std::path::Path) {
+    let listener = UnixListener::bind(socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+                    line.clear();
+                    let response = json!({"id": request["id"], "ok": false, "error": {
+                        "code": "unavailable", "message": "the app is busy", "data": {}}});
+                    if writeln!(writer, "{response}").is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// An app that runs but does not say which acpmux its chats run in gets no chat: started in
+/// the caller's own acpmux (a Chief home's), no tab of the app could ever find it (#27879).
+#[test]
+fn a_chat_new_starts_nothing_when_the_app_does_not_name_its_acpmux() {
+    let daemon = machine("chat-new-no-acpmux");
+    let workspace = workspace(&daemon);
+    let app_socket = daemon.dir.join("app.sock");
+    fake_app_without_acpmux_answer(&app_socket);
+    let before = Acp::connect(&daemon).call("_acpmux/sessions", json!({}));
+    let count = |listed: &Value| listed["result"]["sessions"].as_array().map_or(0, Vec::len);
+    let mut command = cmux(&daemon, None);
+    command.arg("--app-socket").arg(&app_socket);
+    let (code, refused) = chat_json(command, &["new", "--workspace", &workspace, "--", "hi"]);
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["retryable"], true, "{refused}");
+    let after = Acp::connect(&daemon).call("_acpmux/sessions", json!({}));
+    assert_eq!(count(&after), count(&before), "nothing started: {after}");
+}
+
+/// Everything else a person does to a chat in the GUI, from the CLI (#27879): steer its
+/// running turn, queue a follow-up, rename it, change its effort and mode.
+#[test]
+fn an_agent_steers_renames_and_sets_a_chat_it_started() {
+    let daemon = machine("chat-manage");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let target = chat(&daemon, Some(&workspace));
+    let as_caller = || cmux(&daemon, Some(&caller));
+
+    let (code, steered) = chat_json(as_caller(), &["steer", &target, "--", "look at main.rs"]);
+    assert_eq!(code, Some(0), "{steered}");
+    assert_eq!(steered["action"], "chat.steer", "{steered}");
+    assert_eq!(steered["result"]["state"], "accepted", "{steered}");
+    let page = read_until(&daemon, &caller, json!({"target": target}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    let prompts = items_of(page["items"].as_array().unwrap(), "user");
+    assert_eq!(prompts[0]["text"], "look at main.rs", "{page}");
+    assert_eq!(prompts[0]["origin"], "agent_message", "an agent's words, not the person's: {page}");
+    let (code, own) = chat_json(as_caller(), &["steer", &caller, "--", "x"]);
+    assert_eq!(code, Some(3), "{own}");
+    assert_eq!(error_of(&own)["code"], "chat.own_chat", "{own}");
+
+    let (code, queued) = chat_json(as_caller(), &["follow-up", &target, "--", "then the tests"]);
+    assert_eq!(code, Some(0), "{queued}");
+    assert_eq!(queued["action"], "chat.send", "{queued}");
+
+    let mut no_app = as_caller();
+    no_app.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, renamed) = chat_json(no_app, &["rename", &target, "27879-helper"]);
+    assert_eq!(code, Some(0), "{renamed}");
+    assert_eq!(renamed["result"]["session_name"], true, "{renamed}");
+    let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": target}));
+    assert_eq!(info["result"]["name"], "27879-helper", "{info}");
+    // A name only a tab can carry, with no tab: refused, saying how to get one.
+    let mut no_app = as_caller();
+    no_app.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, untabbed) = chat_json(no_app, &["rename", &target, "27879: helper"]);
+    assert_eq!(code, Some(3), "{untabbed}");
+    assert_eq!(error_of(&untabbed)["code"], "chat.no_tab", "{untabbed}");
+
+    let (code, refused) = chat_json(as_caller(), &["set", &target]);
+    assert_eq!(code, Some(2), "a set names a change: {refused}");
+
+    // A chat no tab shows has nothing to close or move; the receipt says how to show one.
+    let mut no_app = as_caller();
+    no_app.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, closed) = chat_json(no_app, &["close", &target]);
+    assert_eq!(code, Some(3), "{closed}");
+}

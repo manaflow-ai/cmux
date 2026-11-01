@@ -36,6 +36,25 @@ pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "d
 /// What `continue` sends when no text is given.
 pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 
+/// How long `new` waits for the app to say which acpmux its chats run in. An app busy with a
+/// launch answers a read past the 5 s of other reads; `new` starts nothing without the answer.
+const APP_ACPMUX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// A mode as the harness names it: `full-access` (the GUI's Full access) is Claude Code's
+/// `bypassPermissions` and the Codex bridge's `agent-full-access` (acpmux `start_mode.rs`
+/// `FULL_ACCESS_MODES`); any other mode, or a harness of another family, as given. acpmux still
+/// decides whether this caller may start in it.
+pub(in crate::cli) fn harness_mode(mode: &str, harness: Option<&str>) -> String {
+    if !matches!(mode, "full-access" | "fullAccess" | "full_access") {
+        return mode.to_owned();
+    }
+    match harness.unwrap_or("claude") {
+        family if family.starts_with("claude") => "bypassPermissions".into(),
+        family if family.starts_with("codex") => "agent-full-access".into(),
+        _ => mode.to_owned(),
+    }
+}
+
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
@@ -280,7 +299,30 @@ pub(in crate::cli) fn new(
 ) -> Result<Value, CallFailure> {
     // The app's own acpmux when the caller's is another one (a Chief turn): the chat is one
     // of the app's ordinary chats, as New Agent Chat makes, not a subagent of the caller's.
-    let app_socket = chat::app_acpmux(global);
+    // An app that runs but does not say which acpmux that is starts nothing: in the caller's
+    // daemon the chat would run where no tab finds it ("Can't find this chat", #27879). With no
+    // app at all (a headless session) the caller's acpmux is the only one there is.
+    let app_socket = match chat::app_acpmux_answer(global, APP_ACPMUX_TIMEOUT) {
+        Err(error)
+            if matches!(error["code"].as_str(), Some("app.not_found" | "app.unreachable")) =>
+        {
+            Ok(None)
+        }
+        answer => answer,
+    }
+    .map_err(|error| {
+        let mut error = error;
+        let reason = error["message"].as_str().unwrap_or("no answer").to_owned();
+        error.set(
+            "message",
+            json!(format!(
+                "cannot start a GUI chat: the cmux app did not say which acpmux its chats run \
+                 in ({reason}); nothing was started, run it again"
+            )),
+        );
+        error.set("retryable", json!(true));
+        CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None }
+    })?;
     let socket = app_socket.as_deref();
     let place = place(global, chat)?;
     let cwd = match &chat.cwd {
@@ -291,11 +333,12 @@ pub(in crate::cli) fn new(
             .into_owned(),
     };
     let mut meta = Map::new();
+    let mode = chat.mode.as_deref().map(|mode| harness_mode(mode, chat.harness.as_deref()));
     for (name, value) in [
         ("harness", &chat.harness),
         ("model", &chat.model),
         ("effort", &chat.effort),
-        ("mode", &chat.mode),
+        ("mode", &mode),
         ("policy", &chat.policy),
         ("name", &chat.name),
     ] {
@@ -379,7 +422,7 @@ pub(in crate::cli) fn new(
         let id = uuid::Uuid::new_v4().to_string();
         result.set(
             "prompt",
-            match chat::acp::prompt(&session, prompt, &id, None, socket) {
+            match chat::acp::prompt(&session, prompt, &id, None, socket, false) {
                 Ok(_) => json!({"state": "accepted", "prompt_id": id}),
                 Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
             },

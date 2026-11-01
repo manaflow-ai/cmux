@@ -65,6 +65,27 @@ pub(in crate::cli) enum ChatCommand {
     Interrupt {
         target: String,
     },
+    /// Send text into a chat's running turn, as the composer's Steer does (chat_manage.rs).
+    Steer {
+        target: String,
+        text: String,
+    },
+    /// Rename a chat (its tab and list row).
+    Rename {
+        target: String,
+        name: String,
+    },
+    /// Change a chat's model, effort or mode, as its pickers do.
+    Set(super::chat_manage::ChatSettings),
+    /// Close the chat's tabs in the app, as a person closes a tab; the chat stays in All Chats.
+    Close {
+        target: String,
+    },
+    /// Move the chat's tab to another workspace.
+    Move {
+        target: String,
+        workspace: String,
+    },
 }
 
 /// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
@@ -85,28 +106,29 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             words.extend_from_slice(rest);
             parse(&words)
         }
-        ["send", target, rest @ ..] => {
-            let target = chat_word(target)?;
-            // One argument: cmux reads its own flags (`--session`, `--json`)
-            // anywhere before `--`, so unquoted words could lose one to it.
-            let text = match rest {
-                ["--", text] => *text,
-                [text] if !text.starts_with('-') => *text,
-                [text] if *text != "--" => {
-                    return Err(UsageError::new(
-                        "agents chat send: put text that starts with a dash after --",
-                    ));
-                }
-                _ => {
-                    return Err(UsageError::new(
-                        "agents chat send: give the text as one quoted argument, or after --",
-                    ));
-                }
-            };
-            // The body rules of `cmux agent message`: not empty, at most 32 KiB.
-            let text = agent_message::read_body(Body::Text(text.to_owned()))
-                .map_err(|error| UsageError::new(format!("agents chat send: {}", error.0)))?;
-            Ok(ChatCommand::Send { target, text })
+        // A follow-up is a send: it waits behind a running turn and runs after it, as a
+        // message typed while the chat works does.
+        ["send" | "follow-up", target, rest @ ..] => {
+            Ok(ChatCommand::Send { target: chat_word(target)?, text: one_text("send", rest)? })
+        }
+        ["steer", target, rest @ ..] => {
+            Ok(ChatCommand::Steer { target: chat_word(target)?, text: one_text("steer", rest)? })
+        }
+        ["rename", target, name] if !name.trim().is_empty() && !name.starts_with('-') => {
+            Ok(ChatCommand::Rename { target: chat_word(target)?, name: name.trim().to_owned() })
+        }
+        ["rename", ..] => {
+            Err(UsageError::new("agents chat rename: use `chat rename <chat> <name>`"))
+        }
+        ["set", target, rest @ ..] => {
+            super::chat_manage::parse_set(chat_word(target)?, rest).map(ChatCommand::Set)
+        }
+        ["close", target] => Ok(ChatCommand::Close { target: chat_word(target)? }),
+        ["move", target, "--workspace", workspace] if !workspace.starts_with('-') => {
+            Ok(ChatCommand::Move { target: chat_word(target)?, workspace: (*workspace).into() })
+        }
+        ["move", ..] => {
+            Err(UsageError::new("agents chat move: use `chat move <chat> --workspace <ws>`"))
         }
         ["read", target, rest @ ..] => {
             let target = chat_word(target)?;
@@ -155,11 +177,36 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             Ok(ChatCommand::Read { target, after, limit })
         }
         _ => Err(UsageError::new(
-            "agents chat: use `chat new [flags] [<prompt>]`, `chat send <chat> <text>`, \
-             `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
-             `chat interrupt <chat>` or `chat continue <chat> [<text>]`",
+            "agents chat: use `chat new [flags] [<prompt>]`, `chat send|follow-up|steer <chat> \
+             <text>`, `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
+             `chat interrupt <chat>`, `chat continue <chat> [<text>]`, `chat rename <chat> \
+             <name>`, `chat set <chat> [--model M] [--effort E] [--mode M]`, `chat close <chat>` \
+             or `chat move <chat> --workspace <ws>`",
         )),
     }
+}
+
+/// The text of `send`, `follow-up` and `steer`: one argument, after `--` when it starts with a
+/// dash, by the body rules of `cmux agent message` (not empty, at most 32 KiB).
+fn one_text(verb: &str, rest: &[&str]) -> Result<String, UsageError> {
+    // One argument: cmux reads its own flags (`--session`, `--json`)
+    // anywhere before `--`, so unquoted words could lose one to it.
+    let text = match rest {
+        ["--", text] => *text,
+        [text] if !text.starts_with('-') => *text,
+        [text] if *text != "--" => {
+            return Err(UsageError::new(format!(
+                "agents chat {verb}: put text that starts with a dash after --"
+            )));
+        }
+        _ => {
+            return Err(UsageError::new(format!(
+                "agents chat {verb}: give the text as one quoted argument, or after --"
+            )));
+        }
+    };
+    agent_message::read_body(Body::Text(text.to_owned()))
+        .map_err(|error| UsageError::new(format!("agents chat {verb}: {}", error.0)))
 }
 
 fn chat_word(target: &str) -> Result<String, UsageError> {
@@ -183,6 +230,17 @@ pub(in crate::cli) fn run(
         ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
         ChatCommand::State { target } => super::chat_control::state(global, target),
         ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
+        ChatCommand::Steer { target, text } => {
+            super::chat_manage::steer(global, target, text, idempotency_key, origin)
+        }
+        ChatCommand::Rename { target, name } => {
+            super::chat_manage::rename(global, target, name, origin)
+        }
+        ChatCommand::Set(settings) => super::chat_manage::set(global, settings, origin),
+        ChatCommand::Close { target } => super::chat_manage::close(global, target, origin),
+        ChatCommand::Move { target, workspace } => {
+            super::chat_manage::move_to(global, target, workspace, origin)
+        }
     }
 }
 
@@ -246,13 +304,30 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
 /// The socket of the acpmux the cmux app's own chats use (`agent.acpmux`), when the app
 /// answers and it is not the one `cmux acp` reaches from here; None otherwise.
 pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
-    let answer =
-        mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
-            .ok()?;
-    let app = PathBuf::from(answer["socket_path"].as_str().filter(|path| !path.is_empty())?);
-    // One daemon can be named two ways (`/tmp` and `/private/tmp`, a relative path).
+    app_acpmux_answer(global, super::super::app::READ_TIMEOUT).ok().flatten()
+}
+
+/// The app's acpmux as `app_acpmux` reads it, and why it is not known: the app did not answer
+/// (`Err`, the app's error), or answered no socket (`Err` too). `Ok(None)`: the app's acpmux is
+/// the one `cmux acp` reaches from here.
+pub(in crate::cli) fn app_acpmux_answer(
+    global: &GlobalArgs,
+    timeout: std::time::Duration,
+) -> Result<Option<PathBuf>, Value> {
+    let answer = mcp::agent_app(global, "agent.acpmux", json!({}), timeout, None)?;
+    let app = answer["socket_path"].as_str().filter(|path| !path.is_empty()).ok_or_else(|| {
+        json!({"code": "app.acpmux_unknown",
+               "message": "the cmux app did not say which acpmux its chats run in",
+               "details": {}, "retryable": true})
+    })?;
+    Ok(other_socket(&acp::own_socket(), Path::new(app)))
+}
+
+/// `app`, unless it names the daemon `own` names: one daemon can be named two ways (`/tmp` and
+/// `/private/tmp`, a relative path).
+fn other_socket(own: &Path, app: &Path) -> Option<PathBuf> {
     let same = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    (same(&acp::own_socket()) != same(&app)).then_some(app)
+    (same(own) != same(app)).then(|| app.to_path_buf())
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the
@@ -731,8 +806,11 @@ pub(super) mod acp {
         })
     }
 
-    /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
-    /// `session/new` reply.
+    /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the `session/new` reply. The
+    /// chat is a root (`parent: null`, `request_parentless`), never the caller's subagent: a GUI
+    /// chat lists on its own like one New Agent Chat makes, and outlives the caller (a Chief
+    /// turn or a launcher that ends). As a child of the caller it folded under that session,
+    /// and once the caller was gone it was an orphan whose root no list had (#27879).
     pub(in crate::cli) fn new_session(
         cwd: &str,
         meta: Value,
@@ -741,7 +819,7 @@ pub(super) mod acp {
         block_on(async {
             client(socket)
                 .await?
-                .request(
+                .request_parentless(
                     acpmux::rpc::method::SESSION_NEW,
                     json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
                 )
@@ -752,18 +830,29 @@ pub(super) mod acp {
     /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or
     /// queued behind a running turn), as `acpmux send --no-wait` does. With no `provenance` it
     /// is the chat's own prompt, as a person types it; with one, another agent's message
-    /// (`prompt_provenance.rs`). `id` is the prompt id: a resend with it runs once.
+    /// (`prompt_provenance.rs`). `id` is the prompt id: a resend with it runs once. `steer`
+    /// sends it into the running turn (`_meta.acpmux.steer`), as the composer's Steer does.
     pub(in crate::cli) fn prompt(
         session: &str,
         text: &str,
         id: &str,
         provenance: Option<&Value>,
         socket: Option<&Path>,
+        steer: bool,
     ) -> Result<Value, String> {
         block_on(async {
             let client = client(socket).await?;
-            acpmux::deliver::deliver(client, session, text, id, false, provenance).await
+            acpmux::deliver::deliver(client, session, text, id, steer, provenance).await
         })
+    }
+
+    /// One request to the session's daemon (rename, set_mode, set_model, set_config_option).
+    pub(in crate::cli) fn call(
+        method: &str,
+        params: Value,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request(method, params).await })
     }
 
     /// Ends the session and deletes its record (`_acpmux/kill` with purge).
