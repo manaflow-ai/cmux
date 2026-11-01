@@ -1,0 +1,130 @@
+//! `workspace.move {index}` moves the workspace in the sidebar order the
+//! person sees (the sidebar document, `workspace.list`), not only in the
+//! session order (#29875): `cmux workspace <ws> move --index 0` from the
+//! Chief or any CLI puts it first below Home. `workspace.create {placement}`
+//! names a new workspace's place whatever `workspaces.newPlacement` says.
+
+use serde_json::json;
+
+use super::tests::{Session, empty_workspace, mutate, read, send};
+use crate::mux::*;
+use crate::state::prelude::*;
+
+/// The workspace ids of `workspace.list` (the sidebar document order)
+/// restricted to `ids`.
+fn shown(mux: &Arc<Mux>, ids: &[&str]) -> Vec<String> {
+    read(mux, "workspace.list", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|workspace| workspace["id"].as_str())
+        .filter(|id| ids.contains(id))
+        .map(str::to_string)
+        .collect()
+}
+
+fn home(mux: &Arc<Mux>) -> String {
+    send(mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn group_of(mux: &Arc<Mux>, id: &str) -> Value {
+    read(mux, "workspace.placement.list", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["workspace"]["workspace_id"] == id)
+        .map(|row| row["group_id"].clone())
+        .unwrap()
+}
+
+#[test]
+fn a_move_to_index_zero_shows_the_workspace_first_below_home() {
+    let session = Session::new("move-doc-top");
+    let mux = session.open();
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let home = home(&mux);
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
+    assert_eq!(shown(&mux, &ids), ids, "made in sidebar order");
+
+    mutate(&mux, "workspace.move", json!({"workspace": c, "index": 0}), "c-top");
+    assert_eq!(
+        shown(&mux, &ids),
+        [home.as_str(), c.as_str(), a.as_str(), b.as_str()],
+        "move --index 0 did not put the workspace first below Home in the sidebar"
+    );
+
+    // Past the end: last.
+    mutate(&mux, "workspace.move", json!({"workspace": a, "index": 99}), "a-last");
+    assert_eq!(shown(&mux, &ids), [home.as_str(), c.as_str(), b.as_str(), a.as_str()]);
+
+    // A retried request replays; a later move is not undone by it.
+    let again = send(&mux, "workspace.move", json!({"workspace": c, "index": 0}), Some("c-top"))
+        .unwrap();
+    assert_eq!(again["replayed"], true);
+    assert_eq!(shown(&mux, &ids), [home.as_str(), c.as_str(), b.as_str(), a.as_str()]);
+
+    // Home itself stays first.
+    mutate(&mux, "workspace.move", json!({"workspace": home, "index": 2}), "home-moved");
+    assert_eq!(shown(&mux, &ids)[0], home, "home left the first slot");
+    mux.shutdown();
+}
+
+#[test]
+fn a_move_keeps_a_grouped_workspace_in_its_group() {
+    let session = Session::new("move-doc-group");
+    let mux = session.open();
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let work = mutate(&mux, "workspace_group.create", json!({"name": "Work"}), "group-work")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    mutate(&mux, "workspace.place", json!({"workspace": b, "group": work}), "b-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": c, "group": work}), "c-in-work");
+    let ids = [a.as_str(), b.as_str(), c.as_str()];
+    let before = shown(&mux, &ids);
+    let at_b = before.iter().position(|id| *id == b).unwrap();
+    assert_eq!(before[at_b + 1], c, "the group lists b, c");
+
+    mutate(&mux, "workspace.move", json!({"workspace": c, "index": 0}), "c-top");
+    let after = shown(&mux, &ids);
+    let at_c = after.iter().position(|id| *id == c).unwrap();
+    assert_eq!(after[at_c + 1], b, "c is not first in its group: {after:?}");
+    assert_eq!(group_of(&mux, &c), json!(work), "the move took c out of its group");
+    mux.shutdown();
+}
+
+#[test]
+fn a_create_with_placement_top_shows_first_under_a_bottom_setting() {
+    let session = Session::new("create-placement-top");
+    let mux = session.open();
+    let _bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
+    let home = home(&mux);
+    let a = empty_workspace(&mux, "a");
+    let b = mutate(
+        &mux,
+        "workspace.create",
+        json!({"name": "agent", "initial_content": "empty", "placement": "top"}),
+        "create-agent",
+    )["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let c = empty_workspace(&mux, "c");
+    let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
+    assert_eq!(
+        shown(&mux, &ids),
+        [home.as_str(), b.as_str(), a.as_str(), c.as_str()],
+        "placement top did not put the new workspace first below Home"
+    );
+    mux.shutdown();
+}

@@ -1,5 +1,7 @@
 //! `workspace.rename` and `workspace.move`, which resolve their workspace
-//! by selector and return the committed workspace snapshot.
+//! by selector and return the committed workspace snapshot. A move also
+//! moves the workspace in the sidebar document
+//! (`state::sidebar_doc_workspace_move`).
 
 use super::*;
 
@@ -46,6 +48,13 @@ pub(super) fn move_workspace(
             &mutation,
         )
         .map_err(resource_operation_error)?;
+    // The sidebar shows the sidebar document's order, not the session's
+    // (#29875): move the workspace there too, to the same `index` of
+    // `workspace.list`.
+    if let Some(workspace) = commit.result["workspace"].as_str() {
+        mux.state_workspace_sidebar_move(&mutation, workspace, index)
+            .map_err(resource_operation_error)?;
+    }
     snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
 }
 

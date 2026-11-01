@@ -23,7 +23,8 @@ import Foundation
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
 /// `group` (the name of the sidebar group it goes in: any group of that name
 /// that can hold the row, made only when none can; `acpmux new --group` sends
-/// it). A `key` that names a listed workspace opens nothing: a launcher run
+/// it), `placement` (`top`: first in the sidebar, below Home, whatever
+/// `workspaces.newPlacement` says; `cmux agents chat new --top`, #29875). A `key` that names a listed workspace opens nothing: a launcher run
 /// again finds its row. A `name` that already has a row in that group (a lane
 /// re-homed to another machine, whose new session has a new key) gets the
 /// chat as a tab of that row, never a second row of the same name.
@@ -51,13 +52,17 @@ enum AgentSessionWorkspace {
         if let group, !validGroupName(group) {
             throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
         }
+        let placement = invocation["placement"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        if let placement, placement != "top" {
+            throw ActionFailure(message: "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting")
+        }
         let parent = invocation.callerAgentSession.flatMap { caller in
             Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
-                            focus: invocation.allowsViewChange, parent: parent, services: context.services)
+                            top: placement == "top", focus: invocation.allowsViewChange, parent: parent, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -76,7 +81,7 @@ enum AgentSessionWorkspace {
     /// build has no agent page or the daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
+                     group: String? = nil, top: Bool = false, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
                      services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
@@ -96,7 +101,8 @@ enum AgentSessionWorkspace {
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
-        // the named `group`.
+        // the named `group`. `top`: first in its machine section, below Home,
+        // whatever the setting and the shown workspace say.
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
             join = { id, sidebar in
@@ -104,8 +110,8 @@ enum AgentSessionWorkspace {
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
-                                      then: join, windows: windows)
+        let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, then: join, windows: windows)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to

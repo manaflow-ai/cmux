@@ -32,11 +32,16 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// top region, a custom section): the list leaves that row out on purpose,
     /// so its absence is no stale layout and `afterCurrent` falls back to `top`.
     var currentMachine: String?
+    /// The creator named `placement` for this workspace (`cmux agents chat new --top`), so the daemon's
+    /// create, which places by the setting, may not have put it there: the app writes the slot even when it
+    /// is the daemon's top slot (``move(for:section:in:home:catchingUp:)`` skips that one).
+    var named: Bool
 
-    init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
+    init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil, named: Bool = false) {
         self.placement = placement
         self.current = current
         self.currentMachine = currentMachine
+        self.named = named
     }
 
     /// The current row is expected in this machine section but is not in the
@@ -97,7 +102,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        if !named, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
 

@@ -270,6 +270,37 @@ fn create_workspace(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    // `placement` names the new workspace's place in the sidebar order for
+    // this create (an agent's workspace on top, #29875); absent: the
+    // `workspaces.newPlacement` setting.
+    match create_placement(&request.fields)? {
+        Some(placement) => placement.scoped(|| create_workspace_placed(mux, request)),
+        None => create_workspace_placed(mux, request),
+    }
+}
+
+fn create_placement(
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Option<crate::user_settings::NewWorkspacePlacement>, ResourceError> {
+    use crate::user_settings::NewWorkspacePlacement;
+    Ok(match optional_string(fields, "placement")?.as_deref() {
+        None => None,
+        Some("top") => Some(NewWorkspacePlacement::Top),
+        Some("after_current") => Some(NewWorkspacePlacement::AfterCurrent),
+        Some("bottom") => Some(NewWorkspacePlacement::Bottom),
+        Some(other) => {
+            return Err(validation_error(
+                "placement must be top, after_current or bottom",
+                json!({"field":"placement","value":other}),
+            ));
+        }
+    })
+}
+
+fn create_workspace_placed(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
     let initial_content = required_string(&request.fields, "initial_content")?;
     if initial_content != "empty" {
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
