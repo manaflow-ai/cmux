@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextDaemon
 import Foundation
 
 /// The Cloud repository actions are daemon-owned. The page host only validates the action shape
