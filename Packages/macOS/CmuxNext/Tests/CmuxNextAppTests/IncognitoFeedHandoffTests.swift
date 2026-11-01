@@ -54,30 +54,57 @@ struct IncognitoFeedHandoffTests {
                 "an incognito window's notification was handed to the Feed and the iPhone push")
         #expect(policy.content(for: Self.item(workspace: nil, terminal: "term_secret")) == nil,
                 "an incognito terminal's notification with no workspace context was handed off")
-        let frozen = policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: "term_secret"))
-        #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an incognito item already handing off kept its text: \(frozen)")
+        #expect(policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: "term_secret")) == nil,
+                "an incognito item already handing off would still be adopted")
     }
 
     @Test func anIncognitoItemStaysLocalAfterItsWindowCloses() throws {
         let policy = try policy(closed: true)
         #expect(policy.content(for: Self.item(workspace: "ws_secret", terminal: nil)) == nil,
                 "a closed incognito window's item was handed to the Feed and the iPhone push")
-        let frozen = policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: nil))
-        #expect(frozen.title.isEmpty && frozen.body.isEmpty)
+        #expect(policy.frozenContent(for: Self.item(workspace: "ws_secret", terminal: nil)) == nil)
         #expect(policy.content(for: Self.item(workspace: nil, terminal: "term_secret")) == nil)
     }
 
     /// An item whose workspace the app has not classified (not in the tree yet, or left by a crashed run while it
-    /// was handing off) may be an incognito window's: it waits, and a frozen one sends no text.
+    /// was handing off) may be an incognito window's: it waits, and a frozen one is withdrawn, never adopted.
     @Test func anUnclassifiedWorkspacesItemWaits() throws {
         let policy = try policy()
         #expect(policy.content(for: Self.item(workspace: "ws_unknown", terminal: "term_unknown")) == nil)
-        let frozen = policy.frozenContent(for: Self.item(workspace: "ws_unknown", terminal: nil))
-        #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an unclassified item handing off sent its text: \(frozen)")
+        #expect(policy.frozenContent(for: Self.item(workspace: "ws_unknown", terminal: nil)) == nil,
+                "an unclassified item handing off would be adopted")
         // Before the windows restored (a crashed run's incognito workspace not flagged yet), no pass runs.
         #expect(!policy.classified, "the handoff ran before the app knew which workspaces are incognito")
         // An item with no context (`notify --workspace` with no tab) may be an incognito workspace's too.
         #expect(policy.content(for: Self.item(workspace: nil, terminal: nil)) == nil)
+    }
+
+    /// A frozen incognito item (a crashed run froze it) is withdrawn: `feed.adopt.cancel`, never `feed.adopt`, and
+    /// on `cancelled: true` the daemon takes it back (`feed-local-handoff-abort`).
+    @Test func aFrozenIncognitoItemIsWithdrawnNotAdopted() async {
+        final class Ops { var sent: [String] = [] }
+        let ops = Ops()
+        var item = Self.item(workspace: "ws_secret", terminal: "term_secret")
+        item.state = .handingOff
+        let frozen = item
+        var driver: FeedHandoffDriver?
+        let step: String = await withCheckedContinuation { finished in
+            driver = FeedHandoffDriver(
+                daemon: .init(serves: { true }, list: { state, _ in state == .handingOff ? [frozen] : [] },
+                              begin: { _ in frozen },
+                              done: { _, _ in finished.resume(returning: "done"); return frozen },
+                              abort: { _ in finished.resume(returning: "abort"); return frozen }),
+                owner: { _, body in
+                    ops.sent.append(body["op"] as? String ?? "?")
+                    return body["op"] as? String == "feed.adopt.cancel" ? ["value": ["cancelled": true]] : [:]
+                },
+                isSignedIn: { true }, installID: { "inst_test" },
+                policy: { FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: [], normalWindows: ["ws_normal"]) })
+            driver?.run()
+        }
+        #expect(step == "abort")
+        #expect(ops.sent == ["feed.adopt.cancel"], "a frozen incognito item reached the cloud: \(ops.sent)")
+        _ = driver
     }
 
     @Test func aNormalWorkspacesItemStillHandsOff() throws {

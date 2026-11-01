@@ -51,12 +51,12 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
         return mirrored(item)
     }
 
-    /// The text for an item that is already handing off: it must reach its
-    /// new owner (a send that may have committed never unfreezes), but only
-    /// what the mirror setting allows now leaves the Mac, and no text of an item
-    /// not known to be a normal window's (`normalWindows`).
-    public func frozenContent(for item: FeedLocalItem) -> (title: String, body: String) {
-        isInNormalWindow(item) ? mirrored(item) ?? ("", "") : ("", "")
+    /// The text for an item that is already handing off: only what the mirror
+    /// setting allows now leaves the Mac. Nil for an item not known to be a
+    /// normal window's (`normalWindows`): the driver withdraws its adopt
+    /// (`feed.adopt.cancel`) instead of sending it.
+    public func frozenContent(for item: FeedLocalItem) -> (title: String, body: String)? {
+        isInNormalWindow(item) ? mirrored(item) ?? ("", "") : nil
     }
 
     private func isInNormalWindow(_ item: FeedLocalItem) -> Bool {

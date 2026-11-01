@@ -96,7 +96,8 @@ extension NotificationCenterService {
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },
                 begin: { try await connection().request(FeedLocalHandoffBeginRequest(item: $0)).item },
-                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item }),
+                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item },
+                abort: { try await connection().request(FeedLocalHandoffAbortRequest(item: $0)).item }),
             owner: { path, body in try await principal.call(path, body) },
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
