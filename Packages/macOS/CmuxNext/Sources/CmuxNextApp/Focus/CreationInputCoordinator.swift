@@ -1,8 +1,13 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextTerminal
 import os
+
+/// Where a creation hold's keys run again (#28436): `AppDelegate` passes `NSApp.sendEvent`, to the key window a person types
+/// in; a test, whose window is never key, passes its window. Arguments: the key, the window that held it, the key router.
+typealias HeldKeyReplay = @MainActor (NSEvent, NSWindow, KeyRouter) -> Void
 
 /// Owns a window's keys from the moment a pane or terminal tab creation is handled (a split, New
 /// Terminal Tab) until the new terminal has the keyboard (cx-wb5.76). Without it, keys typed
@@ -23,8 +28,7 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
-    /// How a held key runs again: `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu).
-    var runKey: @MainActor (NSEvent, NSWindow) -> Void = { event, _ in NSApp.sendEvent(event) }
+    private let replay: HeldKeyReplay // a held key runs again (``HeldKeyReplay``)
 
     /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
     private(set) var holdEnds = CreationHoldLog()
@@ -35,12 +39,9 @@ final class CreationInputCoordinator {
     func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { holdEnds.last[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 
-    init(router: KeyRouter) { self.router = router }
+    init(router: KeyRouter, replay: @escaping HeldKeyReplay) { (self.router, self.replay) = (router, replay) }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
@@ -59,10 +60,7 @@ final class CreationInputCoordinator {
     }
 
     /// Whether a creation or its asynchronous placement is still outstanding in this window.
-    func hasPendingCreation(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber]?.hasPendingCreation == true
-    }
+    func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
@@ -153,7 +151,7 @@ final class CreationInputCoordinator {
         for (index, key) in keys.enumerated() {
             replaying = true
             switch key {
-            case .run(let event): runKey(event, window)
+            case .run(let event): if let router { replay(event, window, router) }
             case .type(let events, let lane): type(events, into: lane)
             case .command(let event, let lane): runCommand(event, for: lane, in: window)
             }

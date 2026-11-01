@@ -34,7 +34,7 @@ struct SecondCreationKeysTests {
     /// The app on a fresh daemon with two confirmed terminal panes side by side, the first left of the second (made by two
     /// splits: the test app's first pane is an agent chat, not a terminal); `body` runs with them.
     private static func withTwoTerminals(_ body: (Panes) async throws -> Void) async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await PinnedPageTests.withApp(heldKeyReplay: Self.testWindowReplay) { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             let window = try #require(content.layoutView.window)
             let first = try await splitToTerminal("first", services: services, content: content, window: window)
@@ -136,10 +136,14 @@ struct SecondCreationKeysTests {
 
     /// Held keys run again as `CmuxApplication.sendEvent` runs a key (the key router, then the window): a test window is
     /// never key, so `NSApp.sendEvent` would deliver them nowhere.
+    private static let testWindowReplay: HeldKeyReplay = { event, window, router in
+        if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+    }
+
+    /// The creation hold of `p`'s app, with a short bound (its keys run again in the test window: ``testWindowReplay``).
     private static func replayInTestWindow(_ p: Panes) -> CreationInputCoordinator {
-        let router = p.services.keyRouter, coordinator = router.creationInputCoordinator
+        let coordinator = p.services.keyRouter.creationInputCoordinator
         coordinator.holdLimit = .milliseconds(300)
-        coordinator.runKey = { event, window in if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) } }
         return coordinator
     }
 

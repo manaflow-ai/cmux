@@ -40,6 +40,7 @@ export default changelogPageEntry({
     "page:cmux.changelog",
     "pages/changelog/ChangelogPage.tsx",
     "pages/changelog/JournalPage.tsx",
+    "pages/changelog/SheetPage.tsx",
     "pages/changelog/RailPage.tsx",
     "pages/changelog/DigestPage.tsx",
     "pages/changelog/ReleaseParts.tsx",
@@ -66,8 +67,17 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
+    sheet: {
+      note: "What's New sheet (default since 2026-10-31, cmux-shots/whatsnew-variations): a centered title, the days newest first, each change an accent glyph, a bold title and one muted line.",
+      notes: journalNotes,
+    },
+    "sheet-real-nightlies": {
+      note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",
+      notes: realNightlies,
+    },
     ledger: {
-      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
+      route: "#/?design=ledger",
+      note: "Ledger (default u5099 to 2026-10-31): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
     },
     "ledger-wide": {
@@ -88,27 +98,27 @@ export default changelogPageEntry({
     "clips-alternate": {
       note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
       notes: clipNotes,
-      route: `#/?news=alternate&${clipRoute}`,
+      route: `#/?design=ledger&news=alternate&${clipRoute}`,
     },
     "clips-stack": {
       note: "The same update, Stack: one change after another, the clip on top and its caption under it.",
       notes: clipNotes,
-      route: `#/?news=stack&${clipRoute}`,
+      route: `#/?design=ledger&news=stack&${clipRoute}`,
     },
     "clips-grid": {
       note: "The same update, Grid (default): two-up glass cards, the clip on top.",
       notes: clipNotes,
-      route: `#/?${clipRoute}`,
+      route: `#/?design=ledger&${clipRoute}`,
     },
     "clips-lead": {
       note: "The same update in the lead row the clips replaced (before): up to three changes side by side, each clip boxed to 16:10 and cut.",
       notes: clipNotes,
-      route: `#/?news=lead&${clipRoute}`,
+      route: `#/?design=ledger&news=lead&${clipRoute}`,
     },
     "ledger-update-span": {
       note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=ledger&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     journal: {
       note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
