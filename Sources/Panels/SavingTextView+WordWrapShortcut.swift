@@ -5,20 +5,26 @@ extension SavingTextView {
     func filePreviewWordWrapShortcutCandidates() -> [
         (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
     ] {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileEditorWordWrap)
-        guard !shortcut.isUnbound else { return [] }
-        return [(
-            shortcut,
-            { [weak self] event in
-                guard let self else { return false }
-                if window != nil, let appDelegate = AppDelegate.shared {
-                    return appDelegate.shortcutWhenClauseAllows(action: .toggleFileEditorWordWrap, event: event)
-                }
-                return KeyboardShortcutSettings.effectiveWhenClause(for: .toggleFileEditorWordWrap)
-                    .evaluate(Self.filePreviewTextEditorShortcutContext)
-            },
-            { [weak self] in _ = self?.toggleFilePreviewWordWrap() }
-        )]
+        return KeyboardShortcutSettings.shortcutBindings(for: .toggleFileEditorWordWrap).compactMap { binding in
+            guard !binding.shortcut.isUnbound else { return nil }
+            return (
+                binding.shortcut,
+                { [weak self] event in
+                    guard let self else { return false }
+                    if window != nil, let appDelegate = AppDelegate.shared {
+                        return binding.whenClause.evaluate(
+                            appDelegate.shortcutWhenClauseContext(
+                                for: .toggleFileEditorWordWrap,
+                                clause: binding.whenClause,
+                                event: event
+                            )
+                        )
+                    }
+                    return binding.whenClause.evaluate(Self.filePreviewTextEditorShortcutContext)
+                },
+                { [weak self] in _ = self?.toggleFilePreviewWordWrap() }
+            )
+        }
     }
 
     /// Changes the shared preference and immediately reflows this editor in place.
