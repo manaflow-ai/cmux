@@ -263,18 +263,12 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** The working spinner's spokes: eight, like the macOS activity indicator (the native rows' mark,
- * CmuxNextDesign `NativeSpinnerImage`), the top one leading at full strength and the rest fading
- * counter-clockwise behind it. `cv-spinner` steps them round one spoke at a time. */
-const SPINNER_SPOKES = Array.from({ length: 8 }, (_, index) => ({
-  angle: index * 45,
-  opacity: index === 0 ? 1 : Math.max(0.25, 1 - (8 - index) * 0.11),
-}));
-
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the stepping
- * spokes, or a still dot while the row's words shimmer. `loading` (a check or a page loading, not
- * agent work) always draws the turning ring. `cv-spinner` turns either on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning arc,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
+ * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
@@ -292,21 +286,13 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    {loading ? (
-      <path
-        className="cv-spinner__arc"
-        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-        stroke="currentColor"
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-      />
-    ) : (
-      <g className="cv-spinner__spokes" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round">
-        {SPINNER_SPOKES.map(({ angle, opacity }) => (
-          <line key={angle} x1="8" y1="1.75" x2="8" y2="4.75" opacity={opacity} transform={`rotate(${angle} 8 8)`} />
-        ))}
-      </g>
-    )}
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
     {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
