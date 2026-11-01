@@ -1,6 +1,45 @@
 import { expect, test } from "bun:test";
 import { mergeModelCatalog } from "./modelCatalog";
 
+for (const olderHost of [false, true]) {
+  test(`daemon fallback identities stay unverified through the wire join (older host: ${olderHost})`, async () => {
+    const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+    const fallback = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "codex")!.models;
+    const hostCatalog = structuredClone(BUNDLED_MODEL_CATALOG);
+    if (olderHost)
+      for (const harness of hostCatalog.harnesses)
+        harness.models = harness.models.filter((model) => !["gpt-6.1-terra", "gpt-6.1-luna"].includes(model.id));
+    for (const id of ["codex", "codex-sr"]) {
+      const join = (topModels?: string[], declared = false, current?: string) => {
+        const acpmux = mergeModelCatalog(
+          { harnesses: [{ id, family: id }] },
+          {
+            harnesses: [
+              {
+                harness: id,
+                topModels,
+                models: fallback.map((model) => ({ ...model, curated: true, declared })),
+              },
+            ],
+          },
+        );
+        return buildPickerCatalog({
+          catalog: hostCatalog,
+          acpmux,
+          session: { harness: id, model: current },
+        })
+          .harnesses.find((harness) => harness.id === id)!
+          .models.map((model) => model.id);
+      };
+      expect(join()).not.toContain("gpt-6.1-terra");
+      expect(join()).not.toContain("gpt-6.1-luna");
+      expect(join(["gpt-6.1-terra"])).toContain("gpt-6.1-terra");
+      expect(join(undefined, true)).toContain("gpt-6.1-terra");
+      expect(join(undefined, false, "gpt-6.1-terra")).toContain("gpt-6.1-terra");
+    }
+  });
+}
+
 test("model routers are not harness choices, while cmux-prefixed launchers remain available", async () => {
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const catalog = mergeModelCatalog(
@@ -83,6 +122,59 @@ test("a folded release retains its harness menu position without promoting the r
   const harness = result.harnesses.find((entry) => entry.id === "claude")!;
   expect(harness.topModels).toEqual(["opus", "sonnet"]);
   expect(harness.topModels).not.toContain("claude-haiku-5-5");
+});
+
+test("a reported Prime family keeps its discovered model or one default entry", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const discovered = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [{ id: "prime-agent", name: "Prime Agent", family: "prime", models: [{ id: "prime/x", name: "Prime X" }] }],
+  });
+  expect(discovered.harnesses.find((entry) => entry.family === "prime")?.models.map((model) => model.id)).toEqual([
+    "prime/x",
+  ]);
+
+  const fallback = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "prime-agent",
+        name: "Prime Agent",
+        family: "prime",
+        models: [{ id: "default", name: "default (agent's choice)" }],
+      },
+    ],
+  });
+  expect(fallback.harnesses.find((entry) => entry.family === "prime")?.models.map((model) => model.id)).toEqual([
+    "default",
+  ]);
+
+  const absent = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: [] });
+  expect(absent.harnesses.some((entry) => entry.family === "prime")).toBe(false);
+
+  const unreportedFamily = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [{ id: "prime-agent", name: "Prime Agent", models: [{ id: "default", name: "default (agent's choice)" }] }],
+  });
+  expect(unreportedFamily.harnesses.find((entry) => entry.id === "prime-agent")?.family).toBeUndefined();
+
+  const staticOnly = buildPickerCatalog({
+    catalog: {
+      ...BUNDLED_MODEL_CATALOG,
+      harnesses: [
+        {
+          id: "prime",
+          name: "Prime Intellect",
+          brand: "prime",
+          families: ["prime"],
+          modelSource: "probe",
+          models: [],
+        },
+      ],
+    },
+    acpmux: [],
+  });
+  expect(staticOnly.harnesses.find((entry) => entry.id === "prime")?.family).toBeUndefined();
 });
 
 test("an omitted model effort capability stays distinct from explicit no-effort", async () => {

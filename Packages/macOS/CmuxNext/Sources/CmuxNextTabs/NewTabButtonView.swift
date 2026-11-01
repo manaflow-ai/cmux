@@ -20,6 +20,8 @@ final class NewTabButtonView: NSView {
         }
     }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
+    /// Held only by this button's menu, including accessibility invocation without hover.
+    var isMenuOpen = false { didSet { if oldValue != isMenuOpen { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
     /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
     /// shows at once; the tooltip draws it after its text.
@@ -34,13 +36,13 @@ final class NewTabButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        fillLayer.cornerRadius = Metrics.itemCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerRadius = Metrics.tabCornerRadius
+        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.space1 * 0.7
         glyphLayer.lineCap = .round
-        glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
+        glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
         layer?.addSublayer(fillLayer)
         layer?.addSublayer(glyphLayer)
         setAccessibilityElement(true)
@@ -72,6 +74,8 @@ final class NewTabButtonView: NSView {
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
+        // The tabs' shape (`Metrics.tabCornerRadius`), so the + reads as one of the strip's pills.
+        fillLayer.cornerRadius = Metrics.tabCornerRadius
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2
@@ -107,13 +111,20 @@ final class NewTabButtonView: NSView {
     }
 
     private func updateColors(animated: Bool) {
-        let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
+        let hovering = isHovered || isMenuOpen
+        let pressed = isPressed || isMenuOpen
+        let token = animated ? ChromeHover.fade(showing: hovering || pressed, pressed: pressed) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         Motion.tabs.transaction(token) {
             performWithTheme {
-                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
-                glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+                // New-tab is a plain glyph action. Its hover/press state is carried by the glyph,
+                // never by a rounded plate behind the +. Its own menu holds the pressed state.
+                fillLayer.backgroundColor = nil
+                glyphLayer.strokeColor = (pressed ? Palette.litGlyph : (hovering ? Palette.textPrimary : Palette.textSecondary)).cgColor
+                // Neutral themes can use the same ink for hover and selection. A heavier
+                // stroke keeps a held press visible there too, without a background.
+                glyphLayer.lineWidth = Metrics.space1 * (pressed ? 1 : 0.7)
             }
         }
     }

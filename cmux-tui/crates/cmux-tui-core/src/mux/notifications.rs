@@ -1,6 +1,7 @@
 //! Notifications: per-surface unread markers, posting (CLI, terminal, resource), the durable notification ledger, reads, acks and clears.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
@@ -301,16 +302,16 @@ impl Mux {
             "read_by": read_by,
         });
         if let Some(terminal_id) = &notification.terminal_id {
-            value["terminal_id"] = serde_json::json!(terminal_id);
+            value.set("terminal_id", serde_json::json!(terminal_id));
         }
         if let Some(subtitle) = &notification.subtitle {
-            value["subtitle"] = serde_json::json!(subtitle);
+            value.set("subtitle", serde_json::json!(subtitle));
         }
         // Stored under `extra`, which every registry schema already accepts,
         // so a downgraded daemon still opens the receipt.
-        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
+        value.set("extra", serde_json::json!({"source": notification.source.as_str()}));
         if let Some(workspace) = &notification.workspace_id {
-            value["extra"]["workspace_id"] = serde_json::json!(workspace);
+            value.set_path(&["extra", "workspace_id"], serde_json::json!(workspace));
         }
         value
     }
@@ -324,7 +325,7 @@ impl Mux {
         session_id: &SessionPublicId,
     ) -> Value {
         let mut value = self.notification_snapshot_value(notification, session_id, &[]);
-        value["unread"] = Value::Bool(notification.terminal_id.is_some());
+        value.set("unread", Value::Bool(notification.terminal_id.is_some()));
         // A non-terminal tab (an agent chat) is named by its content, so a
         // restart finds the tab again to dedupe and acknowledge against.
         if notification.terminal_id.is_none()
@@ -338,7 +339,7 @@ impl Mux {
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.clone())
         {
-            value["extra"]["browser_id"] = serde_json::json!(browser);
+            value.set_path(&["extra", "browser_id"], serde_json::json!(browser));
         }
         value
     }
@@ -410,7 +411,7 @@ impl Mux {
             "terminal_id": terminal_id,
         });
         if let Some(subtitle) = &subtitle {
-            fingerprint["subtitle"] = serde_json::json!(subtitle);
+            fingerprint.set("subtitle", serde_json::json!(subtitle));
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
             ResourceEffectOutcome::Success(_) => Ok(None),
@@ -724,7 +725,7 @@ impl Mux {
             "terminal_id": terminal_id,
         });
         if let NotificationClearScope::Workspace(workspace) = cleared_scope.scope {
-            fingerprint["workspace_id"] = serde_json::json!(workspace);
+            fingerprint.set("workspace_id", serde_json::json!(workspace));
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {

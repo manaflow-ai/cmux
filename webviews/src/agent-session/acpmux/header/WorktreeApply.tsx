@@ -3,6 +3,7 @@
 // (`git.worktree.apply`). It says how much landed, or inline why nothing did; the session host
 // changes nothing when it refuses. The pill keeps where it stands, so closing the popover mid-apply
 // never offers a second one.
+import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { HeaderWorktree } from "./WorktreePill";
 
@@ -101,7 +102,10 @@ export function WorktreeApply({
       )}
       {/* Work the agent does later applies again, as a new action. */}
       <button type="button" disabled={busy || applying.step === "applying"} onClick={run}>
-        {applying.step === "applying" ? t("header.worktreeApplying") : t("header.worktreeApply")}
+        <StableLabel
+          label={applying.step === "applying" ? t("header.worktreeApplying") : t("header.worktreeApply")}
+          alternatives={[t("header.worktreeApply"), t("header.worktreeApplying")]}
+        />
       </button>
       {applying.step === "failed" && <span role="alert">{applying.message}</span>}
     </div>

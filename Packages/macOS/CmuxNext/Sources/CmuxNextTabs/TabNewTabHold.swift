@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Press-and-hold on + opens the new tab menu (`TabStripView.showNewTabMenu`), as a long press on a
 /// back button opens history. The strip holds one: `start` on a press on +, `end` on mouse-up.
@@ -20,7 +21,13 @@ import AppKit
             self.openedMenu = true
             strip.newTabButton.isPressed = false
             strip.pressedNewTab = false
-            strip.showNewTabMenu()
+            // From a run-loop callout, not this Task's main-queue job: a menu tracking inside a job
+            // holds the main queue until it closes, and the click that closes it waits on everything
+            // queued meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is sometimes slow").
+            MainRunLoopBlock.perform { [weak strip] in
+                guard let strip, strip.window != nil else { return }
+                strip.showNewTabMenu()
+            }
         }
     }
 

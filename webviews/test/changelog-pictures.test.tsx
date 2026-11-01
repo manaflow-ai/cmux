@@ -1,7 +1,7 @@
 // Leo 2026-10-21 (What's New design pass, 2): each change can carry a picture, lazy-loaded in a
 // glass frame, that opens enlarged on a click. A nightly's digest entries carry no picture of
 // their own; the highlight file's picture (release-notes.py) stands in for its entry.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { releaseView } from "../src/pages/changelog/model";
@@ -27,7 +27,7 @@ let dom: JSDOM;
 beforeAll(() => {
   // pretendToBeVisual: the lightbox is a Base UI dialog, whose open transition waits a frame.
   dom = new JSDOM("<!doctype html><div id=root></div>", {
-    url: "cmux-page://cmux.changelog/",
+    url: "cmux-page://cmux.changelog/#/?design=ledger",
     pretendToBeVisual: true,
   });
   Object.assign(scope, {
@@ -53,6 +53,7 @@ afterAll(() => {
 });
 
 const picture = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+const video = "data:video/mp4;base64,AAAA";
 
 function nightly(): ReleaseNotes {
   return {
@@ -132,4 +133,91 @@ test("a change's picture opens enlarged on a click, and Close closes it", async 
   for (let turn = 0; turn < 50 && doc.querySelector(".cl-lightbox"); turn++)
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(doc.querySelector(".cl-lightbox")).toBeNull();
+});
+
+test("an optional video stays a lazy looping video and enlarges accessibly", async () => {
+  const notes = nightly();
+  notes.highlights[0]!.media = [{ url: video, sha256: "0".repeat(64), kind: "video", alt: "The colored labels" }];
+  const view = releaseView(notes, "en");
+  const item = view.hero ?? view.groups[0]?.items[0];
+  expect(item?.media?.video).toBe(true);
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SpanNews } = await import("../src/pages/changelog/SpanNews");
+  const html = renderToStaticMarkup(
+    <SpanNews
+      view={view}
+      ctx={{
+        strings: { language: "en", t: (key: string) => key, format: (key: string) => key } as never,
+        onTry: () => undefined,
+      }}
+    />,
+  );
+  const root = dom.window.document.createElement("div");
+  root.innerHTML = html;
+  const player = root.querySelector("video");
+  expect(player?.getAttribute("preload")).toBe("none");
+  expect(player?.hasAttribute("loop")).toBe(true);
+  expect(player?.hasAttribute("src")).toBe(false);
+  expect(player?.hasAttribute("autoplay")).toBe(false);
+  expect(root.querySelector(".ui-glass")).not.toBeNull();
+});
+
+test("offscreen clips have no source until intersection, and observers disconnect", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Media } = await import("../src/pages/changelog/ReleaseParts");
+  const observers: Observer[] = [];
+  class Observer {
+    observe = mock((_element: Element) => undefined);
+    disconnect = mock(() => undefined);
+    constructor(
+      readonly callback: IntersectionObserverCallback,
+      readonly options: IntersectionObserverInit,
+    ) {
+      observers.push(this);
+    }
+    intersect(isIntersecting: boolean) {
+      this.callback([{ isIntersecting } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+  }
+  const previous = scope.IntersectionObserver;
+  scope.IntersectionObserver = Observer;
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const media = { light: video, dark: video, alt: "The colored labels", video: true };
+  try {
+    await act(async () =>
+      root.render(
+        <>
+          <Media media={media} />
+          <Media media={media} />
+        </>,
+      ),
+    );
+    const players = container.querySelectorAll("video");
+    expect(players).toHaveLength(2);
+    expect(observers).toHaveLength(2);
+    expect(observers[0]!.observe).toHaveBeenCalledWith(players[0]);
+    expect(observers[0]!.options.rootMargin).toBe("200px 0px");
+    for (const player of players) {
+      expect(player.hasAttribute("src")).toBe(false);
+      expect(player.autoplay).toBe(false);
+    }
+    await act(async () => observers[0]!.intersect(false));
+    expect(players[0]!.hasAttribute("src")).toBe(false);
+    expect(observers[0]!.disconnect).not.toHaveBeenCalled();
+    await act(async () => observers[0]!.intersect(true));
+    expect(players[0]!.getAttribute("src")).toBe(video);
+    expect(players[0]!.autoplay).toBe(true);
+    expect(observers[0]!.disconnect).toHaveBeenCalledTimes(1);
+    expect(players[1]!.hasAttribute("src")).toBe(false);
+    expect(players[1]!.autoplay).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    if (previous === undefined) delete scope.IntersectionObserver;
+    else scope.IntersectionObserver = previous;
+  }
+  // Includes the second clip, which never approached the viewport.
+  for (const observer of observers) expect(observer.disconnect).toHaveBeenCalled();
 });

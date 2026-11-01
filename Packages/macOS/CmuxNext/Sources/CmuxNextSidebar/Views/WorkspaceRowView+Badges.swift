@@ -49,17 +49,21 @@ extension WorkspaceRowView {
     /// where the controls left of the column end; nil when the row shows no mark.
     ///
     /// The mark is the badge (one glyph or the stack, its last glyph on the column), else the agent
-    /// mark that stands in for the status, else the status glyph (the `trailing` badge style).
+    /// mark that stands in for the status, else the status glyph (the `trailing` badge style), else a usage warning's
+    /// triangle.
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
-    /// row shows (the disclosure, a count, the keycap, the hover close and more) sits left of it,
+    /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
     func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         let view: NSView
         if !rowBadge.isHidden {
-            // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
-            let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-            rowBadge.frame = NSRect(x: (column - width + side / 2).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
+            // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
+            // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt
+            // glyph on a half point, off the 1x grid, since a row's width ends 1.5 pt from the edge, `rowEdgeGap`).
+            let side = rowBadge.cellSide, width = rowBadge.preferredWidth, scale = window?.backingScaleFactor ?? 1
+            rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(column - width + side / 2, scale: scale),
+                                    y: SidebarStyle.pixelSnapped(cy - side / 2, scale: scale), width: width, height: side)
             view = rowBadge
         } else if markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
@@ -67,10 +71,14 @@ extension WorkspaceRowView {
         } else if activity.showsGlyph {
             activity.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = activity
+        } else if !usageWarningMark.isHidden {
+            // A usage warning with no status: the triangle takes the status's place, in its box (Lawrence 2026-10-30).
+            usageWarningMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
+            view = usageWarningMark
         } else {
             return nil
         }
-        return (view, min(view.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth)) - Metrics.space2)
+        return (view, SidebarStyle.trailingAfterColumnMark(markMinX: view.frame.minX, rowWidth: rowWidth))
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

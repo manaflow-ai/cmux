@@ -629,7 +629,7 @@ fn graft(node: &mut Value, parent_id: &str, subtree: &Value) -> bool {
         if !node["childFrames"].is_array() {
             node["childFrames"] = json!([]);
         }
-        if let Some(children) = node["childFrames"].as_array_mut() {
+        if let Some(children) = node.get_mut("childFrames").and_then(Value::as_array_mut) {
             children.retain(|child| child["frame"]["id"] != subtree["frame"]["id"]);
             children.push(subtree.clone());
         }

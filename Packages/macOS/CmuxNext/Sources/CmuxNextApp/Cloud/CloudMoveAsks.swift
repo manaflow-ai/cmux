@@ -90,7 +90,7 @@ final class CloudMoveAsks {
             for await loaded in ObservationStream({ [weak services] in services?.daemon.store.isLoaded ?? true }) where loaded {
                 guard let self, let services else { return }
                 let retries = services.cloud.moveRetries
-                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab)?.0.agentSession != nil {
+                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab, onMachine: services.machines.local.machineID)?.0.agentSession != nil {
                     guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
                     let text = switch retry {
                     case .show: CloudMoveStrings.unfinishedShow

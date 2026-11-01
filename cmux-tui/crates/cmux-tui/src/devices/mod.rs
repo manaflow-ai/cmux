@@ -5,6 +5,8 @@
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
 //! the headless enroll on a machine with no app.
 
+use cmux_json::JsonSet as _;
+
 mod model;
 mod network;
 mod removal;
@@ -373,7 +375,7 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let listing = current(&flags, &auth, &mut notes)?;
     if flags.has("json") {
         let mut v = serde_json::to_value(&listing)?;
-        v["notes"] = json!(notes);
+        v.set("notes", json!(notes));
         println!("{v}");
         return Ok(());
     }

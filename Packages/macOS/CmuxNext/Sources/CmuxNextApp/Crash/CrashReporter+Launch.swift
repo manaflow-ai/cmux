@@ -26,7 +26,7 @@ extension CrashReporter {
             isDebugBuild: DevTools.isDebugBuild,
             telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults),
             managedDisablesTelemetry: forced,
-            processEnvironment: environment))
+            processEnvironment: environment), identity: CrashReportIdentity(defaults: defaults, info: info))
     }
 }
 

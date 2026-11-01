@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
 
 /**
@@ -36,9 +37,21 @@ import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./dri
 /**
  * Minutes of idleness before a machine without its own setting pauses. The
  * single switch for the default: 0 turns auto-pause off for every machine that
- * has not chosen a value. Leo, 2026-10-21: on, 30 minutes.
+ * has not chosen a value. Leo, 2026-10-21: on, 30 minutes. Leo, 2026-10-30:
+ * "we're saying no auto pausing of the freestyle vms for now": Off.
  */
-export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 30;
+export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 0;
+
+/**
+ * The kill switch for idle auto-pause, off unless the deployment sets
+ * `CMUX_VM_IDLE_AUTO_PAUSE=on`. Off, the `vm-idle-pause` cron probes and
+ * pauses no machine, not even one that chose a timeout (Leo, 2026-10-30:
+ * "we're saying no auto pausing of the freestyle vms for now"). Pause Machine
+ * and Resume are not affected.
+ */
+export function vmIdleAutoPauseEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env.CMUX_VM_IDLE_AUTO_PAUSE === "on";
+}
 
 /** The per-machine choices, in minutes; 0 is Off. */
 export const VM_IDLE_PAUSE_CHOICES = [0, 15, 30, 60, 120] as const;
@@ -129,7 +142,10 @@ export function vmLastApiActivityFromRow(row: MetadataRow): number | null {
  */
 export function vmIdlePrivateAddressesFromRow(row: MetadataRow): string[] {
   const metadata = row.providerMetadata ?? {};
-  return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && a !== "");
+  const raw = [metadata["networkIpv4"], metadata["networkIpv6"]];
+  // A malformed field can hide an inbound connection on that interface.
+  if (raw.some((a) => a != null && a !== "" && (typeof a !== "string" || isIP(a) === 0))) return [];
+  return raw.filter((a): a is string => typeof a === "string" && a !== "");
 }
 
 /** What {@link vmIdleProbeCommand} saw on the machine. */
@@ -391,7 +407,16 @@ def acpmux():
         if not isinstance(s, dict) or "peer" in s:
             continue
         pending = s.get("pendingPermissions")
-        if s.get("turn") is not None or (isinstance(pending, int) and pending > 0) or s.get("status") in ("running", "waiting"):
+        queued = s.get("queued", 0)
+        # A durable queued prompt may be waiting while its session reports
+        # "ready" and has no current turn. A malformed count is unknown.
+        if type(queued) is not int or queued < 0:
+            return None
+        if (s.get("turn") is not None or (isinstance(pending, int) and pending > 0)
+                or queued > 0 or s.get("queuePaused") is True
+                or s.get("waitsForSlot") is True or s.get("moving") is True
+                or s.get("waitingOn") is not None
+                or s.get("status") in ("running", "waiting")):
             busy += 1
         u = s.get("updatedAt")
         if isinstance(u, int) and u > 0 and (latest is None or u > latest):
@@ -544,16 +569,24 @@ def inbound_connections(procs):
         try:
             with open(os.path.join(proc, "net", table)) as f:
                 lines = f.read().splitlines()[1:]
+        except FileNotFoundError:
+            # On a kernel without IPv6 tcp6 can be absent; tcp is always required.
+            if table == "tcp6":
+                continue
+            return None
         except Exception:
-            continue
+            return None
         for line in lines:
+            if not line.strip():
+                continue
             p = line.split()
             try:
                 lhex, lport = p[1].split(":")
                 rport = int(p[2].split(":")[1], 16)
                 rows.append((address(lhex), int(lport, 16), p[3], rport, p[9]))
             except Exception:
-                pass
+                # A malformed row might be an established stream to a forwarded port.
+                return None
     listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     daemon_inodes = daemon_socket_inodes(procs)
@@ -612,7 +645,7 @@ print(json.dumps({
  * only literal IP addresses pass.
  */
 export function vmIdleProbeCommand(privateAddresses: readonly string[]): string {
-  const addresses = privateAddresses.filter((a) => /^[0-9a-fA-F.:]+$/.test(a)).join(",");
+  const addresses = privateAddresses.filter((a) => isIP(a) !== 0).join(",");
   const acp = (args: string) => cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" acp --json ${args}`);
   return [
     cmuxTuiLayoutSelector(),

@@ -112,6 +112,9 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
             "transitionrun",
             (event) => {
               const target = event.target as Element;
+              // Alert polish: the dialog also grows in and shrinks out (scale), as the native one,
+              // except under Reduce Motion, where it only fades.
+              if (event.propertyName === "scale" && target.classList?.contains("ui-dialog")) faded.push("dialog-scale");
               if (event.propertyName !== "opacity") return;
               if (target.classList?.contains("ui-dialog")) faded.push("dialog");
               if (target.classList?.contains("ui-backdrop")) faded.push("backdrop");
@@ -123,17 +126,21 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
         const forget = () => page.evaluate(() => ((window as unknown as { faded: string[] }).faded.length = 0));
         await page.getByRole("button", { name: "Open demo dialog" }).click();
         await page.locator(".ui-dialog").waitFor();
-        // Both fades start as the dialog opens; a transition that never runs leaves the wait to time out.
+        // Both fades (and the scale, with motion) start as the dialog opens; a transition that never
+        // runs leaves the wait to time out.
+        const expected = reduced ? ["backdrop", "dialog"] : ["backdrop", "dialog", "dialog-scale"];
         await page
-          .waitForFunction(() => new Set((window as unknown as { faded: string[] }).faded).size === 2, undefined, {
-            timeout: 5_000,
-          })
+          .waitForFunction(
+            (count) => new Set((window as unknown as { faded: string[] }).faded).size === count,
+            expected.length,
+            { timeout: 5_000 },
+          )
           .catch(() => {});
-        expect(await faded()).toEqual(["backdrop", "dialog"]);
+        expect(await faded()).toEqual(expected);
         await forget();
         await page.keyboard.press("Escape");
         await page.locator(".ui-dialog").waitFor({ state: "detached" });
-        expect(await faded()).toEqual(["backdrop", "dialog"]);
+        expect(await faded()).toEqual(expected);
       } finally {
         await page.close();
       }

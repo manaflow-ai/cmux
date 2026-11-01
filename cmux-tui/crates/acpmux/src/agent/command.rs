@@ -153,6 +153,8 @@ pub(crate) fn harness_command(
             .env("ACPMUX_SESSION_ID", id)
             .env("ACPMUX_SESSION_NAME", sname)
             .env("ACPMUX_SOCKET", crate::config::socket_path())
+            // With its home: a socket pairs only with an explicit home (`config::autostart_refusal`).
+            .env("ACPMUX_HOME", crate::config::home())
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
@@ -236,9 +238,11 @@ pub(crate) fn harness_command(
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
-        (true, Some((id, _))) => {
-            crate::claude_auth::remember(id, &command_env_with(&cmd, !remote_environment))
-        }
+        (true, Some((id, _))) => crate::claude_auth::remember(
+            id,
+            &command_env_with(&cmd, !remote_environment),
+            route_unset.is_some(),
+        ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
@@ -400,6 +404,9 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
             "TERM",
             "COLORTERM",
             "TZ",
+            // The QoS opt-out (`qos.rs`), so a daemon started with it starts
+            // its hosts unclamped too.
+            "ACPMUX_QOS",
             // Windows process startup and temporary-directory basics.
             "SYSTEMROOT",
             "WINDIR",

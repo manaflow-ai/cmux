@@ -4,18 +4,21 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Testing
 
 /// `debug.palette.capture` shows the open palette even when the window server has no image of its
 /// panel (cx-ytt0): the Cmd-Shift-P palette opened over an inactive app captured as a flat gray
 /// image, because the fallback drew only the layer tree on a backdrop.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct DebugPaletteCaptureTests {
     @Test func aPaletteTheWindowServerCannotImageStillCapturesItsContent() throws {
         _ = NSApplication.shared
         let palette = PaletteController(registry: ActionRegistry.standard(), frecencyPersistence: nil)
         palette.show(.commands)
-        defer { palette.hide() }
+        // Own the panel even if the visibility assertion fails or it has already hidden.
+        let ownedPanel = NSApp.windows.first { palette.owns($0) }
+        defer { palette.hide(); ownedPanel?.close() }
         let panel = try #require(palette.visiblePanel)
         let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("palette-capture-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(atPath: path) }

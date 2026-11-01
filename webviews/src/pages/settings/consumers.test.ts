@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import exported from "../../../../schemas/settings/settings-schema.json";
 import { rowsByKey, rowsInSection, schema, sections } from "./schema";
-import { searchRows } from "./search";
+import { rowMatches, searchRows } from "./search";
 
 type ExportedRow = { key: string; consumers: string[]; page_hidden: boolean };
 const exportedRows = (exported as unknown as { rows: ExportedRow[] }).rows;
@@ -43,5 +43,14 @@ describe("consumers", () => {
     expect(hidden.filter((key) => rowsByKey.has(key))).toEqual([]);
     const found = searchRows("muted workspaces", () => undefined).flatMap((group) => group.rows);
     expect(found.filter((row) => hidden.includes(row.key)).map((row) => row.key)).toEqual([]);
+  });
+
+  test("search text cache follows current values and owner revisions", () => {
+    const row = rowsByKey.get("terminal.fontSize");
+    expect(row).toBeDefined();
+    expect(rowMatches(row!, 12, ["12"], { scope: "user", revision: 1 })).toBe(true);
+    // A changed value must not retain the previous value's searchable text.
+    expect(rowMatches(row!, 16, ["12"], { scope: "user", revision: 2 })).toBe(false);
+    expect(rowMatches(row!, 16, ["16"], { scope: "user", revision: 2 })).toBe(true);
   });
 });

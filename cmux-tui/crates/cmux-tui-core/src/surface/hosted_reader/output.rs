@@ -111,28 +111,29 @@ impl HostedReader {
             // cannot then pair this text with an old
             // revision.
             pty.stream_progress.notify();
+            let journal_output =
+                journal_output.map(|output| (output, crate::output_store::HistoryRows::of(&term)));
             (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
         };
         let (generation, journal_output) = generation;
-        if let (Some(journal_target), Some(journal_output)) =
+        if let (Some(journal_target), Some((journal_output, history))) =
             (journal_target.take(), journal_output)
         {
-            pty.record_output(journal_target, &journal_output);
+            pty.record_output(journal_target, &journal_output, history);
         }
         drop(journal_update.take());
         surface.publish_pending_directory();
         surface.publish_pending_progress();
         pty.stream_progress.notify();
-        pty.request_frame(generation);
+        // Published by the frame lane, once per frame (FrameRequests).
+        if let Some((offset, at_bottom)) = scroll_changed {
+            pty.frame_requests.defer_scroll(offset, at_bottom);
+        }
+        pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()
         {
             mux.emit_terminal_title(surface.id, title.into());
-        }
-        if let Some((offset, at_bottom)) = scroll_changed
-            && let Some(mux) = mux.upgrade()
-        {
-            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
         }
         if !terminal_notifications.is_empty()
             && let Some(mux) = mux.upgrade()
