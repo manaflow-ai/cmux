@@ -21,10 +21,12 @@ import Foundation
 /// route change additionally triggers one immediate out-of-cadence beat, so
 /// the presence service can push the fresh port/IP to subscribed phones live.
 ///
-/// Offline is explicit on the server while iOS pairing stays enabled: a clean
-/// quit sends a `stopping: true` goodbye; a crash, sleep, or pairing opt-out is
-/// caught by the service's missed-heartbeat alarm (45s), so disabling iOS
-/// pairing never makes one last backend request.
+/// Runs while iOS pairing or incoming Mac access is enabled
+/// (``PresenceSettings/isEnabled(defaults:cloudEnabled:)``). Offline is explicit
+/// on the server while either stays enabled: a clean quit sends a
+/// `stopping: true` goodbye; a crash, sleep, or hosting opt-out is caught by the
+/// service's missed-heartbeat alarm (45s), so opting out never makes one last
+/// backend request.
 @MainActor
 final class PresenceHeartbeatClient {
     static let shared = PresenceHeartbeatClient()
@@ -81,7 +83,7 @@ final class PresenceHeartbeatClient {
     /// Cancel the loop and send a best-effort goodbye. Called from
     /// `applicationWillTerminate`; the process may exit before the request
     /// lands, which is fine: the service's missed-heartbeat timeout covers
-    /// every unclean path. Pairing opt-out suppresses this goodbye so the
+    /// every unclean path. Hosting opt-out suppresses this goodbye so the
     /// setting's off state remains network-silent.
     func appWillTerminate() {
         guard loopTask != nil, isEnabled else { return }
@@ -267,7 +269,7 @@ final class PresenceHeartbeatClient {
     /// Build the heartbeat JSON body. Routes are always present (the wire
     /// treats an absent field as "unchanged", but this client knows the full
     /// current set on every beat, so it always states it. An empty array means
-    /// the enabled host currently has no routes; pairing opt-out suppresses the
+    /// the enabled host currently has no routes; hosting opt-out suppresses the
     /// heartbeat entirely. Pure and
     /// nonisolated for tests.
     nonisolated static func heartbeatBody(
