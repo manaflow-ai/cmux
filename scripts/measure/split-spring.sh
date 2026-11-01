@@ -84,15 +84,7 @@ if [[ -z "$app" ]]; then
   # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
   # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
   # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
-  # FC-1 scratch: the reload's own log (/tmp/cmux-reload-<tag>.log) streams into the job log too, so a silent hang or
-  # a long build names its step (cmux-austin-mini-1 step 9e972777 stopped after 45 min with no output). Never lands.
-  reload_own_log="/tmp/cmux-reload-$tag.log"
-  : > "$reload_own_log" 2>/dev/null || true
-  tail -n +1 -F "$reload_own_log" 2>/dev/null | sed -u 's/^/reload-log: /' &
-  reload_tail=$!
-  trap 'kill "$reload_tail" 2>/dev/null || true' EXIT
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
-  kill "$reload_tail" 2>/dev/null || true
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
