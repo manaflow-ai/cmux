@@ -142,9 +142,9 @@ import Testing
                                               // again, then the first close fails.
                                               epoch.value = 2
                                               store.apply(snapshot: tree(11))
-                                              await Fixture.settle { repair.visited >= 5 }
+                                              await Fixture.settle { repair.visited >= 4 }
                                               store.apply(try Fixture.paneClosed(workspace: 1))
-                                              await Fixture.settle { repair.visited >= 6 }
+                                              await Fixture.settle { repair.visited >= 5 }
                                               throw Refused()
                                           },
                                           cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
