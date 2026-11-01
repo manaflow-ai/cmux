@@ -56,7 +56,7 @@ import Testing
         #expect(await calls.connected == nil)
     }
 
-    @Test(arguments: ["freestyle", "freestyle-vm-api"])
+    @Test(arguments: ["freestyle", "freestyle-vm-api", "freestyle-cloud"])
     func successRequiresVerifiedReplacementConnection(provider: String) async throws {
         let calls = Calls()
         let value = try await router(calls, provider: provider).handle(request()).get()

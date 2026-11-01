@@ -42,7 +42,7 @@ extension AppControl {
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
         let turnClient = CloudTurnRewindClient(origin: CloudTurnRewindClient.developmentOrigin) {
-            try await services.cloud.installIdentity.accessToken(team: nil).accessToken
+            try await services.cloud.installIdentity.accessToken(team: try await services.cloud.auth.accessTokenTeam(requested: nil)).accessToken
         }
         service?.router.register(CloudTurnCommands(
             state: { try await turnClient.state(workspace: $0) },

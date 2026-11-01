@@ -89,13 +89,14 @@ import Testing
         #expect(CloudWorkspaceProjection.applying([projection], to: [CloudMachine(id: logical), CloudMachine(id: replacement)]).isEmpty)
     }
 
-    @Test func boundVMAPICarrierKeepsTheLogicalWorkspaceIdentity() async throws {
-        let record = record(provider: "freestyle-vm-api"), target = connection(provider: "freestyle-vm-api")
+    @Test(arguments: ["freestyle-vm-api", "freestyle-cloud"])
+    func boundCarrierKeepsTheLogicalWorkspaceIdentity(provider: String) async throws {
+        let record = record(provider: provider), target = connection(provider: provider)
         let projection = try await CloudWorkspaceProjection.read(binding: binding(), machine: { _ in record }, connection: { _ in target })
         #expect(projection.connection?.connectionMachine == replacement)
         let rows = CloudWorkspaceProjection.applying([projection], to: [CloudMachine(id: replacement)])
         #expect(rows.map(\.id) == [logical])
-        #expect(rows.first?.provider == "freestyle-vm-api")
+        #expect(rows.first?.provider == provider)
     }
 
     @Test func rawVMAPIOrWrongLogicalMachineNeverBecomesAnAppLink() async throws {

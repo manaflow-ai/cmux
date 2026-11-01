@@ -529,8 +529,8 @@ final class CloudService {
     }
 
     private var workspaceOwner: CloudTurnRewindClient {
-        CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) { [installIdentity] in
-            try await installIdentity.accessToken(team: nil).accessToken
+        CloudTurnRewindClient(origin: CloudConfiguration.turnAPIBaseURL) { [installIdentity, auth] in
+            try await installIdentity.accessToken(team: try await auth.accessTokenTeam(requested: nil)).accessToken
         }
     }
 
