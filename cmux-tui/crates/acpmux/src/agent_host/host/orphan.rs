@@ -67,6 +67,19 @@ pub(super) fn needs_a_daemon(entry: &Entry) -> bool {
     !matches!(entry, Entry::Err { .. } | Entry::Exit { .. } | Entry::Tap { dir: TapDir::In, .. })
 }
 
+/// Whether a hello that comes while the host ends its harness waits: `ending` the end began,
+/// `alive` its leader is not reaped yet, `exit_in` its exit entry is in the log.
+pub(super) fn holds_hello(ending: bool, alive: bool, _exit_in: bool) -> bool {
+    ending && alive
+}
+
+/// Whether the hellos held while the host ends its harness are answered now (`reaped`: its leader
+/// is reaped, `exit_in`: its exit entry is in the log, `given_up`: the end stopped waiting for
+/// the exit entry, `end_by`).
+pub(super) fn answers_held(reaped: bool, exit_in: bool, _given_up: bool) -> bool {
+    reaped || exit_in
+}
+
 /// A host's own end ([`OrphanExit`]), and what it tracks for it.
 #[derive(Default)]
 pub(super) struct Orphan {
@@ -106,8 +119,10 @@ impl Orphan {
         id: u64,
         frame: &ControllerFrame,
         alive: &std::sync::atomic::AtomicBool,
+        exit_in: bool,
     ) -> bool {
-        let held = self.ending && alive.load(std::sync::atomic::Ordering::SeqCst);
+        let held =
+            holds_hello(self.ending, alive.load(std::sync::atomic::Ordering::SeqCst), exit_in);
         if held {
             self.held.push((id, frame.clone()));
         }
@@ -195,7 +210,8 @@ impl State {
     pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
         if self.orphan.ending {
             let reaped = !self.leader_alive.load(std::sync::atomic::Ordering::SeqCst);
-            if reaped || self.exit_h.is_some() {
+            let given_up = self.orphan.end_by.is_some_and(|by| std::time::Instant::now() >= by);
+            if answers_held(reaped, self.exit_h.is_some(), given_up) {
                 for (id, hello) in std::mem::take(&mut self.orphan.held) {
                     self.on_frame(id, Some(hello)).await;
                 }
@@ -327,7 +343,9 @@ impl State {
 
 #[cfg(test)]
 mod tests {
-    use super::{Entry, OrphanStep, Pending, TapDir, needs_a_daemon, orphan_step};
+    use super::{
+        Entry, OrphanStep, Pending, TapDir, answers_held, holds_hello, needs_a_daemon, orphan_step,
+    };
     use std::time::Duration;
 
     /// A host with no controller looks at its agent only once its whole wait passed, ends it
@@ -363,5 +381,24 @@ mod tests {
         assert!(!needs_a_daemon(&Entry::Tap { dir: TapDir::In, msg }));
         assert!(!needs_a_daemon(&Entry::Err { line: "warn".into() }));
         assert!(!needs_a_daemon(&Entry::Exit { code: Some(0) }));
+    }
+
+    /// A daemon that connects while the host ends its harness is answered only once the exit
+    /// entry is in the log, so its log has the exit and it never starts a turn on a dying harness.
+    /// The waiter task marks the leader reaped before the main loop logs the exit (and the exit
+    /// waits for the harness's output to close), so "reaped" is not "exit in": a hello in that
+    /// window was answered with no exit (orphan_exit `a_daemon_connecting_while_the_harness_
+    /// ends_is_told_it_exited`, `last_h` 0, red on base).
+    #[test]
+    fn a_hello_during_the_end_waits_for_the_exit_entry() {
+        // (ending, alive, exit_in) -> held
+        assert!(holds_hello(true, true, false), "the harness still runs");
+        assert!(holds_hello(true, false, false), "reaped, but the exit is not logged yet");
+        assert!(!holds_hello(true, false, true), "the exit is in");
+        assert!(!holds_hello(false, true, false), "no end began");
+        // (reaped, exit_in, given_up) -> answered
+        assert!(!answers_held(true, false, false), "reaped, but the exit is not logged yet");
+        assert!(answers_held(true, true, false));
+        assert!(answers_held(false, false, true), "the end stopped waiting for the exit");
     }
 }

@@ -1067,7 +1067,9 @@ impl State {
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
             // An orphaned host that ends its harness answers once it is reaped (`orphan.rs`).
-            if self.stall_hello || self.orphan.hold_hello(id, &frame, &self.leader_alive) {
+            if self.stall_hello
+                || self.orphan.hold_hello(id, &frame, &self.leader_alive, self.exit_h.is_some())
+            {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
