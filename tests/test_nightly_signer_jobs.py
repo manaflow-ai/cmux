@@ -265,8 +265,15 @@ class Wiring(unittest.TestCase):
             self.assertIn(mode, image[finish]["run"])
         self.assertNotIn("continue-on-error", image[finish])
         self.assertNotIn("if", image[finish])
-        image_uploads = [s["with"]["name"] for s in image if "upload-artifact" in str(s.get("uses", ""))]
-        self.assertEqual(image_uploads, ["cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"])
+        image_uploads = [s for s in image if "upload-artifact" in str(s.get("uses", ""))]
+        dmg_artifact = "cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
+        self.assertEqual([s["with"]["name"] for s in image_uploads], [dmg_artifact, dmg_artifact])
+        # One retry of a timed-out upload, only when the first one failed, with the same inputs.
+        first, retry = image_uploads
+        self.assertEqual(first.get("continue-on-error"), True)
+        self.assertEqual(retry.get("if"), f"steps.{first['id']}.outcome == 'failure'")
+        self.assertEqual(first["with"], retry["with"])
+        self.assertNotIn("continue-on-error", retry)
         app_upload = next(s for s in JOBS["signer-app"]["steps"] if "upload-artifact" in str(s.get("uses", "")))
         self.assertEqual(app_upload["with"]["compression-level"], 6)
         # verify-signed-nightly's checks, by the commands it runs.

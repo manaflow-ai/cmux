@@ -151,12 +151,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var newName: String?
         public var createKey: String
         public var tabKey: String
+        public var environmentId: String?
+        public var setup: CloudStartSetup?
 
-        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String) {
+        public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
+                    environmentId: String? = nil, setup: CloudStartSetup? = nil) {
             self.machine = machine
             self.newName = newName
             self.createKey = createKey
             self.tabKey = tabKey
+            self.environmentId = environmentId
+            self.setup = setup
         }
     }
 
@@ -164,8 +169,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
+        let start = CloudStartInfo(object: object)
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
-                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
+                                 createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "",
+                                 environmentId: start.environmentId, setup: start.setup)
         // An ok answer without its keys is no answer: a create or open without them is not idempotent.
         guard !run.answer.ok || (!plan.createKey.isEmpty && !plan.tabKey.isEmpty) else {
             return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat plan answered ok without its keys"), plan)
@@ -186,17 +193,18 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine whose
     /// daemon `socket` reaches, under the first of `workRoots` it can write, unless this send's copy
-    /// already finished there. The chat's folder there, and whether it copied now.
+    /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
+    /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                       workRoots: [String]) async throws -> (Answer, (chat: String, copied: Bool)) {
-        let roots = workRoots.flatMap { ["--work-root", $0] }
+                              workRoots: [String], acpmuxHome: String?) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+        let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
                                     "--socket", socket, "--local", local, "--subpath", subpath] + roots)
         let chat = run.object?["chat"] as? String ?? ""
         guard !run.answer.ok || chat.hasPrefix("/") else {
-            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false))
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false, false))
         }
-        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false))
+        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.

@@ -3,8 +3,8 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
-    /// Rows an agent may set (looks only): the Chief chat's bubble style.
-    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key]
+    /// Rows an agent may set (looks only): the Chief chat's bubble style and whether it shows the Feed.
+    static let agentSettableKeys: Set<String> = Set([HomeChiefBubbleStyleSetting.key, HomeFeedRowsSetting.key]
         + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
 
     static var descriptors: [SettingDescriptor] {
@@ -35,6 +35,14 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
                 keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
+            ),
+            // The Feed's notices among the main Chief's messages, for the person only (Leo 2026-10-20).
+            SettingDescriptor(
+                HomeFeedRowsSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.feedInChief", "Show the Feed in Chief"),
+                help: SettingsText.keyed("settings.home.feedInChief.help",
+                                         "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."),
+                kind: .toggle, default: .bool(true), keywords: ["chief", "feed", "notices", "updates", "pull requests", "timeline", "home"]
             ),
             // The bubble colours every chat starts with (user 2026-10-28); a chat's Chat Colors… go over them.
             ] + bubbleColorRows + [

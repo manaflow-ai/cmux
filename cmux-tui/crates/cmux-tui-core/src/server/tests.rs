@@ -535,6 +535,7 @@ mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod incognito_orphans;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod resource_attach;

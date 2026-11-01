@@ -342,6 +342,8 @@ pub(crate) struct ClientRegistry {
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
     pub(super) state: Mutex<ClientRegistryState>,
+    /// Who created each live incognito workspace (incognito_orphans.rs).
+    pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
 
 /// `browser-runtime-v1` is negotiable only where the daemon has runtimes.
@@ -409,6 +411,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
             state: Mutex::new(ClientRegistryState::default()),
+            incognito_creators: Default::default(),
         }
     }
 

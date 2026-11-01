@@ -12,7 +12,15 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { hasReplyActions, keepsReplyRoom, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
+import {
+  codeCardHeight,
+  hasReplyActions,
+  keepsReplyRoom,
+  layoutConversation,
+  placeRows,
+  statusEdge,
+  type AcpmuxRow,
+} from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -496,4 +504,37 @@ test("a turn's end keeps a reply's room: a folded reply to the person keeps it, 
   expect(keepsReplyRoom({ ...reply, settled: true, foldedReply: true }, next)).toBe(true);
   expect(keepsReplyRoom({ ...reply, settled: true }, next)).toBe(false);
   expect(keepsReplyRoom({ ...reply, streaming: true }, next)).toBe(false);
+});
+
+// A code card's estimate (model.ts codeCardHeight) follows what the card draws.
+const codeWidth = 600;
+const codeChars = (room: number) => Math.floor(room / currentChatMetrics().codeCharWidth);
+
+test("a code card estimate reads a fence's first word, as the renderer does (cmux#30836)", () => {
+  // Markdown.tsx keeps only the info string's first word, so `text title="tree"` draws unlabeled.
+  const tree = "root\n├─ a\n└─ b";
+  expect(codeCardHeight(tree, 'text title="tree"', codeWidth)).toBe(codeCardHeight(tree, "text", codeWidth));
+  expect(codeCardHeight("a\nb\nc", 'text title="tree"', codeWidth)).toBe(codeCardHeight("a\nb\nc", "", codeWidth));
+  const python = codeCardHeight("x = 1", "python", codeWidth);
+  expect(codeCardHeight("x = 1", "python  {.numberLines}", codeWidth)).toBe(python);
+});
+
+test("a code card scrolls against its text's width, not the card's (cmux#30690)", () => {
+  // The body's 13px and 1px margins and the plain card's 8px and 12px padding leave width - 34
+  // for text: a line 20px short of the card's edge still scrolls.
+  const scrollbar = (code: string) =>
+    codeCardHeight(code, "python", codeWidth) - codeCardHeight("x", "python", codeWidth);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 20)))).toBe(15);
+  expect(scrollbar("x".repeat(codeChars(codeWidth - 34)))).toBe(0);
+});
+
+test("an unlabeled card's first line keeps room for its corner actions (cmux#30689)", () => {
+  // A first line that fits the text but not the strip's room after it scrolls; as a later line it fits.
+  const line = "x".repeat(codeChars(codeWidth - 34 - 10));
+  const scrollbar = (code: string, lang: string) =>
+    codeCardHeight(code, lang, codeWidth) - codeCardHeight(code.replace(/x+/, "x"), lang, codeWidth);
+  expect(scrollbar(`${line}\nshort`, "")).toBe(15);
+  expect(scrollbar(`short\n${line}`, "")).toBe(0);
+  // A labeled card's actions sit in its header row, so its first line has the full width.
+  expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
 });

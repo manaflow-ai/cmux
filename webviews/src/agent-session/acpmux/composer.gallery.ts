@@ -21,6 +21,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
@@ -30,6 +31,21 @@ const VIDEO_INFO = {
   height: 1080,
   poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
   frames: [5300, 15900, 26500, 37100].map((atMs) => ({ atMs, data: SCREEN_RECORDING_POSTER_JPEG })),
+  // Its gray probes (24×24 cells, two a second up to 48): an editor, a terminal from 12 s, a browser
+  // from 30 s, so the scene pick (composer/videoFramePick.ts) finds two cuts.
+  probes: Array.from({ length: 48 }, (_, index) => {
+    const atMs = Math.round(((index + 0.5) * 42_400) / 48);
+    const gray = atMs < 12_000 ? 40 : atMs < 30_000 ? 200 : 120;
+    return { atMs, cells: btoa(String.fromCharCode(...new Uint8Array(24 * 24).fill(gray))) };
+  }),
+};
+/// The host's `video.frames` answer for the times the page picks from those probes (1280 px in the
+/// app; the poster stands in for each here).
+const VIDEO_FRAMES = {
+  frames: pickFrameTimes(VIDEO_INFO.durationMs, parseProbes(VIDEO_INFO) ?? []).map(({ atMs }) => ({
+    atMs,
+    data: SCREEN_RECORDING_POSTER_JPEG,
+  })),
 };
 
 /// Drops a screenshot and the screen recording on the composer, as Finder does (Leo's capture).
@@ -1144,6 +1160,7 @@ export default agentPaneEntry({
           ],
         },
         "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
       },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
@@ -1161,6 +1178,7 @@ export default agentPaneEntry({
           ],
         },
         "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
       },
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
@@ -1291,6 +1309,7 @@ export default agentPaneEntry({
           ],
         },
         "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
       },
       play: async (ctx) => {
         ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
