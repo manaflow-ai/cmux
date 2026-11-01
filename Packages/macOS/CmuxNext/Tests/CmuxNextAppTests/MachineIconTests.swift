@@ -15,9 +15,10 @@ import Testing
 /// SF Symbol name or a stored image or SVG asset of the home daemon. The home daemon's session
 /// registry keeps it on each machine's session record (`list-personal`), keyed by the session id
 /// `SessionRegistrar` records each machine under (its daemon's `registry_id`; this Mac's own row
-/// too). The sidebar header, a remote workspace's hover card, the machine picker and the Settings
-/// machine rows draw it in place of the machine's symbol (the symbol stands in while a stored asset
-/// loads), and Set/Remove Machine Icon are machine actions on every machine header's menu.
+/// too). The sidebar header, the machine picker and the Settings machine rows draw it in place of
+/// the machine's symbol (the symbol stands in while a stored asset loads; a remote workspace's
+/// hover card keeps its Cloud or globe mark, #30244), and Set/Remove Machine Icon are machine
+/// actions on every machine header's menu.
 @MainActor @Suite(.serialized)
 struct MachineIconTests {
     static let asset = "svg:sha256-" + String(repeating: "f", count: 64)
@@ -133,18 +134,22 @@ struct MachineIconTests {
 
     // MARK: Hover card, picker and Settings
 
-    @Test func aRemoteWorkspacesHoverCardShowsItsMachinesIcon() throws {
+    /// #30244 (Leo 2026-11-01, cloud/remote delineation "just on the hover preview"): the hover
+    /// card's machine row says Cloud with the cloud symbol, and a machine's own icon never
+    /// replaces it (`WorkspaceHoverHostIdentityTests`). The header, picker and Settings still
+    /// draw the machine's icon (below).
+    @Test func aRemoteWorkspacesHoverCardKeepsTheCloudMarkWhateverItsMachinesIcon() throws {
         let workspace = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("w1"), machineID: CmuxNextSidebar.MachineID("vm-1"), title: "build")
         func host(_ icon: WorkspaceIcon?) throws -> WorkspaceHoverCardContent.Fact {
             let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud, icon: icon)
-            return try #require(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()).facts.first { $0.text == "cloud-a1" })
+            return try #require(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()).facts.first { $0.kind == "machine" })
         }
-        #expect(try host(.emoji("🚀")).mark == "🚀")
-        #expect(try host(.symbol("star.fill")).mark == "star.fill")
         let favicon = try Self.favicon()
-        #expect(try host(.favicon(favicon)).image == favicon)
-        let plain = try host(nil)
-        #expect(plain.mark == nil && plain.image == nil, "no icon: the cloud symbol")
+        for icon: WorkspaceIcon? in [.emoji("🚀"), .symbol("star.fill"), .favicon(favicon), nil] {
+            let fact = try host(icon)
+            #expect(fact.text == CmuxNextSidebar.Strings.hoverCloud)
+            #expect(fact.mark == nil && fact.image == nil, "the cloud symbol, not the machine's own icon")
+        }
     }
 
     @Test func theMachinePickerDrawsAMachinesSymbolIcon() {
