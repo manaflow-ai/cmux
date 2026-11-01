@@ -32,7 +32,9 @@
 //! "bytes_done","bytes_total"}}` while the bundle goes, then
 //! `{"progress":{"phase":clone|fetch|bundle|checkout|submodules|lfs,
 //! "bytes_done","objects","objects_total"}}` from the machine (the copy's own
-//! lines, `{"progress":{"files_done",...}}`, for a copy). One JSON line on
+//! lines, `{"progress":{"files_done",...}}`, for a copy, after one
+//! `{"progress":{"phase":"copy","fallback_code","install_url"?}}` saying why
+//! a seed copied instead). One JSON line on
 //! stdout: `{"ok":true,"mode":"seed"|"delta"|"copy","unchanged":bool,
 //! "bundle_bytes":N,"head":SHA|null,"work":SHA|null,"skipped_files":[{"path",
 //! "kind","why"}]}`, a copy adding `"copy":{the sync summary}` and a fallback
@@ -275,6 +277,13 @@ pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<
         Err(Attempt::Failed(error)) => return Err(error.into()),
         Err(Attempt::Fallback(why)) => why,
     };
+    // The copy's own lines follow; this one says why, so the card can tell
+    // the person (and offer the App install) while the copy runs.
+    let mut announce = json!({"phase": "copy", "fallback_code": fallback.code});
+    if let Some(url) = &fallback.install_url {
+        announce["install_url"] = json!(url);
+    }
+    eprintln!("{}", json!({ "progress": announce }));
     copy(&machine, &local, remote, Some(fallback))
 }
 

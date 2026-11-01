@@ -294,10 +294,16 @@ fn folders_that_cannot_be_seeded_are_copied_and_say_why() {
     // Not git.
     let plain = w.root.join("plain");
     write(&plain.join("a.txt"), "a\n");
-    let (ok, copied, _) = w.push(&plain, &w.remote("plain"), false);
+    let (ok, copied, progress) = w.push(&plain, &w.remote("plain"), false);
     assert!(ok, "{copied}");
     assert_eq!(copied["mode"], json!("copy"));
     assert_eq!(copied["fallback_code"], json!("not_git"), "{copied}");
+    // The copy says why before its own lines, for the card's live row.
+    assert_eq!(
+        progress.first().map(|line| &line["progress"]),
+        Some(&json!({"phase": "copy", "fallback_code": "not_git"})),
+        "{progress:?}"
+    );
     assert!(copied["fallback_why"].as_str().is_some_and(|why| !why.is_empty()));
     assert_eq!(copied["copy"]["written"], json!(1), "{copied}");
     assert_eq!(std::fs::read_to_string(w.remote("plain").join("a.txt")).unwrap(), "a\n");
