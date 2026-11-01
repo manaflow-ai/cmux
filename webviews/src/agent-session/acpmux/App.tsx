@@ -3307,32 +3307,25 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
-  useLayoutEffect(() => {
-    if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
-    fadedOpen.current = coldOpen;
-    openFade.current?.cancel();
-    // Under a chat switch motion (chatSwitch.ts) the switch's own play draws the open instead.
-    openFade.current = switchArm === "off" ? fadeInOpenedChat(ref.current) : undefined;
-    onColdOpenShown?.(coldOpen);
-  }, [coldOpen, rows.length, onColdOpenShown, switchArm]);
   // CHAT SWITCH MOTION (experiment chat-switch-motion, off by default): opening another chat plays
   // its rows, title and Session Info in as one movement, on the first frame the new chat's rows draw
-  // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows.
-  // The play's animations end on their own; the next switch starts from where they are, and the
-  // transcript unmounting cancels them.
+  // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows,
+  // and not an empty chat's first send. This effect only notes the switch (before the cold-open fade
+  // below reads it); the play runs in the transcript's last layout effect, after the new chat's rows
+  // are placed and scrolled (search "CHAT SWITCH PLAY"). The play's animations end on their own; the
+  // next switch starts from where they are, and the transcript unmounting cancels them.
   const switchPlay = useRef<ChatSwitchPlay | undefined>(undefined);
   const switchFrom = useRef(sessionId);
   const switchPending = useRef(false);
   const hasRows = rows.length > 0;
   useLayoutEffect(() => {
-    if (switchFrom.current !== sessionId) {
-      switchPending.current = switchFrom.current !== undefined && sessionId !== undefined;
-      switchFrom.current = sessionId;
-    }
-    if (!switchPending.current || !hasRows) return;
-    switchPending.current = false;
-    switchPlay.current = playChatSwitch(ref.current, switchArm, switchPlay.current);
-  }, [sessionId, hasRows, switchArm]);
+    if (switchArm === "off" || switchFrom.current === sessionId) return;
+    // A chat with no rows and none on the way (coldOpen undefined) is an empty chat: its first send
+    // is not a switch.
+    switchPending.current =
+      switchFrom.current !== undefined && sessionId !== undefined && (hasRows || coldOpen !== undefined);
+    switchFrom.current = sessionId;
+  }, [sessionId, hasRows, coldOpen, switchArm]);
   useLayoutEffect(
     () => () => {
       switchPlay.current?.stop();
@@ -3340,6 +3333,14 @@ export function VirtualTranscript({
     },
     [],
   );
+  useLayoutEffect(() => {
+    if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
+    fadedOpen.current = coldOpen;
+    openFade.current?.cancel();
+    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead.
+    openFade.current = switchPending.current ? undefined : fadeInOpenedChat(ref.current);
+    onColdOpenShown?.(coldOpen);
+  }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
@@ -5185,6 +5186,13 @@ export function VirtualTranscript({
   if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
+  // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
+  // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
+  useLayoutEffect(() => {
+    if (!switchPending.current || !hasRows) return;
+    switchPending.current = false;
+    switchPlay.current = playChatSwitch(ref.current, switchArm, switchPlay.current);
+  }, [sessionId, hasRows, switchArm]);
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
