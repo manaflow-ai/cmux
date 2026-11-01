@@ -262,6 +262,7 @@ test("the person's own words that only read like a frame's label or note stay, i
     inlineParts: [
       { kind: "text", text: `look\n${own}` },
       { kind: "text", text: own.replace("demo.mp4", "other.mp4") },
+      { kind: "file", name: "other.mp4", uri: "file:///tmp/other.mp4", placed: true },
       { kind: "text", text: note },
       { kind: "text", text: "other.mp4 frame at 0:01.0" },
       { kind: "image", id: "f".repeat(64), mimeType: "image/jpeg", name: "other.mp4 frame at 0:01.0" },
@@ -272,6 +273,7 @@ test("the person's own words that only read like a frame's label or note stay, i
   expect(shown.inlineParts?.map((part) => (part.kind === "text" ? part.text : part.kind))).toEqual([
     `look\n${own}`,
     own.replace("demo.mp4", "other.mp4"),
+    "file",
   ]);
   const restored = await restoreInline(row, row.text!, async () => ({ mimeType: "image/jpeg", data: "eA==" }));
   expect(restored.input).toContain(own);
