@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextHome
@@ -53,6 +54,9 @@ struct HomePendingTerminalFocusTests {
             page.show(ConversationID("conv_pending_terminal"))
             try await PasswordManagerRouteTests.until({ page.host?.primaryInputView is NSTextView }, report: { "Home's message box never appeared" })
             let host = try #require(page.host)
+            // The conversation's Chief Settings popover panel, which the Home makes up front and only ever hides, closes
+            // with the test (as HomeOpenFocusesComposerTests closes it).
+            defer { (Mirror(reflecting: host).descendant("settings", "popup") as? NativePopupHost)?.closePanel() }
             let box = try #require(host.primaryInputView as? NSTextView)
             // The keyboard is in Home but not in its box (a click on a bubble): the box takes it whenever Home's pane is
             // focused again, which is what the app does by itself at launch and on each topology.
