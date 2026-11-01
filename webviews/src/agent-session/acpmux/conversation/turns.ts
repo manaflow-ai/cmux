@@ -128,6 +128,8 @@ export function turnView(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /** The session's harness family; Claude keeps assistant prose outside the work fold. */
+    agentFamily?: string;
   } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
@@ -140,6 +142,7 @@ export type TurnView = {
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
+  agentFamily?: string;
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
@@ -176,6 +179,7 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    agentFamily,
     waitingSteers,
     messageBreaks = NO_MESSAGE_BREAKS,
   }: {
@@ -185,6 +189,7 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    agentFamily?: string;
     /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
     waitingSteers?: readonly string[];
     /// Sorted insertion times of synthetic rows that must separate received message runs.
@@ -199,6 +204,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.agentFamily === agentFamily &&
     previous.messageBreaks === messageBreaks &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
@@ -216,6 +222,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.agentFamily === agentFamily &&
     previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
@@ -300,6 +307,7 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
+      agentFamily,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -320,6 +328,7 @@ export function turnViewFrom(
     clockOffset,
     liveRuns,
     lineBelow,
+    agentFamily,
     working,
     sessionStatus,
     messageBreaks,
@@ -346,6 +355,7 @@ type ShapedTurn = {
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
+  agentFamily?: string;
   rows: AcpmuxRow[];
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
@@ -377,6 +387,7 @@ function shapedTurn(
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
+  agentFamily?: string,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   const open = live ? "" : openFolds(rows, start, end, expanded);
@@ -389,6 +400,7 @@ function shapedTurn(
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
+    cached.agentFamily === agentFamily &&
     cached.source.length === end - start - 1
   ) {
     let same = true;
@@ -437,6 +449,7 @@ function shapedTurn(
       liveRuns,
       sessionStatus,
       lineBelow,
+      agentFamily,
     );
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
@@ -458,7 +471,7 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
-  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
+  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, agentFamily, rows: shaped });
   return shaped;
 }
 
@@ -492,9 +505,14 @@ export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: Acp
 
 /// Once the turn finishes, all intermediate dialogue and received reports fold together. The
 /// original prompt remains its stable anchor even if the answer or a steer's row changes.
-export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[]): FoldSegment[] {
+export function foldSegments(
+  opener: AcpmuxRow,
+  rows: readonly AcpmuxRow[],
+  preserveAssistantText = false,
+): FoldSegment[] {
   const drawn = rows.filter((row) => row.kind !== "typing");
-  const final = answerAt(drawn);
+  // Claude keeps every assistant message in place; Codex/ChatGPT uses the takeaway split.
+  const final = preserveAssistantText ? -1 : answerAt(drawn);
   return [
     {
       anchor: opener,
@@ -540,6 +558,7 @@ function shapeTurn(
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
+  agentFamily?: string,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -552,6 +571,7 @@ function shapeTurn(
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
+  const preserveAssistantText = agentFamily?.startsWith("claude") === true;
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   const shaped: AcpmuxRow[] = [];
@@ -577,7 +597,7 @@ function shapeTurn(
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
-  for (const segment of foldSegments(user, body)) {
+  for (const segment of foldSegments(user, body, preserveAssistantText)) {
     const said = segment.takeaway;
     const before = segment.rows;
     const after = segment.after ?? [];
@@ -589,6 +609,7 @@ function shapeTurn(
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     const out = (row: AcpmuxRow) =>
       staysOut(row) ||
+      (preserveAssistantText && !open && row.kind === "assistant") ||
       (!open &&
         (steerDialogue.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));

@@ -6297,6 +6297,8 @@ function AcpmuxPane() {
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
+          // Turn folding follows acpmux's session family; Claude keeps every assistant message visible.
+          agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
           waitingSteers: snapshot.waitingSteers,
           messageBreaks,
@@ -6318,6 +6320,7 @@ function AcpmuxPane() {
     codexRuns,
     sessionStatus,
     lineBelow,
+    snapshot.summary?.family,
     snapshot.waitingSteers,
     messageBreaks,
     chatShellRuns,
