@@ -70,7 +70,8 @@ class Decide(unittest.TestCase):
 
     def test_nightly_waits_for_fleet_capacity_then_uses_the_latest_read(self):
         config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
-        with mock.patch.object(placement, "read", side_effect=[([], snapshot()), (idle(1), snapshot())]), \
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", side_effect=[([], fresh), (idle(1), fresh)]), \
              mock.patch.object(placement.time, "monotonic", side_effect=[0, 0]), \
              mock.patch.object(placement.time, "sleep") as sleep, \
              mock.patch.object(placement, "write") as write, \
@@ -81,7 +82,8 @@ class Decide(unittest.TestCase):
 
     def test_nightly_overflow_wait_is_bounded_to_three_minutes(self):
         config = env(JOBS="control", NIGHTLY="1", NIGHTLY_WAIT_FOR_FLEET="1")
-        with mock.patch.object(placement, "read", return_value=([], snapshot())) as read, \
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", return_value=([], fresh)) as read, \
              mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30, 60, 90, 120, 150, 180]), \
              mock.patch.object(placement.time, "sleep") as sleep, \
              mock.patch.object(placement, "write") as write, \

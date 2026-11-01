@@ -185,6 +185,7 @@ env:
 
 jobs:
   decide:
+    environment: ci-routing-agent
     permissions:
       actions: read
       contents: write
