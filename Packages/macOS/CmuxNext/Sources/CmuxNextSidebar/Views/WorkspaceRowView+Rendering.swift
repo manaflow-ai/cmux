@@ -180,10 +180,9 @@ extension WorkspaceRowView {
         setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var slot: CGFloat = 0
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
-        if badge.state.isUnread {
+        if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
-            // A dot keeps its center where the 6 pt dot had it, so the bigger dot stays centered in its column.
             let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
@@ -268,7 +267,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay

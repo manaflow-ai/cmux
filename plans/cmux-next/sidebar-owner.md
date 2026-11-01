@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
+  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
+  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
+  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
+  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
+  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
+  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
+  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
+  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
+  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
+  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
+
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
   of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
@@ -884,3 +897,11 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Remote groups draw as groups (2026-10-31, a954)
 
 - User 2026-10-31 (Chief msg 19277), verbatim: "remote groups needs to be better, this is unintuitive to use, and also it needs to look like a group in the sidebar". Before: a remote group was its machine's section header (quiet text, status dot and word) over unindented rows. Now `SidebarDocProjection.arrange` wraps a remote group's section into one sidebar group (`SidebarSection.wrappedAsHostGroup`, id `host:<machine>`): the group bar, chevron, rail and member indent of any group, with a trailing machine mark and status dot left of the chevron (`SidebarHostGroupLook.trailingMarkAndDot`, the default; the gallery `AARemoteGroupGalleryTests` renders all six looks, light and dark, `sectionHeader` being the before). Its loose rows are members and its groups nest one level down. Its intents go to the machine (`SidebarIntent.resolvingHostGroup`: fold folds the section, + makes a workspace on the machine, a drop lands at the section's top level); rename, color, ungroup, pin, icon, close and reorder of the host group are dropped. This Mac never wraps. Tests: `SidebarHostGroupTests`, `AARemoteGroupGalleryTests.everyGroupLookDrawsTheMachineAsAGroupRow`.
+
+## Trailing accessory column history (#27954)
+
+Leo, 2026-10-30: "this alignment is annoying too"; "that alignment is bc you guys need to increase the sidebar relative to the draggable area/limit a bit".
+
+[#27954](https://github.com/manaflow-ai/cmux/pull/27954) landed as `bb5fb9695d26` from reviewed head `c03c7f3cd146c2f7944e122df8b46c473b6ed520`.
+The branch commits missing Sidebar-Look trailers are recorded here without rewriting landed history:
+`b593cf8d6e2`, `010a3052b0c`, `dbee745fd30`, `cc09b9610af`, `0502ac86c95`, `fc6791fe09d`, `654a748dea8`, `2a94742cb73`, `dc37e25861b`, `ed4ca4ebaee`, `5b171cd48c1`, `37f674a288d`, `9d1c633674f`.
