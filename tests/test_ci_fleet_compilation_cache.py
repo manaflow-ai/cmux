@@ -142,7 +142,7 @@ class FleetCacheTests(unittest.TestCase):
         ), count
 
     def test_nightly_release_retries_only_on_runtime_cas_diagnostic(self):
-        result, count = self._run_nightly_release_stub("error: failed to open the CAS database")
+        result, count = self._run_nightly_release_stub("error: CAS error encountered during compilation")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count.read_text().strip(), "2")
 
@@ -155,7 +155,7 @@ class FleetCacheTests(unittest.TestCase):
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]
         self.assertIn("run_release_build()", step)
         self.assertIn("release_status=${PIPESTATUS[0]}", step)
-        self.assertIn("cmux_next_cas_failed \"$RUNNER_TEMP/nightly-release-build.log\"", step)
+        self.assertIn("cmux_next_runtime_cas_failed \"$RUNNER_TEMP/nightly-release-build.log\"", step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
         self.assertIn('run_release_build 1', step)
         self.assertIn("retrying the Release build with the local cache", step)

@@ -2581,7 +2581,7 @@ jobs:
           run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
           release_status=${PIPESTATUS[0]}
           set -e
-          if [[ "$release_status" -ne 0 ]] && cmux_next_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
+          if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
             echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
             run_release_build 1
           else

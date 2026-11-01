@@ -148,6 +148,17 @@ for line in "error: CAS error encountered during compilation" "error: cannot cre
 done
 printf '%s\n' "error: cannot find 'CASE' in scope" "error: use of unresolved identifier 'cas'" "  348 1 99.4 error CAS process dump" > "$TMP/caslog"
 cmux_next_cas_failed "$TMP/caslog" && fail "a code error read as a cache failure"
+# The nightly fleet fallback uses the stricter runtime predicate: source
+# diagnostics that happen to mention CAS/cache must not trigger a second build.
+for line in "error: CAS error encountered during compilation" "error: cannot create CAS filesystem: x" \
+    "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x"; do
+  printf '%s\n' "$line" > "$TMP/caslog"
+  cmux_next_runtime_cas_failed "$TMP/caslog" || fail "runtime CAS failure was not recognized: $line"
+done
+for line in "error: cannot find 'CAS' in scope" "error: use of unresolved identifier 'cache'"; do
+  printf '%s\n' "$line" > "$TMP/caslog"
+  cmux_next_runtime_cas_failed "$TMP/caslog" && fail "source error triggered runtime cache retry: $line"
+done
 reset
 status=0; SC_ARG="$cas_dd" run CMUX_NEXT_COMPILATION_CACHE=1 STUB_XCODEBUILD_STATUS=65 || status=$?
 [[ $status -eq 65 && $(wc -l < "$TMP/args") -eq 1 ]] || fail "a code failure exited $status after $(wc -l < "$TMP/args") builds (want 65 after 1)"
