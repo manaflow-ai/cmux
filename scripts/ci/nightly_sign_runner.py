@@ -72,6 +72,7 @@ DEAD_KEY = "_dead"
 POOL = "macos_26"
 MARK_TTL = dt.timedelta(minutes=30)
 LABELS = (cascade.SMALL, cascade.LARGE)
+LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 
 
 def candidates(variable: str) -> list[str]:
@@ -242,6 +243,58 @@ def place(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime, a
     return label, label if rerun_pick else alternate(variable, label, snapshot, now, pools), why, True
 
 
+def linux_candidates(variable: str) -> list[str]:
+    """The configured Blacksmith Linux size, then the other declared sizes."""
+    first = [variable] if variable in LINUX_LABELS else []
+    return list(dict.fromkeys([*first, *LINUX_LABELS]))
+
+
+def linux_stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datetime) -> set[str] | None:
+    """Return Linux labels whose queue has stalled, or None without a fresh snapshot."""
+    fresh = cascade._fresh(snapshot, now)  # noqa: SLF001 - use the shared snapshot age rule
+    if fresh is None:
+        return None
+    _, pools = fresh
+    out: set[str] = set()
+    for label in labels:
+        entry = (pools or {}).get(label) or {}
+        try:
+            queued = float(entry.get("queued") or 0)
+            oldest = float(entry.get("oldest_queued_minutes") or 0)
+        except (TypeError, ValueError):
+            continue
+        if queued and oldest >= cascade._picker_rule.BLACKSMITH_STALL_MINUTES:  # noqa: SLF001
+            out.add(label)
+    return out
+
+
+def linux_place(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
+                attempt: int) -> tuple[str, str, str, bool]:
+    """Pick a moving Blacksmith Linux size for the release-pool signer jobs.
+
+    These jobs emit or consume Linux artifacts and cannot use the owned-Mac
+    signing route until its temporary-keychain contract is complete.  The
+    picker therefore stays on the trusted Blacksmith Linux set and rotates a
+    stalled size on a retry instead of falling back to a hosted runner.
+    """
+    labels = linux_candidates(variable)
+    stalled = linux_stalled(snapshot, labels, now)
+    if stalled is None:
+        index = (attempt - 1) % len(labels)
+        label = labels[index]
+        other = labels[(index + 1) % len(labels)]
+        return label, other, f"placement unverified: no fresh Linux pool snapshot, so `{label}`", False
+    moving = [label for label in labels if label not in stalled]
+    if not moving:
+        moving = labels
+    label = moving[0]
+    if attempt > 1:
+        label = moving[min(1, len(moving) - 1)]
+    others = [candidate for candidate in moving if candidate != label]
+    other = others[0] if others else label
+    return label, other, f"Blacksmith Linux picker chose `{label}`" + (f"; stalled {', '.join(sorted(stalled))}" if stalled else ""), True
+
+
 def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | None = None,
          now: dt.datetime | None = None, *, sleep: Callable[[float], None] = time.sleep,
          clock: Callable[[], float] = time.monotonic) -> int:
@@ -261,7 +314,10 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
         attempt = max(1, int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or "1"))
     except ValueError:
         attempt = 1
-    label, other, why, verified = place(variable, snapshot, now, attempt, problem, runner_pools(env.get("RUNNER_POOLS")))
+    if env.get("PLATFORM", "macos").strip().lower() == "linux":
+        label, other, why, verified = linux_place(variable, snapshot, now, attempt)
+    else:
+        label, other, why, verified = place(variable, snapshot, now, attempt, problem, runner_pools(env.get("RUNNER_POOLS")))
     if not verified:
         print(f"::warning title=nightly sign runner::{why}")
     print(f"nightly sign runner: {why}; a re-run takes `{other}`")

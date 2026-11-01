@@ -28,6 +28,8 @@ import nightly_sign_runner as picker  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                             "blacksmith-32vcpu-ubuntu-2404")
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
 
 # The jobs that sign, notarize, verify a signed build or publish it, and the job whose
@@ -232,6 +234,30 @@ class Unverified(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(picker.main({"CANDIDATE": LARGE, "GITHUB_OUTPUT": str(output)}, now=NOW), 0)
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
+
+
+class LinuxPick(unittest.TestCase):
+    """Release-pool signer jobs stay on the trusted Blacksmith Linux set."""
+
+    def test_linux_picker_rotates_a_stalled_size(self) -> None:
+        snap = snapshot({LINUX4: 90, LINUX16: 2})
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:
+        for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-26.6"):
+            label, alternate, _, _ = picker.linux_place(variable, None, NOW, 1)
+            self.assertIn(label, picker.LINUX_LABELS)
+            self.assertIn(alternate, picker.LINUX_LABELS)
+
+    def test_linux_mode_writes_the_same_bounded_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"PLATFORM": "linux", "CANDIDATE": LINUX32, "SNAPSHOT_TOKEN": "t",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
+            self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LINUX32: 90}), now=NOW), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertIn(values["runner"], picker.LINUX_LABELS)
+            self.assertIn(values["alternate"], picker.LINUX_LABELS)
 
 
 def observed(age_minutes: int = 2, **overrides: dict) -> dict:

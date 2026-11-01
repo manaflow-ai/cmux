@@ -17,8 +17,9 @@ from test_ci_fork_runner_routing import parse_expression
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
-# The nightly signer jobs and their pick: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
-SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+# Release-pool signing jobs use the Blacksmith Linux picker. The compiler itself
+# remains on the early portable-placement route owned by the fleet-routing lane.
+SIGNER_ROUTE_JOBS = ('signer-app', 'signer-app-notary', 'signer-dmg')
 
 
 def evaluate(node, context):
@@ -253,23 +254,23 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
 
-    def test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
-        # Signing is notarization-bound (W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s,
-        # signer-build 7 s, the pick 11 s). Leo, 2026-11-01: "surely we measured the signign we dont need 32/16
-        # just for signing", "surely github has linux hosted we can just use". Attempt 1 takes GitHub-hosted
-        # Ubuntu, a re-run Blacksmith Linux 4 vCPU, whatever LINUX_RUNNER or the overflow switch holds.
+    def test_signer_jobs_take_the_trusted_blacksmith_linux_picker(self):
+        # The owned-Mac signing route remains disabled until its per-job
+        # temporary-keychain contract is complete (#29801/#29821). These jobs
+        # therefore use the bounded Blacksmith Linux set selected by the picker;
+        # a hosted Ubuntu label is never a fallback.
+        labels = ('blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
         for name in SIGNER_ROUTE_JOBS:
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
-            for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
-                           'blacksmith-32vcpu-ubuntu-2404'):
-                for attempt, want in ((1, 'ubuntu-24.04'), (2, 'blacksmith-4vcpu-ubuntu-2404'),
-                                      (3, 'blacksmith-4vcpu-ubuntu-2404')):
-                    context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
-                               'vars.LINUX_RUNNER': runner, 'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}'}
-                    with self.subTest(job=name, runner=runner, attempt=attempt):
-                        self.assertEqual(evaluate(parse_expression(source), context), want)
-            fork = {'github.repository_owner': 'someone', 'github.run_attempt': 1}
-            self.assertEqual(evaluate(parse_expression(source), fork), 'ubuntu-24.04')
+            self.assertNotIn("'ubuntu-24.04'", source)
+            self.assertIn('needs.pick-nightly-sign-runner.outputs.linux', source)
+            context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                       'needs.pick-nightly-sign-runner.outputs.attempt': '1',
+                       'needs.pick-nightly-sign-runner.outputs.linux': labels[0],
+                       'needs.pick-nightly-sign-runner.outputs.linux_alternate': labels[1]}
+            self.assertEqual(evaluate(parse_expression(source), context), labels[0])
+            rerun = {**context, 'github.run_attempt': 2}
+            self.assertEqual(evaluate(parse_expression(source), rerun), labels[1])
         # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
         source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
         placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
@@ -287,7 +288,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         checked = 0
         for name, job in DOC['jobs'].items():
             runs_on = job.get('runs-on', '')
-            if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on or name in SIGNER_ROUTE_JOBS:
+            if (not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on
+                    or name in SIGNER_ROUTE_JOBS or name == 'signer-build'):
                 continue
             checked += 1
             source = runs_on.removeprefix('${{').removesuffix('}}')

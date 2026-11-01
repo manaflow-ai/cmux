@@ -3928,14 +3928,16 @@ jobs:
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It holds a key, so it takes a trusted route: GitHub-hosted
     # Ubuntu (W44: 74 hosted picks, p50 9 s), Blacksmith Linux 4 vCPU on a re-run.
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    # The picker reads the live queue and stays on the trusted Blacksmith Linux
+    # set; release-pool signing jobs must never fall back to a hosted runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
     # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1, the verify picker 2 and the signing picker 2) plus checkout, so the job is never
     # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
-    timeout-minutes: 13
+    timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -3945,6 +3947,8 @@ jobs:
       # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
       # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
       alternate: ${{ steps.sign-runner.outputs.alternate }}
+      linux: ${{ steps.sign-linux-runner.outputs.runner }}
+      linux_alternate: ${{ steps.sign-linux-runner.outputs.alternate }}
       # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. They read it only
       # while `attempt` is the run's own attempt (a re-run of failed jobs that keeps this job takes
       # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
@@ -3986,6 +3990,17 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Its `_dead` marks and live macos_26 member (nightly_sign_runner.py).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
+
+      - name: Pick the Blacksmith Linux label for release-pool signing
+        id: sign-linux-runner
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          PLATFORM: linux
+          SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
+          CANDIDATE: ${{ vars.LINUX_RUNNER }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
@@ -5283,9 +5298,9 @@ jobs:
 
   signer-app:
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build, pick-nightly-sign-runner]
     if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -5373,8 +5388,8 @@ jobs:
 
   signer-app-notary:
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app, pick-nightly-sign-runner]
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -5490,8 +5505,8 @@ jobs:
 
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image, pick-nightly-sign-runner]
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     permissions:
       contents: read
