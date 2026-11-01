@@ -1,5 +1,24 @@
 import { expect, test } from "bun:test";
-import { failureKind, failureRecovery } from "./failureCopy";
+import { failureKind, failureRecovery, isCloudRejectedCredential } from "./failureCopy";
+
+test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
+  const route = { hostKind: "cloud" as const, harness: "claude" };
+  expect(
+    isCloudRejectedCredential(
+      "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).",
+      route,
+    ),
+  ).toBe(true);
+  expect(
+    isCloudRejectedCredential("The provider rejected Claude Code's credentials on this Cloud machine (HTTP 403).", {
+      hostKind: "local",
+    }),
+  ).toBe(false);
+  expect(isCloudRejectedCredential("Claude Code login required", route)).toBe(false);
+  expect(
+    isCloudRejectedCredential("The provider rejected Codex's credentials on this Cloud machine (HTTP 403).", route),
+  ).toBe(false);
+});
 
 // The connection drops acpmux retries by itself (hub/turn_errors.rs `says_connection_dropped`) read
 // as "could not reach its server", not the generic "ran into a problem" (cmuxterm-hq#4879, finding 10).

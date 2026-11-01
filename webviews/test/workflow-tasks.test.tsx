@@ -5,6 +5,7 @@
 // 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Workflow · Finished · 7 agents", its phases
 // N/N, each opening into its agents. The data is a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
+import { pageClocks } from "../src/ui/pageClock";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -20,7 +21,6 @@ import { WorkflowSideTab } from "../src/agent-session/acpmux/summary/WorkflowSid
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { createWorkflowAdapter, modelName, phaseState, tally } from "../src/agent-session/acpmux/summary/foldWorkflows";
 import { workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
-import { pageClocks } from "../src/ui/pageClock";
 
 const NOW = 1_800_000_000_000;
 const summaries = (stage: "running" | "finished") => createWorkflowAdapter()(workflowFixture(stage, NOW), "s1");
@@ -451,6 +451,51 @@ test("with Labs, a workflow is in neither tray list, running or ended (App.tsx t
   // Without Labs, both lists carry it, as before.
   expect(trayItems(running, [], [], true).length).toBe(1);
   expect(finishedTrayItems(finished, []).length).toBe(1);
+});
+
+test("failed workflow agents show their error instead of stale output in every row variant", () => {
+  const workflow = summaries("running")[0]!;
+  for (const variant of ["compact", "detail", "grid"] as const) {
+    for (const stale of [{}, { lastMessage: "Earlier reply", doing: "Reading source" }]) {
+      const agent = {
+        ...workflow.agents[0]!,
+        ...stale,
+        state: "failed" as const,
+        error: "503: No provider capacity available",
+      };
+      const document = new JSDOM(
+        renderToStaticMarkup(
+          <WorkflowAgentRow
+            workflow={workflow}
+            agent={agent}
+            now={NOW}
+            variant={variant}
+            onOpenWorkflowAgent={() => undefined}
+          />,
+        ),
+      );
+      const message = document.window.document.querySelector(".acpmux-workflow-agent__doing");
+      expect(message?.textContent).toBe(agent.error);
+      expect(message?.getAttribute("title")).toBe(agent.error);
+      expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toContain(agent.error);
+      expect(document.window.document.body.textContent).not.toContain("Earlier reply");
+      document.window.close();
+    }
+  }
+});
+
+test("a retried workflow agent shows its current action even when an earlier error remains", () => {
+  const workflow = summaries("running")[0]!;
+  const agent = {
+    ...workflow.agents[0]!,
+    state: "running" as const,
+    error: "503: No provider capacity available",
+    lastMessage: undefined,
+    doing: "Retrying the review",
+  };
+  const html = renderToStaticMarkup(<WorkflowAgentRow workflow={workflow} agent={agent} now={NOW} />);
+  expect(text(html)).toContain(agent.doing);
+  expect(text(html)).not.toContain(agent.error);
 });
 
 test("a pending phase opens on its own when its first agent starts running, as a started phase did", async () => {

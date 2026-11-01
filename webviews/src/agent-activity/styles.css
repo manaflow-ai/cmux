@@ -63,6 +63,7 @@ nav strong {
 nav input {
   appearance: none;
   flex: 1;
+  min-width: 0;
   max-width: 260px;
   height: 24px;
   border: 1px solid var(--activity-line);

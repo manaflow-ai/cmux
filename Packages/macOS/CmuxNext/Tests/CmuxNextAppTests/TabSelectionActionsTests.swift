@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextPalette
 @testable import CmuxNextTabs
 import Foundation
 import Testing
@@ -109,6 +110,25 @@ struct TabSelectionActionsTests {
             let runs = Self.rows(menu).compactMap(ActionRegistry.menuRun(of:))
             #expect(!runs.isEmpty)
             #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: other.rawValue) }, "a row does not act on the right-clicked tab")
+        }
+    }
+
+    /// The real Cmd-Shift-P palette (`RegistryPaletteProvider`), on a terminal tab: Save and Close
+    /// takes browser pages only, so its three tab rows are disabled there with the run's reason, as
+    /// the tab menu disables them, instead of enabled and refused after the click.
+    @Test func thePaletteDisablesSaveAndCloseOnATerminalTab() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            // The workspace opens on its chat; `newTab` adds a terminal tab, which the strip selects with a click.
+            let pane = try await Self.pane(with: 2, services, connection)
+            let id = try #require(pane.stripModel.orderedTabs.map(\.id).first { pane.tab($0)?.kind == .pty }, "no terminal tab")
+            if let next = pane.stripModel.click(id, .plain) { pane.select(next) }
+            try await PinnedPageTests.until({ pane.stripModel.selectedID == id }, report: { "selected \(String(describing: pane.stripModel.selectedID))" })
+            let items = RegistryPaletteProvider(registry: services.registry).makeItems()
+            for action in ["tab.stash", "tab.stashToRight", "tab.stashOthers"] {
+                let row = try #require(items.first { $0.id == "action:\(action)" }, "no palette row for \(action)")
+                #expect(!row.isEnabled, "the palette offers \(action) on a terminal tab, and its run refuses after the click")
+                #expect(row.subtitle == StashHandlerStrings.noPage, "\(action) says \(row.subtitle ?? "nothing")")
+            }
         }
     }
 

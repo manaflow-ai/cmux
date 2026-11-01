@@ -1,0 +1,81 @@
+/* A folded group of messages (MessageGroupHead.tsx): a sibling of the tool rows (Leo, 2026-11-01:
+   "let's just make this look better"). The head is a tool row (conversation.css .cv-tool: its 22px
+   height, gap and type, its glyph in the one icon column): the sender's harness mark (several
+   senders: the messages glyph), the count as the summary, the senders muted and cut after it, then
+   the chevron, shown and lit only while the row is hovered, focused or open, as an opened group's
+   steps do. Never a bordered box; the group opens on the click, with no fade.
+   design/chat-transcript.md "One icon column". */
+.cv-message-group__head {
+  cursor: default;
+  user-select: none;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  -webkit-font-smoothing: antialiased;
+}
+.cv-message-group__head > .cv-tool__icon {
+  color: var(--cv-text-muted);
+}
+.cv-message-group__head > .cv-tool__text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.cv-message-group__count {
+  flex: none;
+}
+.cv-message-group__senders {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+}
+.cv-message-group__head > .cv-tool__chevron {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-message-group__head:hover,
+.cv-message-group__head:has([data-popup-open]),
+.cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
+.cv-message-group__head:hover > :is(.cv-tool__icon, .cv-tool__chevron),
+.cv-message-group__head:has([data-popup-open]) > :is(.cv-tool__icon, .cv-tool__chevron),
+.cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > :is(.cv-tool__icon, .cv-tool__chevron) {
+  color: var(--cv-text);
+}
+.cv-message-group__head:hover > .cv-tool__chevron,
+.cv-message-group__head:has([data-popup-open]) > .cv-tool__chevron,
+.cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > .cv-tool__chevron {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
+/* A delivered batch's head keeps LaneNoticeBatch.css's toggle class (its tests and plays find it
+   by it), but not that toggle's inset or hover plate: a tool row's glyph starts at the row's edge,
+   and it lights its words, never a plate behind them. */
+.cv-message-group__head.cv-lane-batch__toggle {
+  padding-inline: 0;
+}
+.cv-message-group__head.cv-lane-batch__toggle:hover {
+  background: none;
+}
+.cv-message-group__head:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+}
+/* Gallery versions (inboxNoticeLook.ts): the chevron always shown; the count alone. */
+.cv-message-group__head[data-look="group-chevron"] > .cv-tool__chevron {
+  opacity: 1;
+}
+.cv-message-group__head[data-look="group-count"] .cv-message-group__senders {
+  display: none;
+}
+/* A narrow pane keeps the count whole: the names, cut to a letter or two, would say nothing. Each
+   group's wrapper is the container. */
+@container (max-width: 480px) {
+  .cv-message-group__senders {
+    display: none;
+  }
+}

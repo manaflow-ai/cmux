@@ -185,10 +185,31 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onStop = newValue }
     }
 
+    /// Runs after the daemon accepts a Chief stop, when the stop button
+    /// becomes Continue.
+    public var onContinue: (() -> Void)? {
+        get { controller.onContinue }
+        set { controller.onContinue = newValue }
+    }
+
+    /// Whether the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { controller.continueAvailable }
+        set { controller.continueAvailable = newValue }
+    }
+
     /// The host's Stop all agents: Option-click on the stop button.
     public var onStopAll: (() -> Void)? {
         get { controller.onStopAll }
         set { controller.onStopAll = newValue }
+    }
+
+    /// A committed person message in a Chief conversation asks the Chief to
+    /// answer that message again. The app supplies the `chief.retry` bridge;
+    /// ordinary Home conversations leave it unset.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { projection.onChiefRetry }
+        set { projection.onChiefRetry = newValue }
     }
 
     /// The stop button's tooltip while the Chief works; nil: "Stop".

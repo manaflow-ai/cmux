@@ -63,12 +63,37 @@ work="$(mktemp -d)"
 # Steps run with a per-step HOME; bun and node for the Debug build's web bundles live under the
 # account's real home (as crash-gate.sh and tab-switch.sh).
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
+for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
+# Rust's toolchains are the account's too: with the step's HOME, rustup finds no default toolchain
+# (the build's cmux-cua and the cmux-tui client set both need it).
+if [ -n "$account_home" ]; then
+  [ -z "${RUSTUP_HOME:-}" ] && [ -d "$account_home/.rustup" ] && export RUSTUP_HOME="$account_home/.rustup"
+  [ -z "${CARGO_HOME:-}" ] && [ -d "$account_home/.cargo" ] && export CARGO_HOME="$account_home/.cargo"
+fi
 RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh || exit 3
 PATH="$(tail -n 1 "$work/bun-path"):$PATH"
 export PATH
+# A PR head's cmux-tui tree is never published (only trusted feat-cmux-next pushes publish), and
+# the base can run hours behind: build the client set here instead of waiting 45 min for a tree
+# that will not come, as reload.sh does for nx-remote builds (CMUX_TUI_CLIENT_LOCAL).
+if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
+  echo "FRESH-HOME cmux-tui tree not published: building the client set on this host"
+  # Cargo's target survives this scratch worktree, so the next launch compiles incrementally
+  # (the builder makes its output under cmux-tui/target, which a fresh worktree lacks).
+  export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/fresh-home-launch/cmux-tui-target}"
+  mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
+  # CI=1: this is a fleet step, where the builder may run Cargo (never on a developer Mac).
+  # Its progress also goes to the step's log: a silent step looks hung and the controller stops it.
+  CMUX_TUI_CLIENT_LOCAL="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2> >(tee "$out/cmux-tui-build.log" >&2))" || {
+    echo "FRESH-HOME cannot run: building cmux-tui failed" >&2
+    tail -n 40 "$out/cmux-tui-build.log" >&2
+    tar -czf "$out/report.tgz" -C "$out" cmux-tui-build.log
+    exit 3
+  }
+  export CMUX_TUI_CLIENT_LOCAL
+fi
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links >"$out/reload.log" 2>&1
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then

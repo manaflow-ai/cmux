@@ -2,11 +2,14 @@
 // that says so. The machine by its own name, with its kind in words at the row's end (Local, SSH or
 // Cloud), never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
 // repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
-// Control, when the App offers it. A chat in a temporary or internal folder (a harness's scratchpad)
+// Control, when the App offers it. Last, what the chat was granted (the folder's trust, a chat-wide
+// allowance), each with Revoke on its own row's hover or focus. The chat menu's Revoke Granted
+// Access (header/grantsMenu.ts) lists the same grants in every chat; the composer's mode menu lists
+// the modes alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -15,8 +18,22 @@ import type { SavedEnvironmentDraft } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
+import { openCloudEnvironment } from "../cloudEnvironment";
+import {
+  CloudRepositoryPicker,
+  loadAttachedCloudRepos,
+  type AttachedCloudRepo,
+  type PendingCloudRepo,
+} from "./CloudRepositoryPicker";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
+
+/// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
+export type AccessGrant = {
+  id: string;
+  label: string;
+  onRemove(): void;
+};
 
 const ROW_ICON = rowIconSize(12);
 
@@ -24,6 +41,11 @@ const ROW_ICON = rowIconSize(12);
 /// Gallery alternatives: `branch`, the branch as a chip in the project's row, with no branch row;
 /// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
 export type ProjectRowLook = "name" | "branch" | "parent";
+
+/// Remote Control's row icon. Shipped: `computeruse.click`, a pointer, as Claude Code desktop marks its
+/// Remote Control row; Leo, 2026-11-01: "i think we should rethink what symbol we have for remote
+/// control at least" (it was `device.phone`, a bare phone outline). The gallery shows the others.
+export const REMOTE_CONTROL_ICON = "computeruse.click";
 
 /// Where the chat runs, in words beside the machine's name: Local, SSH or Cloud, the words the
 /// environment picker gives each kind (EnvironmentPicker.tsx KIND_LABELS). A name alone never said
@@ -85,7 +107,7 @@ function Row({
 }) {
   const content = (
     <>
-      <Icon name={icon} size={ROW_ICON} row />
+      <Icon name={icon} size={ROW_ICON} row fit />
       {children}
     </>
   );
@@ -124,30 +146,44 @@ export function EnvironmentSection({
   machineName,
   peerKinds,
   repository,
+  cloudRepositoryAvailable = false,
   remoteControl,
+  grants = [],
   onSave,
   onOpenFolder,
   projectLook = "name",
+  remoteControlIcon = REMOTE_CONTROL_ICON,
 }: {
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
+  /// Native says whether this pane has an authenticated Cloud repository route.
+  cloudRepositoryAvailable?: boolean;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// What the chat was granted, each with Revoke.
+  grants?: readonly AccessGrant[];
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   projectLook?: ProjectRowLook;
+  remoteControlIcon?: string;
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [repositoryPickerOpen, setRepositoryPickerOpen] = useState(false);
+  const [attachedRepos, setAttachedRepos] = useState<AttachedCloudRepo[]>([]);
+  const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
+  const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
+  const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
+  const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
   const repositoryUrl = repository ? `https://github.com/${repository}` : undefined;
@@ -176,6 +212,28 @@ export function EnvironmentSection({
         }
       : undefined;
   const parent = project && homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
+  useEffect(() => {
+    if (!cloudSession || !canUseCloudRepositories) {
+      setAttachedRepos([]);
+      setPendingRepos([]);
+      return;
+    }
+    let live = true;
+    void loadAttachedCloudRepos(cloudSession)
+      .then(({ repos, pending }) => {
+        if (live) {
+          setAttachedRepos(repos);
+          setPendingRepos(pending);
+        }
+      })
+      .catch(() => {
+        if (live) setAttachedRepos([]);
+        if (live) setPendingRepos([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [canUseCloudRepositories, cloudSession]);
   return (
     <ul className="acpmux-session-info-list" data-section="environment">
       <li className="acpmux-session-info-row" data-machine={machine.kind}>
@@ -183,6 +241,7 @@ export function EnvironmentSection({
           name={machine.icon}
           size={ROW_ICON}
           row
+          fit
           color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
         />
         <span className="acpmux-session-info-row__name">{machine.name ?? "—"}</span>
@@ -201,6 +260,63 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      {canUseCloudRepositories && cloudSession && (
+        <>
+          <li className="acpmux-session-info-row acpmux-cloud-environment-row">
+            <Icon name="cloud" size={ROW_ICON} row />
+            <span className="acpmux-session-info-row__name">{t("cloudRepository.default")}</span>
+            <button
+              type="button"
+              className="acpmux-session-info-icon-button acpmux-session-info-row__end"
+              aria-label={t("cloudRepository.editEnvironment")}
+              title={t("cloudRepository.editEnvironment")}
+              onClick={() => openCloudEnvironment({ section: "overview" })}
+            >
+              <Icon name="settings" size={ROW_ICON} />
+            </button>
+          </li>
+          <li>
+            <button
+              ref={addRepositoryButton}
+              type="button"
+              className="acpmux-session-info-row acpmux-session-info-row--button"
+              aria-haspopup="dialog"
+              aria-expanded={repositoryPickerOpen}
+              data-open={repositoryPickerOpen ? "" : undefined}
+              onClick={() => setRepositoryPickerOpen((open) => !open)}
+            >
+              <Icon name="folder.add" size={ROW_ICON} row />
+              <span className="acpmux-session-info-row__name">{t("cloudRepository.add")}</span>
+            </button>
+            <CloudRepositoryPicker
+              session={cloudSession}
+              anchor={addRepositoryButton}
+              open={repositoryPickerOpen}
+              onOpenChange={setRepositoryPickerOpen}
+              onAttached={(repo) => setAttachedRepos((current) => [...current, repo])}
+            />
+          </li>
+          {attachedRepos
+            .filter((attached) => attached.repo !== repository)
+            .map((attached) => (
+              <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
+                <span className="acpmux-session-info-row__name">{attached.repo}</span>
+              </Row>
+            ))}
+          {pendingRepos.map((pending) => (
+            <li key={`pending:${pending.repo}`} className="acpmux-session-info-row acpmux-cloud-repository-pending">
+              <Icon name="git.branch" size={ROW_ICON} row />
+              <span className="acpmux-session-info-row__name">{pending.repo}</span>
+              <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">
+                {pending.phase ?? t("cloudRepository.pending")}
+                {pending.progress?.total_objects
+                  ? ` · ${pending.progress.objects ?? 0}/${pending.progress.total_objects}`
+                  : ""}
+              </span>
+            </li>
+          ))}
+        </>
+      )}
       {failed && (
         <li className="acpmux-session-info-note" role="alert">
           {t("environment.saveFailed", { reason: t("error.requestFailed") })}
@@ -231,7 +347,7 @@ export function EnvironmentSection({
       )}
       {remoteControl && (
         <li className="acpmux-session-info-row">
-          <Icon name="device.phone" size={ROW_ICON} row />
+          <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
             <input
@@ -244,6 +360,20 @@ export function EnvironmentSection({
           </label>
         </li>
       )}
+      {grants.map((grant) => (
+        <li className="acpmux-session-info-row acpmux-session-info-row--grant" key={grant.id} data-grant={grant.id}>
+          <Icon name="security.lock" size={ROW_ICON} row />
+          <span className="acpmux-session-info-row__name">{grant.label}</span>
+          <button
+            type="button"
+            className="acpmux-session-info-link acpmux-session-info-row__end"
+            aria-label={`${t("permission.revoke")}: ${grant.label}`}
+            onClick={grant.onRemove}
+          >
+            {t("permission.revoke")}
+          </button>
+        </li>
+      ))}
     </ul>
   );
 }

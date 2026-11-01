@@ -354,10 +354,13 @@ const fn access(operation: Op) -> Access {
         | Op::CredentialVerify
         | Op::CredentialMint
         | Op::CredentialRotate
-        // A page never controls the Chief.
+        // A page never controls the Chief (including owner-only Continue and
+        // Retry turn actions).
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        | Op::ChiefContinue
+        | Op::ChiefRetry
         // A page reads and edits the person's Chiefs only where its
         // page-router entry lists the operation (home-channels,
         // chief-profile-ws-v1); create, delete, the grant, instructions and
