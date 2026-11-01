@@ -379,7 +379,8 @@ export const gridScenes: GridScene[] = [
   // sit on the 4 grid (16 minimum).
   ...[
     ["this-mac", "claude"],
-    ["this-mac", "codex"],
+    // this-mac's play signs Codex in, which takes its action away: its Codex row is measured in
+    // hover, the variant with no play.
     ["hover", "codex"],
   ].map(([variant, harness]): GridScene => ({
     ...scene("pane.lists", "agent-pane.harnesses", variant!, `.acpmux-harness-row[data-harness-row="${harness}"]`, [
