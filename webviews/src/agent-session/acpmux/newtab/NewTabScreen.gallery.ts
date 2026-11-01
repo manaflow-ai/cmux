@@ -6,6 +6,8 @@ import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { paneLanguage, translateKey } from "../i18n";
+import { createStripLabelsFit } from "./createStripFit";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -458,7 +460,8 @@ export default agentPaneEntry({
         });
         // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
         // later in the document, and a text target takes the last match.
-        await ctx.click({ role: "menuitem", name: "More models" });
+        // The symbols row (the default) names it Legacy models, with its count.
+        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
         const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
         if (more.querySelector('[aria-label="Add harness…"]'))
@@ -773,6 +776,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
         await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
+      },
+    },
+    "widgets-hover-dismiss": {
+      note: "Widget view, a pointer over a Needs you chat's x: the x lights alone; its row and open button take no wash.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-dismiss" });
       },
     },
     "stage-layout": {
@@ -1310,6 +1322,71 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
       },
     },
+    "create-strip-narrow": {
+      note: 'The create strip in a narrow pane (capture at 320px in French): the three actions go icon-only, each named by its tooltip and accessible label, never three cut labels ("Nouv…"). Wide, every shipped locale\'s labels show whole.',
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
+        // The frame loads the pane's language store before the locale's catalog; a languagechange
+        // moves it to the case's locale (as new-tab-strip-overflow.test.ts does), so the labels are that locale's.
+        ctx.document.defaultView?.dispatchEvent(new Event("languagechange"));
+        const browserLabel = translateKey("newTab.create.browser", {}, paneLanguage());
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".nt-create-strip-item .nt-row-title")].some(
+            (title) => title.textContent === browserLabel,
+          ),
+        );
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const strip = ctx.document.querySelector<HTMLElement>(".nt-create-strip");
+        if (!popover || !strip) throw new Error("the create strip did not render");
+        const items = [...strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
+        if (items.length !== 3) throw new Error(`the create strip shows ${items.length} actions, not 3`);
+        // Every action is named whether or not its label shows.
+        for (const item of items) {
+          const name = item.querySelector(".nt-row-title")?.textContent ?? "";
+          if (!name || item.getAttribute("aria-label") !== name || item.getAttribute("title") !== name)
+            throw new Error(`a create action is not named by its aria-label and tooltip (${name})`);
+        }
+        // A label either shows whole or not at all: never cut. Icon-only (createStripFit.ts
+        // data-icons-only) hides every title, so only a strip that shows its labels can cut one.
+        const iconsOnly = () => strip.hasAttribute("data-icons-only");
+        const settled = () => ctx.waitFor(() => iconsOnly() || createStripLabelsFit(strip));
+        const cut = () =>
+          iconsOnly()
+            ? []
+            : items
+                .map((item) => item.querySelector<HTMLElement>(".nt-row-title")!)
+                .filter((title) => title.scrollWidth > title.clientWidth + 1)
+                .map((title) => title.textContent);
+        await settled();
+        if (cut().length) throw new Error(`create action labels are cut: ${cut().join(", ")}`);
+        // Wide, every shipped locale's labels show whole; narrow, the actions stay inside the strip,
+        // icon-only when their labels do not fit. The ResizeObserver settles each width in the next frame.
+        const width = popover.style.width;
+        try {
+          // The pseudo-locale pads every label on purpose, so only shipped locales must fit wide.
+          const locale = new URLSearchParams(ctx.document.defaultView?.location.search).get("locale");
+          popover.style.width = "760px";
+          if (locale !== "en-XA") {
+            await ctx.waitFor(() => !iconsOnly());
+            if (cut().length) throw new Error(`wide create action labels are cut: ${cut().join(", ")}`);
+          }
+          popover.style.width = "260px";
+          await settled();
+          if (cut().length) throw new Error(`narrow create action labels are cut: ${cut().join(", ")}`);
+          const box = strip.getBoundingClientRect();
+          for (const item of items) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < box.left - 1 || rect.right > box.right + 1)
+              throw new Error(`a narrow create action leaves the strip (${rect.left}..${rect.right})`);
+          }
+        } finally {
+          popover.style.width = width;
+        }
+      },
+    },
     "suggestions-ff": {
       note: 'Leo 2026-10-24 ("Search the web. Do you really want that first?"): "ff" asks the agent first, offers no workspace that only holds ff inside a word, and keeps the web search last; nothing in the text names a create row.',
       ready: newTab({ omnibar: FF_OMNIBAR }),
@@ -1319,6 +1396,36 @@ export default agentPaneEntry({
         // The create actions stay one click away, as the strip under the rows.
         const strip = ctx.document.querySelectorAll(".nt-popover .nt-create-strip-item").length;
         if (strip !== 3) throw new Error(`the create strip shows ${strip} actions, not 3`);
+        // A narrow pane must keep every quick action inside the anchored popover. The fixture
+        // runs under every shipped locale, including the long French/Spanish labels and pseudo
+        // locales, so this catches the non-wrapping overflow at its source boundary.
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
+        const rows = ctx.document.querySelector<HTMLElement>(".nt-rows");
+        if (!popover || !rows) throw new Error("the suggestions popover did not render");
+        // Measured narrow, then put back: the state's capture shows the popover at its anchored width.
+        const width = popover.style.width;
+        popover.style.width = "260px";
+        try {
+          const viewport = rows.getBoundingClientRect();
+          if (rows.scrollWidth > rows.clientWidth + 1)
+            throw new Error(`the create strip scrolls sideways (${rows.scrollWidth} > ${rows.clientWidth})`);
+          for (const item of rows.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
+            const rect = item.getBoundingClientRect();
+            if (rect.left < viewport.left - 1 || rect.right > viewport.right + 1)
+              throw new Error(`create action leaves the narrow popover (${rect.left}..${rect.right})`);
+          }
+          // No label shows cut off ("Nouv…"): at 260px either every label fits beside its glyph or the
+          // strip goes icon-only (createStripFit.ts), which its ResizeObserver settles in the next frame.
+          const strip = rows.querySelector<HTMLElement>(".nt-create-strip");
+          if (!strip) throw new Error("the create strip did not render");
+          await ctx.waitFor(() => strip.hasAttribute("data-icons-only") || createStripLabelsFit(strip));
+          if (!strip.hasAttribute("data-icons-only"))
+            for (const title of strip.querySelectorAll<HTMLElement>(".nt-create-strip-item .nt-row-title"))
+              if (title.scrollWidth > title.clientWidth + 1)
+                throw new Error(`a create label is cut off at 260px: ${title.textContent}`);
+        } finally {
+          popover.style.width = width;
+        }
       },
     },
     "suggestions-url": {

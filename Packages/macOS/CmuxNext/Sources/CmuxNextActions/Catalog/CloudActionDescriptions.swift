@@ -214,6 +214,13 @@ nonisolated enum CloudActionDescriptions {
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
             """,
+        "cloudShareMachine": """
+            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
+            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
+            team admin may change shares. Without --teammate it answers the machine's teammates as \
+            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
+            shares or stops sharing.
+            """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
             run needs --confirm. Answers at once, before the delete is done.
@@ -258,6 +265,13 @@ nonisolated enum CloudActionDescriptions {
             Sets how long the machine (--target machine:<id>) may sit idle (nothing attached, running or \
             forwarded) before cmux Cloud pauses it: --minutes off, 15, 30, 60 or 120. Returns machine_id \
             and idle_pause_minutes (0 for off).
+            """,
+        "cloudSetNetworkAccess": """
+            Sets what the machine (--target machine:<id>) may reach on the internet: --access full (every \
+            public address), trusted (only GitHub, the package registries and the model providers the server \
+            lists as presets) or none (only the hosts cmux itself needs). Applies live, with no restart, and \
+            keeps the machine's own allowed ranges and domains. An agent may only choose none (turn access off). \
+            Returns machine_id, network_access, mode and applied (applied, pending or failed).
             """,
         "palette.cloud.deleteSnapshot": """
             Deletes a snapshot of the machine (--target machine:<id> --snapshot <snapshot id>). Destructive: \

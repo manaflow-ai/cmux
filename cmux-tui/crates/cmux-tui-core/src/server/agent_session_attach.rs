@@ -36,8 +36,8 @@ pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -460,6 +460,8 @@ pub(crate) enum Refusal {
     Limit,
     Timeout,
     Refused,
+    /// acpmux's session list could not be read whole (`LinkError::BadList`).
+    BadList,
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
@@ -501,6 +503,7 @@ impl Refusal {
             Self::Limit => "agent_session.limit",
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
+            Self::BadList => "agent_session.bad_list",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
@@ -529,6 +532,7 @@ impl Refusal {
             Self::Limit => "too many attached agent tabs",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux's session list could not be read whole",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
             Self::AcpmuxUnavailable => {
@@ -563,6 +567,7 @@ impl Refusal {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }
@@ -1289,5 +1294,15 @@ impl Mux {
     /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
+    }
+
+    /// True when `agent-session-start` starts any agent here on the
+    /// caller's owner word: this machine reads as a Cloud VM with no team
+    /// evidence. A Mac, an SSH host and a team VM never advertise
+    /// `agent-session-start-owner-cloud-v1`, so the app never lets a Codex
+    /// or opencode chat send to a session there.
+    pub(crate) fn serves_owner_cloud_start(&self) -> bool {
+        self.serves_agent_session_start()
+            && self.control_clients.agent_sessions.starts.owner_cloud(true)
     }
 }
