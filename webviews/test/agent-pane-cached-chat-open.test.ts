@@ -95,6 +95,15 @@ class Daemon {
   fail?: string;
   /// Refuses a detach, as acpmux does for a chat it no longer resolves.
   refuseDetach = false;
+  /// Holds the next detach of this chat unanswered, as a busy acpmux does.
+  holdDetach?: string;
+  private heldDetach?: Message;
+  /** Answers the detach held back. */
+  releaseDetach(): void {
+    const message = this.heldDetach;
+    this.heldDetach = undefined;
+    if (message) this.answer(message);
+  }
   private held?: Message;
   private holding?: () => void;
   /** Resolves when the held attach has been asked for. */
@@ -123,6 +132,11 @@ class Daemon {
     this.sent.push(message);
     if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
+    if (message.method === "_acpmux/detach" && sessionId === this.holdDetach) {
+      this.heldDetach = message;
+      this.holdDetach = undefined;
+      return;
+    }
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
       this.hold = undefined;
@@ -493,6 +507,59 @@ test("a refused detach of the chat being left does not stop the chat being opene
     // acpmux no longer resolves the chat being left (it was archived from elsewhere).
     daemon.refuseDetach = true;
     expect(await client.select(A)).toBe(A);
+    expect(text(last())).toContain("Retry added.");
+  } finally {
+    client.close();
+  }
+});
+
+/** Lets every queued microtask (the stand-in daemon's replies, the client's awaits on them) run. */
+const drain = async () => {
+  for (let turn = 0; turn < 20; turn += 1) await new Promise<void>((resolve) => queueMicrotask(resolve));
+};
+
+test("a switch attaches the next chat without waiting for the detach of the chat left", async () => {
+  const daemon = new Daemon("detach-parallel");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    // acpmux is slow to answer the detach of the chat being left: the next chat opens anyway (on
+    // the base the select waited for that reply and this await never returned).
+    daemon.holdDetach = A;
+    expect(await client.select(B)).toBe(B);
+    expect(text(last())).toContain("Docs updated.");
+    const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
+    expect(order.indexOf(`_acpmux/attach ${B}`)).toBeGreaterThan(order.indexOf(`_acpmux/detach ${A}`));
+    daemon.releaseDetach();
+  } finally {
+    client.close();
+  }
+});
+
+test("a switch straight back waits for that chat's own detach before attaching it", async () => {
+  const daemon = new Daemon("detach-back");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    daemon.holdDetach = A;
+    await client.select(B);
+    const attachesOfA = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+    const before = attachesOfA();
+    // Back to A while its detach is still out: an attach sent now could be answered before the
+    // detach and lose its subscription, so it waits for the detach's reply.
+    let settled = false;
+    const back = client.select(A).finally(() => (settled = true));
+    await drain();
+    expect(settled).toBe(false);
+    expect(attachesOfA()).toBe(before);
+    daemon.releaseDetach();
+    expect(await back).toBe(A);
+    expect(attachesOfA()).toBe(before + 1);
     expect(text(last())).toContain("Retry added.");
   } finally {
     client.close();
