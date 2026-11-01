@@ -111,15 +111,8 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
-                                 updates: services.daemonUpdates, peerApprover: services.peerApprover)
-        tabs.cloudRepositoryLocal = { [weak services] in
-            guard let services else { throw DaemonError.notConnected }
-            let value = try await services.daemon.perform("cloud.repo.local") { connection in
-                try await connection.request(AgentPaneCloudRepositoryLocalRequest(), timeout: .seconds(30))
-            }
-            return try JSONEncoder().encode(value)
-        }
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources),
+                                 daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or

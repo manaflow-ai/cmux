@@ -1832,8 +1832,6 @@ enum Command {
     /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
     /// server's identity of the person (no fields).
     CloudSelfhostInfo(cloud_conversations::NoParams),
-    /// The cloud environment editor; the signed-in person only.
-    CloudEnvironment(cloud_conversations::EnvironmentParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
