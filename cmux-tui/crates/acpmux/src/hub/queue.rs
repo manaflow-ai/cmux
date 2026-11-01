@@ -1015,9 +1015,17 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        self.restore_queue_only(session, None);
+    }
+
+    /// [`Self::restore_queue`]; with `only`, a live chat takes back just that logged prompt and
+    /// nothing else is rebuilt (its inbox, agent pairs, branch and move state are live already).
+    pub(super) fn restore_queue_only(&self, session: &Arc<Session>, only: Option<&str>) {
         // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
         // chat's threads stay readable.
-        self.restore_inbox(session);
+        if only.is_none() {
+            self.restore_inbox(session);
+        }
         if session.meta().status == SessionStatus::Closed {
             return;
         }
@@ -1058,12 +1066,12 @@ impl Hub {
                         branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
                     }
                     "queued" => {
-                        // A restart's continuation of a cut turn goes ahead of what waited behind
-                        // that turn, also when the daemon stopped before its `queue_order`
-                        // (`restart_resume.rs`); a later reorder still holds.
-                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
-                            == Some("daemon_restart")
-                            && let Some(id) = e.msg.get("promptId")
+                        // A restart's or a move's continuation of a cut turn goes ahead of what
+                        // waited behind that turn, also when the daemon stopped before its
+                        // `queue_order` (`restart_resume.rs`); a later reorder still holds.
+                        if super::auto_resume::Cut::queued(
+                            e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
+                        ) && let Some(id) = e.msg.get("promptId")
                         {
                             order.prioritize_restart(id);
                         }
@@ -1171,12 +1179,14 @@ impl Hub {
                 }
                 true
             });
-        if scanned.is_ok() {
-            self.restore_git_branch(session, branch);
+        if only.is_none() {
+            if scanned.is_ok() {
+                self.restore_git_branch(session, branch);
+            }
+            self.restore_agent_pairs(&session.id, pair_records, &recorded);
+            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+                transfer_out::restored_moving(scanned.is_ok(), moving);
         }
-        self.restore_agent_pairs(&session.id, pair_records, &recorded);
-        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            transfer_out::restored_moving(scanned.is_ok(), moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
@@ -1207,6 +1217,7 @@ impl Hub {
             // adds only what the first did not see.
             if prompt_id.is_empty()
                 || turn_id.is_empty()
+                || only.is_some_and(|only| only != prompt_id)
                 || queue.iter().any(|q| q.prompt_id == prompt_id)
             {
                 continue;
@@ -1332,6 +1343,14 @@ impl Hub {
             }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
+            self.start_restored(session);
+        }
+    }
+
+    /// Runs the chat's restored prompts not started yet (each once: its `resume` mark), and
+    /// nothing else `resume_restored` does.
+    pub(super) fn start_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        {
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()

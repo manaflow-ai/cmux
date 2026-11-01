@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 import MessagesLabHome
+import MessagesLabSidebar
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight
@@ -94,10 +95,18 @@ public nonisolated struct HomeTunables {
         help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
         default: false, code: "HomeTunables.loneConversationRail")
 
+    /// How a Chief's avatar moves in the Home list and pinned grid (Leo 2026-11-01: "i also want them
+    /// animated like how chatgpt animates their dots"): a slow idle loop, livelier while it works.
+    /// Float by default; the others are the gallery's variants.
+    public static let avatarMotion = Tunable<HomeAvatarMotionChoice>.choice(
+        "home.avatarMotion", section, "Chief avatar motion",
+        help: "How a Chief's avatar moves in the Home list: Float bobs it by a point, Breathe grows and shrinks it, Sway tilts it, Still keeps it at rest. Each moves faster while the Chief works, and none moves under Reduce Motion or while the window is hidden.",
+        default: .float, code: "HomeTunables.avatarMotion")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
          turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
-         topFadeStyle.descriptor, loneConversationRail.descriptor]
+         topFadeStyle.descriptor, loneConversationRail.descriptor, avatarMotion.descriptor]
     }
 }
 
@@ -120,6 +129,32 @@ public nonisolated enum HomeTurnProgressChoice: String, Sendable, CaseIterable, 
         case .narrated: .narrated
         case .steps: .steps
         case .line: .line
+        }
+    }
+}
+
+/// ``HomeTunables/avatarMotion``'s choices: MessagesLabSidebar's ``CmuxSidebarAvatarMotionStyle``.
+public nonisolated enum HomeAvatarMotionChoice: String, Sendable, CaseIterable, TunableChoice {
+    case float
+    case breathe
+    case sway
+    case still
+
+    public var tunableTitle: String {
+        switch self {
+        case .float: "Float"
+        case .breathe: "Breathe"
+        case .sway: "Sway"
+        case .still: "Still"
+        }
+    }
+
+    var style: CmuxSidebarAvatarMotionStyle {
+        switch self {
+        case .float: .float
+        case .breathe: .breathe
+        case .sway: .sway
+        case .still: .still
         }
     }
 }

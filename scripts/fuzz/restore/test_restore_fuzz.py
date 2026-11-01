@@ -406,6 +406,162 @@ class NotRunFails(unittest.TestCase):
         self.assertEqual(rf.not_run_outcome({"verdict": "not run", "problems": [reason]}, []), "not run")
 
 
+class AppCreateProbe(unittest.TestCase):
+    """diskfull: the app's own create path (New Workspace: debug.toast perform "newTab") under a full disk."""
+
+    def test_judge(self):
+        before = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
+        ok = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 1, "texts": ["The disk is full"]}
+        self.assertEqual(rf.judge_app_create(before, ok, ok), [])
+        ghost = {"app": {"ws_1", "ws_2"}, "daemon": {"ws_1"}, "notices": 1, "texts": ["x"]}
+        self.assertTrue(any("ghost" in p for p in rf.judge_app_create(before, ghost, ok)))
+        self.assertTrue(any("after the relaunch" in p for p in rf.judge_app_create(before, ok, ghost)))
+        silent = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
+        self.assertTrue(any("no visible refusal" in p for p in rf.judge_app_create(before, silent, silent)))
+
+    def test_app_view_reads_window_toasts_and_refusals(self):
+        saved_rpc, saved_cli = rf.rpc, rf.cli
+        answers = {"snapshot.get": {"topology": {"workspaces": [{"id": "ws_1"}]}},
+                   "debug.toast": {"refusals": [{"text": "disk is full"}], "windows": [{"toasts": [{"text": "a"}]}]},
+                   "debug.dialog": {"dialogs": []}}
+        rf.rpc = lambda m, p=None, timeout=20: answers.get(m)
+        rf.cli = lambda *a, timeout=10: ([{"id": "ws_1"}], 0.0)
+        try:
+            view = rf.app_view()
+        finally:
+            rf.rpc, rf.cli = saved_rpc, saved_cli
+        self.assertEqual(view["notices"], 2)
+        self.assertTrue(any("disk is full" in t for t in view["texts"]))
+
+    def test_created_for_real_is_not_a_ghost(self):
+        before = {"app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
+        made = {"app": {"ws_1", "ws_2"}, "daemon": {"ws_1", "ws_2"}, "notices": 0, "texts": []}
+        self.assertEqual(rf.judge_app_create(before, made, made), [])
+
+
+class AppCreateProbeDecisions(unittest.TestCase):
+    """Review FIX at 0c648467267 (#30531): every probe path, with fake answers (no app)."""
+
+    FULL = {"error": '{"code":"operation.failed","details":{"reason":"database or disk is full"}}'}
+    VIEW = {"readable": True, "app": {"ws_1"}, "daemon": {"ws_1"}, "notices": 0, "texts": []}
+
+    class Vol:
+        def __init__(self, mounted=True):
+            self.mounted, self.fills, self.trims = mounted, [], []
+
+        def fill(self, margin):
+            if not self.mounted:
+                raise rf.HarnessInvalid("not mounted")
+            self.fills.append(margin)
+            return 0
+
+        def trim(self, margin):
+            self.trims.append(margin)
+            return margin << 20
+
+    class App:
+        def __init__(self, relaunch_ok=True):
+            self.relaunch_ok, self.relaunched = relaunch_ok, 0
+
+        def daemon_pids(self):
+            return []
+
+        def acpmux_pids(self):
+            return []
+
+        def relaunch(self):
+            self.relaunched += 1
+            return self.relaunch_ok
+
+    def run_probe(self, create=None, action=None, views=None, vol=None, app=None, loaded=True):
+        saved = {k: getattr(rf, k, None) for k in ("cli", "rpc", "app_view", "stop_build_processes", "APP", "app_state",
+                                                   "wait", "PROBE_SETTLE")}
+        self.closed = []
+        views = list(views if views is not None else [self.VIEW, dict(self.VIEW, notices=1, texts=['"New Workspace did not apply: the disk is full"']), self.VIEW])
+
+        def fake_cli(*args, timeout=10):
+            if args[:2] == ("workspace", "create"):
+                return (create if create is not None else self.FULL), 0.1
+            if args[-1:] == ("close",):
+                self.closed.append(args[1])
+            return {}, 0.1
+
+        rf.cli = fake_cli
+        rf.rpc = lambda m, p=None, timeout=20: action if action is not None else {"performed": True}
+        rf.app_view = lambda: views.pop(0)
+        rf.stop_build_processes = lambda exclude=(): None
+        rf.APP = app or self.App()
+        rf.app_state = lambda: ({}, loaded)
+        rf.wait = lambda pred, seconds, step=0.25: pred()
+        rf.PROBE_SETTLE = 0
+        rf.DISK["volume"] = vol or self.Vol()
+        try:
+            return rf.app_create_probe()
+        finally:
+            for k, v in saved.items():
+                setattr(rf, k, v)
+            rf.DISK.pop("volume", None)
+
+    def test_pass_and_fill_trimmed_back(self):
+        vol = self.Vol()
+        rec = self.run_probe(vol=vol)
+        self.assertEqual(rec["verdict"], "pass", rec)
+        self.assertEqual(vol.trims, [rf.opts.disk_margin_mb])
+
+    def test_untyped_or_dead_daemon_error_is_not_a_refusal(self):
+        for bad in ({"error": "no daemon socket"}, {"error": "no answer within 10 s", "stall": True},
+                    {"error": "garbage output"}, {"error": '{"code":"not_found"}'}):
+            rec = self.run_probe(create=bad)
+            self.assertEqual(rec["verdict"], "not run", (bad, rec))
+
+    def test_app_timeout_is_a_fail_not_a_crash(self):
+        rec = self.run_probe(action={"error": "timed out"})
+        self.assertEqual(rec["verdict"], "fail")
+        self.assertIn("no answer", rec["problems"][0])
+
+    def test_unknown_action_and_not_performed_are_not_run(self):
+        self.assertEqual(self.run_probe(action={"error": {"code": "not_found"}})["verdict"], "not run")
+        self.assertEqual(self.run_probe(action={"performed": False})["verdict"], "not run")
+
+    def test_accepted_create_is_not_run_and_closed(self):
+        made = dict(self.VIEW, app={"ws_1", "ws_2"}, daemon={"ws_1", "ws_2"})
+        rec = self.run_probe(views=[self.VIEW, made])
+        self.assertEqual(rec["verdict"], "not run")
+        self.assertEqual(self.closed, ["ws_2"])
+
+    def test_unreadable_relaunch_view_is_not_run(self):
+        shown = dict(self.VIEW, notices=1, texts=['"disk is full"'])
+        unreadable = dict(self.VIEW, readable=False, app=set())
+        self.assertEqual(self.run_probe(views=[self.VIEW, shown, unreadable])["verdict"], "not run")
+        self.assertEqual(self.run_probe(views=[self.VIEW, shown], loaded=False)["verdict"], "not run")
+
+    def test_failed_relaunch_is_a_fail(self):
+        shown = dict(self.VIEW, notices=1, texts=['"disk is full"'])
+        self.assertEqual(self.run_probe(views=[self.VIEW, shown], app=self.App(False))["verdict"], "fail")
+
+    def test_unmounted_image_raises_harness_invalid(self):
+        with self.assertRaises(rf.HarnessInvalid):
+            self.run_probe(vol=self.Vol(mounted=False))
+
+    def test_unrelated_or_old_notice_is_no_visible_refusal(self):
+        old = dict(self.VIEW, notices=1, texts=['"disk is full"'])
+        other = dict(self.VIEW, notices=1, texts=['"Copied to clipboard"'])
+        rec = self.run_probe(views=[self.VIEW, other, self.VIEW])
+        self.assertEqual(rec["verdict"], "fail")
+        rec = self.run_probe(views=[old, old, old])
+        self.assertEqual(rec["verdict"], "fail")
+        again = dict(self.VIEW, notices=2, texts=['"disk is full"', '"disk is full"'])
+        self.assertEqual(self.run_probe(views=[old, again, old])["verdict"], "pass")
+
+    def test_no_time_left_is_not_run(self):
+        saved = rf.opts.max_seconds
+        rf.opts.max_seconds = 1
+        try:
+            self.assertEqual(self.run_probe()["verdict"], "not run")
+        finally:
+            rf.opts.max_seconds = saved
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
