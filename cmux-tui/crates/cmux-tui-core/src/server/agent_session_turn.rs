@@ -29,6 +29,7 @@ impl CloudTurnConfig {
             url::Url::parse(&get("CMUX_PLATFORM_ORIGIN").ok_or(invalid)?).map_err(|_| invalid)?;
         if origin.scheme() == "https"
             && origin.host_str().is_some()
+            && origin.path() == "/"
             && origin.username().is_empty()
             && origin.password().is_none()
             && origin.query().is_none()

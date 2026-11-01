@@ -25,7 +25,12 @@ fn cloud_turn_partial_or_invalid_configuration_cannot_become_unconfigured() {
         .unwrap()
         .is_none()
     );
-    for origin in [None, Some("http://platform.test"), Some("https://user:secret@platform.test")] {
+    for origin in [
+        None,
+        Some("http://platform.test"),
+        Some("https://user:secret@platform.test"),
+        Some("https://platform.test/path"),
+    ] {
         assert!(
             CloudTurnConfig::from_lookup(|key| match key {
                 "CMUX_PLATFORM_WORKSPACE_ID" => Some("ws_one".into()),
