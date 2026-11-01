@@ -10,6 +10,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::sync::Arc;
@@ -534,6 +535,7 @@ pub(crate) async fn ensure(
     policy: Option<String>,
     effort: Option<String>,
     tags: Vec<String>,
+    harness_from: Option<String>,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -544,8 +546,15 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    if let (Some(h), Some(from)) = (&host, &harness_from) {
+        return Err(AppError::usage(format!(
+            "--harness-from copies a session on this machine only: run \
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --host {h}"
+        ))
+        .into());
+    }
     let tags = parse_tags(&tags)?;
-    let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),
@@ -578,6 +587,9 @@ pub(crate) async fn ensure(
             if !tags.as_object().is_none_or(|m| m.is_empty()) {
                 meta["tags"] = tags;
             }
+            if let Some(p) = &harness_from {
+                meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
+            }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
@@ -586,6 +598,7 @@ pub(crate) async fn ensure(
                 (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
             }
             let v = client.request(method::SESSION_NEW, p).await?;
+            crate::cli::run::launch::print_new_warnings(&v);
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
         }

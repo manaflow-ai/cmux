@@ -158,6 +158,10 @@ print(code("claude"), code("codex"), code("opencode"))
 #   no-team-account no choice or sign-in; the team has none
 #   team-unreachable no choice or sign-in; CodeRouter cannot be reached from
 #                   this machine, so team mode could not work
+#   no-team-plane   no choice or sign-in; the machine has no CodeRouter origin
+#                   at all (no model plane in its boot env, persisted copy or
+#                   image), so team mode has nothing to send to and the agent
+#                   shows its own sign-in instead of "Not logged in"
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
@@ -180,6 +184,10 @@ cmux_agent_auth_resolve() {
     cmux_agent_auth_reason=login
     return 0
   fi
+  case "${CMUX_CODEROUTER_URL-}" in
+    https://*) ;;
+    *) cmux_agent_auth_mode=own; cmux_agent_auth_reason=no-team-plane; return 0 ;;
+  esac
   if cmux_agent_team_access "$1"; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
   case "$cmux_aa_rc" in
     0) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-account ;;
@@ -196,11 +204,17 @@ cmux_agent_drop_model_plane_env() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   cmux_aa_origin="${cmux_aa_origin%/}"
   cmux_aa_openai="${OPENAI_BASE_URL-}"
-  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ]; }; then
+  # With no origin (no-team-plane), a base URL paired with the placeholder key
+  # is the model plane's: a machine that persisted only the OpenAI pair has a
+  # CodeRouter URL and no CMUX_CODEROUTER_URL, and an own login must never be
+  # sent there. With an origin, only a URL that is the origin's is dropped.
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ] || { [ -z "$cmux_aa_origin" ] && [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; }; }; then
     unset ANTHROPIC_BASE_URL
   fi
   if [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset ANTHROPIC_API_KEY; fi
-  if [ -n "$cmux_aa_origin" ] && [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; then unset OPENAI_BASE_URL; fi
+  if [ -n "$cmux_aa_openai" ] && if [ -n "$cmux_aa_origin" ]; then [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; else [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; fi; then
+    unset OPENAI_BASE_URL
+  fi
   if [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset OPENAI_API_KEY; fi
   # The usage headers name the cmux workspace and terminal; they mean nothing
   # to any other endpoint.
@@ -261,22 +275,59 @@ cmux_codex_apply_auth_mode() {
     # cmux-owned trusted hashes across; dropping them makes every file hook
     # show "needs review" even though the bake trusted it. Serialize the
     # complete rewrite: two panes can launch at once during image verify.
+    # A default config that cannot be read keeps the hashes this home already
+    # has (a trusted_hash is the hook's content hash, so a kept one never
+    # trusts a hook that changed since) and logs it on stderr. In a config
+    # that reads, an entry without a string trusted_hash is a hook the user
+    # has not approved (or revoked): it is logged and left untrusted here too.
     : > "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
     chmod 0600 "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
     (
       flock 9 || exit 1
-      python3 -I - "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" "$HOME/.codex/hooks.json" "${CMUX_CODEROUTER_URL%/}" <<'CMUX_CODEX_COPY_HOOK_TRUST' 2>/dev/null || exit 1
-import json, os, pathlib, tempfile, tomllib
+      python3 -I - "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" "$HOME/.codex/hooks.json" "${CMUX_CODEROUTER_URL%/}" <<'CMUX_CODEX_COPY_HOOK_TRUST' || exit 1
+import json, os, pathlib, sys, tempfile, tomllib
 
-source, target, hooks = map(pathlib.Path, __import__("sys").argv[1:4])
-base_url = __import__("sys").argv[4]
-try:
-    document = tomllib.loads(source.read_text())
-except (FileNotFoundError, OSError, ValueError, UnicodeError):
-    document = {}
-hooks_table = document.get("hooks")
-state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else {}
+source, target, hooks = map(pathlib.Path, sys.argv[1:4])
+base_url = sys.argv[4]
 prefix = str(hooks) + ":"
+
+
+def trust_table(path):
+    """path's hooks.state table ({} when the file is absent)."""
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    hooks_table = document.get("hooks", {})
+    state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else None
+    if not isinstance(state, dict):
+        raise ValueError("hooks.state is not a table")
+    return state
+
+
+def log(message):
+    print(f"cmux: codex team home: {message}", file=sys.stderr)
+
+
+try:
+    state = trust_table(source)
+except (OSError, ValueError, UnicodeError) as error:
+    log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
+    try:
+        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
+                   if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
+    except (OSError, ValueError, UnicodeError):
+        trusted = {}
+else:
+    trusted = {}
+    for key, entry in state.items():
+        if not key.startswith(prefix):
+            continue
+        digest = entry.get("trusted_hash") if isinstance(entry, dict) else None
+        if isinstance(digest, str):
+            trusted[key] = digest
+            continue
+        log(f"skipping Codex hook trust entry {json.dumps(key, ensure_ascii=False)} in {source}: it has no string trusted_hash, so it stays untrusted")
 lines = [
     'model_provider = "cmux"',
     "",
@@ -289,17 +340,15 @@ lines = [
     'supports_websockets = false',
     "",
 ]
-for key, entry in state.items() if isinstance(state, dict) else ():
-    trusted = entry.get("trusted_hash") if isinstance(entry, dict) else None
-    if isinstance(key, str) and key.startswith(prefix) and isinstance(trusted, str):
-        # TOML accepts UTF-8 directly; JSON's default surrogate escapes are
-        # rejected by TOML parsers for non-BMP path characters.
-        lines.extend([f"[hooks.state.{json.dumps(key, ensure_ascii=False)}]", f"trusted_hash = {json.dumps(trusted)}", ""])
+for key, digest in trusted.items():
+    # TOML accepts UTF-8 directly; JSON's default surrogate escapes are
+    # rejected by TOML parsers for non-BMP path characters.
+    lines.extend([f"[hooks.state.{json.dumps(key, ensure_ascii=False)}]", f"trusted_hash = {json.dumps(digest)}", ""])
 content = "\n".join(lines)
 fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.toml.")
 try:
     os.fchmod(fd, 0o600)
-    with os.fdopen(fd, "w") as output:
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
         output.write(content)
     os.replace(temporary, target)
 finally:

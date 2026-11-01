@@ -1414,6 +1414,10 @@ check_no_self_hosted_fleet_runners() {
         if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
         content="${content//"$gui_autofix_selector"/}" ;;
+      # cmux NEXT Stable: no pull_request trigger (schedule, dispatch, a push to stable-next-dry-run);
+      # its UI tests, suites and dry-run signing take the gui pool on attempt 1, Blacksmith after.
+      "$ROOT_DIR/.github/workflows/stable-next.yml")
+        content="${content//"$gui_autofix_selector"/}" ;;
     esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label

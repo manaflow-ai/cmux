@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// `setFrame(_:display:animate: true)`, which runs the whole animation before it returns). The
 /// zoom returns at once and the window reaches its zoomed frame on the run loop; a second zoom
 /// goes back to the frame it came from.
-@MainActor @Suite(.serialized) struct WindowZoomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WindowZoomTests {
     private func shownWindow() throws -> (ShellWindow, NSRect) {
         _ = NSApplication.shared
         let screen = try #require(NSScreen.main, "zooming needs a screen")
@@ -40,7 +41,8 @@ import Testing
 
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
         let (window, start) = try shownWindow()
-        defer { window.close() }
+        // As the window's controller closes it: last, a host its close made goes too.
+        defer { window.close(); WindowOverlayHost.windowIsClosing(window) }
         try #require(!window.isZoomed)
         // The zoom animates only when the panes' Motion gate lets it (`WindowZoom` resizes through
         // `Motion.panes.animateTimed`). With Reduce Motion, calm mode, animations off, a live resize or

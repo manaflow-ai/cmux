@@ -10,6 +10,47 @@ fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
     params
 }
 
+/// Whether `session resume` moves the chat `info` (`MUX_INFO`) before resuming it: this machine is
+/// one a person works at (`placement::interactive`) and the chat is stopped here (no agent runs:
+/// `closed`, `idle` or `disconnected`, no turn), so resuming it would start its agent here. It
+/// goes where `session move --host auto` puts it (`session_move::move_off_interactive`). A chat
+/// on a peer, one with a live agent, one moving or moved away resumes where it is.
+pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
+    interactive
+        && info.get("peer").is_none_or(Value::is_null)
+        && info.get("turn").is_none_or(Value::is_null)
+        && info.get("movedTo").is_none_or(Value::is_null)
+        && info["moving"] != true
+        && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
+}
+
+/// Runs the queue a failed turn held in chat `id` (`info` is its `MUX_INFO`), through `client`:
+/// `_acpmux/queue_edit` `resume` names the queue by any of its prompts, a held one. False when
+/// nothing is held.
+pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Result<bool> {
+    let held = info["queue"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|q| q["held"] == true)
+        .and_then(|q| q["promptId"].as_str());
+    let Some(prompt_id) = held else { return Ok(false) };
+    let v = client
+        .request(
+            method::MUX_QUEUE_EDIT,
+            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
+        )
+        .await?;
+    Ok(v["ok"] == true)
+}
+
+/// What `session resume` prints when it moved the chat first.
+fn moved_line(host: &str) -> String {
+    format!(
+        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+    )
+}
+
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
@@ -50,11 +91,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge } => {
+        Command::Kill { session, purge, condition } => {
             let client = connect(true).await?;
+            // An older daemon would ignore the condition and stop a busy session.
+            if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "stop_if_idle_unsupported",
+                    "the running daemon predates `session stop --if-idle`: nothing was stopped; \
+                     restart it on the installed acpmux, then retry",
+                )
+                .into());
+            }
             let id = crate::cli::resolve::control_id(&client, &session).await?;
-            let v =
-                client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
+            let mut params = json!({"sessionId": id, "purge": purge});
+            if condition.if_idle {
+                cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
+            }
+            if let Some(rev) = condition.expect_revision {
+                cmux_json::JsonSet::set(&mut params, "expectRevision", json!(rev));
+            }
+            let v = client.request(method::MUX_KILL, params).await?;
             if json_out {
                 print_json(&v)
             } else {
@@ -85,6 +142,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
         }
+        Command::SessionInboxCmd(crate::cli::command::SessionInboxTarget {
+            session,
+            thread,
+            unread,
+        }) => {
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
+                .await
+        }
         Command::TurnCapCmd { session, minutes, off, clear } => {
             use crate::cli::session_turn_cap::Change;
             let change = match (minutes, off, clear) {
@@ -96,36 +162,69 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_turn_cap::run(&client, &session, change, json_out).await
         }
+        Command::QueueCmd(q) => {
+            let client = connect(true).await?;
+            crate::cli::session_queue::run(&client, q, json_out).await
+        }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let mut id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-            // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
-            let held = info["queue"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|q| q["held"] == true)
-                .and_then(|q| q["promptId"].as_str())
-                .map(str::to_owned);
-            let resumed = match held {
-                Some(prompt_id) => {
-                    let v = client
-                        .request(
-                            method::MUX_QUEUE_EDIT,
-                            json!({"sessionId": id, "promptId": prompt_id, "op": "resume"}),
-                        )
-                        .await?;
-                    v["ok"] == true
+            let mut moved_to = None;
+            let mut resumed = None;
+            if resume_moves_off(&info, crate::cli::place::here_is_interactive()) {
+                match super::session_move::move_off_interactive(&client, &id).await {
+                    Ok(moved) => {
+                        eprintln!("{}", moved_line(&moved.host));
+                        id = moved.routed;
+                        moved_to = Some(moved.host);
+                        resumed = Some(moved.resumed);
+                    }
+                    Err(e) => eprintln!("resuming on this machine: it did not move ({e:#})"),
                 }
-                None => false,
+            }
+            let resumed = match resumed {
+                Some(Ok(resumed)) => resumed,
+                Some(Err(why)) => {
+                    anyhow::bail!(
+                        "it moved to {id}, but its held queue did not resume there: {why}"
+                    )
+                }
+                None => resume_held(&client, &id, &info).await?,
             };
             if json_out {
-                print_json(&json!({"sessionId": id, "resumed": resumed}));
+                print_json(&json!({"sessionId": id, "resumed": resumed, "movedTo": moved_to}));
             } else if resumed {
                 println!("resumed");
             } else {
                 println!("nothing is held");
+            }
+            Ok(())
+        }
+        Command::InboxDigest { session, dry_run } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
+                .await?;
+            let field = |key: &str| v.get(key).unwrap_or(&Value::Null);
+            let digested = field("digested").as_u64().unwrap_or(0);
+            if json_out {
+                print_json(&v);
+            } else if digested == 0 {
+                println!("no agent message waits in its queue");
+            } else if dry_run {
+                println!("{}", field("text").as_str().unwrap_or_default());
+                println!("\n(dry run: nothing changed; --digest sends it)");
+            } else {
+                let how = match field("delivery").as_str() {
+                    Some("steer") => "steered into its running turn".to_owned(),
+                    _ => format!("queued at position {}", field("position")),
+                };
+                println!(
+                    "{digested} messages went into digest {}, {how}",
+                    field("promptId").as_str().unwrap_or_default()
+                );
             }
             Ok(())
         }
@@ -157,6 +256,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
+            super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
             } else {
@@ -291,6 +391,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::MoveSessions {
+            sessions,
+            host,
+            all_idle,
+            interrupt,
+            leave_dirty,
+            cwd,
+            dry_run,
+        } => {
+            let args = super::session_move::MoveArgs {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                resume_there: false,
+            };
+            super::session_move::run(args, json_out).await
+        }
         Command::Transfer { session, to, cwd, name, interrupt } => {
             super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
         }
@@ -365,6 +486,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         which @ (Command::Status { .. } | Command::DaemonStart { .. }) => {
             let start = matches!(which, Command::DaemonStart { .. });
+            if start {
+                crate::daemon::mark_explicit_start();
+            }
             let show_token = match &which {
                 Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
                     *show_token
@@ -974,7 +1098,29 @@ fn config_text_without_tokens(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::peer_add_params;
+    use super::{peer_add_params, resume_moves_off};
+    use serde_json::json;
+
+    #[test]
+    fn resume_moves_a_stopped_chat_off_a_machine_a_person_works_at_and_nothing_else() {
+        for status in ["closed", "idle", "disconnected"] {
+            let info = json!({"status": status, "peer": null, "turn": null, "movedTo": null});
+            assert!(resume_moves_off(&info, true), "{status}");
+            assert!(!resume_moves_off(&info, false), "{status}: a fleet host resumes in place");
+        }
+        // A live agent, a turn, a peer's chat, one moving or moved away: resumed where it is.
+        for info in [
+            json!({"status": "ready"}),
+            json!({"status": "running"}),
+            json!({"status": "waiting"}),
+            json!({"status": "idle", "turn": {"turnId": "t"}}),
+            json!({"status": "closed", "peer": "gcp-1"}),
+            json!({"status": "closed", "moving": true}),
+            json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "m"}}),
+        ] {
+            assert!(!resume_moves_off(&info, true), "{info}");
+        }
+    }
 
     #[test]
     fn host_add_saves_without_waiting_for_the_first_probe() {

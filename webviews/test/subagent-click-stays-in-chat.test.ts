@@ -1,0 +1,73 @@
+// A click on a subagent (a group line, a card row, the agents pill) opened a split right of the
+// chat even with the summary card's switch off, so subagents kept landing in splits (Austin
+// 2026-10-21, nightly 3955ea8). With the switch off a click shows the subagent in the chat's own
+// pane; only with it on does a click ask the app for a pane (subagents/subagentPanes.ts).
+import { expect, test } from "bun:test";
+import { showSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
+
+/// What showing subagent "reviewer" did: the app calls it made and the views it showed here.
+async function show(options: { panes: boolean; inSubagentPane?: boolean; focus?: boolean; opened?: boolean }) {
+  const calls: string[] = [];
+  const here: string[] = [];
+  await showSubagent(
+    async (method) => {
+      calls.push(method);
+      return { opened: options.opened ?? true };
+    },
+    "reviewer",
+    options.focus ?? true,
+    {
+      panes: options.panes,
+      inSubagentPane: options.inSubagentPane ?? false,
+      here: (id) => here.push(id),
+      beforeOpen: () => calls.push("tail.handover"),
+    },
+  );
+  return { calls, here };
+}
+
+test("with the switch off, a click shows the subagent in the chat and opens no pane", async () => {
+  expect(await show({ panes: false })).toEqual({ calls: [], here: ["reviewer"] });
+});
+
+test("with the switch on, a click asks the app for the subagent's pane", async () => {
+  expect(await show({ panes: true })).toEqual({ calls: ["tail.handover", "chat.subagentPane"], here: [] });
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  await showSubagent(
+    async (method, params) => {
+      calls.push({ method, params });
+      return { opened: true };
+    },
+    "reviewer",
+    true,
+    { panes: true, inSubagentPane: false, here: () => {}, title: "Review the tray motion diff" },
+  );
+  expect(calls).toEqual([
+    {
+      method: "chat.subagentPane",
+      params: { subagent: "reviewer", focus: true, title: "Review the tray motion diff" },
+    },
+  ]);
+});
+
+test("with the switch on and a host that opens none, a click shows it in the chat", async () => {
+  expect(await show({ panes: true, opened: false })).toEqual({
+    calls: ["tail.handover", "chat.subagentPane"],
+    here: ["reviewer"],
+  });
+});
+
+test("a subagent's own pane shows other subagents in place, never in more panes", async () => {
+  expect(await show({ panes: true, inSubagentPane: true })).toEqual({ calls: [], here: ["reviewer"] });
+});
+
+test("background discovery with panes off opens no pane and leaves the shown chat alone", async () => {
+  expect(await show({ panes: false, focus: false })).toEqual({ calls: [], here: [] });
+});
+
+test("background discovery with panes on hands over the tail before opening its pane", async () => {
+  expect(await show({ panes: true, focus: false })).toEqual({
+    calls: ["tail.handover", "chat.subagentPane"],
+    here: [],
+  });
+});

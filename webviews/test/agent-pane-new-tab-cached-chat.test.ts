@@ -275,6 +275,8 @@ test("a chat opened in a new tab draws from the tail the host kept, before its o
   // A new tab on the same chat, with acpmux slow to answer its attach.
   const tab = chat.tab(chat.a, { hold: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   // Drawn from the host's tail, with this page's attach still in flight.
   expect(text(tab.last())).toContain("Retry added.");
   expect(tab.last()!.sessionId).toBe(chat.a);
@@ -339,6 +341,22 @@ test("the actions that open a chat in a tab hand the chat over first", async () 
   }
 });
 
+/// A subagent's pane is a tab on the chat's own session too (subagentPanes.ts), so the action that
+/// asks the shared navigation helper for one supplies the hand-over callback. The helper's
+/// behavioral tests check that it runs before the pane request, and only when a pane opens.
+test("opening a subagent in its own pane hands the chat over first", async () => {
+  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  const sites = [...app.matchAll(/showSubagentIn\(callNative/g)];
+  expect(sites.length).toBe(1);
+  for (const site of sites) {
+    const options = app.slice(site.index, site.index + 500);
+    expect(
+      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.handOverCurrentTail\(\)/.test(options),
+      "showSubagent does not supply the shared helper's tail-handoff callback, so the pane opens cold (tailCache.ts).",
+    ).toBe(true);
+  }
+});
+
 /// A tab closing on a chat leaves it warm too: the page is gone before anything else could hand it
 /// over, so `close` does it (and `pagehide`, which no test here can fire).
 test("a tab closed on a chat hands that chat over", async () => {
@@ -381,6 +399,8 @@ test("a closed client leaves its tail with the host alone, not in its own page",
   delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
   const tab = chat.tab(chat.a, { hold: true, samePage: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   expect(text(tab.last())).not.toContain("Retry added.");
   tab.daemon.release();
   live.push(await tab.client);
@@ -393,6 +413,8 @@ test("a new tab the host kept nothing for waits for acpmux, and draws what it an
   chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
   const tab = chat.tab(chat.a, { hold: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   // Nothing was kept for this chat, so there is nothing to draw until acpmux answers: this is the
   // cold open the test above is measured against.
   expect(text(tab.last())).not.toContain("Retry added.");
@@ -414,6 +436,8 @@ test("a new tab that drew the host's tail says so, so its chat shows without the
   await chat.readInATab();
   const tab = chat.tab(chat.a, { hold: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   // The frame the open landed on drew the chat, and says where those rows came from.
   expect(text(tab.last())).toContain("Retry added.");
   expect(tab.last()!.drewKeptTail).toBe(true);
@@ -428,6 +452,8 @@ test("a new tab with nothing kept never claims a tail, so its chat keeps the col
   chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
   const tab = chat.tab(chat.a, { hold: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   // Nothing kept, so this page draws nothing at all until acpmux answers.
   expect(tab.last()?.drewKeptTail).toBeUndefined();
   tab.daemon.release();
@@ -487,6 +513,8 @@ test("the tail handed to the host is bounded in bytes, and what it cut it still 
 
   const tab = chat.tab(chat.a, { hold: true });
   await tab.daemon.asked;
+  // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+  await flush();
   expect(text(tab.last())).toContain("Turn 8 done.");
   // The turns the bound cut are still offered, instead of a transcript that claims to be whole.
   expect(tab.last()!.canLoadOlder).toBe(true);
@@ -521,6 +549,8 @@ test("a host that answers something other than a tail leaves the chat to open co
     chat.host.answers = answer;
     const tab = chat.tab(chat.a, { hold: true });
     await tab.daemon.asked;
+    // The attach goes out with the chat list, before the host's tail is read: that read lands next.
+    await flush();
     expect(text(tab.last())).not.toContain("Retry added.");
     tab.daemon.release();
     const client = await tab.client;

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// A page moved into another view (a parked New Tab spare adopted, cx-21zkz): WebKit shows nothing
@@ -28,5 +29,6 @@ extension AgentPaneView {
     public func revealMovedPage() {
         guard model.hasPainted else { return }
         pageContent.alphaValue = 1
+        PageWebView.syncChromiumVisibility(in: pageContent)
     }
 }

@@ -30,6 +30,8 @@ import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
+import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -217,8 +219,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
     if (!inboxColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    // Whether thread_root is the message's own (brain-text ownsRoot); rows from before keep the old reply target.
+    if (!inboxColumns.has("own_root")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN own_root INTEGER NOT NULL DEFAULT 1`)
     const turnColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_turn)`).toArray().map((c) => c.name))
     if (!turnColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    if (!turnColumns.has("trigger_own_root")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN trigger_own_root INTEGER NOT NULL DEFAULT 1`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
@@ -528,10 +533,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /**
    * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
-   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once). `owner`: the Chief's owner,
+   * the Freestyle customer of the VMs it makes.
    */
-  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
-    return ccSandbox(this, agent, req, legacy)
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = [], owner: string | null = null): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy, owner)
   }
 
   /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
@@ -547,6 +553,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
   async chiefJob(j: ChiefJob): Promise<JobDelivery> {
     return chiefJobWake(this, j)
+  }
+
+  /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */
+  async cjStore(team: string, o: StoreOp): Promise<unknown> {
+    return jobsStore(this, team, o, upstashSender(this.env))
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
@@ -624,7 +635,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
+  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root?: number; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
     return turnLoop.openTurn(this, conversation, rows, fresh)
   }
 
@@ -824,6 +835,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const next = await githubPoll(this.githubHost())
       return next === null ? undefined : { rescheduleAt: next }
     }
+    if (job.fn === "cj-send") return void (await jobsSendDue(this, upstashSender(this.env), String(job.id).slice("cj-send:".length)))
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()

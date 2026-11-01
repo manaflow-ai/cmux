@@ -57,15 +57,33 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// On a turn session: the Chief's participant id (`agent_mux`, `agent_…`).
+/// acpmux stamps it as `fromChief` on a message the turn sends another chat
+/// (its `prompt_provenance::session_message_from`), and the app draws that
+/// Chief's name and picture there, not the turn's session name
+/// (manaflow-ai/cmux#27914).
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+
 /// A turn session's tags: [`chief_tags`] plus the names acpmux puts on its
 /// approval cards (Leo 2026-10-21, #89(4): "Chief wants to message a12 ·
-/// Nightly train"): the asker is the Chief, and its children are the
-/// sessions whose `mux.parent` is `parent`.
-pub fn turn_tags(home_id: &str, parent: &str) -> BTreeMap<String, String> {
+/// Nightly train"): the asker is the Chief by its own name (`title`, else
+/// "Chief"), and its children are the sessions whose `mux.parent` is
+/// `parent`; and the Chief's `participant` id.
+pub fn turn_tags(
+    home_id: &str,
+    parent: &str,
+    participant: &str,
+    title: Option<&str>,
+) -> BTreeMap<String, String> {
     use cmux_chief::rules::{CHIEF_DISPLAY_NAME, CHILDREN_TAG, LABEL_TAG};
     let mut tags = chief_tags(home_id, "turn");
-    tags.insert(LABEL_TAG.to_owned(), CHIEF_DISPLAY_NAME.to_owned());
+    let label = title
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| CHIEF_DISPLAY_NAME.to_owned());
+    tags.insert(LABEL_TAG.to_owned(), label);
     tags.insert(CHILDREN_TAG.to_owned(), parent.to_owned());
+    tags.insert(CHIEF_PARTICIPANT_TAG.to_owned(), participant.to_owned());
     tags
 }
 
@@ -670,9 +688,12 @@ impl Acpmux {
                 .map_err(|e| format!("initialize: {e}"))?;
             // The watch answers with the session list: reading it again at once spent
             // the connection's second paced list (acpmux `hub/list_guard.rs`).
-            let watched = client
-                .request("_acpmux/watch", json!({"enabled": true}))
-                .map_err(|e| format!("watch: {e}"))?;
+            let watched = whole_list(
+                |m, p| client.request(m, p),
+                "_acpmux/watch",
+                json!({"enabled": true}),
+            )
+            .map_err(|e| format!("watch: {e}"))?;
             let list = match session_rows(&watched) {
                 Some(list) => list,
                 None => sessions(&client)?,
@@ -845,10 +866,58 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
 
 /// `_acpmux/sessions`, rows that do not parse skipped.
 pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    let result = client
-        .request("_acpmux/sessions", json!({}))
+    let result = whole_list(|m, p| client.request(m, p), "_acpmux/sessions", json!({}))
         .map_err(|e| format!("sessions: {e}"))?;
     Ok(session_rows(&result).unwrap_or_default())
+}
+
+/// The whole session list `method` (`_acpmux/sessions` or `_acpmux/watch`)
+/// answers for `params`, each request asked by `ask`. With no `limit`, a list
+/// too large for one acpmux message comes in pages, each with the `nextCursor`
+/// of the rest, read by `_acpmux/sessions` with the same params (less the
+/// watch's `enabled`) from that cursor; the answer is one `sessions` of every
+/// page. A list that fits is one answer with no cursor, as from an acpmux that
+/// never pages. A cursor that comes again is refused, never read in a loop.
+/// With a `limit`, the one page asked for (acpmux `Client::whole_list`).
+pub(crate) fn whole_list<E: std::fmt::Display>(
+    ask: impl Fn(&str, Value) -> Result<Value, E>,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let ask = |m: &str, p: Value| ask(m, p).map_err(|e| e.to_string());
+    if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+        return ask(method, params);
+    }
+    let mut reply = ask(method, params.clone())?;
+    let mut rest = params;
+    if let Some(p) = rest.as_object_mut() {
+        p.remove("enabled");
+    }
+    let mut read = HashSet::new();
+    while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+        let Value::String(cursor) = cursor else { break };
+        if !read.insert(cursor.clone()) {
+            return Err(format!(
+                "the session list answered cursor {cursor:?} again; it would never end"
+            ));
+        }
+        rest["cursor"] = Value::String(cursor);
+        let mut page = ask("_acpmux/sessions", rest.clone())?;
+        let rows = page
+            .get_mut("sessions")
+            .map(Value::take)
+            .unwrap_or_default();
+        if let (Some(all), Value::Array(rows)) = (
+            reply.get_mut("sessions").and_then(Value::as_array_mut),
+            rows,
+        ) {
+            all.extend(rows);
+        }
+        if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+            reply["nextCursor"] = next;
+        }
+    }
+    Ok(reply)
 }
 
 /// A list answer's rows (`_acpmux/sessions`, `_acpmux/watch`), those that do
@@ -1034,6 +1103,12 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     meta
 }
 
+/// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
+/// unless its config sets another), twice, since acpmux tries a start that failed at background
+/// CPU class once more, so acpmux's error arrives. That error says what the agent process was
+/// doing (alive or not, its CPU class, run and CPU time), not a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(200);
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -1042,9 +1117,10 @@ pub fn new_session(
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
-        client.request(
+        client.request_within(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            SESSION_NEW_DEADLINE,
         )
     };
     let result = match request(&meta) {
@@ -1464,3 +1540,32 @@ const PICKER_FIELDS: &[&str] = &[
     "releaseDate",
     "description",
 ];
+
+#[cfg(test)]
+mod whole_list_tests {
+    use std::cell::RefCell;
+
+    use serde_json::{Value, json};
+
+    use super::whole_list;
+
+    /// With a `limit` the caller pages itself: one request, its cursor kept.
+    #[test]
+    fn a_list_with_a_limit_is_one_request() {
+        let asked = RefCell::new(Vec::new());
+        let reply = whole_list(
+            |m: &str, p: Value| {
+                asked.borrow_mut().push((m.to_owned(), p));
+                Ok::<_, String>(json!({"sessions": [{"sessionId": "s-1"}], "nextCursor": "c1"}))
+            },
+            "_acpmux/sessions",
+            json!({"limit": 1}),
+        )
+        .unwrap();
+        assert_eq!(reply["nextCursor"], "c1");
+        assert_eq!(
+            asked.into_inner(),
+            [("_acpmux/sessions".to_owned(), json!({"limit": 1}))]
+        );
+    }
+}

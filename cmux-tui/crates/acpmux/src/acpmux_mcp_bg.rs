@@ -8,6 +8,7 @@
 use super::{error_result, ok, refusal};
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -40,13 +41,13 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         Value::Null => json!({}),
         _ => return error_result("arguments must be an object".to_owned()),
     };
-    params["sessionId"] = json!(session);
+    params.set("sessionId", json!(session));
     let m = match name {
         "bg_start" => method::MUX_BG_START,
         "bg_list" => method::MUX_BG_LIST,
         "bg_output" => method::MUX_BG_OUTPUT,
         "bg_stop" => method::MUX_BG_STOP,
-        other => return error_result(format!("unknown tool: {other}")),
+        other => return error_result(crate::mcp_hint::unknown_tool(other, TOOLS)),
     };
     match daemon.request(m, params).await {
         Ok(r) => ok(summary(name, &r), r),
@@ -56,8 +57,9 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
 
 /// One task as a line, then its tail.
 fn task_line(t: &Value) -> String {
-    let s = |k: &str| t[k].as_str().unwrap_or_default();
-    let end = match (t["exitCode"].as_i64(), t["signal"].as_i64()) {
+    let s = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or_default();
+    let int = |k: &str| t.get(k).and_then(Value::as_i64);
+    let end = match (int("exitCode"), int("signal")) {
         (Some(code), _) => format!(" (exit {code})"),
         (_, Some(signal)) => format!(" (signal {signal})"),
         _ => String::new(),
@@ -66,9 +68,10 @@ fn task_line(t: &Value) -> String {
 }
 
 fn summary(name: &str, r: &Value) -> String {
+    let field = |k: &str| r.get(k).unwrap_or(&Value::Null);
     match name {
         "bg_list" => {
-            let tasks = r["tasks"].as_array().cloned().unwrap_or_default();
+            let tasks = field("tasks").as_array().map(Vec::as_slice).unwrap_or_default();
             if tasks.is_empty() {
                 return "No background tasks.".to_owned();
             }
@@ -76,12 +79,12 @@ fn summary(name: &str, r: &Value) -> String {
         }
         "bg_output" => format!(
             "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
-            r["text"].as_str().unwrap_or_default(),
-            r["id"].as_str().unwrap_or_default(),
-            r["fromByte"],
-            r["nextByte"],
-            r["totalBytes"],
-            r["nextByte"]
+            field("text").as_str().unwrap_or_default(),
+            field("id").as_str().unwrap_or_default(),
+            field("fromByte"),
+            field("nextByte"),
+            field("totalBytes"),
+            field("nextByte")
         ),
         _ => task_line(r),
     }
