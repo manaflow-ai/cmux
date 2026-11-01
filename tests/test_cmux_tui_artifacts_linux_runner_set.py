@@ -29,6 +29,7 @@ checks the answer is a member of that set. A fork keeps GitHub-hosted Ubuntu.
 from __future__ import annotations
 
 import itertools
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -42,6 +43,7 @@ from test_ci_tui_routes_avoid_nightly_label import route  # noqa: E402
 from blacksmith_linux_sizes import failover_label, size_label  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+PACKAGE_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
 
@@ -104,7 +106,27 @@ def context(owner: str, linux_runner: str, overflow: str, trusted: str, darwin_c
         "vars.CI_CLOUD_OVERFLOW_SAVED": overflow,
         "vars.CI_TRUSTED_RUNNER": trusted,
         "vars.LINUX_RUNNER_DARWIN_CROSS": darwin_cross,
+        "vars.RUNNER_POOLS_LINUX": "",
     }
+
+
+def evaluate(runs_on: str, values: dict) -> str:
+    """Evaluate the route helper's subset, including the JSON pool member.
+
+    The shared expression parser intentionally drops property access after a
+    fromJSON call. Substitute the one pool member this workflow reads so the
+    tests still exercise the fallback branches without reimplementing the
+    Actions expression evaluator.
+    """
+    values = dict(values)
+    raw_pools = values.pop("vars.RUNNER_POOLS", "")
+    try:
+        pools = json.loads(raw_pools or "{}")
+    except json.JSONDecodeError:
+        pools = {}
+    values["vars.RUNNER_POOLS_LINUX"] = pools.get("linux", "")
+    expression = runs_on.replace("fromJSON(vars.RUNNER_POOLS || '{}').linux", "vars.RUNNER_POOLS_LINUX")
+    return route(expression, values)
 
 
 class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
@@ -119,7 +141,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for (name, runs_on), linux_runner, overflow, trusted in itertools.product(
             routes.items(), LINUX_RUNNER_VALUES, ("", OVERFLOW_RECORD), TRUSTED_RUNNER_VALUES
         ):
-            label = route(runs_on, context("manaflow-ai", linux_runner, overflow, trusted))
+            label = evaluate(runs_on, context("manaflow-ai", linux_runner, overflow, trusted))
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith.
             allowed = blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
@@ -130,16 +152,38 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for name, runs_on in linux_routes().items():
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, "", "")),
-                                     size_label(WORKFLOW.name, name))
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")),
-                                     failover_label(WORKFLOW.name, name))
+                    default = (failover_label(WORKFLOW.name, name)
+                               if name == "cmux-next-daemon-tests"
+                               else size_label(WORKFLOW.name, name))
+                    self.assertEqual(evaluate(runs_on, context("manaflow-ai", linux_runner, "", "")), default)
+                    # Daemon tests use the measured 8-vCPU fallback when the
+                    # overflow marker says the 4-vCPU pool is unavailable; the
+                    # tree publisher cannot leave its key queued on that label.
+                    expected = size_label(WORKFLOW.name, name) if name == "cmux-next-daemon-tests" else failover_label(WORKFLOW.name, name)
+                    self.assertEqual(evaluate(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")), expected)
+
+    def test_package_selector_ignores_a_blacksmith_variable_pin(self) -> None:
+        # The reusable package workflow's selector is a light control job. A
+        # stale LINUX_RUNNER=blacksmith-4 value must not pin it to the empty
+        # 4-vCPU scale set; it uses the measured 16/8 set instead.
+        jobs = yaml.load(PACKAGE_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        runs_on = jobs["plan-build"]["runs-on"]
+        for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"):
+            context = {
+                "github.repository_owner": "manaflow-ai",
+                "vars.LINUX_RUNNER": linux_runner,
+                "vars.CI_CLOUD_OVERFLOW_SAVED": "",
+                "inputs.linux_runner": "",
+            }
+            self.assertEqual(evaluate(runs_on, context), "blacksmith-16vcpu-ubuntu-2404")
+            context["vars.CI_CLOUD_OVERFLOW_SAVED"] = OVERFLOW_RECORD
+            self.assertEqual(evaluate(runs_on, context), "blacksmith-8vcpu-ubuntu-2404")
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes().items():
             for linux_runner in ("", POOL):
                 with self.subTest(job=name, linux_runner=linux_runner):
-                    label = route(runs_on, context("manaflow-ai", linux_runner, "", "", DARWIN_CROSS))
+                    label = evaluate(runs_on, context("manaflow-ai", linux_runner, "", "", DARWIN_CROSS))
                     if name == DARWIN_CROSS_JOB:
                         self.assertEqual(label, DARWIN_CROSS)
                     else:
@@ -148,7 +192,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes().items():
             with self.subTest(job=name):
-                self.assertEqual(route(runs_on, context("someone-else", "", "", "")), "ubuntu-24.04")
+                self.assertEqual(evaluate(runs_on, context("someone-else", "", "", "")), "ubuntu-24.04")
 
 
 if __name__ == "__main__":
