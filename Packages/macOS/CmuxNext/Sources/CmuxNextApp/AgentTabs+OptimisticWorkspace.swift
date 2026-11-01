@@ -48,13 +48,10 @@ extension AgentTabStore {
             store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: name, tab: snapshot), index: index),
                          transaction: transaction)
         }
-        if let session {
-            sessions[tabKey] = session.id
-            if session.linked { linkedSessions.insert(tabKey) }
-        } else {
-            seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd))
-            if chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
-        }
+        sessions[tabKey] = session?.id
+        if session?.linked == true { linkedSessions.insert(tabKey) }
+        if session == nil { seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd)) }
+        if session == nil, chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
         track(tabKey, in: store)
         if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
         let fail: @MainActor () -> Void = { [weak self] in
