@@ -1,5 +1,5 @@
 //! The background-process methods (`hub/processes.rs`,
-//! docs/background-processes.md): `_acpmux/process/list {sessionId?}`,
+//! docs/background-processes.md): `_acpmux/process/list {sessionId?, limit?, cursor?}`,
 //! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
 //! `_acpmux/process/kill {processId, sessionId?, signal?}` (a named chat must
 //! be the process's),
@@ -47,14 +47,21 @@ pub(super) async fn dispatch(
 
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     if m == method::MUX_PROCESS_LIST {
+        let paging = process_page_params(params)?;
         return match params.get("sessionId").filter(|v| !v.is_null()) {
+            None if paging.is_some() => Err(RpcError::invalid_params(
+                "paged process lists require a sessionId",
+            )),
             None => Ok(hub.list_processes(None)),
             Some(key) => {
                 let key = key
                     .as_str()
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
                 let session = hub.resolve(key)?;
-                Ok(hub.list_processes(Some(&*session)))
+                match paging {
+                    Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),
+                    None => Ok(hub.list_processes(Some(&session))),
+                }
             }
         };
     }
@@ -88,6 +95,28 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         }
     }
     hub.kill_process(id).await
+}
+
+/// An opt-in process page. A bare cursor must never silently fall back to a full
+/// list, and an unbounded requested limit is capped to a modest page size.
+fn process_page_params(params: &Value) -> Result<Option<(usize, Option<&str>)>, RpcError> {
+    let cursor = match params.get("cursor").filter(|v| !v.is_null()) {
+        None => None,
+        Some(Value::String(id)) if !id.is_empty() => Some(id.as_str()),
+        Some(_) => return Err(RpcError::invalid_params("cursor must be a nonempty process ID")),
+    };
+    let Some(value) = params.get("limit").filter(|v| !v.is_null()) else {
+        if cursor.is_some() {
+            return Err(RpcError::invalid_params("cursor requires limit"));
+        }
+        return Ok(None);
+    };
+    let limit = value
+        .as_u64()
+        .filter(|&n| n > 0)
+        .ok_or_else(|| RpcError::invalid_params("limit must be a positive integer"))?;
+    let bounded = usize::try_from(limit).unwrap_or(usize::MAX).min(crate::hub::process_page_limit());
+    Ok(Some((bounded, cursor)))
 }
 
 /// A byte count or offset: absent, null or a non-negative integer.
