@@ -145,6 +145,78 @@ fn lane_shell_vms_are_never_picked() {
 }
 
 #[test]
+fn fleet_vms_under_my_own_account_are_never_picked() {
+    // Leo's first Cloud send (2026-10-31) opened on sr2-tunnel-probe, a probe VM fleet tooling made
+    // under his account: free and his by creator, but its sign-in is the fleet's, not his.
+    for name in [
+        "sr2-tunnel-probe",
+        "fs-peer-1",
+        "fs-lane-3",
+        "fs-firstsend-exercise",
+        "SR2-x",
+        "lane-vm-2",
+    ] {
+        let fleet = machine("vm-fleet", name);
+        assert!(pick::is_fleet(&fleet), "{name}");
+        assert_eq!(pick::pick(&[fleet.clone()], Some(ME), &none()), None, "{name}");
+        // Idle-paused too.
+        let paused = offline(fleet, "paused", Some("idle"));
+        assert_eq!(pick::pick(&[paused], Some(ME), &none()), None, "{name}");
+    }
+    // A fleet or infra tag marks one whatever its name.
+    for tag in ["fleet", "Infra"] {
+        let tagged =
+            with(machine("vm-tagged", "kind-aqua-sandpiper"), |m| m.tags = vec![tag.into()]);
+        assert_eq!(pick::pick(&[tagged], Some(ME), &none()), None, "{tag}");
+    }
+    // Among fleet VMs, the person's own idle machine is the one taken.
+    let all = [
+        machine("vm-probe", "sr2-tunnel-probe"),
+        machine("vm-peer", "fs-peer-1"),
+        offline(machine("vm-mine", "zesty-indigo-lemur"), "paused", Some("idle")),
+    ];
+    assert_eq!(pick::pick(&all, Some(ME), &none()).as_deref(), Some("vm-mine"));
+    // Names that merely contain the words are not fleet ones.
+    for name in ["my-fs-notes", "leo-cloud", "cloud-chats", "fsharp-box"] {
+        assert!(!pick::is_fleet(&machine("vm-x", name)), "{name}");
+    }
+}
+
+#[test]
+fn a_teammates_idle_machine_and_none_of_mine_makes_a_new_one() {
+    // The pick never takes a machine the person did not create, however idle: the team's machine
+    // can't receive their own login (cmux#29771), so a new one of their own is made instead.
+    let teammates = [
+        with(machine("vm-team", "cloud-chats"), |m| m.created_by = Some(TEAMMATE.into())),
+        offline(
+            with(machine("vm-team-2", "spare"), |m| m.created_by = Some(TEAMMATE.into())),
+            "paused",
+            Some("idle"),
+        ),
+        with(machine("vm-nobody", "spare"), |m| m.created_by = None),
+        machine("vm-probe", "sr2-tunnel-probe"),
+    ];
+    let mut pins = Ledger::default();
+    assert_eq!(
+        pick::destination(&send(&key()), ACCOUNT, None, &mut pins, &teammates, &[], Some(ME), true),
+        Destination::New
+    );
+    assert_eq!(
+        pick::destination(
+            &send(&key()),
+            ACCOUNT,
+            Some("ws-new"),
+            &mut pins,
+            &teammates,
+            &[],
+            Some(ME),
+            true
+        ),
+        Destination::New
+    );
+}
+
+#[test]
 fn an_idle_paused_machine_of_mine_is_free_and_a_persons_pause_is_not() {
     let idle = offline(machine("vm-idle", "spare"), "paused", Some("idle"));
     let paused = offline(machine("vm-paused", "kept"), "paused", Some("user"));
@@ -779,6 +851,8 @@ fn a_workspaces_gone_teammates_or_failed_machine_is_dropped_for_another() {
         // A stale link still reads as connected; the server's status says it is gone.
         vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "failed".into())],
         vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "deleting".into())],
+        // A fleet VM under the person's own account (Leo's sr2-tunnel-probe) is no workspace's.
+        vec![machine("vm-a", "sr2-tunnel-probe")],
     ] {
         let mut pins = Ledger::default();
         pins.bind("ws-a", ACCOUNT, "vm-a");
