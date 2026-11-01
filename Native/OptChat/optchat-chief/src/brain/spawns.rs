@@ -2110,6 +2110,9 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
+        if let Some(name) = super::session_tell::session_name(id) {
+            return self.session_tell(name, message);
+        }
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
         };

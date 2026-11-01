@@ -98,7 +98,10 @@
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
-  min-height: calc(var(--text-title--line-height) + (var(--ds-control-row) + var(--ds-space-5) + var(--ds-space-4)) * var(--cmux-interface-scale, 1));
+  /* One line of the prompt with its padding (markdownField.css) over the control row. */
+  min-height: calc(
+    var(--text-content--line-height) + var(--acpmux-md-pad-top) + var(--acpmux-md-pad-bottom) + var(--acpmux-codex-row)
+  );
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock

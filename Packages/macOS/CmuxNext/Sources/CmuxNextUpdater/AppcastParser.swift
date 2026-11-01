@@ -85,15 +85,7 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             itemDescription: fields["description"],
             date: fields["pubDate"].flatMap(Self.rfc822),
             sparkleChannel: fields["sparkle:channel"],
-            sourceCommit: fields["cmux:sourceCommit"] ?? Self.commitFromReleaseNotes(fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]),
             listsDeltas: listsDeltas
         ))
-    }
-
-    private static func commitFromReleaseNotes(_ value: String?) -> String? {
-        guard let value, let range = value.range(of: "/commit/") else { return nil }
-        let suffix = value[range.upperBound...]
-        let commit = suffix.prefix { $0.isHexDigit }
-        return UpdateBuildIdentity.normalizedCommit(String(commit))
     }
 }

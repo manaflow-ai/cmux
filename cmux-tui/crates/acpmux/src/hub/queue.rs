@@ -1058,12 +1058,12 @@ impl Hub {
                         branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
                     }
                     "queued" => {
-                        // A restart's continuation of a cut turn goes ahead of what waited behind
-                        // that turn, also when the daemon stopped before its `queue_order`
-                        // (`restart_resume.rs`); a later reorder still holds.
-                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
-                            == Some("daemon_restart")
-                            && let Some(id) = e.msg.get("promptId")
+                        // A restart's or a move's continuation of a cut turn goes ahead of what
+                        // waited behind that turn, also when the daemon stopped before its
+                        // `queue_order` (`restart_resume.rs`); a later reorder still holds.
+                        if super::auto_resume::Cut::queued(
+                            e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
+                        ) && let Some(id) = e.msg.get("promptId")
                         {
                             order.prioritize_restart(id);
                         }
