@@ -929,6 +929,12 @@ export type AcpmuxSnapshot = {
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
   earlierPrompts?: readonly AcpmuxRow[];
+  /**
+   * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
+   * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
+   * thread rail starts at the height that many prompts take. Absent once `earlierPrompts` is read.
+   */
+  promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
