@@ -1956,7 +1956,7 @@ jobs:
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
       # Jobs publish-nightly needs that run beside this one; derived from the
       # needs graph by tests/test_nightly_stop_if_publish_doomed.py.
-      NIGHTLY_PUBLISH_PEERS: resolve-nightly-ghostty-cli-helper build-nightly-ghostty-cli-helper
+      NIGHTLY_PUBLISH_PEERS: resolve-nightly-ghostty-cli-helper build-nightly-ghostty-cli-helper build-nightly-remote-daemon
     steps:
       - name: Checkout trusted unsigned-resume controls
         if: inputs.nightly_next_unsigned_run != ''
@@ -2559,8 +2559,13 @@ jobs:
           # this tree's client (install-cmux-tui-client.sh).
           # Reuse the managed fleet CAS; unavailable nodes keep the local cache.
           fleet_cache_settings=()
+          local_cache_settings=()
           while IFS= read -r setting; do
             fleet_cache_settings+=("$setting")
+            case "$setting" in
+              COMPILATION_CACHE_CAS_PATH=*|COMPILATION_CACHE_ENABLE_PLUGIN=*|COMPILATION_CACHE_REMOTE_SERVICE_PATH=*) ;;
+              *) local_cache_settings+=("$setting") ;;
+            esac
           done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${{ needs.decide.outputs.cold_cache == 'true' && '1' || '' }}" bash scripts/ci/fleet-compilation-cache.sh)
           # Keep retry classification identical to the other Release compile
           # paths: only compiler diagnostics that identify the CAS/cache as
@@ -2572,6 +2577,8 @@ jobs:
             local settings=()
             if [[ "$disable_fleet_cache" != 1 ]]; then
               settings=("${fleet_cache_settings[@]}")
+            else
+              settings=("${local_cache_settings[@]}")
             fi
             python3 scripts/ci/run-with-helper-prebuild.py \
               --derived-data build-universal --configuration Release --archs "$archs" \
@@ -2853,7 +2860,8 @@ jobs:
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
           base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
-          build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+          build="${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}"
+          [[ "$build" =~ ^[0-9]+$ ]]
           track="${{ needs.decide.outputs.track }}"
           version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
             --project-version "$base_version" --build "$build" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
@@ -3038,6 +3046,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 21
           compression-level: 6
+          # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
+          overwrite: true
 
       - name: Finish the dSYM upload to Sentry
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
@@ -3109,7 +3119,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
-          JOBS: build-nightly-remote-daemon await-nightly-tree-marker
+          JOBS: await-nightly-tree-marker
           NIGHTLY: "1"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -3122,11 +3132,12 @@ jobs:
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   build-nightly-remote-daemon:
-    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder.
-    # Resume already retained these exact assets in build-nightly-app.
-    needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
-    if: needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' build-nightly-remote-daemon ') && needs.build-nightly-app.outputs.light_mini_runner || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
+    # builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
+    # else Blacksmith Linux. Resume already retained these exact assets in build-nightly-app.
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -3155,11 +3166,15 @@ jobs:
       - name: Build immutable SSH daemon assets once for every app variant
         if: inputs.nightly_next_unsigned_run == ''
         env:
-          VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
-          BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          BUILD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}
+          TRACK: ${{ needs.decide.outputs.track }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
         run: |
           set -euo pipefail
+          # build-nightly-app's remote_daemon formula; the app's version is $(MARKETING_VERSION).
+          project_version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \([0-9.]*\);$/\1/p' cmux.xcodeproj/project.pbxproj | sort -u)"
+          VERSION="$(python3 scripts/ci/nightly_version.py marketing --track "$TRACK" \
+            --project-version "$project_version" --build "$BUILD" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$VERSION" --release-tag "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" --asset-suffix "$BUILD" --output-dir remote-daemon-assets
@@ -3172,6 +3187,8 @@ jobs:
           path: remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 14
+          # A picker re-run (owned-pool rescue) re-runs this job after it succeeded beside a stuck app build.
+          overwrite: true
 
   attest-nightly-remote-daemon:
     # Provenance is advisory, as it was inside the app job. No publishing job
@@ -3259,7 +3276,13 @@ jobs:
       chief_key: ${{ steps.chief-key.outputs.key }}
       already_published: ${{ steps.build.outputs.already_published }}
       superseded: ${{ steps.superseded.outputs.superseded }}
+      # The build number (<run id><attempt>) for both side-by-side jobs, the app and the daemon.
+      daemon_build: ${{ steps.daemon-build.outputs.build }}
     steps:
+      - name: Fix this run's build number
+        id: daemon-build
+        run: echo "build=${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")" >> "$GITHUB_OUTPUT"
+
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -5615,7 +5638,6 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-      SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
       - *signer-checkout-tools
       - *signer-install

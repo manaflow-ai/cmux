@@ -359,6 +359,8 @@ import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
+import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -483,6 +485,7 @@ import {
   type ChatMenuItem,
 } from "./header/ChatHeaderTools";
 import { ThreadTitle } from "./header/ThreadTitle";
+import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
@@ -1362,6 +1365,19 @@ const WorkedRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// A turn the agent ran on its own, folded to one line (conversation/backgroundTurns.ts); opening it
+/// lists its rows below.
+const BackgroundTurnRow = memo(
+  function BackgroundTurnRow({ row, onToggleActivity, expanded }: RowProps) {
+    return <BackgroundTurnLine row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 /// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
 const DateRow = memo(
   function DateRow({ row }: RowProps) {
@@ -1735,6 +1751,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [BACKGROUND_TURN]: BackgroundTurnRow,
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
@@ -4759,7 +4776,10 @@ export function VirtualTranscript({
         keepBottomFoldRoom();
         return false;
       }
-      if (!stickyFoldRoom.current) dropFoldRoom();
+      // Reopening at the physical bottom consumes any room retained by a prior collapse. The
+      // expanded body itself supplies the height; keeping the old blank room would add a second,
+      // jarring gap while the stack moves up.
+      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
@@ -5417,7 +5437,10 @@ function AcpmuxPane() {
       }),
   );
   useSyncExternalStore(sandbox.subscribe, sandbox.snapshot);
-  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
+  /// Claude workflows (the transcript card, Session Info's workflows, the side tab) are on by
+  /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
+  /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
+  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
@@ -9053,10 +9076,7 @@ function AcpmuxPane() {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
-        // The host's existing Advanced > Labs event is the only producer today. Keep workflow
-        // visibility as its own state so the summary never changes environment rendering rules;
-        // a future workflowLabs event can target applyWorkflowLabs directly.
-        setWorkflowLabsEnabled(on === true);
+        // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
@@ -11038,8 +11058,32 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Move to machine and Delete were the title's menu rows until the title became plain text
+    // (header/ThreadTitle.tsx); they live here so no action is lost. Cloud targets come from the
+    // host's live MachineRegistry list and dispatch through the existing CloudMove action.
+    const sessionId = snapshot.sessionId;
+    const client = directClient.current;
+    // A menu kept open across a chat switch never moves or deletes the chat now shown.
+    const sameChat = () =>
+      client !== undefined && client === directClient.current && client.selectedSession === sessionId;
+    const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
+      row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
+    const moveMachine = moveMachineRow(
+      {
+        move: moves.includes(CONNECT_ACTIONS.move),
+        bringBack: moves.includes(CONNECT_ACTIONS.bringBack),
+        targets: moveTargets,
+      },
+      {
+        moveTo: (id) => moveChatToMachine(id, sessionId),
+        bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
+      },
+      t,
+    );
+    const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
+    const moveRow = guarded(moveMachine);
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], tools);
+    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -11094,12 +11138,13 @@ function AcpmuxPane() {
             ]
           : []),
       ],
-      machine,
+      [...moveRow, ...machine],
       tools,
       [
         ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
+        ...remove,
         {
           key: "close",
           label: t("chatMenu.close"),
@@ -11110,104 +11155,8 @@ function AcpmuxPane() {
       ],
     );
   };
-  // The title is a compact identity control. Keep its actions on the same existing paths as the
-  // header menu. Cloud targets come from the host's live MachineRegistry list and dispatch through
-  // the existing CloudMove action; there is no client-side machine inventory.
-  const titleMenu = (): ChatMenuItem[] => {
-    const client = directClient.current;
-    const sessionId = snapshot.sessionId;
-    const rows = chatMenu();
-    const row = (key: string) =>
-      rows.find((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && item.key === key);
-    const rename = row("rename");
-    const fork = row("fork");
-    const archive = row("archive");
-    const archiveItem = archive
-      ? { ...archive, accelerator: "A" }
-      : {
-          key: "archive",
-          label: t("chatMenu.archive"),
-          icon: "inbox",
-          disabled: true,
-          accelerator: "A",
-        };
-    const moveChildren = [
-      ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
-        ? moveTargets.map((target) => ({
-            key: `machine:${target.id}`,
-            label: target.label,
-            onSelect: () => moveChatToMachine(target.id, sessionId),
-          }))
-        : []),
-      ...(moves.includes(CONNECT_ACTIONS.bringBack)
-        ? [
-            {
-              key: "bringBack",
-              label: t("composer.bringBackLocal"),
-              onSelect: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
-            },
-          ]
-        : []),
-    ];
-    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
-    // draw it (design/menus.md); no line between every row.
-    return guardedChatMenu(
-      menuGroups(
-        [
-          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
-          fork
-            ? fork.onSelect
-              ? { ...fork, accelerator: "F" }
-              : fork
-            : {
-                key: "fork",
-                label: t("chatMenu.fork"),
-                icon: "agent.fork",
-                disabled: true,
-                accelerator: "F",
-              },
-          {
-            key: "moveMachine",
-            label: moves.includes(CONNECT_ACTIONS.move)
-              ? t("chatMenu.moveToMachine")
-              : moveChildren.length === 1
-                ? moveChildren[0]!.label
-                : t("composer.environment"),
-            icon: "machine.remote",
-            disabled: moveChildren.length === 0,
-            children: moveChildren,
-          },
-          {
-            key: "openIn",
-            label: t("preview.openIn"),
-            icon: "app.open.external",
-            children: [
-              { key: "browser", label: t("header.browser"), onSelect: newBrowser },
-              { key: "terminal", label: t("header.terminal"), onSelect: newTerminal },
-              {
-                key: "window",
-                label: t("chatMenu.newWindow"),
-                shortcutAction: HEADER_ACTIONS.newWindow,
-                onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-              },
-            ],
-          },
-        ],
-        [
-          archiveItem,
-          {
-            key: "delete",
-            label: t("permission.verb.delete"),
-            icon: "action.delete",
-            onSelect: requestDelete,
-            accelerator: "D",
-          },
-        ],
-      ),
-      () => client !== undefined && client === directClient.current && client.selectedSession === sessionId,
-    );
-  };
+  // A double-click on the plain title renames, as ⌘R does; Quick Chat's panel is not a tab to rename.
+  const renameFromTitle = quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename);
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.
   const showNewTab =
@@ -13014,12 +12963,7 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle
-                        key={snapshot.sessionId}
-                        title={chatName}
-                        menu={titleMenu}
-                        onMenuOpen={readTabState}
-                      />
+                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
@@ -13030,12 +12974,7 @@ function AcpmuxPane() {
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId && (
-                          <ThreadTitle
-                            key={snapshot.sessionId}
-                            title={chatName}
-                            menu={titleMenu}
-                            onMenuOpen={readTabState}
-                          />
+                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                         )}
                       </ChatHeaderInlineStatus>
                     )}
