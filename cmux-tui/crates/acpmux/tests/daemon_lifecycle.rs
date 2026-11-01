@@ -482,7 +482,7 @@ fn end(child: &mut std::process::Child) {
 /// app runs and while a client is connected, and stops soon after the app is gone and the last
 /// client left, with no agent, turn or task to keep it.
 #[tokio::test]
-async fn owner_exit_a_daemon_stops_soon_after_its_app_is_gone_and_its_last_client_left() {
+async fn quit_helpers_a_daemon_stops_soon_after_its_app_is_gone_and_its_last_client_left() {
     let dir = scratch("own");
     let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
     let mut child = owned_daemon(&dir, owner.id(), false).await;
@@ -512,7 +512,7 @@ async fn owner_exit_a_daemon_stops_soon_after_its_app_is_gone_and_its_last_clien
 /// Keep Sessions Running (#29984): an agent still in its turn when the app quits keeps the daemon,
 /// with no client connected, until the turn is over.
 #[tokio::test]
-async fn owner_exit_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
+async fn quit_helpers_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
     let dir = scratch("ownw");
     let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
     let mut child = owned_daemon(&dir, owner.id(), true).await;
