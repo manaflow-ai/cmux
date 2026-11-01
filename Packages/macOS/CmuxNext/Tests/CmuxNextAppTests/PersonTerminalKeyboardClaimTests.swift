@@ -272,13 +272,26 @@ struct PersonTerminalKeyboardClaimTests {
     /// The person's claimed create fails while its hold cannot end by itself (another creation of the hold still waits
     /// for its focus), so the hold ends at its limit: the window's focus still applies again, so the keys the person
     /// types next reach what the window shows (review of 93a487c33f8: the merge read the hold's end, and a forced end
-    /// does not say a creation failed, so no focus applied and the next keys went nowhere).
+    /// does not say a creation failed, so no focus applied and the next keys went nowhere). Counted by the focus
+    /// observer, after the panes' own content presentation (each pane sends one when its view shows) is quiet.
     @Test func aFailedClaimedCreateThatEndsAtTheLimitStillAppliesTheWindowsFocus() async throws {
         try await Self.withWindow { h in
             let coordinator = h.services.keyRouter.creationInputCoordinator
             coordinator.holdLimit = .milliseconds(100)
-            @MainActor func presented() -> Int { h.controller.focus.recent.filter { $0.hasPrefix("contentPresented(") }.count }
-            let before = presented()
+            final class Count { var value = 0 }
+            let presented = Count()
+            let previous = h.controller.focus.observer
+            h.controller.focus.observer = { observation in
+                previous?(observation)
+                if case .reduced(let event, _, _, _) = observation, case .contentPresented = event { presented.value += 1 }
+            }
+            defer { h.controller.focus.observer = previous }
+            var seen = -1, quietSince = ContinuousClock.now
+            try await PasswordManagerRouteTests.until({
+                if presented.value != seen { (seen, quietSince) = (presented.value, .now) }
+                return ContinuousClock.now - quietSince >= .milliseconds(500)
+            }, within: .seconds(10), report: { "the panes never stopped presenting content: \(presented.value)" })
+            let before = presented.value
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new terminal opened no key hold")
             // Another creation of the same hold, under the newest intent, whose focus never lands: the hold cannot end by itself.
             let generation = h.controller.focus.state.generation
@@ -289,8 +302,8 @@ struct PersonTerminalKeyboardClaimTests {
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
             let end = coordinator.lastHoldEnd(in: h.window)
             try #require(end == .limitReached, "the hold did not end at its limit (the test does not reach a forced end): \(String(describing: end))")
-            let after = presented()
-            #expect(after > before, "the failed claimed create's hold ended at its limit and the window's focus did not apply again: \(h.controller.focus.recent)")
+            let applied = presented.value - before
+            #expect(applied > 0, "the failed claimed create's hold ended at its limit and the window's focus did not apply again")
         }
     }
 }
