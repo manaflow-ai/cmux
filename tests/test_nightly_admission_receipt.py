@@ -201,6 +201,9 @@ class Workflow(unittest.TestCase):
         for changes in ({"vars.CI_NIGHTLY_ADMISSION_CHECKS": ""}, {"github.ref": "refs/heads/main"},
                         {"github.repository": "another/repo"}, {"github.event_name": "pull_request"}):
             self.assertNotIn("NEXT Linux admission", self.evaluate(self.workflow["run-name"], self.context(**changes)))
+            step = next(step for step in self.workflow["jobs"]["decide"]["steps"] if step.get("id") == "place-early")
+            self.assertEqual(self.evaluate(step["env"]["CHECK_RECEIPTS"], self.context(**changes)), "")
+            self.assertTrue(self.evaluate(step["continue-on-error"], self.context(**changes)))
 
     def test_unsigned_resume_title_and_mode_stay_compatible_with_main_parser(self):
         values = self.context(**{"inputs.nightly_next_unsigned_run": "456", "inputs.nightly_next_unsigned_attempt": "2"})

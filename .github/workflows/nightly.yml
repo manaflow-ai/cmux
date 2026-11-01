@@ -832,10 +832,10 @@ jobs:
       - name: Admit early controls on reserved fleet Linux
         id: place-early
         if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && !(github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
-        continue-on-error: ${{ vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' }}
+        continue-on-error: ${{ !(github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '') }}
         timeout-minutes: 5
         env:
-          CHECK_RECEIPTS: ${{ vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '' && '1' || '' }}
+          CHECK_RECEIPTS: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && vars.CI_NIGHTLY_ADMISSION_CHECKS == '1' && inputs.nightly_next_unsigned_run == '' && '1' || '' }}
           JOBS: resolve-nightly-cmux-tui-client resolve-nightly-ghostty-cli-helper build-nightly-inputs find-nightly-next-recovery
           NIGHTLY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
