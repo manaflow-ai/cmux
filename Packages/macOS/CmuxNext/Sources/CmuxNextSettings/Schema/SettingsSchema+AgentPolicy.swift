@@ -58,7 +58,7 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
-        "sidebar.showLocalMachine",
+        "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
@@ -327,6 +327,8 @@ extension SettingsSchema {
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
+        // Whether a new chat starts on a Cloud machine, its project copied there: what leaves the machine.
+        "agentPane.newChatsIn": .privacy,
         "app.quitBehavior": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,

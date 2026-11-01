@@ -192,16 +192,19 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # This gate only resolves the fixed revision and publication decision: a checkout,
     # github-script and two stdlib Python helpers, which run the same on a Mac. It is the
-    # run's first job, so no picker can run before it. Attempt 1 of a nightly-next push
-    # takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-    # nightly-only runner on each mini, admitted ahead of every PR job); the owned-pool
-    # rescue watches that attempt and, when no slot takes decide within
+    # run's first job, so no picker can run before it. On attempt 1, a configured fleet
+    # Linux control runner takes this lightweight job first; when it is unavailable,
+    # a nightly-next push takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER,
+    # glaeda's nightly-only runner on each mini, admitted ahead of every PR job). The
+    # owned-pool rescue watches that attempt and, when no slot takes decide within
     # CI_OWNED_POOL_RESCUE_SECONDS and nothing of the run has started, re-runs it, and
     # attempt 2 takes the Blacksmith Linux set below. Run 41234993713 (3017ef19) queued
-    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Leo,
+    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Run 41245412350
+    # then waited 305 seconds for five Mac units even though decide only resolves metadata.
+    # Leo,
     # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE
     # RELYING ON BLACKSMITH THAT CUTS OUT".
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !startsWith(vars.CI_CONTROL_RUNNER, 'blacksmith-') && vars.CI_CONTROL_RUNNER || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1765,6 +1768,10 @@ jobs:
       contents: read
     outputs:
       dedicated: ${{ steps.pick.outputs.dedicated }}
+      # A configured trusted pool + runner-name pair is the dedicated NEXT
+      # builder. Keep it separate from `owned`: the Ghostty helper must
+      # never claim the app builder's runner.
+      trusted: ${{ steps.pick.outputs.trusted }}
       # Outside attempt 1 of a push (the rescue's workflow_run watch), an owned pick stands only once
       # its owned-pool-watch marker is uploaded: with no marker nothing would move a refused or stuck job.
       owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.pick.outputs.owned || '' }}
@@ -1836,6 +1843,8 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.snapshot-read-token.outputs.token || github.token }}
           # Unset switches the dedicated builder off; only pr_runner_pool.NIGHTLY_DEDICATED_LABEL is offered.
           DEDICATED_LABEL: ${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}
+          TRUSTED_POOL: ${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
+          TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
           # In order; only labels ci-owned-pool-rescue.yml watches are offered.
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
@@ -1896,7 +1905,7 @@ jobs:
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
     # ci-cache-writer environment never follows NEXT onto that worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-32vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-32vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned) || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -2214,7 +2223,7 @@ jobs:
         id: compilation-cache-restore
         # A cold measurement run skips the restore; every gate below treats the
         # missing output like a cache miss, so the cold build still saves.
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && (needs.decide.outputs.cold_cache != 'true')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '') && (needs.decide.outputs.cold_cache != 'true')
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -2371,7 +2380,7 @@ jobs:
           PY
 
       - name: Cache Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next'
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '')
         id: swift-packages-restore
         uses: ./.github/actions/cache-restore
         with:
@@ -2707,7 +2716,7 @@ jobs:
           fi
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '') && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -2721,7 +2730,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.release-derived-data.outputs.mode == '') && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -5034,7 +5043,9 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # A failed-jobs rerun retains an older picker. Rejoin the fleet pool, never
+    # that old runner choice, once; later attempts use the Blacksmith overflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -5044,7 +5055,7 @@ jobs:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER)) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -5167,7 +5178,7 @@ jobs:
     if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -5177,7 +5188,7 @@ jobs:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
-      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER)) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
@@ -5430,7 +5441,7 @@ jobs:
 
   signer-dmg-image:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -5438,7 +5449,7 @@ jobs:
       sha256: ${{ steps.dmg.outputs.sha256 }}
       floor: ${{ steps.dmg.outputs.floor }}
     env:
-      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_XCODE_APP: ${{ (needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' || github.ref_name == 'nightly-next' && github.run_attempt == 2 && needs.pick-nightly-sign-runner.outputs.attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER)) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       SIGNER_WORK: ${{ github.workspace }}/signer-work
       CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -5534,6 +5545,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+      SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
       - *signer-checkout-tools
       - *signer-install
