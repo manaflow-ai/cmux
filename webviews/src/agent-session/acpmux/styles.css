@@ -292,7 +292,7 @@
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy>*{flex-shrink:0}
 /* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
    width, and one small quiet button. Nothing shows while the host is still recovering. */
-.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 var(--acpmux-stack-end,var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2))))) 0 var(--acpmux-stack-start,var(--cv-inset,max(18px,calc((100% - 760px)/2))));color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-host-line-message{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
 .acpmux-host-line button{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}

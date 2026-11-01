@@ -16252,6 +16252,140 @@
         }
       }
     },
+    "prDock.label": {
+      "comment": "Agent pane: name of the bars above the composer listing the pull requests this chat opened (cx-ncc.81)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull requests in this chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبات السحب في هذه المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requestovi u ovom chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests i denne chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull Requests in diesem Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests de este chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests de cette discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request in questa chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットのプルリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណើ Pull ក្នុងការជជែកនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 풀 리퀘스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests i denne chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requesty w tym czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests nesta conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пул-реквесты в этом чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request ในแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbetteki pull request'ler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пул-реквести в цьому чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request trong cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天中的拉取请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天中的提取要求"
+          }
+        }
+      }
+    },
+    "prDock.countOne": {"comment":"Agent pane: compact count of one pull request above the composer (si-prpills)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"ar":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"bs":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"da":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"de":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"es":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"fr":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"it":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"ja":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"km":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"ko":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"nb":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"pl":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"ru":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"th":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"tr":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"uk":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"vi":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"1 PR"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"1 PR"}}}},
+    "prDock.count": {"comment":"Agent pane: compact count of pull requests above the composer; {count} is the number (si-prpills)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"ar":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"bs":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"da":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"de":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"es":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"fr":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"it":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"ja":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"km":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"ko":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"nb":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"pl":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"ru":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"th":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"tr":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"uk":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"vi":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{count} PRs"}}}},
     "prDock.dismiss": {
       "comment": "Agent pane: button that hides a pull request's bar above the composer for this chat; {number} is the PR number (cx-ncc.81)",
       "extractionState": "manual",

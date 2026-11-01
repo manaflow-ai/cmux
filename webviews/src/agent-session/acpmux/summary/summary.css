@@ -137,9 +137,9 @@
 .cv-md>.cv-block-tail:first-child>div:first-child>:first-child{margin-top:0}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
 /* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
-.acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
+.acpmux-recap{padding:0 var(--acpmux-stack-end,var(--cv-inset-end,var(--cv-inset))) 0 var(--acpmux-stack-start,var(--cv-inset));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-quick .acpmux-recap{padding:6px 8px 0}
-.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:12px;background:var(--acpmux-composer-tray);color:var(--agent-text)}
+.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--agent-text)}
 .acpmux-recap__summary{margin:0 0 6px;color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
 .acpmux-recap__question{margin:0;overflow-wrap:anywhere}
 .acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
