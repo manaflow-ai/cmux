@@ -1856,9 +1856,6 @@ async fn dispatch_request(
             Ok(hub.session_summary(&s))
         }
         method::AGENT_SESSION_TURN_PREPARE => {
-            if !conn.is_person() {
-                return Err(crate::hub::person::person_required("preparing a Cloud turn"));
-            }
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = params
                 .get("prompt_id")
@@ -1892,9 +1889,6 @@ async fn dispatch_request(
             }
         }
         method::AGENT_SESSION_TURN_ABANDON => {
-            if !conn.is_person() {
-                return Err(crate::hub::person::person_required("abandoning a Cloud turn"));
-            }
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = params
                 .get("prompt_id")
