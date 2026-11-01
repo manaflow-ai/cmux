@@ -206,10 +206,24 @@ pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) ->
     }
 }
 
-/// The keys a terminal with launch environment `env` must not inherit from
-/// the daemon's own environment, removed after `env` is applied.
-pub fn inherited_keys_to_unset(env: &[(String, String)]) -> Vec<&'static str> {
-    inherited_keys_to_unset_from(env, &|key| std::env::var(key).ok())
+/// The keys every terminal child launch removes after applying its
+/// environment `env` (every launch path, Unix and Windows).
+pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
+    keys_to_unset_in_child_from(env, &|key| std::env::var(key).ok())
+}
+
+/// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
+/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`] and the incognito markers a
+/// launch with environment `env` must not inherit.
+fn keys_to_unset_in_child_from(
+    env: &[(String, String)],
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> Vec<&'static str> {
+    cmux_pty::UNSET_IN_TERMINAL_CHILDREN
+        .iter()
+        .copied()
+        .chain(inherited_keys_to_unset_from(env, inherited))
+        .collect()
 }
 
 fn inherited_keys_to_unset_from(
@@ -338,7 +352,7 @@ fn integrate_with(
     // integration is what keeps its history off (design/spaces.md
     // "Incognito": nothing kept). Only the launch says so: the daemon's own
     // environment carries an incognito terminal's marker when the daemon
-    // started in one ([`inherited_keys_to_unset`]).
+    // started in one ([`keys_to_unset_in_child`]).
     let incognito = is_incognito(&own);
     if lookup(OPT_OUT_ENV).as_deref() == Some("none") && !incognito {
         return ShellLaunch { command, env: extra_env };

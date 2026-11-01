@@ -293,11 +293,7 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
-        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN
-            .iter()
-            .copied()
-            .chain(crate::shell_integration::inherited_keys_to_unset(&launch.env))
-        {
+        for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
             cmd.env_remove(key);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
