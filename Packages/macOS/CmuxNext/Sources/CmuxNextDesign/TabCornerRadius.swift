@@ -1,9 +1,9 @@
 public import CoreGraphics
 
 /// The one tab shape: every tab pill, the strip's + and a tab's hover card share
-/// `tabCornerRadius`, concentric with the rounded card corner the strip sits in
-/// (Lawrence 2026-10-29: "i dont think both the tab roundness matches the bg pane
-/// roundness").
+/// `tabCornerRadius`: Helium's 8 pt circular corner (Lawrence 2026-10-31), or concentric with
+/// the pane's own card under Floating Panes (Lawrence 2026-10-29: "i dont think both the tab
+/// roundness matches the bg pane roundness").
 ///
 /// A shape nested in a rounded corner reads as part of it only when it is concentric: its
 /// radius is the outer radius less the gap between the two. A top-row pane's first pill sits
@@ -33,12 +33,15 @@ extension Metrics {
     /// cell) plus the pill's inset in the strip, on the 2x pixel grid.
     public static var tabStripCardInset: CGFloat { PaneChromeMetrics.current.tabGap(scale: 2) }
 
-    /// Corner radius of every tab pill, the strip's + and a tab's hover card: concentric with
-    /// ``tabStripCardRadius`` (its radius less ``tabStripCardInset``), at least `space2` and at
-    /// most half the tab's height; ``itemCornerRadius`` where the strip sits in no rounded
-    /// corner.
+    /// Corner radius of every tab pill, the strip's + and a tab's hover card: Helium's
+    /// (``heliumTabCornerRadius``, 8 pt circular; Lawrence 2026-10-31 "match helium roundess"),
+    /// at most half the tab's height. Under Floating Panes, whose own card is only 6-8 pt, the
+    /// pill stays concentric with that card (its radius less ``tabStripCardInset``, at least
+    /// `space2`), so it never pokes out of the corner it sits in.
     public static var tabCornerRadius: CGFloat {
-        guard let card = tabStripCardRadius else { return itemCornerRadius }
-        return min(max(space2, card - tabStripCardInset), tabHeight / 2)
+        if floatingPanes, let card = tabStripCardRadius {
+            return min(max(space2, card - tabStripCardInset), tabHeight / 2)
+        }
+        return min(heliumTabCornerRadius, tabHeight / 2)
     }
 }

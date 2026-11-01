@@ -10,8 +10,8 @@ curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cach
   -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}-$RANDOM"
 newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
 rm -f "$live"
-if (( newest > NIGHTLY_BUILD )); then
-  echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: its release state stays as that run writes it."
+if (( newest != NIGHTLY_BUILD )); then
+  echo "The feed serves build $newest, not this run's build $NIGHTLY_BUILD: its release state stays as that run writes it."
   exit 1
 fi
 SH

@@ -462,6 +462,36 @@ def flat_alternatives(expression: str) -> list[str]:
     return found
 
 
+def separate_pr_cascade(alternative: str) -> bool:
+    """A complete non-display PR picker route, separate from the later push GUI route.
+
+    Require allocated overflow legs and fresh owned/retry outputs; an event-gated
+    fixed label alone is still a pin, not a separate picker route.
+    """
+    terms = conjuncts(alternative)
+    if len(terms) != 2 or terms[0] != "github.event_name == 'pull_request'":
+        return False
+    route = terms[1]
+    if "outputs.gui_overflow" in route or not unconditional(route):
+        return False
+    legs = flat_alternatives(route)
+    freshness = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)"
+    for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "owned_jobs"):
+        matches = [leg for leg in legs if f"outputs.{output}" in leg]
+        if len(matches) != 1 or freshness not in conjuncts(matches[0]):
+            return False
+    if not any(freshness in conjuncts(leg) and conjuncts(leg)[-1] ==
+               "needs.macos-placement.outputs.retry_runner" for leg in legs):
+        return False
+    # Every literal before the terminal fallback must come from an allocation.
+    for leg in legs[:-1]:
+        if BLACKSMITH_MAC_LITERAL.search(leg) and not any(
+            f"outputs.blacksmith_{size}_jobs" in leg for size in (12, 6)
+        ):
+            return False
+    return True
+
+
 def overflow_preempted(text: str) -> list[str]:
     """The alternatives that send a GUI job to a fixed Blacksmith macOS label before its placement's gui_overflow.
 
@@ -470,7 +500,8 @@ def overflow_preempted(text: str) -> list[str]:
     on the rescue's re-run. An alternative before it that names a Blacksmith literal decides the size instead:
     run 41123927916 (cmux#28497, 2026-10-30) ran swift-test on 6 vCPU on both attempts through such legs
     (`runner != '' && 'blacksmith-6vcpu-macos-26'`, `github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26'`).
-    Only a fork's clause may come first; a literal after the gui_overflow read is the last resort.
+    A fork clause or complete non-display PR picker route may come first; a literal after
+    the gui_overflow read is the last resort.
     """
     found = []
     for expression in EXPRESSION.findall(text) or [text]:
@@ -479,7 +510,8 @@ def overflow_preempted(text: str) -> list[str]:
         for alternative in flat_alternatives(expression):
             if "outputs.gui_overflow" in alternative:
                 break
-            if BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative:
+            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+                    and not separate_pr_cascade(alternative)):
                 found.append(alternative)
     return found
 
@@ -801,6 +833,17 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
         # No gui_overflow read: another rule's business.
         self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
+        jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]
+        route = runs_on_text(jobs["swift-test"])
+        self.assertEqual(overflow_preempted(route), [])
+        # Losing the allocation or its attempt freshness must not create an exemption.
+        self.assertTrue(overflow_preempted(route.replace("outputs.owned_jobs", "outputs.missing_jobs")))
+        self.assertTrue(overflow_preempted(route.replace("outputs.placed_attempt", "outputs.stale_attempt")))
+        for prefix in ("github.event_name == 'pull_request' && ", ""):
+            self.assertTrue(overflow_preempted(
+                "${{ " + prefix + "'blacksmith-6vcpu-macos-26' || needs.p.outputs.gui_overflow }}"))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []

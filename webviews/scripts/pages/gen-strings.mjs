@@ -296,7 +296,7 @@ export const PAGES = {
             (key) =>
               /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
               [
-                "chatInspector.changes.failingOnBase",
+                "sessionInfo.changes.failingOnBase",
                 "header.prConflicts",
                 "header.prNoChecks",
                 "image.open",

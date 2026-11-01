@@ -94,7 +94,7 @@ impl Brain {
             .iter()
             .map(|w| {
                 format!(
-                    "{}: `{}`{}, {} left{}",
+                    "{}: `{}`{}, {} left{}{}",
                     w.id,
                     w.command,
                     w.until
@@ -106,7 +106,14 @@ impl Brain {
                         String::new()
                     } else {
                         format!(" ({})", w.note)
-                    }
+                    },
+                    self.watch_runs
+                        .get(&w.id)
+                        .map(|r| r.latest())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|line| format!("\n  > {line}"))
+                        .collect::<String>()
                 )
             })
             .collect();

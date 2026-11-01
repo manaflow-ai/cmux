@@ -157,10 +157,10 @@
    work behind an aggregate count. */
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:8px}
-.acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
+.acpmux-summary-task>.acpmux-session-info-stop{margin-right:4px}
 /* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
-.acpmux-summary-task>.acpmux-chat-inspector-stop[data-state=idle]{opacity:0}
-.acpmux-summary-task:is(:hover,:focus-within)>.acpmux-chat-inspector-stop{opacity:1}
+.acpmux-summary-task>.acpmux-session-info-stop[data-state=idle]{opacity:0}
+.acpmux-summary-task:is(:hover,:focus-within)>.acpmux-session-info-stop{opacity:1}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}

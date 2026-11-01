@@ -11,7 +11,7 @@ export const chromiumGlassUnderlay = defineExperiment({
   id: "chromium-glass-underlay",
   title: "Chromium glass underlay",
   description:
-    "In a see-through Chromium page, the theme surface a menu, a hover card, the composer or the Inspector lays under its tint. Look at the transcript text under the glass: crisp text through it is the defect; more surface hides it but shows less of the window glass.",
+    "In a see-through Chromium page, the theme surface a menu, a hover card, the composer or Session Info lays under its tint. Look at the transcript text under the glass: crisp text through it is the defect; more surface hides it but shows less of the window glass.",
   arms: {
     none: { label: "None", description: "The tint alone, as before: the text under the glass reads crisp through it." },
     light: { label: "Light", description: "The surface at 50% under the tint." },

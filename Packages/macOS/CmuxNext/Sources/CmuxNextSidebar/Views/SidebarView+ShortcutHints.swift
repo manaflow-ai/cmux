@@ -11,7 +11,7 @@ extension SidebarViewComponents {
     /// a band or in a document block among the rows. No slot is hard-coded.
     ///
     /// Each frame is the row's content: its drawn fill, ending on the trailing mark column's right edge
-    /// (`horizontalInset` inside the fill), so a chip right-aligned in it (with no further inset) ends on one x for
+    /// (the shared slot inside the fill), so a chip right-aligned in it (with no further inset) ends on one x for
     /// every row kind. A band or block row's view runs `horizontalInset` past its pill on each side; its bounds put
     /// Home's and the pinned rows' chips at another x than the workspace rows' (Lawrence 2026-10-29: "alignmnet
     /// here is generally pretty bad"). An icon tile's frame is its pill, where its chip centers.
@@ -51,7 +51,7 @@ extension SidebarViewComponents {
     /// (`SidebarStyle.trailingColumnCenterX`), where every trailing mark and the hint chip end.
     private static func hintContent(ofFill fill: CGRect) -> CGRect {
         var content = fill
-        content.size.width = max(0, fill.width - SidebarStyle.horizontalInset)
+        content.size.width = max(0, SidebarStyle.trailingColumnStart(rowWidth: fill.width) + SidebarStyle.trailingSlotSide)
         return content
     }
 

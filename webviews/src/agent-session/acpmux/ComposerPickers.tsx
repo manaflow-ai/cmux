@@ -1,5 +1,6 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -44,13 +45,14 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
+import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
-import { contextBreakdown } from "./inspector/ContextSection";
+import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -493,6 +495,20 @@ export function ComposerPickers({
   // the chat shows no row for yet goes under its kind's id, which the switch maps onto the option
   // the session names once it opens (heldOptions.ts), or drops when it offers none.
   const presession = holdsModePick && !summary?.sessionId;
+  // A harness picked without a model (an account, a profile's New chat, another harness's row) is a
+  // pick too: the next New Tab, new chat and split start on it (lastPick.ts).
+  const pickHarness =
+    switchHarness &&
+    ((picked: string, pickedModel?: string, options?: Readonly<Record<string, string>>) => {
+      if (remembers)
+        rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
+      switchHarness(picked, pickedModel, options);
+    });
+  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
+  const forkTo = (picked: string) => {
+    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
+    fork?.to(picked);
+  };
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
@@ -998,8 +1014,18 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={switchHarness}
-          {...(locked && fork ? { fork } : {})}
+          onHarness={pickHarness}
+          {...(locked && fork
+            ? {
+                fork: {
+                  ready: fork.ready,
+                  to: forkTo,
+                  targets: new Set(
+                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
+                  ),
+                },
+              }
+            : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1370,7 +1396,7 @@ const TABBABLE =
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens the Inspector's Context section. A click pins the card until a press
+/// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
 /// (contextCard.css).
@@ -1387,7 +1413,7 @@ export function ContextRing({
   setup?: number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
-  /// Opens the Inspector at its Context section; the card shows Details › only with it.
+  /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
 }) {
   const t = useT();
@@ -1603,6 +1629,8 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
+  overBackdrop = false,
+  onOpen,
 }: {
   label: string;
   className: string;
@@ -1617,8 +1645,15 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
+  /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
+  /// frosts what is behind the composer instead of letting it show through sharp.
+  overBackdrop?: boolean;
+  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
+  const [layer, setLayer] = useState<HTMLElement | null>(null);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -1656,7 +1691,8 @@ export function Picker({
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
     };
     const blur = () => setOpen(false);
     // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
@@ -1674,6 +1710,8 @@ export function Picker({
   const show = () => {
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
+    setLayer(overBackdrop ? backdropLayer(root.current) : null);
+    onOpen?.();
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
@@ -1741,6 +1779,17 @@ export function Picker({
   };
 
   let index = -1;
+  // Out of the backdrop root (overBackdrop): in a box-less wrapper that carries the picker's classes,
+  // so its rules (`.acpmux-composer-plus .acpmux-menu`) and its rows' selectors still reach the menu.
+  const placeMenu = (popup: React.ReactElement) =>
+    layer
+      ? createPortal(
+          <div className={`acpmux-picker-layer ${className}`} style={{ display: "contents" }}>
+            {popup}
+          </div>,
+          layer,
+        )
+      : popup;
   return (
     <span
       ref={root}
@@ -1776,77 +1825,117 @@ export function Picker({
         {button}
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
-      {open && (
-        <div
-          ref={attach}
-          style={menuStyle}
-          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
-          data-side="above"
-        >
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" aria-label={heading ?? label}>
-            {heading && (
-              <div className="acpmux-menu-heading" aria-hidden="true">
-                {heading}
-              </div>
-            )}
-            {sections.map((section, s) => {
-              const titled = section.title && sections.length > 1;
-              return (
-                <div
-                  key={s}
-                  className="acpmux-menu-section"
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="group"
-                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                  aria-label={titled ? undefined : label}
-                >
-                  {titled && (
-                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                      {section.title}
-                    </div>
-                  )}
-                  {section.choices.map((choice) => {
-                    index += 1;
-                    const at = index;
-                    const current = choice.id === section.current;
-                    return (
-                      <div
-                        key={choice.id}
-                        id={`${menuId}-${at}`}
-                        data-value={choice.id}
-                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                        role="option"
-                        tabIndex={-1}
-                        // `aria-selected` is the option's value; the combobox's
-                        // `aria-activedescendant` carries the keyboard highlight.
-                        aria-selected={section.current === undefined ? false : current}
-                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                        onMouseMove={() => {
-                          if (at !== selected) setActive(at);
-                        }}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          pick(at);
-                        }}
-                      >
-                        {choice.icon}
-                        <span className="acpmux-menu-text">
-                          <span className="acpmux-menu-label">{choice.name}</span>
-                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                        </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                        {current && <CheckIcon />}
-                      </div>
-                    );
-                  })}
+      {open &&
+        placeMenu(
+          <div
+            ref={attach}
+            style={menuStyle}
+            className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+            data-side="above"
+          >
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div id={menuId} role="listbox" aria-label={heading ?? label}>
+              {heading && (
+                <div className="acpmux-menu-heading" aria-hidden="true">
+                  {heading}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              )}
+              {sections.map((section, s) => {
+                const titled = section.title && sections.length > 1;
+                return (
+                  <div
+                    key={s}
+                    className="acpmux-menu-section"
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                    role="group"
+                    aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
+                    aria-label={titled ? undefined : label}
+                  >
+                    {titled && (
+                      <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
+                        {section.title}
+                      </div>
+                    )}
+                    {section.choices.map((choice) => {
+                      index += 1;
+                      const at = index;
+                      const current = choice.id === section.current;
+                      return (
+                        <div
+                          key={choice.id}
+                          id={`${menuId}-${at}`}
+                          data-value={choice.id}
+                          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                          role="option"
+                          tabIndex={-1}
+                          // `aria-selected` is the option's value; the combobox's
+                          // `aria-activedescendant` carries the keyboard highlight.
+                          aria-selected={section.current === undefined ? false : current}
+                          className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                          onMouseMove={() => {
+                            if (at !== selected) setActive(at);
+                          }}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            pick(at);
+                          }}
+                        >
+                          {choice.icon}
+                          <span className="acpmux-menu-text">
+                            <span className="acpmux-menu-label">{choice.name}</span>
+                            {choice.description && (
+                              <span className="acpmux-menu-description" data-popup-detail="">
+                                {choice.description}
+                              </span>
+                            )}
+                          </span>
+                          {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                          {current && <CheckIcon />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>,
+        )}
     </span>
+  );
+}
+
+/**
+ * The element a menu draws in to leave every backdrop root around `from` (Filter Effects 2: an
+ * ancestor with a backdrop-filter, filter, mask, clip-path, opacity under 1 or a blend mode). Inside
+ * one, a popup's own backdrop-filter sees only that root's content: the composer's glass box is one,
+ * so the + menu's glass showed the project and machine pills behind the composer through it sharp
+ * (Leo, 2026-10-31: "our + button is ass"). The parent of the outermost root inside the pane's shell
+ * (`.acpmux-shell`, which carries the menu's colour tokens; the body on a page without one), or null
+ * when there is none (the menu then stays beside its button).
+ */
+export function backdropLayer(from: Element | null): HTMLElement | null {
+  const view = from?.ownerDocument.defaultView;
+  if (!from || !view) return null;
+  const shell = from.closest(".acpmux-shell") ?? from.ownerDocument.body;
+  let outermost: Element | null = null;
+  for (let node = from.parentElement; node && node !== shell; node = node.parentElement)
+    if (isBackdropRoot(view.getComputedStyle(node))) outermost = node;
+  return outermost?.parentElement ?? null;
+}
+
+/** Whether an element with this style is a backdrop root (Filter Effects 2). */
+export function isBackdropRoot(style: CSSStyleDeclaration): boolean {
+  const set = (value: string | undefined) => !!value && value !== "none";
+  const backdrop = style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
+  const mask = style.maskImage || style.getPropertyValue("-webkit-mask-image");
+  const opacity = Number.parseFloat(style.opacity);
+  return (
+    set(backdrop) ||
+    set(style.filter) ||
+    set(mask) ||
+    set(style.clipPath) ||
+    (Number.isFinite(opacity) && opacity < 1) ||
+    (!!style.mixBlendMode && style.mixBlendMode !== "normal")
   );
 }
 

@@ -8,8 +8,9 @@ import CmuxNextCompat
 public enum DaemonVersionDecision: Sendable, Equatable {
     /// Keep the running daemon; the reason is for the log.
     case keep(String)
-    /// Hand off: the running daemon (`running` commit) exits, keeping its
-    /// terminal hosts, and a daemon of the bundled build (`bundled`) adopts them.
+    /// Hand off: the running daemon (`running` build id, or its commit) exits,
+    /// keeping its terminal hosts, and a daemon of the bundled build (`bundled`)
+    /// adopts them.
     case restart(running: String, bundled: String)
 }
 
@@ -85,9 +86,17 @@ enum ProcessExit {
 }
 
 extension DaemonLauncher {
-    static func versionDecision(running: String?, bundled: String?) -> DaemonVersionDecision {
-        guard let running else { return .keep("running build unknown") }
-        guard let bundled else { return .keep("bundled build unknown") }
+    /// Whether the running owner is another build than the bundled binary. The build identity
+    /// (`build_id`) decides when both sides have one: it is the stamped commit for a packaged build
+    /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
+    /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
+    /// commits decide. With neither, the owner is kept and the reason names the unknown side.
+    public static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
+        if let runningID = running.id, let bundledID = bundled?.id {
+            return runningID == bundledID ? .keep("same build") : .restart(running: runningID, bundled: bundledID)
+        }
+        guard let running = running.commit else { return .keep("running build unknown") }
+        guard let bundled = bundled?.commit else { return .keep("bundled build unknown") }
         return running == bundled ? .keep("same build") : .restart(running: running, bundled: bundled)
     }
 
@@ -97,17 +106,17 @@ extension DaemonLauncher {
     /// terminal host alive, the connection reconnects through this
     /// launcher's endpoint provider, which waits for the old daemon to exit
     /// and runs `server ensure` from the bundled binary, and the new daemon
-    /// adopts the hosts. `bundledCommit` overrides the bundled binary's own
-    /// commit (tests).
+    /// adopts the hosts. `bundled` overrides the bundled binary's own build
+    /// (the app passes the one it read at launch; tests pass another build).
     public func handOffIfStale(identity: DaemonIdentity, using connection: DaemonConnection,
-                               bundledCommit: String? = nil) async -> DaemonVersionDecision {
-        let bundled: String?
-        if let bundledCommit {
-            bundled = bundledCommit
+                               bundled override: DaemonBuildStamp? = nil) async -> DaemonVersionDecision {
+        let bundled: DaemonBuildStamp?
+        if let override {
+            bundled = override
         } else {
-            bundled = try? await bundledBuildCommit()
+            bundled = try? await bundledBuild()
         }
-        let decision = Self.versionDecision(running: identity.buildCommit, bundled: bundled)
+        let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
         guard case .restart(let running, let target) = decision else { return decision }
         guard handoff.begin(bundled: target, pid: identity.pid) else {
             return .keep("already handed off to \(target)")

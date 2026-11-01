@@ -19,6 +19,10 @@
    the draft. */
 .nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
+.nt-field.acpmux-md-field{--nt-field-pad-inline-start:0px;flex:1;min-width:0;display:block;box-sizing:border-box;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;padding:var(--nt-input-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
+.nt-field.acpmux-md-field .acpmux-md-placeholder{inset-inline-start:var(--nt-field-pad-inline-start);right:0;top:calc(var(--nt-input-pad-block) + var(--acpmux-text-drop, 0px))}
+.nt-field.acpmux-md-field .acpmux-md{min-height:var(--text-content--line-height);font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
 /* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
@@ -101,7 +105,8 @@
    column for `!` there too: `!pwd` never draws `!` over the `p`. */
 .nt-field-slot[data-glyph-column] .nt-field,
 .nt-input:not([data-split]) .nt-field-slot .nt-field {
-  padding-inline-start: var(--ds-control-icon);
+  --nt-field-pad-inline-start: var(--ds-control-icon);
+  padding-inline-start: var(--nt-field-pad-inline-start);
 }
 .nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
   inset-inline-start: calc(-1 * var(--acpmux-composer-lead-gap));
@@ -344,11 +349,11 @@
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
-.nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform var(--agent-motion-in,.12s) var(--agent-ease-out,ease-out)}
+.nt-all-group-chevron{flex:none;transform:rotate(90deg)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
 .nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
-@media (prefers-reduced-motion:reduce){.nt-all-group-chevron{transition:none}}
+
 .nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
 
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
@@ -434,17 +439,6 @@
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
 }
-/* Codex's look keeps the controls in the box's own row under the field (cmux #28901), as the chat's
-   Codex box does (composerLocation.css): +, the mic and Send are the same one 28 px control, + stands
-   as far off the box's left as Send off its right and both as far over the row's bottom, the inset
-   Claude's look gives New Tab's + (so + keeps one column in both looks). */
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers {
-  padding: 0 var(--acpmux-composer-inset) var(--acpmux-composer-inset);
-}
-.nt-composer[data-composer-look="codex"] .nt-box > .acpmux-chrome-area > .nt-pickers :is(.acpmux-mic, .acpmux-send) {
-  width: var(--acpmux-composer-control);
-  height: var(--acpmux-composer-control);
-}
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
   width: 24px;
@@ -464,7 +458,7 @@
 .nt-style-options{position:relative;display:flex}
 .nt-style-option{position:relative;display:flex;align-items:center;justify-content:center;width:24px;height:24px}
 .nt-style-option::after{content:"";width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 26%,transparent);transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
-.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}
+@media (hover: hover) and (pointer: fine){.nt-style-option:hover::after{background:color-mix(in srgb,var(--agent-text) 50%,transparent)}}
 .nt-style-option:has(:focus-visible)::before{content:"";position:absolute;width:14px;height:14px;border-radius:50%;outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent))}
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
@@ -575,7 +569,9 @@
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
 .nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
-.nt-player-played{height:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transition:width 1s linear} /* motion-allow: playback progress */
+.nt-player-played{height:100%;width:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transform-origin:left center;transition:transform 1s linear} /* motion-allow: playback progress */
+/* The bar fills from the inline start: right to left under RTL. */
+.nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:10px;margin-left:-4px}
 .nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
   background:transparent;color:var(--agent-text)}
@@ -881,7 +877,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding: 0 8px 0 22px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
-  padding-block: 18px;
+  --nt-input-pad-block: 18px;
+  padding-block: var(--nt-input-pad-block);
 }
 .nt-toolbar {
   display: flex;

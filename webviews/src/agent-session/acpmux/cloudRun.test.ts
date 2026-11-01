@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, startCloudChat } from "./cloudRun";
+import {
+  cloudPageRefusal,
+  cloudStartFolder,
+  cloudStartToasted,
+  newTabProjectPick,
+  oneCloudStart,
+  startCloudChat,
+} from "./cloudRun";
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -79,4 +86,36 @@ test("a start with no project tells the host home, and never names a folder", as
     "00000000-0000-4000-8000-000000000002",
   );
   expect(calls).toEqual([{ task: "hi", home: true, harness: "claude", key: "00000000-0000-4000-8000-000000000002" }]);
+});
+
+test("a New Tab project picked before the host's sandbox check still reaches workspace.useFolder", async () => {
+  const calls: [string, Record<string, unknown> | undefined][] = [];
+  const native = async (method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return { status: "ok" };
+  };
+  // `offerable` is the Cloud offer without `sandbox.checked`: the pick is wired while that check is out.
+  const { onProjectPicked } = newTabProjectPick(native, true);
+  expect(onProjectPicked).toBeDefined();
+  onProjectPicked!("/Users/me/src/paint");
+  await Promise.resolve();
+  expect(calls).toEqual([["workspace.useFolder", { cwd: "/Users/me/src/paint" }]]);
+  // Home or above is never copied, so it asks the host nothing here.
+  onProjectPicked!("/Users/me");
+  await Promise.resolve();
+  expect(calls).toHaveLength(1);
+  // Not offered (a chat started here, the Quick Composer): nothing is wired.
+  expect(newTabProjectPick(native, false)).toEqual({});
+});
+
+test("the chosen Cloud environment travels with the start; an absent choice preserves the platform Default", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    calls.push(params);
+    return {};
+  };
+  await startCloudChat(call, { task: "hello", home: true, environment: "env_selected" }, "selected-start");
+  await startCloudChat(call, { task: "hello", home: true }, "default-start");
+  expect(calls[0]?.environment).toBe("env_selected");
+  expect(calls[1]).not.toHaveProperty("environment");
 });

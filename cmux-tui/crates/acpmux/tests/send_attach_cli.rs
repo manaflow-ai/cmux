@@ -154,7 +154,7 @@ fn send_attach_sends_files_of_any_size_and_number_by_reference() {
         assert_eq!(fs::metadata(&saved[0]).unwrap().permissions().mode() & 0o777, 0o600);
     }
 
-    // Text and a file that together pass one JSON-RPC message (31 MiB) go the same way.
+    // Text and a file that together pass one JSON-RPC message (15 MiB) go the same way.
     fs::write(dir.join("p/eight.bin"), vec![7u8; 8 << 20]).unwrap();
     let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["send", "-q", "lane", "-", "--attach", "eight.bin"])
