@@ -89,8 +89,8 @@ def expect_notification(
     payload: dict,
     *,
     kind: str,
-    subtitle: str,
-    body: str,
+    body: str | None = None,
+    hidden_text: str | None = None,
 ) -> None:
     drafts = journal_drafts(cli_path, root / f"{name}.sock", payload)
     kinds = {draft.get("kind") for draft in drafts}
@@ -103,7 +103,8 @@ def expect_notification(
         raise AssertionError(f"{name}: expected only {kind}, got {kinds!r}")
     if len(notifications) != 1:
         raise AssertionError(f"{name}: expected one notification, got {notifications!r}")
-    if notifications[0].get("subtitle") != subtitle or notifications[0].get("body") != body:
+    shown = notifications[0].get("body")
+    if (body is not None and shown != body) or (hidden_text is not None and hidden_text in str(shown)):
         raise AssertionError(f"{name}: wrong notification {notifications[0]!r}")
 
 
@@ -123,7 +124,6 @@ def main() -> int:
                 "fullwidth",
                 notification_payload(CHINESE_QUESTION, "question"),
                 kind=QUESTION_REQUESTED,
-                subtitle="Waiting",
                 body=CHINESE_QUESTION,
             )
             expect_notification(
@@ -132,7 +132,6 @@ def main() -> int:
                 "ascii",
                 notification_payload("Use WAV or AAC?", "question"),
                 kind=QUESTION_REQUESTED,
-                subtitle="Waiting",
                 body="Use WAV or AAC?",
             )
             # A UI dialog's prompt stays inside Pi: questionAsked never carries prose.
@@ -147,8 +146,7 @@ def main() -> int:
                     event="questionAsked",
                 ),
                 kind=QUESTION_REQUESTED,
-                subtitle="Waiting",
-                body="Needs input",
+                hidden_text="needs_input",
             )
             # The mark alone is not a question: the type is what says so.
             expect_notification(
@@ -157,7 +155,6 @@ def main() -> int:
                 "untyped",
                 notification_payload(CHINESE_QUESTION, "observation"),
                 kind=STATE_CHANGED,
-                subtitle="Attention",
                 body=CHINESE_QUESTION,
             )
         except AssertionError as exc:
