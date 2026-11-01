@@ -1,0 +1,124 @@
+name: nightly-next Computer Use signed host
+
+# A real-artifact contract for Computer Use consent.  The appcast identities
+# are downloaded on a fleet Mac and exercised through both helper drivers.  A
+# schedule is registered from the default branch; tooling comes from
+# feat-cmux-next so the release branch and this check use the same code.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/nightly-next-cua-signed-host.yml
+      - scripts/ci/cua_signed_host_check.py
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-cua-signed-host-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
+
+jobs:
+  pick:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    permissions: {}
+    outputs:
+      runner: ${{ steps.place.outputs.runner }}
+      owned_jobs: ${{ steps.place.outputs.owned_jobs }}
+      blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
+      blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      host_available: ${{ steps.host.outputs.host_available }}
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.event_name != 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          permission-actions: read
+
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: place
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          JOBS: cua-signed-host
+          CASCADE_JOBS: cua-signed-host
+          CASCADE_RUNS: ' cua-signed-host '
+          FRESH_JOBS: cua-signed-host
+        run: python3 scripts/ci/side_lane_placement.py
+
+      - name: Decide whether a Mac route was placed
+        id: host
+        env:
+          OWNED_JOBS: ${{ steps.place.outputs.owned_jobs }}
+          BLACKSMITH_12_JOBS: ${{ steps.place.outputs.blacksmith_12_jobs }}
+          BLACKSMITH_6_JOBS: ${{ steps.place.outputs.blacksmith_6_jobs }}
+        run: |
+          if [[ -n "$OWNED_JOBS" || "$BLACKSMITH_12_JOBS" == *" cua-signed-host "* || "$BLACKSMITH_6_JOBS" == *" cua-signed-host "* ]]; then
+            echo "host_available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "host_available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report unavailable fleet Mac
+        if: steps.host.outputs.host_available != 'true'
+        run: |
+          echo "skipped: no host"
+          echo "skipped: no host" >> "$GITHUB_STEP_SUMMARY"
+
+  signed-host:
+    name: signed host admission
+    needs: pick
+    if: needs.pick.result == 'success' && needs.pick.outputs.host_available == 'true'
+    # The picker offers an idle owned Mac first, then a moving Blacksmith slot.
+    # If neither route has room, the job is skipped in pick; it never queues on
+    # the saturated side-std label. The final label is unreachable on a normal
+    # skip, but remains a non-hosted Mac fallback for a placement race.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' cua-signed-host ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' cua-signed-host ') && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: |
+            .xcode-version
+            scripts/ci/cua_signed_host_check.py
+            scripts/ci/xcode-pins.txt
+            scripts/select-ci-xcode.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Select Xcode
+        env:
+          CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+          CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Check current signed NIGHTLY host admission
+        run: python3 scripts/ci/cua_signed_host_check.py
