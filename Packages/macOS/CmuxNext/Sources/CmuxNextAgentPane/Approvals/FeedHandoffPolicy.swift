@@ -13,8 +13,8 @@ public import Foundation
 /// own title and body, scrubbed of known secret shapes; title mode drops the
 /// body. An incognito window's item never leaves (leo-workspace
 /// design/spaces.md "Incognito"; #31210): handing it off is what puts it in
-/// the Feed and pushes it to the iPhone. So an item that names a workspace or
-/// terminal leaves only once that workspace is known to be a normal window's
+/// the Feed and pushes it to the iPhone. So an item leaves only once the
+/// workspace or terminal it names is known to be a normal window's
 /// (`normalWindows`).
 public nonisolated struct FeedHandoffPolicy: Sendable {
     public var preferences: NotificationPreferences
@@ -24,7 +24,7 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     /// Public workspace and terminal ids (`ws_…`, `term_…`, an item's
     /// `context.workspace` and `context.terminal`) and durable keys of the
     /// workspaces in normal windows now. An item naming none of them stays
-    /// local: an incognito window's, and one whose workspace is not classified
+    /// local: an incognito window's, one with no context, and one whose workspace is not classified
     /// yet or is gone (it may have been incognito; a crash may have left it
     /// handing off). nil: no item is held back for this.
     public var normalWindows: Set<String>?
@@ -56,9 +56,10 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     }
 
     private func isInNormalWindow(_ item: FeedLocalItem) -> Bool {
-        let ids = [item.context.workspace, item.context.terminal].compactMap { $0 }
-        guard let normalWindows, !ids.isEmpty else { return true }
-        return ids.contains(where: normalWindows.contains)
+        // No context (`cmux notify --workspace` with no tab) names nothing to classify: it stays local. The
+        // daemon posts such a notice read, so it never handed off anyway (feed_local.rs `feed_notice`).
+        guard let normalWindows else { return true }
+        return [item.context.workspace, item.context.terminal].contains { $0.map(normalWindows.contains) ?? false }
     }
 
     private func mirrored(_ item: FeedLocalItem) -> (title: String, body: String)? {

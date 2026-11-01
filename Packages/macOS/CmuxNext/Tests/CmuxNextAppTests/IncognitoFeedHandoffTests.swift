@@ -74,8 +74,8 @@ struct IncognitoFeedHandoffTests {
         #expect(policy.content(for: Self.item(workspace: "ws_unknown", terminal: "term_unknown")) == nil)
         let frozen = policy.frozenContent(for: Self.item(workspace: "ws_unknown", terminal: nil))
         #expect(frozen.title.isEmpty && frozen.body.isEmpty, "an unclassified item handing off sent its text: \(frozen)")
-        #expect(policy.content(for: Self.item(workspace: nil, terminal: nil))?.title == "Claude finished",
-                "an item that names no workspace or terminal stopped handing off")
+        // An item with no context (`notify --workspace` with no tab) may be an incognito workspace's too.
+        #expect(policy.content(for: Self.item(workspace: nil, terminal: nil)) == nil)
     }
 
     @Test func aNormalWorkspacesItemStillHandsOff() throws {
