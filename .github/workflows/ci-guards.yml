@@ -894,6 +894,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate the Vercel env workflow and its allowlist
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_vercel_env_workflow.py
+
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
