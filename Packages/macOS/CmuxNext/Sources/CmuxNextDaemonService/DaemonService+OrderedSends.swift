@@ -10,10 +10,11 @@ extension DaemonService {
         let ticket = openTicket(label), previous = orderedSends[surface]?.work
         orderedSendSerial += 1
         let serial = orderedSendSerial
-        // task-owner: one ordered send; the next send to this surface awaits it, and the last one clears the entry
-        let work: ActionWork = Task { [weak self] in
+        // task-owner: one ordered send; the next send to this surface awaits it, and the last one clears the entry. It
+        // keeps the service alive as `send(_:_:)` does, so its ticket always closes and a gone connection is reported
+        // ("not connected"), never a silent success with the keys lost.
+        let work: ActionWork = Task {
             _ = await previous?.value
-            guard let self else { return nil }
             let failed = await failure(label, ticket: ticket, body)
             if orderedSends[surface]?.serial == serial { orderedSends[surface] = nil }
             return failed
