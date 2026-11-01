@@ -793,4 +793,55 @@ mod tests {
         assert_eq!(frame["client_id"], json!("c-held"));
         assert_eq!(frame["state"], json!("approved"));
     }
+
+    /// A guest prompt's queued and decided records that come before the attach answer, too big
+    /// and so kept cut, still move its state (held, then approved or declined) and free its slot.
+    #[test]
+    fn decisions_in_cut_records_before_the_attach_answer_still_count() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, mut frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            link.pending.insert(1, Pending::Attach);
+            let mut prompts = Vec::new();
+            for n in 0..MAX_HELD {
+                prompts.push(link.take(format!("c{n}"), "hi".into()).expect("under the cap"));
+            }
+            let big = "z".repeat(2 * MAX_RECORD);
+            let records = [
+                (5, "queued", &prompts[0]),
+                (6, "queue_approved", &prompts[0]),
+                (7, "queued", &prompts[1]),
+                (8, "queue_declined", &prompts[1]),
+            ];
+            for (seq, kind, prompt) in records {
+                let record = json!({"event": "agent-session-record", "record": {"seq": seq,
+                    "kind": kind, "msg": {"promptId": prompt, "awaitingOwner": true, "text": big}}});
+                assert!(link.inbound(&record.to_string()).await);
+            }
+            let reply = json!({"id": 1, "ok": true, "data": {"events": [{"seq": 4}]}});
+            assert!(link.inbound(&reply.to_string()).await);
+            let mut states = Vec::new();
+            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
+                if frame["t"] == json!("prompt_state") {
+                    states.push((frame["client_id"].clone(), frame["state"].clone()));
+                }
+            }
+            assert_eq!(
+                states,
+                vec![
+                    (json!("c0"), json!("held")),
+                    (json!("c0"), json!("approved")),
+                    (json!("c1"), json!("held")),
+                    (json!("c1"), json!("declined")),
+                ]
+            );
+            // Their two slots are free again, and no more.
+            assert!(link.take("over1".into(), "hi".into()).is_some());
+            assert!(link.take("over2".into(), "hi".into()).is_some());
+            assert!(link.take("over3".into(), "hi".into()).is_none());
+        });
+    }
 }
