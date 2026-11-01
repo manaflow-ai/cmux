@@ -101,6 +101,7 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  const T0 = Date.now();
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -136,7 +137,16 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    {
+      const hot = vite.environments.client.hot;
+      const send = hot.send;
+      hot.send = ((...args: any[]) => {
+        if (args[0]?.type === "full-reload") console.log(`DIAG full-reload sent at ${Date.now() - T0}ms`);
+        return (send as any).apply(hot, args);
+      }) as typeof send;
+    }
     await warmViteServer(vite, "/");
+    console.log(`DIAG warm done at ${Date.now() - T0}ms`);
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -150,6 +160,9 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
   async function open(reducedMotion: "reduce" | "no-preference"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 }, reducedMotion });
     await installPaintedFrames(page);
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) console.log(`DIAG framenavigated ${frame.url().slice(0, 40)} at ${Date.now() - T0}ms`);
+    });
     await page.addInitScript(() => {
       const fades: { id: string; text: string; name: string }[] = [];
       (window as unknown as { __rowAnimations: typeof fades }).__rowAnimations = fades;
