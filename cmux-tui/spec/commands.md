@@ -8609,6 +8609,8 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
+The wait starts in request order but does not hold the connection: later requests on the same connection are answered while it waits, so its reply can arrive after theirs (match replies by `id`). Each pending `wait-for` takes one terminal-wait worker, from the budget `terminal.wait` uses (8 per connection, 64 per daemon); a `wait-for` over that budget fails at once and is not run. Closing the connection ends its pending waits.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
@@ -8631,6 +8633,7 @@ Errors:
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | `bad regex: <message>` | Pattern cannot compile |
 | `timeout waiting for pattern` | Timeout expires before match |
+| `too many wait-for requests are already waiting on this connection (limit 8); request was not executed` | The connection already has 8 pending waits (`daemon` and its limit when the daemon-wide budget is full) |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
