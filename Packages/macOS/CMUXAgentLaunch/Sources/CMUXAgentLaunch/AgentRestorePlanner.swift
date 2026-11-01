@@ -2,6 +2,22 @@ import Foundation
 
 /// Builds shell-free restore and fork invocations from structured persisted records.
 public struct AgentRestorePlanner: Sendable {
+    /// The prepared argv as a restore plan, or `nil`. Prepared argv is not
+    /// independent provenance: a legacy or deferred Codex record can carry
+    /// Subrouter config (including a dead localhost data-plane URL) without
+    /// the trusted marker and launch-bound argv that rebuild `sr codex
+    /// resume`. Replaying it directly would silently change transport after
+    /// quit/reopen, so every prepared fallback for Codex fails closed on it.
+    static func preparedFallback(kind: String, preparedArguments: [String]?) -> ([String], Bool)? {
+        guard let preparedArguments else { return nil }
+        if kind == "codex",
+           SubrouterCodexResumeRouting().removingPrivateRoutingArguments(from: preparedArguments)
+               != preparedArguments {
+            return nil
+        }
+        return (preparedArguments, false)
+    }
+
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
@@ -202,6 +218,8 @@ public struct AgentRestorePlanner: Sendable {
         if request.mode == .resumeAgent,
            routedClaudeResume == nil,
            let checkpointID = normalized(request.checkpointID),
+           !(kind == "codex" && subrouterCodexRoutedPrefix(request: request, checkpointID: checkpointID)
+               .map { routedArguments.starts(with: $0) } == true),
            !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
                launcher: request.launchCommand?.launcher,
                sessionId: checkpointID,
@@ -378,8 +396,8 @@ public struct AgentRestorePlanner: Sendable {
             // typed restore plan. Use it before launcher or built-in synthesis
             // when the captured argv is empty, so a rejected capture cannot be
             // replaced by a guessed command for the provider kind.
-            if (launch?.arguments.isEmpty ?? true), let preparedArguments {
-                return (preparedArguments, false)
+            if (launch?.arguments.isEmpty ?? true), preparedArguments != nil {
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
             }
             switch AgentResumeArgv().launcherResolution(
                 launcher: launch?.launcher,
@@ -392,7 +410,9 @@ public struct AgentRestorePlanner: Sendable {
                 if let arguments {
                     return (arguments, true)
                 }
-                return preparedArguments.map { ($0, false) }
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
+            case .rejected:
+                return nil
             case .passthrough:
                 if let arguments = AgentResumeArgv().builtInKind(
                     kind: kind,
@@ -403,7 +423,7 @@ public struct AgentRestorePlanner: Sendable {
                 ) {
                     return (arguments, true)
                 }
-                return preparedArguments.map { ($0, false) }
+                return Self.preparedFallback(kind: kind, preparedArguments: preparedArguments)
             }
         case .forkAgent:
             if let preparedArguments {
@@ -541,6 +561,31 @@ public struct AgentRestorePlanner: Sendable {
         }
     }
 
+    /// The `sr` prefix a routed Codex resume starts with: the bound marker's
+    /// command, the stable launcher for a config-proven capture, or, for an
+    /// older capture whose argv names Subrouter without the marker, the fixed
+    /// `sr codex resume` that `AgentResumeArgv` reroutes it to. Either way the
+    /// Subrouter child has to run through cmux's wrapper.
+    private func subrouterCodexRoutedPrefix(request: AgentRestoreRequest, checkpointID: String) -> [String]? {
+        let routing = SubrouterCodexResumeRouting()
+        let launcher = request.launchCommand?.launcher
+        let launchArguments = request.launchCommand?.arguments ?? []
+        if let prefix = routing.resumeArguments(
+            launcher: launcher,
+            sessionID: checkpointID,
+            launchArguments: launchArguments,
+            environment: request.launchCommand?.environment
+        ) {
+            return prefix
+        }
+        let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedLauncher == nil || normalizedLauncher == "codex",
+              routing.providerEvidence(in: launchArguments, launcher: "codex") == .provider("subrouter") else {
+            return nil
+        }
+        return ["sr", "codex", "resume", checkpointID]
+    }
+
     private func routeManagedWrapper(
         arguments: [String],
         request: AgentRestoreRequest,
@@ -556,12 +601,7 @@ public struct AgentRestorePlanner: Sendable {
 
         if kind == "codex",
            let checkpointID = normalized(request.checkpointID),
-           let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
-               launcher: request.launchCommand?.launcher,
-               sessionID: checkpointID,
-               launchArguments: request.launchCommand?.arguments ?? [],
-               environment: request.launchCommand?.environment
-           ),
+           let routedPrefix = subrouterCodexRoutedPrefix(request: request, checkpointID: checkpointID),
            arguments.starts(with: routedPrefix),
            let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
            isExecutableFile(wrapperShim) {

@@ -36005,6 +36005,10 @@ struct CMUXCLI {
                 arguments: launchCommand?.arguments ?? [],
                 observedPermissionMode: observedPermissionMode
             )
+        case .rejected:
+            // See RestorableAgentSession: a mismatched routed Codex record is
+            // not resumed directly.
+            return nil
         }
 
         guard let argv, !argv.isEmpty else { return nil }
