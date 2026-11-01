@@ -499,8 +499,7 @@ pub(crate) struct ListGuard {
 
 #[derive(Default)]
 struct State {
-    full: Option<Arc<Snapshot>>,
-    live: Option<Arc<Snapshot>>,
+    last: Option<Arc<Snapshot>>,
     pace: Pacer,
 }
 
@@ -553,8 +552,7 @@ impl ListGuard {
         let asked = self.begun.load(Ordering::SeqCst);
         // One build at a time; requests that arrive meanwhile wait for it and share it.
         let mut state = self.state.lock().await;
-        let cached = if live_only { &state.live } else { &state.full };
-        if let Some(last) = cached
+        if let Some(last) = &state.last
             && last.live_only == live_only
             && last.key.0
             && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
@@ -583,11 +581,7 @@ impl ListGuard {
         self.rows.store(built.1.len(), Ordering::Relaxed);
         let snapshot =
             Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
-        if live_only {
-            state.live = Some(snapshot.clone());
-        } else {
-            state.full = Some(snapshot.clone());
-        }
+        state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
         snapshot
@@ -600,11 +594,8 @@ impl ListGuard {
             tokio::time::sleep(window).await;
             let Some(state) = state.upgrade() else { return };
             let mut state = state.lock().await;
-            if state.full.as_ref().is_some_and(|s| s.serial == serial) {
-                state.full = None;
-            }
-            if state.live.as_ref().is_some_and(|s| s.serial == serial) {
-                state.live = None;
+            if state.last.as_ref().is_some_and(|s| s.serial == serial) {
+                state.last = None;
             }
         });
     }
@@ -849,7 +840,7 @@ mod tests {
 
     async fn hold_at(hub: &Hub, window: Duration, serial: u64) -> Arc<Snapshot> {
         let held = Arc::new(Snapshot::new(key(hub), serial, window, false, Default::default()));
-        hub.list_guard.state.lock().await.full = Some(held.clone());
+        hub.list_guard.state.lock().await.last = Some(held.clone());
         held
     }
 
@@ -919,9 +910,9 @@ mod tests {
         hub.list_guard.expire(98, Duration::from_secs(1));
         hub.list_guard.expire(99, Duration::from_secs(5));
         tokio::time::sleep(Duration::from_secs(4)).await;
-        assert!(hub.list_guard.state.lock().await.full.is_some(), "an older build's expiry");
+        assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
         tokio::time::sleep(Duration::from_secs(2)).await;
-        assert!(hub.list_guard.state.lock().await.full.is_none(), "it outlived its window");
+        assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
     }
 }
 

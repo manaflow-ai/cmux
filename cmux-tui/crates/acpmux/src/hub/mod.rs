@@ -489,10 +489,6 @@ pub struct Hub {
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
-    /// Closed summaries are immutable between close, reopen and purge. Keeping their projection
-    /// here lets full lists retain history without rebuilding every closed session on each poll.
-    pub(super) closed_session_summaries: StdMutex<HashMap<String, Value>>,
-    pub(super) closed_summaries_ready: std::sync::atomic::AtomicBool,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -802,8 +798,6 @@ impl Hub {
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
-            closed_session_summaries: StdMutex::new(HashMap::new()),
-            closed_summaries_ready: std::sync::atomic::AtomicBool::new(false),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1088,7 +1082,6 @@ impl Hub {
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
         self.update_live_session_index(&session);
-        self.update_closed_summary(&session);
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1330,51 +1323,9 @@ impl Hub {
         }
     }
 
-    /// Returns the cached closed projection, building it once for sessions loaded before the
-    /// cache existed. Closed metadata does not change until reopen or purge.
-    pub(super) fn closed_session_summaries(&self) -> Vec<Value> {
-        if !self.closed_summaries_ready.load(Ordering::Acquire) {
-            let rows: Vec<(String, Value)> = self
-                .sessions()
-                .into_iter()
-                .filter(|s| s.status() == SessionStatus::Closed)
-                .map(|s| (s.id.clone(), self.session_summary(&s)))
-                .collect();
-            let mut cache = self.closed_session_summaries.lock().unwrap_or_else(|e| e.into_inner());
-            for (id, row) in rows {
-                cache.entry(id).or_insert(row);
-            }
-            self.closed_summaries_ready.store(true, Ordering::Release);
-        }
-        self.closed_session_summaries
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .cloned()
-            .collect()
-    }
-
-    fn update_closed_summary(&self, session: &Session) {
-        if !self.closed_summaries_ready.load(Ordering::Acquire) {
-            return;
-        }
-        let row =
-            (session.status() == SessionStatus::Closed).then(|| self.session_summary(session));
-        let mut cache = self.closed_session_summaries.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(row) = row {
-            cache.insert(session.id.clone(), row);
-        } else {
-            cache.remove(&session.id);
-        }
-    }
-
-    pub(super) fn remove_closed_summary(&self, id: &str) {
-        self.closed_session_summaries.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
-    }
-
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
     /// from `sessions` only by an explicit id/name request.
-    pub(super) fn live_session_handles(&self) -> Vec<Arc<Session>> {
+    pub(super) fn live_sessions(&self) -> Vec<Arc<Session>> {
         let ids: Vec<String> = self
             .live_session_ids
             .lock()
@@ -2142,7 +2093,6 @@ impl Hub {
             (was, m.subsession.clone())
         };
         self.update_live_session_index(session);
-        self.update_closed_summary(session);
         if was != status {
             if let Some(link) = &link {
                 self.subsession_status(&session.id, link, was, status);

@@ -148,7 +148,7 @@ impl Hub {
     /// two sessions continue.
     pub fn chat_activity(&self) -> ChatActivity {
         let mut by_key: HashMap<String, (u64, Value)> = HashMap::new();
-        for session in self.live_session_handles() {
+        for session in self.sessions() {
             let Some(key) = session_chat_key(&session) else { continue };
             let updated = session.read_meta(|meta| meta.updated_at);
             let key = key_text(&key);

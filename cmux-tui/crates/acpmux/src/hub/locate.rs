@@ -58,18 +58,14 @@ impl Hub {
                 (Some(link), found)
             }
             None => {
-                // Exact ids and names outrank prefixes, including a closed exact name. This
-                // preserves `locate review` when a live `review-2` was created later.
-                let exact = by_key_exact(&summaries, query, &own);
-                if !exact.is_empty() {
-                    (None, exact)
+                let exact_live = by_key_exact(&summaries, query, &own);
+                if !exact_live.is_empty() {
+                    (None, exact_live)
                 } else {
-                    let full = self.all_session_summaries_including_closed();
-                    let closed_exact = by_key_exact(&full, query, &own);
-                    if !closed_exact.is_empty() {
-                        summaries = full;
-                        let exact = by_key_exact(&summaries, query, &own);
-                        (None, exact)
+                    summaries = self.all_session_summaries_including_closed();
+                    let exact_all = by_key_exact(&summaries, query, &own);
+                    if !exact_all.is_empty() {
+                        (None, exact_all)
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -91,10 +87,8 @@ impl Hub {
                 None => (None, by_key(&summaries, query, &own)),
             };
         }
-        if found.is_empty() && link.is_none() && summaries.iter().all(|s| s["status"] != "closed") {
-            let full = self.all_session_summaries_including_closed();
-            drop(found);
-            summaries = full;
+        if found.is_empty() && link.is_none() {
+            summaries = self.all_session_summaries_including_closed();
             found = by_key(&summaries, query, &own);
         }
         if found.is_empty() {
@@ -319,8 +313,6 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
-/// Exact id/name portion of [`by_key`], used before prefix matching so a closed exact name keeps
-/// winning over a newer live prefix.
 fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     if let Some((host, rest)) = key.split_once('/') {
         return summaries
@@ -519,14 +511,25 @@ mod tests {
     }
 
     #[test]
-    fn an_exact_closed_name_beats_a_live_prefix() {
-        let closed = json!({"sessionId": "closed", "name": "review", "status": "closed"});
-        let live = json!({"sessionId": "live", "name": "review-2", "status": "idle"});
-        let live_rows = vec![live.clone()];
-        let all_rows = vec![live, closed];
-        assert!(by_key_exact(&live_rows, "review", "local").is_empty());
-        assert_eq!(ids(&by_key_exact(&all_rows, "review", "local")), ["closed"]);
-        assert_eq!(ids(&by_key(&live_rows, "review", "local")), ["live"]);
+    fn locate_prefers_a_closed_exact_name_over_a_live_prefix() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        for (id, name, status) in [("closed", "review", "closed"), ("live", "review-2", "idle")] {
+            let meta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": id,
+                "name": name,
+                "harness": "claude",
+                "family": "claude",
+                "cwd": "/tmp",
+                "status": status,
+                "createdAt": 1,
+                "updatedAt": 1
+            }))
+            .unwrap();
+            hub.insert_test_session(meta);
+        }
+        let found = hub.locate("review", false, false).unwrap();
+        assert_eq!(found["session"]["sessionId"], "closed");
     }
 
     #[test]

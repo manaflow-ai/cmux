@@ -1154,15 +1154,12 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        for session in self.live_session_handles() {
+        for session in self.sessions() {
             visit(if with_tools {
                 self.session_summary(&session)
             } else {
                 self.session_list_summary(&session)
             });
-        }
-        for row in self.closed_session_summaries() {
-            visit(if with_tools { row } else { super::views::without_summary_tools(row) });
         }
     }
 
@@ -1183,7 +1180,7 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        for session in self.live_session_handles() {
+        for session in self.live_sessions() {
             visit(if with_tools {
                 self.session_summary(&session)
             } else {
@@ -1200,9 +1197,7 @@ impl Hub {
 
     /// Every session, local and remote, newest first.
     pub fn all_session_summaries(&self) -> Vec<Value> {
-        let mut v: Vec<Value> =
-            self.live_session_handles().iter().map(|s| self.session_summary(s)).collect();
-        v.extend(self.closed_session_summaries());
+        let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
         v.extend(self.remote_sessions());
         // Newest first, ties by sessionId: the order session list pages keep.
         super::session_pages::sort_session_summaries(&mut v);
@@ -1212,7 +1207,7 @@ impl Hub {
     /// The index-backed projection for lookups that usually target an active chat. A miss falls
     /// back to [`Self::all_session_summaries_including_closed`] in `locate` so closed history is
     /// still discoverable by an explicit request.
-    pub(crate) fn live_session_summaries(&self) -> Vec<Value> {
+    pub(super) fn live_session_summaries(&self) -> Vec<Value> {
         let mut v = Vec::new();
         self.visit_live_session_summaries(true, |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
@@ -1222,7 +1217,10 @@ impl Hub {
     /// The complete list used only after an explicit lookup misses the live index. It preserves
     /// history access without making closed records part of repeated list/locate scans.
     pub(super) fn all_session_summaries_including_closed(&self) -> Vec<Value> {
-        self.all_session_summaries()
+        let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
+        v.extend(self.remote_sessions());
+        super::session_pages::sort_session_summaries(&mut v);
+        v
     }
 
     /// For each of `ids`, the row [`Self::all_session_summaries`] puts first for that
