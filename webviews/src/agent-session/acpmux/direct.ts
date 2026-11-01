@@ -3660,6 +3660,10 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
+    // The rail's prompt index is read beside the attach, not after it: it waits on nothing the
+    // attach answers (`shownEarlierPrompts` cuts it to the prompts older than the held page), and
+    // asked after, the rail drew the loaded turns first and grew to every turn a round trip later.
+    this.startPromptIndex(sessionId, generation);
     return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined };
   }
 
@@ -8136,7 +8140,7 @@ export class AcpmuxDirectClient {
     if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
     const index = this.promptIndex;
     if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration) {
-      this.readPromptIndex(sessionId, this.firstSeq);
+      this.readPromptIndex(sessionId, this.selectionGeneration);
       return NO_EARLIER_PROMPTS;
     }
     if (!index.rows) return NO_EARLIER_PROMPTS;
@@ -8151,13 +8155,21 @@ export class AcpmuxDirectClient {
     return list;
   }
 
-  private readPromptIndex(sessionId: string, before: number): void {
-    const generation = this.selectionGeneration;
+  /// Starts the index's read as the chat's attach is asked, unless this chat's is already read or
+  /// under way.
+  private startPromptIndex(sessionId: string, generation: number): void {
+    const index = this.promptIndex;
+    if (index && index.sessionId === sessionId && index.generation === generation) return;
+    this.readPromptIndex(sessionId, generation);
+  }
+
+  /// Reads every prompt of the chat: no `beforeSeq`, since the page it must precede is not known
+  /// until the attach answers, and `shownEarlierPrompts` drops the prompts the held page has.
+  private readPromptIndex(sessionId: string, generation: number): void {
     const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[] } = { sessionId, generation };
     this.promptIndex = entry;
     void this.typed("_acpmux/events", {
       sessionId,
-      beforeSeq: before,
       promptIndex: true,
       kinds: ["user_message"],
       limit: 5000,
