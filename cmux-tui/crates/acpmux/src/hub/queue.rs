@@ -5,6 +5,7 @@
 //! and runs it (`resume_queues`), so queued prompts survive a crash, an update
 //! relaunch, a quit and a reboot.
 
+use super::queue_admission::QueueLimits;
 use super::subsession_runs::{ClaimedTurn, TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
@@ -120,6 +121,8 @@ pub(super) struct PromptRun {
     /// Delivery metadata normalized before queueing or recovered from a durable queued record.
     pub(super) message_id: Option<String>,
     pub(super) message_sender: Option<Value>,
+    /// What its content holds, measured once (`queue_admission::run_bytes`).
+    pub(super) size: std::sync::OnceLock<u64>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -150,6 +153,8 @@ pub(super) struct Slot<'a> {
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
     /// `PromptOptions::no_queue`.
     pub(super) no_queue: bool,
+    /// `PromptOptions::admitted`.
+    pub(super) admitted: bool,
     /// An automatic continuation (`PromptOptions::after_turn`, `auto_resume.rs`): it never
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
@@ -246,6 +251,7 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
+        let limits = QueueLimits::of(&*self.config.read().await);
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -312,7 +318,7 @@ impl Hub {
                 };
                 let withdraw = if waiting {
                     let (waits, position) =
-                        self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
+                        self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position});
                     if awaiting_owner {
                         accepted.set("awaitingOwner", json!(true));
@@ -378,7 +384,7 @@ impl Hub {
                     drop(guard);
                     session.queued.fetch_add(1, Ordering::SeqCst);
                     let (waits, position) =
-                        self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
+                        self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                     accept(
                         json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                     );
@@ -392,6 +398,7 @@ impl Hub {
                                 p.provenance,
                             );
                             let run = PromptRun {
+                                size: Default::default(),
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
                                 control: p.control,
@@ -420,7 +427,7 @@ impl Hub {
                             let mark = self.mark_waiting_for_slot(&parent, session);
                             session.queued.fetch_add(1, Ordering::SeqCst);
                             let (waits, position) =
-                                self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
+                                self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
                             accept(
                                 json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "waitsForSlot": true}),
                             );
@@ -545,6 +552,8 @@ impl Hub {
             // Send now is the person's; a digest the drain marked to steer is agents' messages,
             // which a turn past its cap does not take (`turn_cap.rs`): it waits for the next turn.
             send_now: !digest || persons,
+            // Taken out of the queue to steer: if it waits again, it waited already.
+            admitted: true,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -578,14 +587,33 @@ impl Hub {
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
     /// agent message's turn (then `joined` is set, `digest.rs`). Also returns its place in the
     /// queue (1: next), as an inbox digest names its own (`inbox_digest.rs`): where it went in,
-    /// not the count, which a prompt about to start its turn is still in. A refusal releases the
-    /// caller's `queued` reservation without inserting or recording the prompt.
+    /// not the count, which a prompt about to start its turn is still in. A prompt the queue has
+    /// no room for is counted back out of the session's queued total, and its refusal is what
+    /// `session/prompt` answers.
+    fn enqueue_or_refuse(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        turn_id: &str,
+        limits: QueueLimits,
+    ) -> Result<(Waits, u64), Answer> {
+        self.enqueue(session, p, turn_id, limits).map_err(|e| {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            Err(e)
+        })
+    }
+
+    /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
+    /// (`queue_admission.rs`): then nothing is put in, written or replaced.
     fn enqueue(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         turn_id: &str,
+        limits: QueueLimits,
     ) -> Result<(Waits, u64), RpcError> {
+        // Measured before the lock: under it only sizes measured already are added up.
+        let size = super::queue_admission::slot_bytes(p);
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
         let declined = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -628,12 +656,25 @@ impl Hub {
         super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
-        // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
-        if awaiting_owner
-            && let Err(error) = queue_approve::held_cap(&queue, p.provenance)
-        {
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            return Err(error);
+        // held slot. Rejection precedes superseding and logging, so it has no queue side effects;
+        // `enqueue_or_refuse` counts it back out of the session's queued total.
+        if awaiting_owner {
+            queue_approve::held_cap(&queue, p.provenance)?;
+        }
+        // Checked and put in under one lock, so two prompts cannot both take the last room. The
+        // prompts it replaces leave as it comes in, so they do not count against it.
+        let replaces = |q: &QueuedPrompt| {
+            p.supersede.is_some_and(|key| supersede::superseded(q, key, p.agent, p.prompt_id))
+        };
+        if !p.admitted {
+            // Every prompt waiting but this one: those in the queue, and those about to join it
+            // or waiting for the turn lock, which `Session::queued` counts already.
+            let others = session.queued.load(Ordering::SeqCst).saturating_sub(1);
+            // The messages an inbox digest took wait with it, out of the queue, until its turn
+            // takes them over (`digest.rs` `take_joined`) or they go back in: their charge, read
+            // under the queue's lock, where every move in or out of it changes it.
+            let taken = session.digest_bytes.load(Ordering::SeqCst);
+            super::queue_admission::room(&queue, others, taken, size, replaces, limits)?;
         }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
@@ -672,6 +713,7 @@ impl Hub {
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
+                    size: size.into(),
                     blocks: p.blocks.to_vec(),
                     display_parts: p.display_parts.cloned(),
                     control: p.control,
@@ -1350,6 +1392,8 @@ impl Hub {
             let awaiting_owner =
                 e.msg.get("awaitingOwner") == Some(&Value::Bool(true)) && approval.is_none();
             restored.push((prompt_id.clone(), turn_id.clone()));
+            let display_parts = e.msg.get("displayParts").cloned();
+            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
                 turn_id,
@@ -1359,8 +1403,9 @@ impl Hub {
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(approved_rules(
                     PromptRun {
+                        size: size.into(),
                         blocks,
-                        display_parts: e.msg.get("displayParts").cloned(),
+                        display_parts,
                         control,
                         trust_gate,
                         provenance,

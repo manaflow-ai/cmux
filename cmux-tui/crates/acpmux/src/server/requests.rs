@@ -50,7 +50,7 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
 pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
-    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    let person = person_asks(conn);
     // A Web client, here or through a peer, learns no host name or path.
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
@@ -67,6 +67,13 @@ fn with_wait(mut reply: Value, waited: Value) -> Value {
         reply.set("wait", waited);
     }
     reply
+}
+
+/// Whether the person asks on `conn`: it proved it is the person, or it is this host's app pane (a
+/// peer's `via: app` is its client's word, not proof). The admission's `person` and a chat's
+/// `Session::person` (its start waits as long as its harness works, `hub/lifecycle.rs`).
+pub(super) fn person_asks(conn: &Conn) -> bool {
+    conn.is_person() || conn.origin == Origin::LocalApp
 }
 
 /// The create's name, as `session/new` and `session/fork` read it.
@@ -1215,6 +1222,7 @@ async fn dispatch_request(
                 lineage,
                 disallowed_tools,
                 checked_cwd: None,
+                person: person_asks(conn),
             };
             let s = match &admitted {
                 Some(admitted) => admitted.run(hub.new_session(req)).await?,
@@ -1279,6 +1287,9 @@ async fn dispatch_request(
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
+            if person_asks(conn) {
+                s.person_wrote();
+            }
             let mut blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
@@ -1458,6 +1469,7 @@ async fn dispatch_request(
                 },
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
                 no_queue: false,
+                admitted: false,
                 send_now: false,
                 thread,
                 inbox: inbox_on
@@ -1899,12 +1911,12 @@ async fn dispatch_request(
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default();
-            hub.set_tags(
+            hub.set_tags_answered(
                 &s,
                 params.get("set").and_then(Value::as_object),
                 &remove,
                 params.get("ttlSeconds").and_then(Value::as_u64),
-            );
+            )?;
             Ok(hub.session_summary(&s))
         }
         // One tag with one value, so a page relay can allow it without
@@ -1918,9 +1930,9 @@ async fn dispatch_request(
             if archived {
                 let mut set = serde_json::Map::new();
                 set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags(&s, Some(&set), &[], None);
+                hub.set_tags_answered(&s, Some(&set), &[], None)?;
             } else {
-                hub.set_tags(&s, None, &[ARCHIVED_TAG.to_owned()], None);
+                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
             }
             Ok(hub.session_summary(&s))
         }
@@ -1970,7 +1982,7 @@ async fn dispatch_request(
             if let Some(r) = &rules {
                 crate::hub::rules::validate(r).map_err(RpcError::invalid_params)?;
             }
-            hub.set_rules(&s, rules);
+            hub.set_rules_answered(&s, rules)?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
@@ -2021,7 +2033,7 @@ async fn dispatch_request(
                         RpcError::invalid_params("turnCapMs must be a whole number of ms or null")
                     })?),
                 };
-                hub.set_turn_cap(&s, cap);
+                hub.set_turn_cap_answered(&s, cap)?;
             }
             let meta = s.meta();
             Ok(json!({
