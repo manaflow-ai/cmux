@@ -65,8 +65,8 @@ struct IncognitoWindowLateCreateTests {
         try await PinnedPageTests.withApp(bridge: Proxy.first.bridge) { services, _ in
             let url = try #require(URL(string: "https://incognito-\(UUID().uuidString.prefix(6).lowercased()).example/"))
             let window = services.windows.newIncognitoWindow(url: url)
-            try await PinnedPageTests.until({ Self.tabs(window, services).contains { $0.url == url.absoluteString } }, within: .seconds(30), report: {
-                "the window shows \(Self.tabs(window, services).map { ($0.kind, $0.url) }); incognito windows \(Self.incognitoWindows(services))"
+            try await PinnedPageTests.until({ Self.showsPage(url, window, services) }, within: .seconds(30), report: {
+                "the window shows \(Self.tabs(window, services).map { ($0.kind, services.cache.browserTabs.lastURL(for: $0)) }); incognito windows \(Self.incognitoWindows(services))"
             })
             try await PinnedPageTests.until({ !Self.tabs(window, services).contains { $0.kind == .pty } }, report: { "its terminal tab stayed" })
             #expect(Self.incognitoWindows(services) == [window], "a second incognito window opened")
@@ -80,8 +80,8 @@ struct IncognitoWindowLateCreateTests {
             services.daemon.createReplyBound = .seconds(3)
             let url = try #require(URL(string: "https://incognito-\(UUID().uuidString.prefix(6).lowercased()).example/"))
             let window = services.windows.newIncognitoWindow(url: url)
-            try await PinnedPageTests.until({ Self.tabs(window, services).contains { $0.url == url.absoluteString } }, within: .seconds(30), report: {
-                "the window shows \(Self.tabs(window, services).map { ($0.kind, $0.url) }); incognito windows \(Self.incognitoWindows(services))"
+            try await PinnedPageTests.until({ Self.showsPage(url, window, services) }, within: .seconds(30), report: {
+                "the window shows \(Self.tabs(window, services).map { ($0.kind, services.cache.browserTabs.lastURL(for: $0)) }); incognito windows \(Self.incognitoWindows(services))"
             })
             try await PinnedPageTests.until({ !Self.tabs(window, services).contains { $0.kind == .pty } }, report: { "its terminal tab stayed" })
             #expect(Self.incognitoWindows(services) == [window], "a second incognito window opened")
@@ -100,6 +100,12 @@ struct IncognitoWindowLateCreateTests {
             #expect(services.windows.pendingEphemeralWindows.isEmpty)
             #expect(Self.incognitoWindows(services).isEmpty, "an incognito window opened with no workspace made")
         }
+    }
+
+    /// Whether window `window` shows a browser tab on `url`. An incognito tab's page is kept in app memory only
+    /// (its daemon record says `about:blank`, `BrowserTabService.incognitoPlaceholderURL`).
+    static func showsPage(_ url: URL, _ window: String, _ services: AppServices) -> Bool {
+        tabs(window, services).contains { $0.kind == .browser && services.cache.browserTabs.lastURL(for: $0) == url.absoluteString }
     }
 
     /// The tabs of the workspaces window `window` lists.
