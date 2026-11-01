@@ -6,12 +6,16 @@
 //! and closes its own tab; what decides is here:
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
-//!   the one its first try took while that machine exists, else this
-//!   person's free one, else a new one named for chats; and the send's keys
-//!   ([`Keys`]). A machine that exists is pinned to the send before anything
-//!   runs there, so a retry of the send names it.
-//! - `pin --key K --account A --machine ID`: pins the send to the machine the
-//!   App just made for it.
+//!   the one its first try took while that machine exists; for a send from a
+//!   Mac workspace, the machine that workspace already has; else a new one
+//!   named for chats; and the send's keys ([`Keys`]). For now each workspace
+//!   gets a small machine of its own and no machine serves two workspaces
+//!   (leo-workspace `design/cloud.md`, "One workspace per small machine,
+//!   snapshots, and a Cloud button"). A machine that exists is pinned to the
+//!   send before anything runs there, so a retry of the send names it.
+//! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
+//!   to the machine the App just made for it, and makes it the workspace's
+//!   when the workspace has none yet and no other workspace has it.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT
 //!   [--subpath SUB] --work-root R...`: copies ROOT to a folder of the send's
 //!   own on the machine (`cmux link sync push`), trying each work root in
@@ -41,7 +45,7 @@ use ledger::{Ledger, Send};
 use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
-cmux link start-chat pin --key KEY --account ACCOUNT --machine ID\n       \
+cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
 
@@ -71,8 +75,10 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let answer = match action.as_str() {
         "plan" => flags.one("--request").map(|request| plan(&ledger, request)),
-        "pin" => match (flags.key(), flags.account(), flags.one("--machine")) {
-            (Some(key), Some(account), Some(machine)) => Some(pin(&ledger, &key, account, machine)),
+        "pin" => match (flags.key(), flags.account(), flags.one("--machine"), flags.workspace()) {
+            (Some(key), Some(account), Some(machine), Some(workspace)) => {
+                Some(pin(&ledger, &key, account, machine, workspace))
+            }
             _ => None,
         },
         "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
@@ -137,12 +143,21 @@ pub(super) fn valid_account(account: &str) -> bool {
     account.len() <= 512 && !account.chars().any(char::is_control)
 }
 
-/// What `plan` reads: the send, the account it began in, who is signed in,
-/// and the Cloud machines the App's list for that account named.
+/// A Mac workspace's id, as the App spells it: 1 to 128 printable characters.
+pub(super) fn valid_workspace(workspace: &str) -> bool {
+    (1..=128).contains(&workspace.chars().count()) && !workspace.chars().any(char::is_control)
+}
+
+/// What `plan` reads: the send, the account it began in, the Mac workspace it
+/// came from, who is signed in, and the Cloud machines the App's list for
+/// that account named.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
     account: String,
+    /// The Mac workspace of the tab that sent; None for a send from no workspace.
+    #[serde(default)]
+    workspace: Option<String>,
     #[serde(default)]
     user: Option<String>,
     /// Whether the App has loaded its machine list: before it has, a machine
@@ -170,12 +185,20 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     if !valid_account(&request.account) {
         return refused("bad_request", "the account is too long or has control characters");
     }
+    let workspace = request.workspace.as_deref();
+    if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
+        return refused(
+            "bad_request",
+            "the workspace id is empty, too long or has control characters",
+        );
+    }
     let keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
     let planned = Ledger::update(ledger, |pins| {
         let destination = pick::destination(
             &send,
             &request.account,
+            workspace,
             pins,
             &request.machines,
             &request.stored,
@@ -184,6 +207,11 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         );
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
+            // A retry of an older send keeps its machine, never the workspace's newer one,
+            // and a machine another workspace has never becomes this one's too.
+            if let Some(workspace) = workspace {
+                pick::claim(pins, workspace, &request.account, id);
+            }
         }
         destination
     });
@@ -203,9 +231,22 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     line
 }
 
-/// `pin`: the send `key` of `account` runs on `machine` (one the App just made for it).
-pub(super) fn pin(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
-    match Ledger::update(ledger, |pins| pins.record(machine, &Send::new(key, account))) {
+/// `pin`: the send `key` of `account` runs on `machine` (one the App just made
+/// for it), which is the Mac workspace `workspace`'s own from now on when the
+/// workspace has none yet and no other workspace has it ([`pick::claim`]).
+pub(super) fn pin(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    machine: &str,
+    workspace: Option<&str>,
+) -> Value {
+    match Ledger::update(ledger, |pins| {
+        pins.record(machine, &Send::new(key, account));
+        if let Some(workspace) = workspace {
+            pick::claim(pins, workspace, account, machine);
+        }
+    }) {
         Ok(()) => json!({"ok": true}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
@@ -284,8 +325,9 @@ impl StartCopy {
 
     /// A new folder for one copy of the send, under its [`Keys::place`].
     pub(super) fn fresh_place(&self) -> String {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("{}/{}", Keys::of(&self.key).place, &id[..8])
+        // The first 8 hex digits of a random id (all ASCII, so 8 chars are 8 bytes).
+        let id: String = uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect();
+        format!("{}/{}", Keys::of(&self.key).place, id)
     }
 
     /// The copied folder and the chat's folder in it, in `place` under `work_root`.
@@ -396,5 +438,14 @@ impl Flags {
 
     fn account(&self) -> Option<&str> {
         self.one("--account").filter(|account| valid_account(account))
+    }
+
+    /// `--workspace`: Some(None) when it is not given, None when it is not a valid id.
+    fn workspace(&self) -> Option<Option<&str>> {
+        match self.all("--workspace").as_slice() {
+            [] => Some(None),
+            [workspace] if valid_workspace(workspace) => Some(Some(*workspace)),
+            _ => None,
+        }
     }
 }

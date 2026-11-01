@@ -120,7 +120,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
-    case attachSource(AgentPaneDroppedPaths.Kind, names: [String])
+    case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.
@@ -161,6 +161,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
+    /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
+    /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
+    case cloudHandoffTurn(sessionId: String)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// A user-confirmed provider credential transfer for one Cloud chat.

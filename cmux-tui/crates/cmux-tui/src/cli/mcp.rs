@@ -222,6 +222,25 @@ pub(super) trait Backend {
             idempotency_key: None,
         })
     }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -322,6 +341,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
@@ -655,6 +684,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -675,8 +713,7 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -916,9 +953,19 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
+    fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
+        let listed = self.listed();
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
     }
 
     /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
@@ -1080,6 +1127,7 @@ impl<B: Backend> Server<B> {
                 // (tests/tool-evals, 2026-10-27).
                 if let Err((_, message)) = &mut result
                     && message.starts_with("unknown tool")
+                    && !message.contains("; did you mean")
                 {
                     let tools = tools.get_or_insert_with(|| self.list());
                     let near = code_mode::nearest_names(tools, &name);

@@ -62,10 +62,10 @@ const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmu
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/inspector/processes");
+const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/session-info/processes");
 const { runningBackgroundTasks } = await import("../src/agent-session/acpmux/summary/sessionSummary");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-type BackgroundCommand = import("../src/agent-session/acpmux/inspector/processes").BackgroundCommand;
+type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
@@ -183,7 +183,8 @@ describe("the transcript keeps no running card", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => [line.dataset.state, line.textContent])).toEqual([
+      // The duration is the row's trailing column; the line's button still reads it whole.
+      expect(lines.map((line) => [line.dataset.state, line.getAttribute("aria-label")])).toEqual([
         ["failed", "Subagent failed: Tester · 30s"],
         ["completed", "Subagent finished: Reviewer · 1m 20s"],
       ]);
@@ -220,7 +221,7 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     );
     try {
       const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
-      expect(lines.map((line) => line.textContent)).toEqual([
+      expect(lines.map((line) => line.getAttribute("aria-label"))).toEqual([
         "Subagent stopped: Linter · 30s",
         "Subagent stopped: Reviewer · stopped by you · 30s",
         "Subagent stopped: Tester · interrupted by Send now · 30s",
@@ -512,7 +513,7 @@ describe("the tray", () => {
       ]);
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-stop")!.click());
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-session-info-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
@@ -1257,7 +1258,7 @@ describe("a failed sub-session's line", () => {
       ),
     );
     try {
-      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+      expect(root.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toBe(
         "Subagent failed: Overview · 30s · model overloaded",
       );
     } finally {
@@ -1266,11 +1267,11 @@ describe("a failed sub-session's line", () => {
   });
 });
 
-describe("workflow progress in the default tray and Inspector", () => {
+describe("workflow progress in the default tray and Session Info", () => {
   const waiting = new Set<string>();
   for (const surface of ["tray", "inspector"] as const) {
     test(`${surface} updates counts and warnings without replacing another row`, async () => {
-      const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
+      const { SubagentsSection } = await import("../src/agent-session/acpmux/session-info/SubagentsSection");
       const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
       const other = agent("Unrelated agent");
       const draw = (current: Subagent) =>
@@ -1291,17 +1292,14 @@ describe("workflow progress in the default tray and Inspector", () => {
         await view.show(
           draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
         );
-        // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
-        // the Inspector's list still does.
+        // Every subagent list omits usage; the dedicated Context section retains it.
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          surface === "tray"
-            ? "37/101 agents · 2 failed · 4 queued"
-            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          "37/101 agents · 2 failed · 4 queued",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
         expect(view.root.querySelector(".acpmux-agent-line__progress, .acpmux-agent-line__stats")?.textContent).toBe(
-          surface === "tray" ? "40/101 agents" : "40/101 agents · 1.3M tokens",
+          "40/101 agents",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
       } finally {
