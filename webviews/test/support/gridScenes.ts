@@ -1,3 +1,4 @@
+import { sessionInfoGridScenes } from "./sessionInfoGridScenes";
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
 
 // Roles identify ink targets; selectors remain available while surfaces migrate.
@@ -188,6 +189,7 @@ const noticeCard = ".acpmux-host-error-card";
 
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
+  ...sessionInfoGridScenes,
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
@@ -466,39 +468,7 @@ export const gridScenes: GridScene[] = [
     ]),
     level: "fail",
   },
-  // Glance has a bare Environment and heterogeneous section bodies (SessionInfo.tsx).
-  // Section roots keep a proven header absence from excusing another section's selector.
-  ...[
-    ["environment", ".acpmux-session-info-row__name"],
-    ["context", ".acpmux-session-info-context__total > span:first-child"],
-    ["connectors", ".acpmux-session-info-row__name"],
-    ["changes", ".acpmux-session-info-pr__title"],
-    ["sources", ".acpmux-session-info-source__label"],
-    ["outputs", ".acpmux-session-info-row__name"],
-    ["subagents", ".acpmux-summary-text"],
-    ["tasks", ".acpmux-session-info-task__command"],
-  ].map(([section, body]) => {
-    const entry = card(
-      "transcript.cards",
-      "agent-pane.chat-inspector",
-      "layout-glance-open",
-      `.acpmux-session-info-section[data-section="${section}"]`,
-      ".acpmux-session-info-section__icon",
-      ".acpmux-session-info-section__title",
-      body!,
-      ".acpmux-session-info-section__fold",
-    );
-    entry.absent = {};
-    if (section !== "context" && section !== "connectors")
-      entry.absent[".acpmux-session-info-section__icon"] =
-        `SessionInfo's ${section} section supplies no header icon in layout-glance-open.`;
-    if (section === "environment") {
-      entry.absent[".acpmux-session-info-section__title"] =
-        "Glance Environment is bare: SessionInfoSection renders its body without a header.";
-      entry.absent[".acpmux-session-info-section__fold"] = "Bare Environment has no section disclosure control.";
-    }
-    return entry;
-  }),
+  // Session Info is measured above as one row surface, not as independent padded cards.
   // Settings-style lists in a pane (grid.md 5.7): the Harnesses page (HarnessesScreen.tsx). Its rows
   // are section 3 rows with the row box as the highlight: the mark's 20 box 8 in, the name and
   // status 8 after it, the trailing action ending 8 in. The page's 28 controls and its side inset
