@@ -210,9 +210,8 @@ enum ScreenshotHandlers {
             throw ActionWorkFailure(code: writeFailedCode, reason: BrowserPageStrings.saveFailed(error.localizedDescription))
         }
         if copies {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
-            AttachmentSource.claim(NSPasteboard.general) // a paste of it wears cmux's icon
+            // Written with cmux as its source, so a paste of it wears cmux's icon.
+            AttachmentSource.write([NSImage(cgImage: image, size: .zero)], to: NSPasteboard.general)
         }
         return result
     }

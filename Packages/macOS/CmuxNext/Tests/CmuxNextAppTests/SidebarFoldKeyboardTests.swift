@@ -1,10 +1,11 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Disclosure rows participate in the keyboard walk without selecting a workspace.
-@MainActor @Suite(.serialized) struct SidebarFoldKeyboardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFoldKeyboardTests {
     private static let fold = SidebarDoneFoldID(section: .machine(.local), group: nil)
 
     @Test(arguments: [false, true])
@@ -156,7 +157,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         window.contentView = list
         list.reload(animated: false)
         try body(list)
