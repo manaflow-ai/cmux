@@ -566,12 +566,118 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([(d.candidate.run["id"], d.candidate.category, d.action, d.note) for d in result.decisions],
                          [(old["id"], "label-dropped", "skip", janitor.OPEN_HEAD_RULE)])
 
-    def test_branches_to_resolve_skips_runs_without_macos_jobs(self):
+
+
+class LinuxStaleRunTests(unittest.TestCase):
+    """Category b judges a merged, closed or superseded pull request's runs that hold no macOS job too.
+
+    At 07:02Z on 2026-11-01 about 2,520 jobs were queued on Blacksmith while the janitor only ever cancelled a stale
+    run that held a Mac job: nothing ended a merged or closed pull request's Linux runs."""
+
+    def closed_pr(self, number=1, *, state="MERGED", closed_minutes_ago=10, head="aaa"):
+        pr = make_pr(number, state=state, head=head)
+        pr["closedAt"] = iso(closed_minutes_ago)
+        return pr
+
+    def linux_plan(self, runs, jobs, prs, **kwargs):
+        return janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=kwargs.pop("max_cancels", 10),
+                                  pull_request_policy="compile-only", now=NOW, **kwargs)
+
+    def test_merged_prs_linux_run_from_before_the_merge_is_cancelled(self):
+        run = make_run(branch="feat", status="queued", age=30, path=".github/workflows/web-validation.yml")
+        result = self.linux_plan([run], {run["id"]: [linux_job(status="queued")]}, {"feat": [self.closed_pr()]})
+        self.assertEqual([(d.candidate.run["id"], d.candidate.category, d.action) for d in result.decisions],
+                         [(run["id"], "stale-pr", "cancel")])
+        self.assertIn("merged", result.decisions[0].candidate.reason)
+
+    def test_unlisted_linux_run_of_a_closed_pr_is_cancelled(self):
+        # A linux-only workflow's jobs are never listed (needs_jobs()); the run alone is enough.
+        run = make_run(branch="feat", status="queued", age=30)
+        result = self.linux_plan([run], {}, {"feat": [self.closed_pr(state="CLOSED")]})
+        self.assertEqual([(d.action, d.candidate.reason) for d in result.decisions], [("cancel", "PR #1 is closed")])
+
+    def test_run_the_close_started_is_post_merge_work_and_kept(self):
+        run = make_run(branch="feat", status="in_progress", age=5, path=".github/workflows/cmux-next-defaults-guard.yml")
+        result = self.linux_plan([run], {}, {"feat": [self.closed_pr(closed_minutes_ago=6)]})
+        self.assertEqual(result.decisions, [])
+
+    def test_unknown_close_time_keeps_a_linux_run(self):
+        run = make_run(branch="feat", status="queued", age=30)
+        result = self.linux_plan([run], {}, {"feat": [make_pr(1, state="MERGED")]})
+        self.assertEqual(result.decisions, [])
+
+    def test_superseded_head_linux_run_is_cancelled(self):
+        run = make_run(branch="feat", status="queued", sha="old")
+        result = self.linux_plan([run], {}, {"feat": [make_pr(1, head="new")]})
+        self.assertEqual([(d.candidate.category, d.action) for d in result.decisions], [("stale-pr", "cancel")])
+
+    def test_linux_run_at_an_open_pr_head_is_never_a_candidate(self):
+        run = make_run(branch="feat", status="queued", sha="aaa")
+        result = self.linux_plan([run], {run["id"]: [linux_job(status="queued")]}, {"feat": [make_pr(1, head="aaa")]})
+        self.assertEqual(result.decisions, [])
+
+    def test_pull_request_target_and_push_linux_runs_are_untouched(self):
+        target = make_run(event="pull_request_target", branch="feat", status="queued", path=".github/workflows/cla.yml")
+        push = make_run(event="push", branch="feat", status="queued")
+        exp = make_run(event="push", branch="exp/try", status="queued")
+        result = self.linux_plan([target, push, exp], {}, {"feat": [self.closed_pr()]})
+        self.assertEqual(result.decisions, [])
+
+    def test_a_re_run_linux_stale_run_is_kept(self):
+        run = make_run(branch="feat", status="queued", attempt=2)
+        result = self.linux_plan([run], {}, {"feat": [self.closed_pr()]})
+        self.assertEqual([d.action for d in result.decisions], ["skip"])
+
+    def test_linux_stale_runs_have_their_own_cap_and_leave_the_shared_one(self):
+        linux = [make_run(branch="feat", status="queued", age=40 - i) for i in range(3)]
+        mac = make_run(branch="mac", status="queued", age=30)
+        jobs = {mac["id"]: mac_jobs(queued=1)}
+        prs = {"feat": [self.closed_pr()], "mac": [self.closed_pr(2)]}
+        result = self.linux_plan([*linux, mac], jobs, prs, max_cancels=1, max_linux_stale_cancels=2)
+        actions = {d.candidate.run["id"]: (d.action, d.note) for d in result.decisions}
+        self.assertEqual(actions[mac["id"]], ("cancel", ""))
+        self.assertEqual([actions[run["id"]][0] for run in linux], ["cancel", "cancel", "skip"])
+        self.assertIn("stale Linux runs", actions[linux[2]["id"]][1])
+
+    def test_branches_to_resolve_includes_pr_runs_without_macos_jobs(self):
         with_mac = make_run(branch="a")
         without = make_run(branch="b")
         protected = make_run(branch="c", name="iOS TestFlight")
+        linux_push = make_run(event="push", branch="d")
         jobs = {with_mac["id"]: mac_jobs(queued=1), without["id"]: [], protected["id"]: mac_jobs(queued=1)}
-        self.assertEqual(janitor.branches_to_resolve([with_mac, without, protected], jobs), ["a"])
+        self.assertEqual(janitor.branches_to_resolve([with_mac, without, protected, linux_push], jobs), ["a", "b"])
+
+    def test_pr_lookup_reads_the_close_time(self):
+        query, _ = janitor.graphql_query("manaflow-ai", "cmux", ["feat"])
+        self.assertIn("closedAt", query)
+
+    def test_max_linux_stale_cancels_is_bounded(self):
+        with mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GH_REPO": "manaflow-ai/cmux"}):
+            self.assertEqual(janitor.main(["--max-linux-stale-cancels", "201"]), 2)
+
+
+class CancelPlanRateLimitTests(unittest.TestCase):
+    def test_a_rate_limit_stops_the_cancels_without_failing(self):
+        runs = [make_run(status="queued") for _ in range(3)]
+        usage = janitor.macos_usage([])
+        candidates = [janitor.Candidate(run, "stale-pr", "PR is merged", usage) for run in runs]
+
+        class Limited:
+            def __init__(self):
+                self.calls = 0
+
+            def run(self, run_id):
+                self.calls += 1
+                raise janitor.RateLimited("GET /actions/runs failed (403: rate limit)")
+
+            def cancel(self, run_id):  # pragma: no cover - never reached
+                raise AssertionError("cancel after a rate limit")
+
+        fake = Limited()
+        results, failures = janitor.cancel_plan(fake, candidates)
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(failures, 0)
+        self.assertTrue(all(results[run["id"]].startswith("skipped (out of API budget") for run in runs))
 
 
 class FetchSelectionTests(unittest.TestCase):
