@@ -509,7 +509,9 @@ mod tests {
             assert!(next > at);
             received.extend(lines);
             at = next;
-            if at == content.len() as u64 { break; }
+            if at == content.len() as u64 {
+                break;
+            }
         }
         assert_eq!(received, ["{\"next\":true}"]);
         assert_eq!(at, content.len() as u64);
@@ -520,7 +522,8 @@ mod tests {
     /// unfinished chunks across polls, then deliver complete rows after its newline.
     #[test]
     fn oversized_incomplete_window_line_resumes_when_terminated() {
-        let dir = std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("partial.jsonl");
         let unfinished = format!("{{\"large\":\"{}", "x".repeat(160));
@@ -531,7 +534,9 @@ mod tests {
             assert!(lines.is_empty());
             assert!(next > at);
             at = next;
-            if at == unfinished.len() as u64 { break; }
+            if at == unfinished.len() as u64 {
+                break;
+            }
         }
         assert_eq!(at, unfinished.len() as u64);
         // A larger source file continues the same unfinished line; the byte
@@ -552,7 +557,8 @@ mod tests {
     /// chunks. Fragments of it must never appear as independent JSONL records.
     #[test]
     fn a_line_at_the_previous_checkpoint_skips_all_overlong_fragments() {
-        let dir = std::env::temp_dir().join(format!("acpmux-watch-fragments-{}", uuid::Uuid::now_v7()));
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-watch-fragments-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("fragments.jsonl");
         let content = format!("{{\"large\":\"{}\"}}\n{{\"next\":2}}\n", "x".repeat(106));
@@ -563,7 +569,9 @@ mod tests {
             assert!(next > at || at == content.len() as u64);
             received.extend(lines);
             at = next;
-            if at == content.len() as u64 { break; }
+            if at == content.len() as u64 {
+                break;
+            }
         }
         assert_eq!(at, content.len() as u64);
         assert_eq!(received, ["{\"next\":2}"]);

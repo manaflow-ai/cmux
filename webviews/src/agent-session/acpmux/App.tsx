@@ -46,8 +46,11 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  prevDrawnRow,
   isBeforeFooter,
   hasReplyActions,
+  statusEdge,
+  type StatusEdge,
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
@@ -96,6 +99,7 @@ import {
   useNewTabAdoption,
   useNewTabPlaces,
   useNewTabWeather,
+  withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
@@ -1756,9 +1760,23 @@ const defaultRegistry: NativeRegistry = {
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 /// `actions`: whether a reply drew its own action row then (model.ts `hasReplyActions`); a drawn
 /// height taken without it, or with it, is stale once the row after the reply changes that.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; actions?: boolean };
+type DrawnHeight = {
+  sessionId?: string;
+  version: number;
+  width: number;
+  height: number;
+  actions?: boolean;
+  /// model.ts `statusEdge` when it was drawn: the room under the row depends on it.
+  status?: string;
+};
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
-type ReportDrawn = (id: string, version: number, height: number | undefined, actions?: boolean) => void;
+type ReportDrawn = (
+  id: string,
+  version: number,
+  height: number | undefined,
+  actions?: boolean,
+  status?: string,
+) => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -1807,7 +1825,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.version === entry.version &&
     old.width === entry.width &&
     old.height === entry.height &&
-    Boolean(old.actions) === Boolean(entry.actions)
+    Boolean(old.actions) === Boolean(entry.actions) &&
+    old.status === entry.status
   );
 }
 
@@ -1898,6 +1917,7 @@ const RowFrame = React.memo(function RowFrame({
   joinsNext,
   beforeFooter,
   replyActions,
+  status,
   lastFooter,
   continuationFooter,
   lastTurn,
@@ -1931,6 +1951,9 @@ const RowFrame = React.memo(function RowFrame({
   /// Whether the row (a reply) draws its own action row (model.ts `hasReplyActions`): its height
   /// depends on it, so the frame redraws and measures again when it changes.
   replyActions: boolean;
+  /// Next to a status row (model.ts `statusEdge`): the room between the row and the next one is the
+  /// status gap, so a status line between two replies sits in the middle of it.
+  status: StatusEdge | undefined;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
@@ -2017,11 +2040,13 @@ const RowFrame = React.memo(function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
         replyActions,
+        status,
       );
   }, [
     row.id,
     row.version,
     replyActions,
+    status,
     rowWidth,
     expanded,
     joinsPrevious,
@@ -2040,7 +2065,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -2871,7 +2896,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight, actions) => {
+    (id, version, drawnHeight, actions, status) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2880,6 +2905,7 @@ export function VirtualTranscript({
           width: rowWidthRef.current,
           height: drawnHeight,
           ...(actions ? { actions } : {}),
+          ...(status ? { status } : {}),
         });
     },
     [sessionId],
@@ -2939,6 +2965,7 @@ export function VirtualTranscript({
                     row.version,
                     drawnHeightOf(target),
                     hasReplyActions(row, nextDrawnRow(shown, index)),
+                    statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
                   );
               }
             };
@@ -3346,9 +3373,10 @@ export function VirtualTranscript({
               if (!known || known.sessionId !== sessionId || known.width !== rowWidth) return undefined;
               // A reply drawn before (or after) the row that gives it its own action row: its estimate
               // holds until it is drawn again (`hasReplyActions` reads only the next drawn row).
+              const next = nextDrawnRow(rows, index);
               if (
-                row.kind === "assistant" &&
-                Boolean(known.actions) !== hasReplyActions(row, nextDrawnRow(rows, index))
+                (row.kind === "assistant" && Boolean(known.actions) !== hasReplyActions(row, next)) ||
+                known.status !== statusEdge(row, next, prevDrawnRow(rows, index))
               )
                 return undefined;
               return known.height;
@@ -4982,6 +5010,7 @@ export function VirtualTranscript({
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
                       replyActions={actions}
+                      status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
@@ -9214,9 +9243,9 @@ function AcpmuxPane() {
         // A page that drew its New Tab frame before the handshake (useEarlyNewTabContext) keeps its
         // state: a page the user already left stays a chat.
         if (!reconnect && !earlyNewTab.current) setNewTab(newTabHost(host));
-        // The early context lacks the folder the handshake filled in (seed, start folder): add it.
-        else if (!reconnect && typeof host.cwd === "string" && host.cwd)
-          setNewTab((current) => (current && !current.cwd ? { ...current, cwd: host.cwd as string } : current));
+        // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
+        // cold page, the palette's actions whose places event came before its listener: add them.
+        else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -10347,7 +10376,7 @@ function AcpmuxPane() {
   // the composer is a failure.
   const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
-  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a

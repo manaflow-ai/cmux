@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 785,
-    "mcp": 701
+    "verbs": 788,
+    "mcp": 704
   },
   "nouns": [
     {
@@ -521,6 +521,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
@@ -5134,6 +5141,20 @@
           "id": "workspace.mergeInto",
           "mcp": true,
           "mcpTool": "app_workspace_merge_into"
+        },
+        {
+          "command": "cmux workspace move-above",
+          "title": "Move Workspace Above…",
+          "id": "workspace.moveAbove",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_above"
+        },
+        {
+          "command": "cmux workspace move-below",
+          "title": "Move Workspace Below…",
+          "id": "workspace.moveBelow",
+          "mcp": true,
+          "mcpTool": "app_workspace_move_below"
         },
         {
           "command": "cmux workspace move-down",
