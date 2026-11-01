@@ -230,56 +230,72 @@ impl Mux {
         crate::state::status_owners::resume(self);
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
-            let target = self.with_state(|state| {
-                let index = state
-                    .workspaces
-                    .iter()
-                    .position(|workspace| workspace.public_id.as_str() == workspace_id)?;
-                let workspace = &state.workspaces[index];
-                let terminals = state
-                    .panes
-                    .values()
-                    .filter(|pane| {
-                        state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index)
-                    })
-                    .flat_map(|pane| pane.tabs.iter())
-                    // From the topology, not the surfaces: a host still
-                    // adopting on its own thread has no surface yet.
-                    .filter_map(|tab| match state.resource_indexes.content_ids.get(tab) {
-                        Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                Some((workspace.id, terminals))
+            self.close_ephemeral_workspace(&workspace_id)?;
+        }
+        Ok(())
+    }
+
+    /// Close ephemeral workspace `workspace_id` (a public id) and end the
+    /// terminals that only it showed. Nothing when it is not live or not
+    /// ephemeral (a workspace this daemon does not hold is skipped).
+    pub(crate) fn close_ephemeral_workspace(
+        self: &Arc<Self>,
+        workspace_id: &str,
+    ) -> anyhow::Result<()> {
+        let ephemeral =
+            self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
+        if !ephemeral.iter().any(|id| id == workspace_id) {
+            return Ok(());
+        }
+        let target = self.with_state(|state| {
+            let index = state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.public_id.as_str() == workspace_id)?;
+            let workspace = &state.workspaces[index];
+            let terminals = state
+                .panes
+                .values()
+                .filter(|pane| {
+                    state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index)
+                })
+                .flat_map(|pane| pane.tabs.iter())
+                // From the topology, not the surfaces: a host still
+                // adopting on its own thread has no surface yet.
+                .filter_map(|tab| match state.resource_indexes.content_ids.get(tab) {
+                    Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            Some((workspace.id, terminals))
+        });
+        let Some((slot, terminals)) = target else { return Ok(()) };
+        if !self.close_workspace_as(&Actor::Daemon, slot) {
+            eprintln!("cmux-tui: could not close ephemeral workspace {workspace_id}");
+            return Ok(());
+        }
+        for terminal in terminals {
+            let orphan = self.with_state(|state| {
+                state
+                    .placements_of_content(&ContentPublicId::Terminal(terminal.clone()))
+                    .is_empty()
             });
-            let Some((slot, terminals)) = target else { continue };
-            if !self.close_workspace_as(&Actor::Daemon, slot) {
-                eprintln!("cmux-tui: could not close ephemeral workspace {workspace_id}");
+            if !orphan {
                 continue;
             }
-            for terminal in terminals {
-                let orphan = self.with_state(|state| {
-                    state
-                        .placements_of_content(&ContentPublicId::Terminal(terminal.clone()))
-                        .is_empty()
-                });
-                if !orphan {
-                    continue;
-                }
-                let host = self.workspace_registry.lock().unwrap().terminal_host_id(&terminal)?;
-                if let Some(host) = host
-                    && let Err(error) = self.close_terminal_with_mutation(
-                        &host,
-                        None,
-                        None,
-                        None,
-                        &WorkspaceMutation::daemon_local("cmux-tui-ephemeral"),
-                    )
-                {
-                    eprintln!(
-                        "cmux-tui: could not end terminal {terminal} of an ephemeral workspace: {error}"
-                    );
-                }
+            let host = self.workspace_registry.lock().unwrap().terminal_host_id(&terminal)?;
+            if let Some(host) = host
+                && let Err(error) = self.close_terminal_with_mutation(
+                    &host,
+                    None,
+                    None,
+                    None,
+                    &WorkspaceMutation::daemon_local("cmux-tui-ephemeral"),
+                )
+            {
+                eprintln!(
+                    "cmux-tui: could not end terminal {terminal} of an ephemeral workspace: {error}"
+                );
             }
         }
         Ok(())
