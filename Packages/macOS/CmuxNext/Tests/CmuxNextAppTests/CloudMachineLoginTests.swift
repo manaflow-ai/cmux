@@ -34,6 +34,8 @@ struct CloudMachineLoginTests {
         #expect(probe.contains(fingerprint))
         #expect(!probe.contains("sk-ant"))
         #expect(probe.contains("https://api.anthropic.com/"))
+        // A Python that fails after the image found a login keeps that login.
+        #expect(probe.contains("<<'CMUX_LOGIN_PROBE' || echo working\n"))
     }
 
     // MARK: The probe on a scratch machine

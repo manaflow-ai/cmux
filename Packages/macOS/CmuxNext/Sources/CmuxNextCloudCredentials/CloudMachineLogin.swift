@@ -56,10 +56,10 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// the launcher does; then the token Claude would use, read as the work user's (`cmux`): the
     /// `CLAUDE_CODE_OAUTH_TOKEN` of the environment or `~/.claude/settings.json`, else the access token
     /// of `~/.claude/.credentials.json`. The token goes only to the provider, in a header; the output is
-    /// the word, never a token or the provider's reply.
+    /// the word, never a token or the provider's reply. A Python that fails once a login is known keeps it.
     static func probe(cachedFingerprint: String?, endpoint: String = endpoint) -> String {
         ". /etc/cmux/agent-config.sh >/dev/null 2>&1; . /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude || { echo none; exit 0; }\n"
-            + "python3 - \(CloudCredentialInstaller.quote(cachedFingerprint ?? "")) \(CloudCredentialInstaller.quote(endpoint)) <<'CMUX_LOGIN_PROBE'\n"
+            + "python3 - \(CloudCredentialInstaller.quote(cachedFingerprint ?? "")) \(CloudCredentialInstaller.quote(endpoint)) <<'CMUX_LOGIN_PROBE' || echo working\n"
             + script + "\nCMUX_LOGIN_PROBE"
     }
 
