@@ -19,11 +19,13 @@ public struct CreationInputFocus {
     /// ``terminalTab`` is shown in its pane and its terminal view is the window's first responder: only then may a
     /// pending creation's early view take held keys (never another terminal, an agent's composer or a message box).
     public var terminalHasKeyboard: Bool
+    /// ``terminalTab`` is the tab its pane shows now (its view is mounted there).
+    public var terminalShown: Bool
 
     public init(shell: NSWindow?, inContent: Bool, expectedTab: String? = nil, expectedGeneration: UInt64? = nil,
-                terminalTab: String? = nil, takesKeys: Bool = true, terminalHasKeyboard: Bool = false) {
+                terminalTab: String? = nil, takesKeys: Bool = true, terminalHasKeyboard: Bool = false, terminalShown: Bool = false) {
         (self.shell, self.inContent, self.expectedTab, self.expectedGeneration) = (shell, inContent, expectedTab, expectedGeneration)
-        (self.terminalTab, self.takesKeys, self.terminalHasKeyboard) = (terminalTab, takesKeys, terminalHasKeyboard)
+        (self.terminalTab, self.takesKeys, self.terminalHasKeyboard, self.terminalShown) = (terminalTab, takesKeys, terminalHasKeyboard, terminalShown)
     }
 }
 

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
-import CmuxNextFocusUI
+@testable import CmuxNextFocusUI
 @testable import CmuxNextTerminal
 import Foundation
 import Testing

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextFocusUI
+@testable import CmuxNextFocusUI
 import Foundation
 import Testing
 
