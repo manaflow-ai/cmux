@@ -42,6 +42,7 @@ pub const DAEMON_ACTIVITY_CAPABILITY: &str = "vm-activity-v1";
 
 pub const STATUS_REPORT_OP: &str = "cloud.vm.status.report";
 pub const EVENT_EMIT_OP: &str = "cloud.vm.event.emit";
+pub const ATTENTION_EMIT_OP: &str = "cloud.vm.attention.emit";
 
 pub const VM_EVENT_KINDS: [&str; 9] = [
     "agent.started",
