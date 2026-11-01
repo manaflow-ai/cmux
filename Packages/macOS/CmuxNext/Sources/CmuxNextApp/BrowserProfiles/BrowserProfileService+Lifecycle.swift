@@ -58,10 +58,14 @@ extension BrowserProfileService {
         guard file != nil, !pending.isEmpty else { return }
         let cef = services.cache.cef, webKit = services.cache.webKit.profileStore
         let ready = pending.filter { id in
+            guard !cleanupInFlight.contains(id) else { return false }
             guard let profile = BrowserProfileRecord.engineProfile(for: id) else { return true }
             return !cef.hasOpened(profile) && !webKit.loadedProfiles.contains(profile)
         }
         guard !ready.isEmpty else { return }
+        // An in-flight deletion owns its id until both engines' data is gone;
+        // duplicate cleanup tasks must never race a later re-creation.
+        cleanupInFlight.formUnion(ready)
         let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
         let bundleID = services.environment.launch.bundleID
         // task-owner: one-shot removal of deleted profiles' files; reports back once
