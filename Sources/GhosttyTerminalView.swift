@@ -3827,6 +3827,17 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+#if DEBUG
+    private static let ptyInputTraceEnabled =
+        ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1"
+
+    @inline(__always)
+    private func logPTYInputTrace(_ message: @autoclosure () -> String) {
+        guard Self.ptyInputTraceEnabled else { return }
+        cmuxDebugLog(message())
+    }
+#endif
+
     /// The app-owned SSH clipboard policy used by this terminal's context menu.
     let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Returns whether a screen transition left the terminal runtime at a
@@ -7848,6 +7859,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Rendering is driven by Ghostty's wakeups/renderer.
     }
 
+    /// Dispatches one keyboard event to Ghostty and returns whether it was handled.
     @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
@@ -7896,9 +7908,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isLineErase = predictsInput
             && !isBoundForPrediction
             && Self.isLineErase(keyEvent)
+#if DEBUG
+        // Build trace context only when tracing is enabled so DEBUG typing
+        // latency is unchanged with the opt-in off.
+        var ptyTrace: (action: String, pointer: String, generation: UInt64, startedAt: TimeInterval)?
+        if Self.ptyInputTraceEnabled {
+            let actionLabel: String
+            if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                actionLabel = "release"
+            } else if keyEvent.action == GHOSTTY_ACTION_REPEAT {
+                actionLabel = "repeat"
+            } else {
+                actionLabel = "press"
+            }
+            let trace = (
+                action: actionLabel,
+                pointer: String(describing: surface),
+                generation: terminalSurface?.runtimeSurfaceGeneration ?? 0,
+                startedAt: ProcessInfo.processInfo.systemUptime
+            )
+            ptyTrace = trace
+            logPTYInputTrace(
+                "surface.input.dispatch surface=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil") " +
+                "channel=keyboard action=\(trace.action) pointer=\(trace.pointer) generation=\(trace.generation) " +
+                "keycode=\(keyEvent.keycode) mods=\(keyEvent.mods.rawValue)"
+            )
+        }
+#endif
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
+#if DEBUG
+        if let trace = ptyTrace {
+            logPTYInputTrace(
+                "surface.input.native_return surface=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil") " +
+                "channel=keyboard action=\(trace.action) pointer=\(trace.pointer) generation=\(trace.generation) " +
+                "handled=\(handled ? 1 : 0) " +
+                "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - trace.startedAt) * 1_000_000))"
+            )
+        }
+#endif
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
             recordPredictedEchoInput(
