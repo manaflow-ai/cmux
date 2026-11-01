@@ -171,7 +171,8 @@ struct AnimationPixelRun {
         for frame in frames {
             var shown: [String: [Int]] = [:]
             for run in palette.runs(frame.line) {
-                guard let label = run.label, ScanlineSpan.color(of: label) == label, label != "background" else { continue }
+                // Panes only: separators (divider and row-edge lines) are no host and are judged by the scanline.
+                guard let label = run.label, label != "background", label != "divider", label != "rowedge" else { continue }
                 shown[label] = [run.start, run.end]
             }
             let fits: (Int) -> Bool = { index in
