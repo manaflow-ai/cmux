@@ -639,6 +639,11 @@ export function ComposerQueue({
       // theirs, and nothing is taken out of the queue.
       const now = drawnRows.current.find((row) => row.id === entry.id);
       if (!now || theirs(now)) return;
+      // Taking the row back hands the composer the text the row shows. A Save of this row still
+      // pending is superseded (its failure or answer is stale, and any text it left waiting is
+      // dropped), or its recovery would restore a second draft beside this one.
+      saveGeneration.current.set(entry.id, (saveGeneration.current.get(entry.id) ?? 0) + 1);
+      recovered.current.delete(entry.id);
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.

@@ -1039,6 +1039,58 @@ test("a failed save behind a pending delete hands its text to the composer once 
   expect(run.editor("p-1")).toBeNull();
 });
 
+// A Save is pending when the row is taken back with cancel and edit: the composer gets the text the row
+// shows, once. The Save's later failure is superseded: it must not restore its own draft beside it.
+async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>) {
+  const saves: { reject(error: Error): void }[] = [];
+  const taken: [string, string][] = [];
+  const lost: [string, string][] = [];
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={() => new Promise<boolean>((_, reject) => saves.push({ reject }))}
+        onRemove={async () => true}
+        onCancelEdit={async (id, text) => {
+          taken.push([id, text]);
+          return true;
+        }}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
+  await act(async () => cancel!.click());
+  await settle();
+  await act(async () => saves[0]!.reject(Object.assign(new Error("failed"), failWith)));
+  await settle();
+  await act(async () => draw([queue[1]!]));
+  await settle();
+  await settle();
+  return { taken, lost };
+}
+
+test("a save that fails after the row was taken back with cancel and edit restores no second draft", async () => {
+  const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" });
+  expect(run.taken).toEqual([["p-1", "first"]]);
+  expect(run.lost).toEqual([]);
+});
+
 for (const [name, error] of [
   ["timed out", { code: "native.timed_out" }],
   ["closed", { code: "transport.closed" }],
