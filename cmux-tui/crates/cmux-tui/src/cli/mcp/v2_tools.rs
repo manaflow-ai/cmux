@@ -343,7 +343,7 @@ fn build() -> Vec<V2Tool> {
         let Ok(descriptor) = parse(raw) else {
             continue;
         };
-        let class = descriptor["class"].as_str().unwrap_or_default();
+        let class = descriptor.get("class").and_then(Value::as_str).unwrap_or_default();
         if !matches!(class, "read" | "mutation") {
             continue;
         }
@@ -390,7 +390,7 @@ pub(super) fn exclusions() -> Vec<Exclusion> {
             });
             continue;
         };
-        let reason = match descriptor["class"].as_str().unwrap_or_default() {
+        let reason = match descriptor.get("class").and_then(Value::as_str).unwrap_or_default() {
             "stream_open" => Some(STREAM_REASON),
             "connection_control" => Some(CONNECTION_REASON),
             _ if serde_json::from_value::<ResourceOperation>(Value::String(wire.into()))
@@ -434,7 +434,7 @@ impl V2Tool {
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
                 // The catalog marks operations that change state elsewhere.
-                "openWorldHint": descriptor["risk"] == "send-external",
+                "openWorldHint": descriptor.get("risk").and_then(Value::as_str) == Some("send-external"),
             },
         })
     }
@@ -560,8 +560,8 @@ impl V2Tool {
             text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
         }
         let descriptor = self.descriptor();
-        let selectors = descriptor["params"]["selectors"].as_object();
-        let fields = descriptor["params"]["fields"].as_object();
+        let selectors = descriptor.pointer("/params/selectors").and_then(Value::as_object);
+        let fields = descriptor.pointer("/params/fields").and_then(Value::as_object);
         let mut params = Map::new();
         for scope in ["machine", "session"] {
             if selectors.is_some_and(|selectors| selectors.contains_key(scope)) {
