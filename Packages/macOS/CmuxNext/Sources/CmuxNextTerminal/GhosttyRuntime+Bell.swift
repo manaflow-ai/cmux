@@ -3,10 +3,11 @@ import GhosttyNextKit
 
 /// The bell keys of a Ghostty config (`bell-features`, `bell-audio-path`,
 /// `bell-audio-volume`) and what a BEL does under them, as in Ghostty.app's
-/// `ghosttyBellDidRing`: `system` beeps, `audio` plays the file at its
-/// volume, `attention` asks for the user's attention while the app is not
-/// active. `title` and `border` are drawn by the tab chrome
-/// (`TerminalSurfaceModel.bellCount`).
+/// `ghosttyBellDidRing`: `system` beeps and `audio` plays the file at its
+/// volume. The `attention` bit is retained for config compatibility, but it
+/// never asks AppKit for process-level attention: on macOS 26 that can promote
+/// cmux's whole Stage Manager window set. `title` and `border` are drawn by the
+/// tab chrome (`TerminalSurfaceModel.bellCount`).
 public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
     public struct Features: OptionSet, Sendable, Equatable {
         public let rawValue: UInt32
@@ -23,7 +24,6 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
     public enum Effect: Equatable, Sendable {
         case systemBeep
         case playSound(path: String, volume: Double)
-        case requestAttention
     }
 
     public var features: Features
@@ -69,7 +69,6 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
         var effects: [Effect] = []
         if features.contains(.system) { effects.append(.systemBeep) }
         if features.contains(.audio), let audioPath { effects.append(.playSound(path: audioPath, volume: volume)) }
-        if features.contains(.attention), !appIsActive { effects.append(.requestAttention) }
         return effects
     }
 
@@ -83,8 +82,6 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
                 guard let sound = NSSound(contentsOfFile: path, byReference: false) else { continue }
                 sound.volume = Float(volume)
                 sound.play()
-            case .requestAttention:
-                NSApp?.requestUserAttention(.informationalRequest)
             }
         }
     }
