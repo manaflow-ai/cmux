@@ -28,7 +28,8 @@ struct AccountsLocalLoginIntegrationTests {
         for task in work { #expect(await task.value == nil) }
     }
 
-    @Test(arguments: [false, true], [false, true])
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
+          arguments: [false, true], [false, true])
     func aProviderLoginCreatesALocalWorkspaceWhenNoWindowCanTakeIt(page: Bool, terminalFirst: Bool) async throws {
         try await PinnedPageTests.withApp { services, _ in
             let root = FileManager.default.temporaryDirectory.appending(path: "accounts-settings-\(UUID().uuidString)")
@@ -63,7 +64,8 @@ struct AccountsLocalLoginIntegrationTests {
         }
     }
 
-    @Test func anExistingPaneWaitsForTheTerminalAndSendsTheCommand() async throws {
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func anExistingPaneWaitsForTheTerminalAndSendsTheCommand() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let pane = try #require(services.windows.active?.focusedPane)
             let before = Set(pane.pane.tabs.map(\.id))
@@ -76,7 +78,8 @@ struct AccountsLocalLoginIntegrationTests {
         }
     }
 
-    @Test func anExistingPaneReportsTheDaemonsCreationFailure() async throws {
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func anExistingPaneReportsTheDaemonsCreationFailure() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let pane = try #require(services.windows.active?.focusedPane)
             let handle = pane.pane.handle
@@ -87,7 +90,8 @@ struct AccountsLocalLoginIntegrationTests {
         }
     }
 
-    @Test func anExistingDisconnectedPaneDoesNotClaimTheLoginOpened() async throws {
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func anExistingDisconnectedPaneDoesNotClaimTheLoginOpened() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let pane = try #require(services.windows.active?.focusedPane)
             services.daemon.shutdownConnection()
