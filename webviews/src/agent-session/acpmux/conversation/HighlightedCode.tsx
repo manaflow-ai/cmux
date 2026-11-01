@@ -41,6 +41,13 @@ pre[data-file] { display: flow-root; }
 [data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
 `;
 
+/// An unlabeled card's first line keeps room after its end for the actions floating over its corner
+/// (conversation.css `--cv-code-corner-reserve`, which the shadow root inherits), so it never runs
+/// under them once scrolled to its end, and wraps short of them (cmux#30689).
+const cornerUnsafeCSS = `${codeUnsafeCSS}
+[data-line="1"] { padding-inline-end: var(--cv-code-corner-reserve, 0px); }
+`;
+
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
 
@@ -76,7 +83,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
         disableFileHeader: true,
         disableLineNumbers: true,
         overflow: "scroll",
-        unsafeCSS: codeUnsafeCSS,
+        unsafeCSS: look === "corner" ? cornerUnsafeCSS : codeUnsafeCSS,
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
       pool,
@@ -92,7 +99,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
       file.cleanUp();
       el.shadowRoot?.replaceChildren();
     };
-  }, [lang, pool, workerAvailable]);
+  }, [lang, look, pool, workerAvailable]);
   useLayoutEffect(() => {
     const el = host.current;
     const file = view.current;
@@ -103,7 +110,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
       fileContainer: el,
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, pool, wrap, name, workerAvailable]);
+  }, [code, lang, look, pool, wrap, name, workerAvailable]);
   if (!workerAvailable) return <PlainCode code={code} lang={lang} actions={actions} />;
   return (
     <div className={`cv-codeblock${codeHeaderClass(look)}`} ref={menuPartRef({ code })}>

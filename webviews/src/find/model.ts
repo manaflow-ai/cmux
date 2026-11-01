@@ -32,6 +32,15 @@ type FindFileDiff = {
   deletionLines?: string[];
 };
 
+/**
+ * Lowercase for matching, keeping every character's offset. `İ` (U+0130) lowercases to two
+ * characters (`i` and a combining dot), which would shift each match offset after it by one and
+ * make a plain `i` query miss it; it folds to `i` first.
+ */
+export function foldFindText(text: string): string {
+  return text.replace(/\u0130/g, "i").toLowerCase();
+}
+
 /** Bounds work on pathological queries ("e" in a 100k-line diff). */
 export const FIND_MATCH_CAP = 9999;
 
@@ -49,7 +58,7 @@ function pushLineMatches(
   lineNumber: number,
   lineText: string,
 ): void {
-  const haystack = lineText.toLowerCase();
+  const haystack = foldFindText(lineText);
   let from = 0;
   let occurrence = 0;
   for (;;) {
@@ -74,7 +83,7 @@ function pushLineMatches(
  * additions, matching the unified rendering order.
  */
 export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMatch[] {
-  const query = rawQuery.toLowerCase();
+  const query = foldFindText(rawQuery);
   const matches: FindMatch[] = [];
   if (query === "") {
     return matches;
