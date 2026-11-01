@@ -1192,6 +1192,9 @@
   position: relative;
   margin: 0 0 19px;
   box-sizing: border-box;
+  /* Never wider than its column, so a long line scrolls inside the card rather than past its edge. */
+  min-width: 0;
+  max-width: 100%;
   border-radius: 16px;
   overflow: hidden;
   background: var(--cv-codeblock-bg);
@@ -1247,6 +1250,49 @@
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
+}
+/* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
+   top-right corner over the card's own tint and show while the pointer is on the card or focus is
+   inside it (Leo 2026-11-01, on a tree diagram under "</> Plain text": "could we render this type of
+   thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
+.cv-codeblock--corner .cv-codeblock__header {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: var(--layer-raised);
+  min-height: 0;
+  padding: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--cv-fg) 7.5%, var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base))));
+  opacity: 0;
+  transition: opacity var(--agent-motion-hover, 120ms) ease-out;
+}
+.cv-codeblock--corner:hover .cv-codeblock__header,
+.cv-codeblock--corner:focus-within .cv-codeblock__header,
+.cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
+  opacity: 1;
+}
+.cv-codeblock--corner .cv-codeblock__body {
+  margin-top: 13px;
+}
+/* Gallery version B (CodeHeader.tsx `muted`): a short quiet row that names the block. */
+.cv-codeblock--muted .cv-codeblock__header {
+  min-height: calc(var(--cv-font-size) * 34 / 14);
+  color: var(--cv-text-muted);
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
+/* A tree drawn in box-drawing characters (codeShape.ts isDiagram): lines at 1.15 of the font, so
+   each │ meets the one under it (SF Mono's │ inks 1.37em, Menlo's 1.27em), and every line exactly
+   that tall, so a fallback glyph (↓) cannot open a gap under its own line. Never wrapped: a long
+   line scrolls inside the card. */
+.cv-codeblock--diagram .cv-code-plain {
+  font-family: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  line-height: 1.15;
+  white-space: pre;
+  overflow-x: auto;
+}
+.cv-codeblock--diagram .cv-code-plain__line {
+  height: 1lh;
 }
 /* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
 .cv-edit-diff {
