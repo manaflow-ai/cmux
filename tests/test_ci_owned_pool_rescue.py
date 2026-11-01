@@ -2293,6 +2293,15 @@ class SideLanes(unittest.TestCase):
         clock = Clock()
         self.assertEqual(rescue.pull_moved(FakeAPI(clock, lambda s: []), target, clock.sleep, lambda text: None), "")
 
+    def test_shared_cmux_next_dev_title_is_protected_delivery_work(self):
+        run = side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, event="push", pull_requests=[],
+                         name="cmux NEXT DEV daily · " + HEAD,
+                         display_title="cmux NEXT DEV daily · " + HEAD)
+        target = rescue.target_from_event(run, "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertTrue(rescue.is_delivery_target(target))
+        self.assertTrue(rescue.never_fails_over(target.path, target.event, target.name, target.display_title))
+
     def test_a_run_with_no_owned_job_stops_when_it_finishes(self):
         clock = Clock()
         api = FakeAPI(clock, lambda s: [job("system-keychain", labels=[BLACKSMITH], status="completed")])

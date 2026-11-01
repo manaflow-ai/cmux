@@ -421,7 +421,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
     MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, nightly_dedicated, parse_queue_rounds, persistent)
-from delivery_workflows import is_delivery_event, is_delivery_run  # noqa: E402
+from delivery_workflows import delivers, is_delivery_event, is_delivery_run  # noqa: E402
 import owned_pool_sources  # noqa: E402
 import pr_runner_pool  # noqa: E402
 import simple_pool_picker  # noqa: E402
@@ -2035,7 +2035,8 @@ class GitHub:
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
                 path = str(run.get("path") or "")
                 if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS and path != CMUX_NEXT_WORKFLOW_PATH \
-                        and not never_fails_over(path, run.get("event")) and not created_before(run, oldest):
+                        and not never_fails_over(path, run.get("event"), run.get("name"), run.get("display_title")) \
+                        and not created_before(run, oldest):
                     found.append(entry)
             # As in failed_runs(): only an empty page ends the listing before `pages`.
             if not runs:
@@ -2410,6 +2411,9 @@ class Target:
     # The run's event (pull_request, push, schedule, ...); "" when unread, which never_fails_over() treats as a
     # delivery event.
     event: str = ""
+    # Shared workflows carry delivery runs in their API name/display title.
+    name: str = ""
+    display_title: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -2470,21 +2474,25 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
-                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
-                      attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
         push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
                   e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started,
-                  event=str(run.get("event") or ""))
+                  event=str(run.get("event") or ""), name=str(run.get("name") or ""),
+                  display_title=str(run.get("display_title") or ""))
 
 
 def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
@@ -2519,7 +2527,8 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""))
+                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""),
+                  name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
 
 
 def marker_name(target: Target) -> str:
@@ -3627,14 +3636,14 @@ def is_delivery_target(target: Target) -> bool:
         return True
     if target.path in (NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH):
         return not target.event or target.event not in {"pull_request", "pull_request_target", "merge_group"}
-    return target.e2e and target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
+    return delivers(target.path, target.event, target.name, target.display_title)
 
 
-def never_fails_over(path: str, event: str | None) -> bool:
+def never_fails_over(path: str, event: str | None, *names: str | None) -> bool:
     """A delivery run: a nightly, DEV, promote, release, sign or rollback workflow's (NEVER_FAILOVER_PATHS, or
     delivery_workflows.is_delivery_run()) from an event that can deliver (delivery_workflows.is_delivery_event(): any
     event but a pull request's; an unread one counts)."""
-    return is_delivery_event(event) and (path in NEVER_FAILOVER_PATHS or is_delivery_run(path))
+    return is_delivery_event(event) and (path in NEVER_FAILOVER_PATHS or is_delivery_run(path, *names))
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -3882,7 +3891,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     """
     if not target.pr_number or target.nightly or target.main or target.push_branch \
             or (target.e2e and target.path != IOS_KIT_WORKFLOW_PATH) \
-            or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path, target.event):
+            or target.path in FEED_TIMEOUT_PATHS \
+            or never_fails_over(target.path, target.event, target.name, target.display_title):
         return NO_FAILOVER
     reader = getattr(api, "pool_snapshot", None)
     if reader is None:
@@ -4104,8 +4114,8 @@ def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], 
     path, so its trusted push/dispatch runs are included explicitly.  Pull
     request test runs remain ordinary CI and keep their existing rescue path.
     """
-    delivery = target.nightly or never_fails_over(target.path, target.event) or (
-        target.e2e and target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS)
+    delivery = target.nightly or never_fails_over(target.path, target.event, target.name, target.display_title) or (
+        delivers(target.path, target.event, target.name, target.display_title))
     if not delivery:
         return ""
     jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
