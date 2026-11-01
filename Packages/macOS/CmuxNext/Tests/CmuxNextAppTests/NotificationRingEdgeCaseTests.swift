@@ -49,7 +49,7 @@ struct NotificationRingEdgeCaseTests {
     private static func machines(_ name: String, remoteCapabilities: String = Self.capabilities,
                                  appActive: Bool = false) throws -> Machines {
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { appActive })
+        let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { appActive }, heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
         let host = try SSHHost(destination: SSHDestination(parsing: "lawrence@cmux-lawrence.tail1.ts.net")).named("cmux-lawrence")
         let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
                                     paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-ring-edge-\(name)-unused")),
