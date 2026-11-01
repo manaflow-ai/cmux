@@ -1041,8 +1041,14 @@ test("a failed save behind a pending delete hands its text to the composer once 
 
 // A Save is pending when the row is taken back with cancel and edit: the composer gets the text the row
 // shows, once. The Save's later failure is superseded: it must not restore its own draft beside it.
-async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>) {
+// With `slowImages` the row has an image whose bytes are still being read when the Save fails.
+async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>, slowImages = false) {
   const saves: { reject(error: Error): void }[] = [];
+  const reads: ((url: string | undefined) => void)[] = [];
+  const first = {
+    ...queue[0]!,
+    ...(slowImages ? { images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] } : {}),
+  };
   const taken: [string, string][] = [];
   const lost: [string, string][] = [];
   const container = installDom();
@@ -1052,6 +1058,7 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>)
         queue={rows}
         chat="c"
         t={t}
+        readImage={slowImages ? () => new Promise<string | undefined>((resolve) => reads.push(resolve)) : undefined}
         onChange={() => new Promise<boolean>((_, reject) => saves.push({ reject }))}
         onRemove={async () => true}
         onCancelEdit={async (id, text) => {
@@ -1063,7 +1070,7 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>)
     );
   await act(async () => {
     root = createRoot(container);
-    draw(queue);
+    draw([first, queue[1]!]);
   });
   await startEdit(container, "p-1");
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
@@ -1079,6 +1086,10 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>)
   await settle();
   await act(async () => saves[0]!.reject(Object.assign(new Error("failed"), failWith)));
   await settle();
+  if (slowImages) {
+    await act(async () => reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+    await settle();
+  }
   await act(async () => draw([queue[1]!]));
   await settle();
   await settle();
@@ -1087,6 +1098,12 @@ async function cancelAndEditBehindPendingSave(failWith: Record<string, unknown>)
 
 test("a save that fails after the row was taken back with cancel and edit restores no second draft", async () => {
   const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" });
+  expect(run.taken).toEqual([["p-1", "first"]]);
+  expect(run.lost).toEqual([]);
+});
+
+test("a save that fails while the row's images are still being read restores no second draft", async () => {
+  const run = await cancelAndEditBehindPendingSave({ code: "native.not_connected" }, true);
   expect(run.taken).toEqual([["p-1", "first"]]);
   expect(run.lost).toEqual([]);
 });

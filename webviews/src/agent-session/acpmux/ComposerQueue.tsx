@@ -644,6 +644,9 @@ export function ComposerQueue({
       // dropped), or its recovery would restore a second draft beside this one.
       saveGeneration.current.set(entry.id, (saveGeneration.current.get(entry.id) ?? 0) + 1);
       recovered.current.delete(entry.id);
+      // A Save that failed while the images were read may already have reopened its editor: that
+      // draft is superseded too, or the row's removal would hand it to the composer as well.
+      if (draft.current?.id === entry.id) draft.current = undefined;
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
