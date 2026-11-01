@@ -278,7 +278,7 @@ impl Hub {
             if self.shutting_down() {
                 return Err(super::shutdown::shutting_down_error());
             }
-            if sessions.contains_key(&id) {
+            if sessions.contains_key(&id) || self.importing.lock().unwrap().contains(&id) {
                 return Err(RpcError::invalid_params(format!(
                     "session id {id:?} is already in use"
                 )));
@@ -1856,6 +1856,18 @@ mod fixed_id_tests {
             std::fs::read_to_string(path.join("session.json")).unwrap(),
             "unreadable metadata"
         );
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn fixed_id_cannot_take_an_import_reservation() {
+        let hub = test_hub(None);
+        let id = uuid::Uuid::now_v7().to_string();
+        hub.importing.lock().unwrap().insert(id.clone());
+        assert!(hub.new_session_with_id(request(), Some(id.clone())).await.is_err());
+        assert!(hub.sessions.lock().unwrap().is_empty());
+        assert!(hub.store.load(&id).unwrap().is_none());
+        hub.importing.lock().unwrap().remove(&id);
         hub.shutdown_all().await;
     }
 
