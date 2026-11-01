@@ -124,7 +124,7 @@ fn native_owner_start_preserves_folder_trust() {
     let start = json!({"cmd":"agent-session-start", "surface":surface,
         "cwd":entry._directory.path().to_string_lossy(), "harness":"claude"});
     assert_eq!(
-        call(&mut stream, &mut reader, start.clone())["error_code"],
+        call(&mut stream, &mut reader, start)["error_code"],
         json!("agent_session.untrusted_folder")
     );
     let methods: Vec<_> = (0..3).map(|_| fake.frame()["method"].clone()).collect();
@@ -181,7 +181,7 @@ fn native_owner_transfer_uses_existing_guard() {
     let home = entry._directory.path().to_path_buf();
     let cwd = home.join("work/project");
     std::fs::create_dir_all(&cwd).unwrap();
-    entry.mux.set_agent_transfer_host(Some(crate::server::agent_transfer::AgentTransferHost {
+    entry.mux.set_agent_transfer_host(Some(agent_transfer::AgentTransferHost {
         cloud: true,
         home,
     }));
