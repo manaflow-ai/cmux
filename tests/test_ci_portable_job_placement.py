@@ -262,15 +262,10 @@ class Wiring(unittest.TestCase):
                 route = job["runs-on"]
                 self.assertIn("decide", job["needs"])
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
-                linux = route.index("needs.decide.outputs.early_linux_runner")
-                overflow = route.index("'blacksmith-")
-                self.assertLess(linux, overflow)
-                if name == "signer-build":
-                    self.assertNotIn("early_mini_runner", route)
-                else:
-                    mini = route.index("needs.decide.outputs.early_mini_runner")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, overflow)
+                selected = f"needs.decide.outputs.early_{name.replace('-', '_')}_runner"
+                self.assertIn(selected, route)
+                self.assertLess(route.index(selected), route.index("'cmux-fleet-linux-x64'"))
+                self.assertNotIn("'blacksmith-", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
 

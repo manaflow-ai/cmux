@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 import re
+import signal
 import sys
 import time
 import urllib.request
@@ -22,11 +24,11 @@ import portable_job_placement as portable
 
 FLEET_LINUX = "cmux-fleet-linux-x64"
 OVERFLOW = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
-JOBS = frozenset({"resolve-nightly-cmux-tui-client", "pick-nightly-build-runner",
+JOBS = frozenset({"resolve-nightly-cmux-tui-client",
                   "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs",
                   "find-nightly-next-recovery", "signer-build"})
 WAIT_SECONDS = 180
-CLIENT_DEADLINE = 240
+CLIENT_DEADLINE = 200
 
 
 def identity(env: Mapping[str, str]) -> dict[str, Any]:
@@ -72,12 +74,14 @@ def validate(receipt: Mapping[str, Any], request: Mapping[str, Any]) -> str:
     decided = timestamp(receipt.get("decided_at"))
     if status == "fleet":
         expected = {job: f"cmux-nightly-{lease}-{job}" for job in request["jobs"]}
-        if receipt.get("runners") != expected or not created <= decided < expires:
+        if (receipt.get("runners") != expected or not created <= decided < expires
+                or dt.datetime.now(dt.timezone.utc) >= expires):
             raise ValueError("fleet receipt does not reserve matching runners before expiry")
     elif status == "overflow":
         elapsed = receipt.get("no_start_seconds")
         if (not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool)
-                or elapsed < WAIT_SECONDS or decided < expires or receipt.get("runners") != {}):
+                or not math.isfinite(elapsed) or elapsed < WAIT_SECONDS
+                or decided < expires or receipt.get("runners") != {}):
             raise ValueError("overflow requires a recorded 180-second fleet no-start")
     else:
         raise ValueError("unknown admission status")
@@ -141,13 +145,29 @@ def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for job, label in selected.items():
                 output.write(f"{job.replace('-', '_')}_runner={label}\n")
-    record = {"receipt": receipt, "runners": selected, "error": error}
+    record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error}
     if env.get("ADMISSION_RECEIPT_PATH"):
         Path(env["ADMISSION_RECEIPT_PATH"]).write_text(json.dumps(record, sort_keys=True) + "\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write("### Early nightly fleet admission\n\n```json\n" + json.dumps(record, indent=2) + "\n```\n")
     print(json.dumps(record, sort_keys=True))
+
+
+def read_minis(env: Mapping[str, str]):
+    """Capacity reads cannot extend the placement step beyond its five-minute budget."""
+    previous = signal.getsignal(signal.SIGALRM)
+
+    def timeout(_signum, _frame):
+        raise portable.Deadline("owned-mini capacity read deadline")
+
+    try:
+        signal.signal(signal.SIGALRM, timeout)
+        signal.setitimer(signal.ITIMER_REAL, 30)
+        return portable.read(env, dt.datetime.now(dt.timezone.utc))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def main(env: Mapping[str, str] = os.environ) -> int:
@@ -158,7 +178,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     try:
         receipt = admit(env, request)
         if receipt["status"] == "overflow":
-            runners, snapshot = portable.read(env, dt.datetime.now(dt.timezone.utc))
+            runners, snapshot = read_minis(env)
         selected = routes(env, request, receipt, runners, snapshot)
     except (Exception, portable.Deadline) as failure:
         # Unavailable telemetry is never permission to start paid work.

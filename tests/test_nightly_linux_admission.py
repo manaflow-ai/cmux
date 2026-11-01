@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sys
+import subprocess
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,7 +27,7 @@ ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
 ENV["JOBS"] = " ".join(sorted(admission.JOBS))
 REQUEST = admission.identity(ENV)
 LEASE = "b" * 24
-CREATED = dt.datetime(2026, 11, 1, tzinfo=dt.timezone.utc)
+CREATED = dt.datetime.now(dt.timezone.utc)
 
 
 def receipt(status="pending"):
@@ -61,7 +63,7 @@ class Receipts(unittest.TestCase):
         mutations = [
             {"run_id": 124}, {"run_attempt": 2}, {"source_sha": "c" * 40},
             {"repository": "another/repo"}, {"jobs": ["signer-build"]},
-            {"lease_id": "../bad"}, {"no_start_seconds": True},
+            {"lease_id": "../bad"}, {"no_start_seconds": True}, {"no_start_seconds": float("nan")},
             {"created_at": "2026-11-01T00:00:00"},
             {"expires_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
             {"decided_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
@@ -77,6 +79,13 @@ class Receipts(unittest.TestCase):
                          {"runners": {job: admission.FLEET_LINUX for job in REQUEST["jobs"]}}):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 admission.validate({**receipt("fleet"), **mutation}, REQUEST)
+
+    def test_delayed_fleet_response_cannot_select_an_expired_reservation(self):
+        value = receipt("fleet")
+        for field in ("created_at", "expires_at", "decided_at"):
+            value[field] = (admission.timestamp(value[field]) - dt.timedelta(minutes=5)).isoformat()
+        with self.assertRaises(ValueError):
+            admission.validate(value, REQUEST)
 
     def test_missing_admission_keeps_controls_on_existing_owned_routes(self):
         selected = admission.routes(ENV, REQUEST, None)
@@ -116,6 +125,15 @@ class Receipts(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 admission.admit({**ENV, "CMUX_CI_CONTROLLER": "http://controller"}, REQUEST)
 
+    def test_capacity_deadline_is_cleared_and_handler_restored(self):
+        previous = admission.signal.getsignal(admission.signal.SIGALRM)
+        with mock.patch.object(admission.portable, "read", side_effect=admission.portable.Deadline), \
+             mock.patch.object(admission.signal, "setitimer") as timer:
+            with self.assertRaises(admission.portable.Deadline):
+                admission.read_minis(ENV)
+        self.assertEqual(timer.call_args.args, (admission.signal.ITIMER_REAL, 0))
+        self.assertEqual(admission.signal.getsignal(admission.signal.SIGALRM), previous)
+
     def test_unavailable_controller_writes_fleet_outputs_and_no_overflow_receipt(self):
         with tempfile.TemporaryDirectory() as scratch:
             output, record = Path(scratch) / "output", Path(scratch) / "receipt.json"
@@ -132,6 +150,16 @@ class Workflow(unittest.TestCase):
     def setUpClass(cls):
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
 
+    def test_admitted_jobs_have_no_credentials_or_environment(self):
+        for name in admission.JOBS:
+            with self.subTest(job=name):
+                self.assertNotIn("environment", self.jobs[name])
+                self.assertNotIn("secrets.", yaml.safe_dump(self.jobs[name]))
+        legacy = next(step for step in self.jobs["decide"]["steps"]
+                      if step.get("id") == "place-early-mac")
+        self.assertEqual(legacy["env"]["JOBS"], "pick-nightly-build-runner")
+        self.assertEqual(legacy["env"]["FLEET_LINUX"], "")
+
     def test_missing_stale_or_quota_failed_picker_cannot_select_blacksmith_first(self):
         for name in admission.JOBS:
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
@@ -143,6 +171,22 @@ class Workflow(unittest.TestCase):
                                "vars.LINUX_RUNNER": overflow}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
                         self.assertEqual(evaluate(parse_expression(source), context), admission.FLEET_LINUX)
+
+    def test_signer_rejects_a_cached_macho_or_wrong_architecture(self):
+        script = next(s["run"] for s in self.jobs["signer-build"]["steps"]
+                      if s.get("name") == "Verify the signer is a Linux x64 executable")
+        elf = bytearray(20)
+        elf[:6] = b"\x7fELF\x02\x01"
+        elf[18:20] = b"\x3e\x00"
+        for header, good in ((bytes(elf), True), (b"\xcf\xfa\xed\xfe" + bytes(16), False),
+                             (bytes(elf[:18]) + b"\xb7\x00", False), (b"", False)):
+            with self.subTest(header=header), tempfile.TemporaryDirectory() as scratch:
+                target = Path(scratch) / "signer"
+                target.mkdir()
+                (target / "rcodesign").write_bytes(header)
+                result = subprocess.run(["bash", "-c", script], env={**os.environ, "RUNNER_TEMP": scratch},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, good, result.stderr)
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:

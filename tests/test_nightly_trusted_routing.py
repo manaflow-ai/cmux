@@ -258,7 +258,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build 7 s, the pick 11 s). Leo, 2026-11-01: "surely we measured the signign we dont need 32/16
         # just for signing", "surely github has linux hosted we can just use". Attempt 1 takes GitHub-hosted
         # Ubuntu, a re-run Blacksmith Linux 4 vCPU, whatever LINUX_RUNNER or the overflow switch holds.
-        for name in SIGNER_ROUTE_JOBS:
+        for name in set(SIGNER_ROUTE_JOBS) - {"signer-build"}:
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                            'blacksmith-32vcpu-ubuntu-2404'):
@@ -273,11 +273,11 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
         source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
         placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-                  'needs.decide.outputs.early_attempt': '1', 'needs.decide.outputs.early_linux_jobs': ' signer-build ',
-                  'needs.decide.outputs.early_linux_runner': 'cmux-fleet-linux-x64'}
+                  'needs.decide.outputs.early_attempt': '1',
+                  'needs.decide.outputs.early_signer_build_runner': 'cmux-fleet-linux-x64'}
         self.assertEqual(evaluate(parse_expression(source), placed), 'cmux-fleet-linux-x64')
         self.assertEqual(evaluate(parse_expression(source), {**placed, 'github.run_attempt': 2}),
-                         'blacksmith-4vcpu-ubuntu-2404')
+                         'cmux-fleet-linux-x64')
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
@@ -297,7 +297,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
-                        self.assertIn(evaluate(parse_expression(source), context), members)
+                        self.assertIn(evaluate(parse_expression(source), context),
+                                      {"cmux-fleet-linux-x64"} if "cmux-fleet-linux-x64" in source else members)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):

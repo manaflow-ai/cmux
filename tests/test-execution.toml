@@ -1424,6 +1424,10 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
