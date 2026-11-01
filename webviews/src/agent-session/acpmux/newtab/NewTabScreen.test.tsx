@@ -359,7 +359,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
-  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on?");
+  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at This Mac?");
 
   await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
   await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
