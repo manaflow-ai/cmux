@@ -456,3 +456,21 @@ pub(super) fn agent_framed(
         class = sender.class,
     )
 }
+
+#[cfg(test)]
+mod framing_tests {
+    use cmux_conversation::agent_sender::AgentSender;
+
+    #[test]
+    fn a_message_from_another_local_chief_names_that_chief_and_is_not_the_users() {
+        let sender = AgentSender::new("chief:codex-chief", None, None).unwrap();
+        let framed = super::agent_framed(Some(&sender), "[from chief:codex-chief] is main green?");
+        assert!(framed.starts_with("[from chief:codex-chief] is main green?\n"), "{framed}");
+        assert!(framed.contains("another Chief on this Mac"), "{framed}");
+        assert!(framed.contains("not the user's word"), "{framed}");
+        assert!(framed.contains("Your reply goes back to it"), "{framed}");
+        assert!(!framed.contains("acpmux session"), "{framed}");
+        let lane = AgentSender::new("lane-a", None, None).unwrap();
+        assert!(super::agent_framed(Some(&lane), "hi").contains("acpmux session lane-a"));
+    }
+}

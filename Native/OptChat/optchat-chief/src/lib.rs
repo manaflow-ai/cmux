@@ -54,6 +54,7 @@ pub mod migrate_reach;
 pub mod native;
 pub mod pacing;
 pub mod paths;
+pub mod local_chiefs;
 pub mod peer_chiefs;
 pub mod persist;
 pub mod prompt;
