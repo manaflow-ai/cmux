@@ -156,6 +156,50 @@ struct PushRegistrationTests {
         #expect(server.events == ["put", "delete"])
     }
 
+    /// A quick sign-in reattaches the same device id while sign-out still
+    /// waits on the old PUT. The old DELETE runs first, then the new PUT, so
+    /// the re-signed-in phone keeps its registration.
+    @Test func aQuickSignInRegistersAfterTheSignOutDelete() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        server.holdNext = true
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await server.waitUntilHeld()
+
+        let signOut = Task { await registration.unregister() }
+        while registration.task != nil { await Task.yield() }
+        let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { _ in "unused" })
+        registration.attach(api: api, deviceID: "phone")
+        let signIn = registration.task
+        server.release()
+        await signOut.value
+        await signIn?.value
+
+        #expect(server.events == ["put", "delete", "put"])
+        #expect(server.preferences == original)
+    }
+
+    /// The sign-out hook is bounded and cancels its caller; the DELETE still runs.
+    @Test func aCancelledSignOutStillDeletes() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        server.holdNext = true
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await server.waitUntilHeld()
+
+        let signOut = Task { await registration.unregister() }
+        while registration.task != nil { await Task.yield() }
+        signOut.cancel()
+        server.release()
+        await signOut.value
+        await registration.cleanup?.value
+
+        #expect(server.events == ["put", "delete"])
+        #expect(server.preferences == nil)
+    }
+
     private func makeRegistration(_ server: RegistrationServer) -> PushRegistration {
         let registration = PushRegistration(topic: "test.cmux.push",
                                             register: { try await server.put($0.preferences) },

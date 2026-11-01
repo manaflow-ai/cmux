@@ -210,6 +210,13 @@ public struct LiveAPI: Sendable {
         try JSONDecoder().decode(MailboxState.self, from: try await call("GET", "v1/devices/\(macID)/mailbox/\(id)"))
     }
 
+    /// This API with the current bearer fixed, for a request that must
+    /// outlive sign-out clearing the session it reads tokens from.
+    func pinningToken() async throws -> LiveAPI {
+        let token = try await accessToken(false)
+        return LiveAPI(baseURL: baseURL, session: session, accessToken: { _ in token })
+    }
+
     /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.
     public func deletePush(deviceID: String) async throws {
         _ = try await call("DELETE", "v1/devices/\(deviceID)/push")

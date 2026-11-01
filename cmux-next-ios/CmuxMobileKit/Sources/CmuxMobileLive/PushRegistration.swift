@@ -49,6 +49,9 @@ public final class PushRegistration {
     private let topic: String?
     private let register: @MainActor (Registration) async throws -> Void
     private let delete: @MainActor (LiveAPI, String) async throws -> Void
+    /// The last sign-out's DELETE. A registration after a quick sign-in waits
+    /// for it, so the old DELETE never removes the new row.
+    private(set) var cleanup: Task<Void, Never>?
 
     struct Registration {
         let api: LiveAPI
@@ -110,17 +113,31 @@ public final class PushRegistration {
         sent = nil
         acceptedKinds = nil
         serverStateUncertain = false
-        // Let the in-flight PUT settle before DELETE; otherwise a late PUT can
-        // restore the token after sign-out. The generation guard stops new PUTs.
-        await inFlight?.value
         // A previous launch may have registered this device even when this
         // process has never received an APNs token or completed a PUT.
-        guard let oldAPI, let oldDeviceID else { return }
-        do {
-            try await delete(oldAPI, oldDeviceID)
-        } catch {
-            log.error("push unregister failed: \(String(describing: error), privacy: .public)")
+        guard let oldAPI, let oldDeviceID else {
+            await inFlight?.value
+            return
         }
+        let previous = cleanup
+        let delete = self.delete
+        // Unstructured, so the sign-out hook's 3 s bound (which cancels its
+        // caller) never cancels the DELETE. The bearer is read first, while the
+        // session is still valid: sign-out clears it after that bound.
+        let work = Task {
+            let pinned = (try? await oldAPI.pinningToken()) ?? oldAPI
+            await previous?.value
+            // Let the in-flight PUT settle before DELETE; otherwise a late PUT can
+            // restore the token after sign-out. The generation guard stops new PUTs.
+            await inFlight?.value
+            do {
+                try await delete(pinned, oldDeviceID)
+            } catch {
+                log.error("push unregister failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        cleanup = work
+        await work.value
     }
 
     private func sync() {
@@ -149,6 +166,9 @@ public final class PushRegistration {
                 taskID = nil
             }
         }
+        // A sign-out's DELETE for this device goes first (the same device id
+        // comes back on a quick sign-in).
+        if let cleanup { await cleanup.value }
         // Drain changes triggered by callers, without a timer or retry loop.
         // Serial PUTs cannot overtake one another; cancellation cannot undo an
         // already accepted server mutation.
