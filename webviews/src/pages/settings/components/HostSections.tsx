@@ -206,7 +206,10 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
                         markSetting(row.id, true);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => markSetting(row.id, false));
+                        void store
+                          .setDeviceFullAccess(row.id, on)
+                          .finally(() => markSetting(row.id, false))
+                          .catch(() => undefined);
                       }}
                     />
                   </div>

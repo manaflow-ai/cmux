@@ -48,12 +48,28 @@ class FakeApi:
         self.compare_error = compare_error
         self.dispatch_status = dispatch_status
         self.dispatched: list[tuple[str, dict]] = []
+        self.cancelled: list[int] = []
+        self.landed: str | None = None  # a commit that lands between the tip read and the dispatch
+        self.jobs: dict[int, list[dict]] = {}
         self.gets: list[str] = []
+
+    def open_run(self, run_id: int, sha: str, at: float, status: str = "queued",
+                 jobs: list[dict] | None = None, title: str = tier.TITLE) -> None:
+        """A listed run with an id and a status, and its jobs (None: its job list cannot be read)."""
+        self.runs.insert(0, {"id": run_id, "status": status, "display_title": f"{title}{sha}",
+                             "created_at": stamp(at)})
+        if jobs is not None:
+            self.jobs[run_id] = jobs
 
     def get(self, path: str):
         self.gets.append(path)
         if "/actions/workflows/cmux-next.yml/runs?" in path:
             return {"workflow_runs": self.runs}
+        if (match := re.search(r"/actions/runs/(\d+)/jobs\?", path)):
+            jobs = self.jobs.get(int(match.group(1)))
+            if jobs is None:
+                raise RuntimeError("HTTP 502")
+            return {"jobs": jobs}
         if path.endswith(f"/git/ref/heads/{tier.BRANCH}"):
             return {"object": {"sha": self.tip}}
         if "/compare/" in path:
@@ -63,7 +79,14 @@ class FakeApi:
         raise AssertionError(path)
 
     def post(self, path: str, body: dict) -> int:
+        if (match := re.fullmatch(rf"repos/{REPO}/actions/runs/(\d+)/cancel", path)):
+            self.cancelled.append(int(match.group(1)))
+            return 202
         self.dispatched.append((path, body))
+        if self.dispatch_status == 204:
+            # The run the dispatch starts, titled with the branch tip when GitHub took it.
+            self.runs.insert(0, {"id": 99, "status": "queued", "display_title": f"{tier.TITLE}{self.landed or self.tip}",
+                                 "created_at": stamp(T0 + 10**6)})
         return self.dispatch_status
 
 
@@ -83,6 +106,97 @@ class Clock:
 def kick(api: FakeApi, clock: Clock, patterns: list[str] | None = None):
     patterns = tier.push_paths(WORKFLOW.read_text()) if patterns is None else patterns
     return tier.kick(api, REPO, patterns, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+
+
+def job(name: str, status: str, conclusion: str | None = None) -> dict:
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
+QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-next daemon tests", "queued"),
+              job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
+
+
+class CancelSuperseded(unittest.TestCase):
+    """Once the tip has a base tier run, older ones whose Mac jobs never started are cancelled."""
+
+    def test_a_dispatch_cancels_older_runs_waiting_for_a_mac(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "in_progress", QUEUED_MAC)
+        api.open_run(12, MID, T0 + 5 * 60, "queued", [])
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(sorted(api.cancelled), [11, 12])
+
+    def test_a_run_titled_with_a_commit_that_landed_after_the_tip_read_is_kept(self):
+        # The dispatch takes the branch ref, so its run may name a newer commit than the tip read.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.landed = "d" * 40
+        api.jobs[99] = QUEUED_MAC
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(api.cancelled, [11])
+
+    def test_a_re_run_is_left_alone(self):
+        # An earlier attempt may have run its Mac jobs; the latest attempt's list would not show them.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.runs[0]["run_attempt"] = 2
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_tip_that_already_has_a_run_still_cancels_the_older_waiting_ones(self):
+        # A hand dispatch on the tip leaves the older waiting runs to the next kick.
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0 - 60, "queued", QUEUED_MAC)
+        self.assertIsNone(kick(api, clock))
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [11])
+
+    def test_a_run_whose_mac_job_started_or_finished_is_left_alone(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        running = [job("cmux-next daemon tests", "in_progress")] + QUEUED_MAC[2:]
+        finished = [job("cmux-next generated files", "completed", "failure"), job("cmux-next daemon tests", "queued")]
+        api.open_run(11, OLD, T0, "in_progress", running)
+        api.open_run(12, MID, T0 + 60, "in_progress", finished)
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [])
+
+    def test_skipped_or_cancelled_mac_jobs_never_started(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "in_progress", [job("cmux app scheme compile (Debug)", "completed", "skipped"),
+                                                   job("cmux-next daemon tests", "completed", "cancelled"),
+                                                   job("cmux-next generated files", "queued")])
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [11])
+
+    def test_an_unreadable_job_list_counts_as_started(self):
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "queued", None)
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [])
+
+    def test_the_tips_own_runs_finished_runs_and_other_titles_are_never_cancelled(self):
+        api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, TIP, T0 + 60, "queued", QUEUED_MAC)  # the tip's same-tree run
+        api.open_run(12, OLD, T0 - 60, "completed", QUEUED_MAC)
+        api.open_run(13, OLD, T0 - 60, "queued", QUEUED_MAC, title="cmux NEXT DEV daily · ")
+        api.open_run(14, OLD, T0 - 60, "queued", QUEUED_MAC, title="cmux-next tip daemon suite · ")
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [])
+
+    def test_no_dispatch_cancels_nothing(self):
+        # Not due (no cmux-next push path changed): the last run is the newest verdict and stays.
+        api = FakeApi([(OLD, T0)], TIP, files=["README.md"])
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
+        self.assertEqual(api.cancelled, [])
+
+    def test_mac_jobs_are_the_base_tier_jobs_of_cmux_next(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        names = {jobs["daemon-test"]["name"], jobs["generated-files"]["name"]}
+        self.assertEqual(names | {"cmux app scheme compile (Debug)"}, set(tier.MAC_JOBS))
+        # The scheme compile's name outside the DEV daily (the base tier is never a DEV daily).
+        self.assertIn("|| 'cmux app scheme compile (Debug)' }}", jobs["cmux-scheme-compile"]["name"])
 
 
 class Kick(unittest.TestCase):
@@ -106,11 +220,39 @@ class Kick(unittest.TestCase):
         self.assertEqual(clock.slept[0], 10 * 60)
         self.assertEqual(len(api.dispatched), 1)
 
+    def test_a_new_base_tier_run_while_waiting_owns_its_full_window(self):
+        # A hand dispatch can start while this kick sleeps. The first run's
+        # deadline must never let a second Mac tier start inside the new window.
+        # The older run still waits for a Mac: the new run supersedes it, so it is
+        # cancelled even though this kick dispatches nothing.
+        api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+
+        def sleep(seconds: float) -> None:
+            Clock.sleep(clock, seconds)
+            api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
+
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now,
+                                    sleep=sleep, log=lambda _: None))
+        self.assertEqual(clock.slept, [10 * 60])
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [11])
+        self.assertEqual(sum("/actions/workflows/cmux-next.yml/runs?" in p for p in api.gets), 3)
+
     def test_a_kick_never_waits_longer_than_the_window(self):
         # A clock behind the run's created_at (skew) still waits at most one window.
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 - 3600)
         kick(api, clock)
         self.assertEqual(clock.slept[0], tier.WINDOW_S)
+
+    def test_a_skewed_clock_still_dispatches_after_the_capped_wait(self):
+        # The run seen before the sleep is not a new run: a clock still behind its
+        # created_at after the capped wait must dispatch, not return (that starved
+        # the base tier on every kick).
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 - 3600)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(clock.slept[0], tier.WINDOW_S)
+        self.assertEqual(len(api.dispatched), 1)
 
     def test_a_tip_that_already_has_a_base_tier_run_is_left_alone(self):
         api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
@@ -268,7 +410,7 @@ class Workflows(unittest.TestCase):
         self.assertIn("cmux-next generated files", tier_suites()["cmux-next base tier · "])
         self.assertNotIn("cmux-next generated files (shared build)", tier_suites()["cmux-next base tier · "])
 
-    def test_the_kick_is_serialized_and_cancels_nothing(self):
+    def test_the_kick_is_serialized_and_its_own_runs_are_never_cancelled(self):
         kick_doc = yaml.safe_load(KICK.read_text())
         on = kick_doc.get(True) or kick_doc.get("on")
         self.assertEqual(on, {"push": {"branches": ["feat-cmux-next"]}})
@@ -278,6 +420,19 @@ class Workflows(unittest.TestCase):
         self.assertGreater(job["timeout-minutes"] * 60, tier.WINDOW_S + tier.SETTLE_S)
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
         self.assertIn("cmux_next_base_tier.py kick", job["steps"][-1]["run"])
+
+    def test_sleeping_dispatcher_uses_a_small_ephemeral_linux_runner(self):
+        # A pure Python timer/API call must not occupy the 32-vCPU build pool.
+        # Keep the hosted fork route and the small Blacksmith overflow route.
+        expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
+        self.assertIn("'ubuntu-24.04'", expression)
+        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", expression)
+        # A non-Blacksmith LINUX_RUNNER (a fleet pool, a hand failover) still wins;
+        # a Blacksmith one (the 32-vCPU compile size) never picks this job's size.
+        self.assertIn("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||", expression)
+        self.assertNotIn("|| vars.LINUX_RUNNER ||", expression)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || "
+                      "'blacksmith-2vcpu-ubuntu-2404'", expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

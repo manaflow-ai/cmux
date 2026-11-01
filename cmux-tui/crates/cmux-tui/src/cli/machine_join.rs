@@ -1023,13 +1023,13 @@ fn confirm(question: &str) -> bool {
 /// out of its words before the daemon's grammar reads them.
 static LIST_AUTH: std::sync::OnceLock<Auth> = std::sync::OnceLock::new();
 
-/// `args` without the platform flags when they are `machine list`'s
+/// `args` without the platform flags when they are `machine list`'s (or `ls`'s)
 /// (`--platform`, `--cloud-token-file`, `--cloud-token-stdin`), which are
 /// kept for its joined rows; `None` when there are none to take.
 pub(super) fn take_list_auth(args: &[String]) -> Option<Vec<String>> {
     let (_, command_args) = super::parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("machine")
-        || command_args.get(1).map(String::as_str) != Some("list")
+        || !matches!(command_args.get(1).map(String::as_str), Some("list" | "ls"))
     {
         return None;
     }

@@ -77,21 +77,26 @@ final class AgentChatSplitToggles {
                       store: DaemonStore, actions: AgentChatTabActions) {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
+        // Split Down splits the chat itself. Documents (Preview, Changes and Files) always start
+        // from the chat so RightColumnPlacement can keep one right-side pane and put later opens
+        // below it (or in its lower pane), even when the user opened or moved the earlier pane.
+        // Terminal and Browser keep their existing toggle order: a later click splits beside the
+        // panel that button opened.
         let splits = splits(in: tabs, chat: chat)
-        // Split Down splits the chat itself; the panels right of it line up after the last one of theirs.
-        let anchor = id == Self.splitDown ? nil : opened.indices.reversed().lazy
+        let rightPlacement = id == Self.preview || id == Self.changes || id == Self.files
+        let anchor: String? = (id == Self.splitDown || rightPlacement) ? nil : opened.indices.reversed().lazy
             .filter { self.opened[$0].id != Self.splitDown }
             .compactMap { splits[$0] }
-            .first { Self.beside(chat, $0, in: store) }
-        // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
+            .first { Self.beside(chat, $0, in: store) }?.id
+        // Open mode adds one per click: keep the recent ones, enough to identify each button's tab.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor?.id, actions: actions)
+        Self.run(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, on: anchor, actions: actions)
     }
 
-    /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
-    /// Changes and Preview run as an agent's diff and browser do (AgentBesidePlacement): selected in
-    /// the target's column, or with no target in a new column right of the chat.
+    /// Runs header action `id` on the chat. Changes and Preview run through the shared
+    /// AgentBesidePlacement right-column rule; the target is nil so it measures every pane on the
+    /// chat's right, including panes the user opened or moved independently.
     private static func run(_ id: String, cwd: String?, url: String?, extra: [String: ActionValue] = [:], chat: String,
                             store: DaemonStore?, on target: String?, actions: AgentChatTabActions) {
         switch id {

@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextPages
 
 /// Chromium follows every alpha hold, including holds outside a pane container.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneChromiumVisibilityTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -16,9 +17,6 @@ struct AgentPaneChromiumVisibilityTests {
         var awaitsFirstPaint: Bool { true }
         func whenFirstPainted(_ body: @escaping () -> Void) {}
     }
-
-    /// Off-screen parking for prewarmed pages, transparent only to stay out of sight (the New Tab spare's).
-    private final class OffscreenParking: NSView, PageChromiumOffscreenParking {}
 
     private func pane() async throws -> (AgentPaneView, FakeChromiumPage, NSWindow) {
         _ = NSApplication.shared
@@ -121,8 +119,7 @@ struct AgentPaneChromiumVisibilityTests {
         defer { view.page?.close(); window.close() }
         view.loadingView.leave(over: view.pageContent, fades: false)
         let host = NSView()
-        let parking = OffscreenParking()
-        parking.alphaValue = 0
+        let parking = PageOffscreenParking() // the New Tab spare's parking: alpha 0, off screen
         window.contentView = host
         host.addSubview(parking)
         parking.addSubview(view)

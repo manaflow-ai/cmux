@@ -266,8 +266,19 @@ impl PtySurface {
         true
     }
 
+    /// Ask the frame producer for a frame of `generation`; the producer
+    /// announces the output (`SurfaceOutput`) after it built the frame. For
+    /// a caller that may hold `Mux::state`.
     pub(super) fn request_frame(&self, generation: u64) {
-        self.frame_requests.request(generation);
+        self.frame_requests.request(generation, true);
+    }
+
+    /// [`Self::request_frame`] from a terminal's output reader: the output
+    /// is announced now, from the reader that read it, not by the producer
+    /// after the frame (H3). The caller holds no terminal or mux lock.
+    pub(super) fn request_frame_from_reader(&self, generation: u64) {
+        self.frame_requests.request(generation, false);
+        self.mark_output_dirty();
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
@@ -292,6 +303,10 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
+        // The last output's scroll position, before the surface goes.
+        if let Some(mux) = self.mux.upgrade() {
+            let _ = self.frame_requests.flush_scroll(&mux, self.event_surface_id);
+        }
     }
 
     /// Preserve the last hosted frame, then end every live attachment while

@@ -1,0 +1,107 @@
+/* A chat starting in Cloud (CloudStartView.tsx): the message, then the start as metadata. */
+.acpmux-cloud-start {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--acpmux-column, 720px);
+  margin: 24px auto 0;
+  padding: 0 16px;
+  box-sizing: border-box;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-cloud-start__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: normal;
+}
+.acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
+  color: var(--agent-danger, currentColor);
+}
+.acpmux-cloud-start__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-cloud-start__chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-cloud-start__chips li > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+/* The steps arm: the facts as one quiet line, no chip fill. */
+.acpmux-cloud-start__chips[data-look="steps"] li {
+  padding: 0 8px 0 0;
+  background: none;
+}
+.acpmux-cloud-start__label {
+  color: var(--agent-muted);
+}
+.acpmux-cloud-start__rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 12px;
+  row-gap: 4px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-cloud-start__rows dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-cloud-start__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-cloud-start__steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-cloud-start__steps li[data-step="current"] {
+  color: var(--agent-text);
+}
+.acpmux-cloud-start__steps li[data-step="next"] {
+  opacity: 0.6;
+}
+.acpmux-cloud-start__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+}
+/* Over the New Tab page's box: no bubble (the message is in the box), no column margin. */
+.nt-composer .acpmux-cloud-start {
+  margin: 0 0 8px;
+  padding: 0;
+}
