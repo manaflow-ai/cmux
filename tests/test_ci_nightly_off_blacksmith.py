@@ -230,7 +230,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                   f"contains(needs.decide.outputs.light_mini_jobs, ' {name} ') && "
                                   "needs.decide.outputs.light_mini_runner || ", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
-                                                            "LINUX_RUNNER": sorted(linux)}, silent=("needs",))
+                                                            "LINUX_RUNNER": sorted(linux)},
+                                        silent=("needs",) if "needs.decide.outputs.light_mini_runner" in runs_on else ())
                 self.assertTrue(labels)
                 for label in labels:
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")

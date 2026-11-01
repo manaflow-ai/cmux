@@ -554,6 +554,9 @@ class DecideLightJobsOnAFreeMini(unittest.TestCase):
         self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
         # The placement runs after decide's own decision, so a failed placement never fails decide.
         self.assertLess(next(i for i, s in enumerate(steps) if s.get('id') == 'decide'), steps.index(mint))
+        self.assertLess(steps.index(mint), steps.index(step))
+        self.assertIs(step, steps[-1])
+        self.assertEqual(DOC['jobs']['decide']['permissions'].get('actions'), 'read')
 
 class PickerReRun(unittest.TestCase):
     """The owned-pool rescue and the nightly-next tick re-run pick-nightly-build-runner, and with it every job

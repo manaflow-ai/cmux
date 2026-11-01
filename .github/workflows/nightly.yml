@@ -189,6 +189,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
+      actions: read # the light-job placement reads the queue janitor's snapshot artifact
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # This gate only resolves the fixed revision and publication decision: a checkout,
     # github-script and two stdlib Python helpers, which run the same on a Mac. It is the
