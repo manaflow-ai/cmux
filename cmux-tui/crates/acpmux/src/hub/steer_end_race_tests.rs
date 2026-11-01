@@ -5,11 +5,45 @@ use std::time::Duration;
 
 const WAIT: Duration = Duration::from_secs(20);
 
+fn loadavg(label: &str) {
+    let out = std::process::Command::new("/usr/sbin/sysctl").args(["-n", "vm.loadavg"]).output();
+    let text =
+        out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default();
+    eprintln!("BGPROBE {label} loadavg {text}");
+}
+
+/// PROBE (scratch): dumps every record with its time from the first one, pass or fail.
+fn dump(hub: &Arc<Hub>, session: &Session, label: &str) {
+    let records = hub.events(&session.id, 0, 100_000).unwrap_or_default();
+    let t0 = records.first().map(|r| r.at).unwrap_or_default();
+    for r in &records {
+        let text =
+            r.msg.pointer("/params/update/content/text").and_then(Value::as_str).unwrap_or("");
+        eprintln!(
+            "BGPROBE {label} +{:>6} ms {} {} {}",
+            r.at.saturating_sub(t0),
+            r.dir,
+            r.kind,
+            text
+        );
+    }
+}
+
 async fn unsent_steer_after_completion(steer_only: bool) {
+    unsent_steer_at(steer_only, None).await;
+}
+
+async fn unsent_steer_at(steer_only: bool, class: Option<&str>) {
     use crate::config::{Config, StoreMode};
+    let label = format!("steer_only={steer_only} class={}", class.unwrap_or("default"));
+    loadavg(&format!("{label} start"));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut profile = json!({"argv": ["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake]});
+    if let Some(class) = class {
+        profile["env"] = json!({"ACPMUX_SESSION_CPU_CLASS": class});
+    }
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake]}},
+        "harnesses": {"fake": profile},
         "defaultHarness": "fake",
     }))
     .unwrap();
@@ -70,7 +104,10 @@ async fn unsent_steer_after_completion(steer_only: bool) {
     assert_eq!(original["stopReason"], "end_turn");
     assert!(session.turn().is_none());
     release.send(()).unwrap();
-    let answer = tokio::time::timeout(WAIT, unsent).await.unwrap().unwrap();
+    let answer = tokio::time::timeout(WAIT, unsent).await;
+    loadavg(&format!("{label} end"));
+    dump(&hub, &session, &label);
+    let answer = answer.unwrap().unwrap();
     if steer_only {
         let error = answer.expect_err("an unsent steer-only request cannot claim the old answer");
         assert!(error.message.starts_with(crate::claude_stdio::STEER_NO_TURN));
@@ -101,4 +138,16 @@ async fn an_unsent_steer_gets_its_own_turn_after_another_steer_finishes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_unsent_steer_only_refuses_the_completed_turns_answer() {
     unsent_steer_after_completion(true).await;
+}
+
+/// PROBE (scratch): the same race with the stand-in kept at normal CPU class, in the same process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unsent_steer_probe_control_at_normal_class() {
+    unsent_steer_at(false, Some("normal")).await;
+}
+
+/// PROBE (scratch): explicitly at background class.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unsent_steer_probe_at_background_class() {
+    unsent_steer_at(false, Some("background")).await;
 }
