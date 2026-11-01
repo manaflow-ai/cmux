@@ -158,23 +158,16 @@ import Foundation
 
     /// New Column's overlay (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf`
     /// right after the target's column (right before it for New Column Left, `side: "left"`), at
-    /// the column's width, with the width changes it brings.
-    /// A screen that is still a split tree becomes two columns, the tree and the new one, as the
-    /// daemon wraps its root in a viewport split.
+    /// the column's width. Every column there keeps its width (R3b). A screen that is still a
+    /// split tree becomes two columns, the tree at full width and the new one, as the daemon wraps
+    /// its root in a viewport split.
     private static func applyColumn(_ column: ProvisionalColumn, after target: PaneID, leaf: PaneID, daemon: PaneModel?,
                                     provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
         var columns = screen.columns
         if columns.isEmpty {
             // A zoomed or docked screen has no tree column to open beside.
             guard screen.zoomedPane == nil else { return nil }
-            columns = [ColumnSnapshot(id: column.treeHandle, width: column.treeWidth ?? 1, layout: screen.layout)]
-        } else {
-            columns = columns.map { entry in
-                guard let width = column.widths[entry.id] else { return entry }
-                var entry = entry
-                entry.width = width
-                return entry
-            }
+            columns = [ColumnSnapshot(id: column.treeHandle, width: 1, layout: screen.layout)]
         }
         // The target's column: its index places the new column, its panes place the new pane.
         guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),

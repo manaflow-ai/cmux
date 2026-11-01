@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// sidebar's items and the update card's quiet and bordered buttons. Hovered, they now take the
 /// neutral fill one step stronger (midway to the pressed fill), still translucent and never the
 /// accent (a hover is not a selection).
-@MainActor @Suite(.serialized) struct SidebarNeutralHoverTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarNeutralHoverTests {
     /// A dark theme with a blue accent, so the selection fill is visibly the accent.
     private static func accentScope() throws -> ThemeScope {
         let scope = ThemeScope(level: .room)

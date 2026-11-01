@@ -38,11 +38,14 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
+import { knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
 import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { AgentTag } from "./AgentTag";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
@@ -74,8 +77,21 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const readOnly = useTranscriptReadOnly();
   const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
-  const harness = knownMark(sender.harness, message.harness, message.name, message.name.split("/")[0]);
+  const notice = laneNotice(message);
+  const inboxNames =
+    notice?.kind === "inbox"
+      ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
+      : "";
+  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
+  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
+  const harness = knownMark(
+    sender.harness,
+    message.harness,
+    message.name,
+    message.name.split("/")[0],
+    sender.harness ?? message.harness,
+  );
   const picture = message.chief ? chief?.src : avatar;
   const icon = picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
@@ -84,29 +100,34 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {chief.text}
     </span>
   ) : (
-    <AgentMark agent={harness} size={14} fallback={<Bot size={16} />} />
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell apart.
+    <AgentIdentity
+      harness={harness}
+      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
+      size={14}
+      fallbackNode={<Bot size={16} />}
+    />
   );
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
     ? t("subagents.openOnHost", { name, host: sender.host })
     : t("subagents.open", { name });
   return (
-    <span className="cv-received__sender">
+    // Its own part of the line: the name opens the sender's chat or nothing, never the message.
+    <span className="cv-received__sender" data-own-click="">
       <span className="cv-received__mark" aria-hidden="true">
         {icon}
       </span>
       {sessionId ? (
-        <button
-          type="button"
+        <AgentTag
+          name={from}
           className="cv-received__from cv-received__from--open"
           title={openTitle}
-          aria-label={openTitle}
+          ariaLabel={openTitle}
           onClick={() => onOpen(sessionId)}
-        >
-          {from}
-        </button>
+        />
       ) : (
-        <span className="cv-received__from">{from}</span>
+        <AgentTag name={from} className="cv-received__from" />
       )}
     </span>
   );
@@ -240,6 +261,7 @@ export function IncomingMessageLine({
       onOpenChange={toggled}
       animates={() => !notice && played.current}
       leading={<SenderName message={message} onOpen={onOpen} />}
+      lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
         // Find counts the panel's whole text, not the line's first-line copy of it.
@@ -299,10 +321,8 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              <pre className="cv-tool-output selectable">{raw}</pre>
             </div>
           )}
         </div>

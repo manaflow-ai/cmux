@@ -124,6 +124,12 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
+    /// reload that changes it respawns the agent at its turn end, on the same conversation
+    /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is
+    /// judged too. None before any start, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_digest: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
@@ -143,6 +149,12 @@ pub struct SessionMeta {
     /// from transcript contents.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_agent_session_ids: Vec<String>,
+    /// Every native id this chat had before the current one, whatever its family, oldest first
+    /// and bounded (`RETIRED_AGENT_SESSION_IDS`). Not transcript authority: a Codex chat's
+    /// earlier native roots, which its older records still name, so a client folding them
+    /// (and the tap's `SubagentTree`) never reads an earlier root as one of its subagents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_agent_session_ids: Vec<String>,
     /// Proven family of the current native id. Older/imported metadata is unknown and cannot
     /// authorize historical Claude reads when that id is retired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -531,10 +543,21 @@ pub struct ToolRow {
     pub status: Option<String>,
 }
 
+/// How many earlier native ids a chat keeps (`SessionMeta::retired_agent_session_ids`).
+pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
+
 impl SessionMeta {
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {
+        if let Some(next) = next.as_ref() {
+            self.retired_agent_session_ids.retain(|id| id != next);
+        }
+        if let Some(previous) = self.agent_session_id.clone()
+            && next.as_ref() != Some(&previous)
+        {
+            self.retire_root(previous);
+        }
         if let Some(next) = next.as_ref().filter(|_| family == "claude") {
             self.previous_agent_session_ids.retain(|id| id != next);
         }
@@ -548,6 +571,29 @@ impl SessionMeta {
         }
         self.agent_session_id = next;
         self.agent_session_family = self.agent_session_id.as_ref().map(|_| family.to_owned());
+    }
+
+    /// Drop the native id without making it transcript authority: a chat that starts its agent
+    /// fresh (a guarded move with no agent file, `transfer_guard.rs`) keeps the old root only in
+    /// `retired_agent_session_ids`, since its acpmux history still names it. Never into
+    /// `previous_agent_session_ids`, which would let a Claude transcript read follow a file that
+    /// did not come with the chat.
+    pub fn retire_agent_session_id(&mut self) {
+        if let Some(previous) = self.agent_session_id.take() {
+            self.retire_root(previous);
+        }
+        self.agent_session_family = None;
+    }
+
+    /// Record an earlier root in `retired_agent_session_ids`: once, newest last, bounded.
+    fn retire_root(&mut self, previous: String) {
+        if self.retired_agent_session_ids.contains(&previous) {
+            return;
+        }
+        if self.retired_agent_session_ids.len() >= RETIRED_AGENT_SESSION_IDS {
+            self.retired_agent_session_ids.remove(0);
+        }
+        self.retired_agent_session_ids.push(previous);
     }
 
     /// Claude ids recorded for this chat: current first, then history from newest to oldest.
@@ -1878,7 +1924,7 @@ mod line_rev_tests;
 
 #[cfg(test)]
 mod agent_session_history_tests {
-    use super::{META_SCHEMA, SessionMeta};
+    use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
     use serde_json::json;
 
     fn meta() -> SessionMeta {
@@ -1934,10 +1980,48 @@ mod agent_session_history_tests {
         }
     }
 
+    /// Dropping the id (a fresh start) retires it once, but never makes a Claude id transcript
+    /// authority.
+    #[test]
+    fn retiring_the_native_id_keeps_it_out_of_claude_history() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("claude-root".into()), "claude");
+        m.retire_agent_session_id();
+        m.retire_agent_session_id();
+        assert_eq!(m.agent_session_id, None);
+        assert_eq!(m.agent_session_family, None);
+        assert_eq!(m.retired_agent_session_ids, ["claude-root"]);
+        assert!(m.previous_agent_session_ids.is_empty());
+    }
+
     #[test]
     fn old_metadata_without_history_defaults_to_empty() {
         let m = meta();
         assert!(m.previous_agent_session_ids.is_empty());
+        assert!(m.retired_agent_session_ids.is_empty());
+    }
+
+    /// A Codex chat's earlier native roots stay known after a restart names a new one, so a
+    /// client folding its older records never reads one as a subagent; bounded, oldest first.
+    #[test]
+    fn every_earlier_native_id_is_kept_whatever_its_family() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        m.set_agent_session_id(Some("root-2".into()), "non-claude");
+        m.set_agent_session_id(None, "non-claude");
+        m.set_agent_session_id(Some("root-3".into()), "non-claude");
+        assert_eq!(m.retired_agent_session_ids, ["root-1", "root-2"]);
+        // An id that comes back is current again, not retired.
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        assert_eq!(m.retired_agent_session_ids, ["root-2", "root-3"]);
+        let encoded = serde_json::to_value(&m).unwrap();
+        assert_eq!(encoded["retiredAgentSessionIds"], json!(["root-2", "root-3"]));
+        for n in 0..RETIRED_AGENT_SESSION_IDS + 4 {
+            m.set_agent_session_id(Some(format!("r{n}")), "non-claude");
+        }
+        assert_eq!(m.retired_agent_session_ids.len(), RETIRED_AGENT_SESSION_IDS);
+        assert_eq!(m.retired_agent_session_ids.last().map(String::as_str), Some("r34"));
     }
 }
 

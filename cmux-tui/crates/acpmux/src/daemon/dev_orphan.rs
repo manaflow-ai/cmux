@@ -126,7 +126,7 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
     if absent >= timing.delay {
         Decision::Exit
     } else {
-        Decision::Wait(timing.recheck.min(timing.delay - absent))
+        Decision::Wait(timing.recheck.min(timing.delay.saturating_sub(absent)))
     }
 }
 

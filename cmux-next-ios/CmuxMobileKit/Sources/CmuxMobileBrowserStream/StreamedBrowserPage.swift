@@ -18,7 +18,7 @@ public struct StreamedBrowserPage: View {
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
-    public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac yet.")
+    public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
@@ -104,15 +104,15 @@ public struct StreamedBrowserPage: View {
                 TextField(String(localized: "Answer"), text: $promptText)
                     .accessibilityIdentifier("browser.dialog.field")
             }
-            // The dialog open when the button is tapped: the host can replace one (cancel, then a
-            // new show) before SwiftUI redraws the alert, and the page waits for that one.
+            // Answer only the question this alert displayed. The host may replace it
+            // before SwiftUI redraws; a stale tap must leave the new question unanswered.
             if open.dialog.hasCancel {
                 Button(String(localized: "Cancel"), role: .cancel) {
-                    if let current = model.dialog { model.answerDialog(current.token, accept: false) }
+                    model.answerDialog(open.token, accept: false)
                 }
             }
             Button(open.dialog.acceptTitle) {
-                if let current = model.dialog { model.answerDialog(current.token, accept: true, text: promptText) }
+                model.answerDialog(open.token, accept: true, text: promptText)
             }
         } message: { open in
             if !open.dialog.message.isEmpty { Text(open.dialog.message) }
@@ -189,7 +189,8 @@ struct StreamedBrowserOverlay: View {
 
     static var enabled: Bool {
         #if DEBUG
-        true
+        // Public fixture captures show the product controls without the diagnostic meter.
+        !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-browser-events")
         #else
         // Release (Production, TestFlight): only for a measurement launch with
         // the explicit argument, never from a stored setting (Codex QA F13).
