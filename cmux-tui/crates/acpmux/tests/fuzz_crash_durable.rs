@@ -577,8 +577,9 @@ impl PromptVerdict {
 /// Whether a restart check reads a chat's prompts again after read `attempt` (0-based) gave
 /// `now`, the read before it having given `before`.
 fn read_again(attempt: usize, now: &PromptVerdict, before: Option<&PromptVerdict>) -> bool {
-    let _ = before;
-    !now.settled() && attempt < 5
+    // Two reads in a row that agree are the chat's state: a prompt moving from its queue to
+    // its turn changes between them. More reads only add chances to read it mid-move.
+    !now.settled() && attempt < 5 && before != Some(now)
 }
 
 /// Whether a restart check counts this chat as a checked draft.
