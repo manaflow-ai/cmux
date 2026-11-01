@@ -2133,3 +2133,64 @@ fn netdrop_fuzz_seeded_network_faults_never_lose_data_silently() {
     assert_eq!(noverdicts, 0, "a seed gave no verdict; see the NETDROP NOVERDICT lines");
     assert_eq!(violations, 0, "network faults broke the oracle; see the NETDROP VIOLATION lines");
 }
+
+/// FUZZ FINDING netdrop n1 (fuzz-findings/netdrop/n1): seed 0x4e440001 lost
+/// process output event 439 (`SEQ 2049` to `SEQ 2058`) across a 3127 ms
+/// freeze with no `ReplayGap`, `OutputTruncated` or stream error. The freeze
+/// is longer than the daemon's dead-peer timeout (1.5 s) and the client's
+/// heartbeat detection, so both peers drop the carrier and the session
+/// resumes on a new generation. The loss is timing dependent (1 of 2 full
+/// runs), so this test repeats the seed's failing prefix (freeze-846ms, then
+/// freeze-3127ms) in parallel copies for up to 30 s and fails on any silent
+/// loss of output or of acknowledged input.
+#[test]
+fn netdrop_red_n1_output_survives_a_freeze_past_the_dead_peer_timeout() {
+    const COPIES: usize = 10;
+    const BUDGET: Duration = Duration::from_secs(30);
+    let started = std::time::Instant::now();
+    let prefix = SeedConfig::seeded(0x4e44_0001).steps[..2].to_vec();
+    let mut runs = 0_usize;
+    let mut lossy = 0_usize;
+    let mut noverdicts = 0_usize;
+    let mut round = 0_u64;
+    // One round takes about 9 s; start one only when it ends inside the budget.
+    while round == 0 || started.elapsed() + Duration::from_secs(10) < BUDGET {
+        let configs = (0..COPIES)
+            .map(|copy| SeedConfig {
+                // Same plan; a distinct session per copy.
+                seed: 0x4e44_0001 ^ (round << 40) ^ ((copy as u64) << 32),
+                steps: prefix.clone(),
+                retained_output_bytes: 256 * 1024,
+            })
+            .collect::<Vec<_>>();
+        for report in run_all(configs) {
+            runs += 1;
+            if report.noverdict.is_some() {
+                noverdicts += 1;
+            }
+            let losses = report
+                .violations
+                .iter()
+                .filter(|violation| {
+                    violation.what.starts_with("output-loss")
+                        || violation.what.starts_with("output-event-loss")
+                        || violation.what.starts_with("acked-input-lost")
+                })
+                .count();
+            if losses > 0 {
+                lossy += 1;
+            }
+            print_report(&report);
+        }
+        round += 1;
+    }
+    println!(
+        "NETDROP RED n1 runs={runs} lossy={lossy} noverdict={noverdicts} plan=[{}] elapsed_s={}",
+        prefix.iter().map(|step| step.fault.label()).collect::<Vec<_>>().join(","),
+        started.elapsed().as_secs()
+    );
+    assert_eq!(
+        lossy, 0,
+        "{lossy} of {runs} runs lost process output or acknowledged input with no gap signal"
+    );
+}
