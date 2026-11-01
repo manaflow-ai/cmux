@@ -13,10 +13,12 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chief_policy::ChiefPolicy;
+use crate::cloud_acp::{Adapter as CloudAcpAdapter, Effects as CloudAcpEffects};
 use crate::config::{AcpmuxTarget, ServiceConfig};
 use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
@@ -253,26 +255,27 @@ async fn cloud_acpmux(
         "id": "cloud-mobile-host",
         "kind": "ios",
         "device_kind": "iphone",
-        "capabilities": ["cloud-mobile-chat-v1"]
+        "capabilities": ["cloud-mobile-chat-v1", "conversation-tabs-v1", "agent-session-tabs-v1"]
     });
     write
         .write_all(client_info.to_string().as_bytes())
         .await
         .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
     write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    let mut client_info_reply = Vec::new();
-    read.read_until(b'\n', &mut client_info_reply)
+    let mut native_line = Vec::new();
+    let client_info_reply = timeout(Duration::from_secs(5), read_cloud_line(&mut read, &mut native_line))
         .await
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    let client_info_reply: Value = serde_json::from_slice(
-        client_info_reply.strip_suffix(b"\n").unwrap_or(&client_info_reply),
-    )
-    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid client-info reply"))?;
-    if client_info_reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        .map_err(|_| Refusal::new("timeout", "Cloud carrier handshake timed out"))??;
+    let client_info_reply: Value = serde_json::from_slice(&client_info_reply)
+        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid client-info reply"))?;
+    if client_info_reply.get("id") != Some(&serde_json::json!("cloud-mobile-host"))
+        || client_info_reply.get("ok").and_then(Value::as_bool) != Some(true)
+    {
         return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat capability"));
     }
     let mut phone_message = MessageAssembler::default();
-    let mut pending = HashMap::<String, CloudForward>::new();
+    let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
@@ -280,170 +283,73 @@ async fn cloud_acpmux(
                     let Some(message) = phone_message.push(&bytes)? else { continue; };
                     let request: Value = serde_json::from_str(message.as_str())
                         .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
-                    match adapt_cloud_request(request, &machine_id, &team_id)? {
-                        CloudRequest::Local(reply) => {
-                            if sender.send(Bytes::from(reply.to_string())).await.is_err() { break; }
-                            continue;
-                        }
-                        CloudRequest::Forward { request, call } => {
-                            if let Some(id) = request.get("id") { pending.insert(cloud_request_key(id), call); }
-                            if write.write_all(request.to_string().as_bytes()).await.is_err() { break; }
-                        }
-                    }
-                    if write.write_all(b"\n").await.is_err() { break; }
+                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                    if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
                 }
                 Some(ChannelEvent::Closed(_)) | None => break,
             },
-            result = async {
-                let mut line = Vec::new();
-                let size = read.read_until(b'\n', &mut line).await.map_err(|_| ())?;
-                Ok::<_, ()>((size, line))
-            } => {
-                let (size, line) = result.map_err(|_| Refusal::new("unavailable", "Cloud carrier read failed"))?;
-                if size == 0 { break; }
-                let line = line.strip_suffix(b"\n").unwrap_or(&line);
-                if line.is_empty() { continue; }
-                let response: Value = serde_json::from_slice(line)
+            native = read_cloud_line(&mut read, &mut native_line) => {
+                let line = native?;
+                let response: Value = serde_json::from_slice(&line)
                     .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
-                let response = adapt_cloud_response(response, &mut pending);
-                if sender.send(Bytes::from(response.to_string())).await.is_err() { break; }
+                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
+                if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
+            }
+            _ = tick.tick() => {
+                let effects = adapter.expire();
+                if apply_cloud_effects(&mut write, &sender, effects).await.is_err() { break; }
             }
         }
     }
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
-enum CloudForwardKind {
-    Sessions,
-    History,
-    Send,
-}
+const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy)]
-struct CloudForward {
-    kind: CloudForwardKind,
-}
-
-enum CloudRequest {
-    Local(Value),
-    Forward { request: Value, call: CloudForward },
-}
-
-fn cloud_request_key(id: &Value) -> String {
-    serde_json::to_string(id).unwrap_or_default()
-}
-
-/// Translate the public AcpmuxHub surface to the narrow Cloud mobile RPCs.
-/// The VM side owns the actual AcpmuxLink and applies its session/owner policy;
-/// the phone never gets an arbitrary daemon command channel.
-fn adapt_cloud_request(mut request: Value, machine: &str, team: &str) -> Result<CloudRequest, Refusal> {
-    let object = request
-        .as_object_mut()
-        .ok_or_else(|| Refusal::new("bad_request", "Cloud ACP request must be an object"))?;
-    let method = object.get("method").and_then(Value::as_str).unwrap_or_default();
-    let id = object.get("id").cloned().unwrap_or(Value::Null);
-    let params = object.remove("params").unwrap_or_else(|| serde_json::json!({}));
-    let p = params.as_object().cloned().unwrap_or_default();
-    let local =
-        |result: Value| CloudRequest::Local(serde_json::json!({"jsonrpc":"2.0", "id":id, "result":result}));
-    if method == "initialize" {
-        return Ok(local(serde_json::json!({"protocolVersion":1,
-            "serverInfo":{"name":"cmux-cloud","version":env!("CARGO_PKG_VERSION")},
-            "_meta":{"acpmux":{"personInstance":"cloud-mobile","fullAccess":false}}})));
-    }
-    let (command, kind) = match method {
-        "_acpmux/watch" | "_acpmux/sessions" => ("mobile-chat-sessions", CloudForwardKind::Sessions),
-        "_acpmux/attach" | "_acpmux/events" => ("mobile-chat-history", CloudForwardKind::History),
-        "session/prompt" => ("mobile-chat-send", CloudForwardKind::Send),
-        "_acpmux/permission_respond" | "_acpmux/permission_answer" => {
-            return Ok(local(
-                serde_json::json!({"error":{"code":-32000,"message":"Cloud phone approvals are unavailable"}}),
-            ));
+async fn read_cloud_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+) -> Result<Vec<u8>, Refusal> {
+    loop {
+        let chunk =
+            reader.fill_buf().await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        if chunk.is_empty() {
+            return Err(Refusal::new("unavailable", "Cloud carrier closed"));
         }
-        _ => return Err(Refusal::new("unsupported", format!("Cloud ACP method is unavailable: {method}"))),
-    };
-    let mut forwarded = serde_json::Map::new();
-    forwarded.insert("id".into(), id);
-    forwarded.insert("cmd".into(), Value::String(command.into()));
-    forwarded.insert("machine_id".into(), Value::String(machine.into()));
-    forwarded.insert("team_id".into(), Value::String(team.into()));
-    match kind {
-        CloudForwardKind::Sessions => {
-            if let Some(v) = p.get("limit") {
-                forwarded.insert("limit".into(), v.clone());
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let take = newline.unwrap_or(chunk.len());
+        if line.len().saturating_add(take) > MAX_CLOUD_NATIVE_LINE {
+            return Err(Refusal::new("bad_request", "Cloud carrier line is too large"));
+        }
+        line.extend_from_slice(&chunk[..take]);
+        reader.consume(take + usize::from(newline.is_some()));
+        if newline.is_some() {
+            if line.last() == Some(&b'\r') {
+                line.pop();
             }
-            if let Some(v) = p.get("cursor").or_else(|| p.get("nextCursor")) {
-                forwarded.insert("cursor".into(), v.clone());
-            }
+            return Ok(std::mem::take(line));
         }
-        CloudForwardKind::History => {
-            let session = p
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| Refusal::new("bad_request", "sessionId is required"))?;
-            forwarded.insert("session_id".into(), Value::String(session.into()));
-            for (from, to) in [
-                ("afterSeq", "after_seq"),
-                ("beforeSeq", "before_seq"),
-                ("limit", "limit"),
-                ("kinds", "kinds"),
-            ] {
-                if let Some(v) = p.get(from) {
-                    forwarded.insert(to.into(), v.clone());
-                }
-            }
-        }
-        CloudForwardKind::Send => {
-            let session = p
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| Refusal::new("bad_request", "sessionId is required"))?;
-            let prompt = p
-                .get("prompt")
-                .and_then(Value::as_array)
-                .and_then(|a| a.iter().find_map(|v| v.get("text").and_then(Value::as_str)))
-                .ok_or_else(|| Refusal::new("bad_request", "text prompt is required"))?;
-            let prompt_id = p
-                .pointer("/_meta/acpmux/promptId")
-                .and_then(Value::as_str)
-                .or_else(|| p.get("promptId").and_then(Value::as_str))
-                .unwrap_or("cloud-prompt");
-            forwarded.insert("session_id".into(), Value::String(session.into()));
-            forwarded.insert("text".into(), Value::String(prompt.into()));
-            forwarded.insert("prompt_id".into(), Value::String(prompt_id.into()));
-        }
+        // Keep the accumulated bytes outside the future. If select! cancels this
+        // read while a phone frame arrives, the next poll resumes from this exact
+        // partial line instead of dropping it.
     }
-    Ok(CloudRequest::Forward { request: Value::Object(forwarded), call: CloudForward { kind } })
 }
 
-fn adapt_cloud_response(mut response: Value, pending: &mut HashMap<String, CloudForward>) -> Value {
-    let Some(object) = response.as_object_mut() else { return response };
-    let id = object.get("id").cloned().unwrap_or(Value::Null);
-    let call = pending.remove(&cloud_request_key(&id));
-    if object.get("ok").and_then(Value::as_bool) == Some(false) {
-        let message = object.get("error").and_then(Value::as_str).unwrap_or("Cloud request failed");
-        return serde_json::json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":message}});
+async fn apply_cloud_effects(
+    write: &mut tokio::net::unix::OwnedWriteHalf,
+    sender: &ChannelSender,
+    effects: CloudAcpEffects,
+) -> Result<(), ()> {
+    for value in effects.to_native {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        write.write_all(&bytes).await.map_err(|_| ())?;
+        write.write_all(b"\n").await.map_err(|_| ())?;
     }
-    let data = object.remove("data").unwrap_or_else(|| serde_json::json!({}));
-    let result = match call.map(|c| c.kind) {
-        Some(CloudForwardKind::Sessions) => {
-            let sessions = data.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|row| {
-                serde_json::json!({"sessionId":row.get("id").cloned().unwrap_or(Value::Null), "name":row.get("title").cloned().unwrap_or(Value::Null), "status":row.get("state").cloned().unwrap_or(Value::String("unknown".into())), "updatedAt":row.get("updated_at").cloned().unwrap_or(Value::Null)})
-            }).collect::<Vec<_>>();
-            serde_json::json!({"sessions":sessions,"nextCursor":data.get("next_cursor").cloned().unwrap_or(Value::Null)})
-        }
-        Some(CloudForwardKind::History) => {
-            let events = data.get("messages").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().enumerate().map(|(i,row)| {
-                let role = row.get("role").and_then(Value::as_str).unwrap_or("assistant");
-                let kind = if role == "user" { "user_message" } else { "assistant_message_chunk" };
-                serde_json::json!({"seq":i+1,"kind":kind,"msg":{"text":row.get("text").cloned().unwrap_or(Value::Null),"role":role}})
-            }).collect::<Vec<_>>();
-            serde_json::json!({"session":{"sessionId":data.get("session_id").cloned().unwrap_or(Value::Null)},"events":events,"hasMore":false})
-        }
-        Some(CloudForwardKind::Send) | None => serde_json::json!({}),
-    };
-    serde_json::json!({"jsonrpc":"2.0","id":id,"result":result})
+    for value in effects.to_phone {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        sender.send(Bytes::from(bytes)).await.map_err(|_| ())?;
+    }
+    Ok(())
 }
 
 async fn echo(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
@@ -1911,6 +1817,32 @@ mod tests {
         );
         assert_eq!(assembler.push(br#"{"b":1}"#).unwrap().as_deref(), Some(r#"{"b":1}"#));
         assert_eq!(assembler.push(b"not json").unwrap_err().code, "bad_request");
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_preserves_partial_data_when_read_is_cancelled() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        writer.write_all(b"{\"id\":1").await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(5),
+            read_cloud_line(&mut reader, &mut partial),
+        )
+        .await
+        .is_err());
+        assert_eq!(partial, br#"{"id":1"#);
+        writer.write_all(b"}\n").await.unwrap();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap(), br#"{"id":1}"#);
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_rejects_oversize_before_newline() {
+        let (mut writer, reader) = tokio::io::duplex(MAX_CLOUD_NATIVE_LINE + 16);
+        writer.write_all(&vec![b'x'; MAX_CLOUD_NATIVE_LINE + 1]).await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap_err().code, "bad_request");
     }
 
     #[test]
