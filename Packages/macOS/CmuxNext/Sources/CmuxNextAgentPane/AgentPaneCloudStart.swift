@@ -210,6 +210,10 @@ extension AgentPaneCloudStart {
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
         if let size { value["size"] = .string(size) }
+        let now = JSONValue.number(Date().timeIntervalSince1970 * 1000)
+        if step == "machine" { value["machineStartedAt"] = now }
+        if step == "folder" { value["machineFinishedAt"] = now; value["clone"] = .object(["state": .string("done")]) }
+        if step == "opening" { value["harnessStartedAt"] = now; value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

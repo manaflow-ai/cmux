@@ -41,24 +41,30 @@ function cloneDetail(operation: CloudStartupOperation | undefined): string | und
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
-export function startupChecklist(start: CloudStartProgress): ChecklistStep[] {
+const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
+  "cloudStartup.machine": "Set up a Cloud machine", "cloudStartup.clone": "Clone repository", "cloudStartup.setup": "Run setup script", "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.", "cloudStartup.cached": "cached", "cloudStartup.harness": "Started {harness}",
+};
+export function startupChecklist(start: CloudStartProgress, t: Translate = (key, values = {}) => (DEFAULT_STARTUP_STRINGS[key] ?? key).replace("{harness}", String(values.harness ?? "Harness")), now = Date.now()): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
-  const machine: ChecklistStep = { id: "machine", label: "Set up a Cloud machine", status: start.state === "failed" && oldStep < 0 ? "error" : oldStep > 0 || start.initialized ? "done" : oldStep === 0 ? "running" : "pending", duration: elapsed(start.machineStartedAt, start.machineFinishedAt) };
-  const hasRepository = start.hasRepository ?? Boolean(start.repository || start.folder || start.clone) && !start.home;
+  const failedStep = start.state === "failed"
+    ? (oldStep === 0 ? "machine" : oldStep === 1 ? "clone" : oldStep === 2 ? "harness" : start.clone?.state === "running" ? "clone" : start.setup?.state === "running" ? "setup" : "machine")
+    : undefined;
+  const machine: ChecklistStep = { id: "machine", label: t("cloudStartup.machine"), status: failedStep === "machine" ? "error" : oldStep > 0 || start.initialized ? "done" : oldStep === 0 ? "running" : "pending", duration: elapsed(start.machineStartedAt, start.machineFinishedAt, now) };
+  const hasRepository = start.hasRepository ?? (Boolean(start.repository || start.folder || start.clone) && !start.home);
   const cloneStatus = operationStatus(start.clone);
-  const clone: ChecklistStep = { id: "clone", label: "Clone repository", status: !hasRepository ? "skipped" : cloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt), ...((cloneDetail(start.clone) || start.clone?.error) ? { detail: cloneDetail(start.clone) || start.clone?.error } : {}) };
+  const clone: ChecklistStep = { id: "clone", label: t("cloudStartup.clone"), status: !hasRepository ? "skipped" : failedStep === "clone" ? "error" : cloneStatus ?? (oldStep > 1 ? "done" : oldStep === 1 ? "running" : "pending"), duration: elapsed(start.clone?.startedAt, start.clone?.finishedAt, now), ...((cloneDetail(start.clone) || start.clone?.error) ? { detail: cloneDetail(start.clone) || start.clone?.error } : {}) };
   const hasScript = start.setup?.hasScript;
-  const setup: ChecklistStep = { id: "setup", label: "Run setup script", status: hasScript === false ? "skipped" : setupStatus(start.setup) ?? (start.initialized ? "done" : "pending"), duration: elapsed(start.setup?.startedAt, start.setup?.finishedAt), ...(start.setup?.status === "ready" ? { detail: "cached" } : {}), ...(start.setup?.logTail ? { detail: start.setup.logTail, logTail: start.setup.logTail } : {}), ...(hasScript === false ? { detail: "Add a setup script to install dependencies and configure your environment.", action: true } : {}) };
-  const harness: ChecklistStep = { id: "harness", label: `Started ${start.agent || "Harness"}`, status: start.state === "failed" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending", duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt) };
+  const setup: ChecklistStep = { id: "setup", label: t("cloudStartup.setup"), status: hasScript === false ? "skipped" : failedStep === "setup" ? "error" : setupStatus(start.setup) ?? (start.initialized ? "done" : "pending"), duration: elapsed(start.setup?.startedAt, start.setup?.finishedAt, now), ...(start.setup?.status === "ready" ? { detail: t("cloudStartup.cached") } : {}), ...(start.setup?.logTail ? { detail: start.setup.logTail, logTail: start.setup.logTail } : {}), ...(hasScript === false ? { detail: t("cloudStartup.setupHint"), action: true } : {}) };
+  const harness: ChecklistStep = { id: "harness", label: t("cloudStartup.harness", { harness: start.agent || "Harness" }), status: failedStep === "harness" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending", duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt, now) };
   return [machine, clone, setup, harness];
 }
 
-function mark(step: ChecklistStep) {
-  if (step.status === "done") return <Check size={16} />;
-  if (step.status === "running") return <Spinner size={16} loading />;
-  if (step.status === "error") return <AlertCircle size={16} />;
-  if (step.status === "skipped") return <span className="acpmux-cloud-start__skip-mark" aria-hidden />;
-  return <span className="acpmux-cloud-start__pending-mark" aria-hidden />;
+function mark(step: ChecklistStep, t: Translate) {
+  if (step.status === "done") return <><Check size={16} /><span className="visually-hidden">{t("cloudStartup.state.done")}</span></>;
+  if (step.status === "running") return <><Spinner size={16} loading /><span className="visually-hidden">{t("cloudStartup.state.running")}</span></>;
+  if (step.status === "error") return <><AlertCircle size={16} /><span className="visually-hidden">{t("cloudStartup.state.error")}</span></>;
+  if (step.status === "skipped") return <><span className="acpmux-cloud-start__skip-mark" aria-hidden /><span className="visually-hidden">{t("cloudStartup.state.skipped")}</span></>;
+  return <><span className="acpmux-cloud-start__pending-mark" aria-hidden /><span className="visually-hidden">{t("cloudStartup.state.pending")}</span></>;
 }
 
 type Fact = { id: string; label: string; value: string };
@@ -76,8 +82,14 @@ export function CloudStartView({ start, bubble = true, onOpenEnvironment }: { st
   const arm = experimentArm(cloudStartLook);
   const failed = start.state === "failed";
   const [expanded, setExpanded] = useState(!start.initialized);
-  useEffect(() => { if (start.initialized) setExpanded(false); }, [start.initialized]);
-  const rows = startupChecklist(start);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (start.initialized || start.state === "failed") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [start.initialized, start.state]);
+  useEffect(() => { setExpanded(start.initialized !== true); }, [start.initialized]);
+  const rows = startupChecklist(start, t, now);
   const known = facts(start, t);
   const openEnvironment = () => {
     const options = { ...(start.environmentId ? { environmentId: start.environmentId } : {}), ...(start.repository ? { repository: start.repository } : {}), section: "script" as const };
@@ -86,13 +98,13 @@ export function CloudStartView({ start, bubble = true, onOpenEnvironment }: { st
   };
   return <section className="acpmux-cloud-start" data-state={start.state} data-look={arm} data-initialized={start.initialized ? "true" : undefined}>
     {bubble && !failed && <div className="cv-user"><div className="ui-glass cv-user__bubble selectable">{start.task}</div></div>}
-    {!failed && !start.initialized && <output className="acpmux-cloud-start__status"><Spinner size={14} loading /><span>Starting in Cloud</span></output>}
+    {!failed && !start.initialized && <output className="acpmux-cloud-start__status"><Spinner size={14} loading /><span>{t("cloudStart.title")}</span></output>}
     <div className="acpmux-cloud-start__card">
-      <button type="button" className="acpmux-cloud-start__summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><span>{start.initialized ? "Initialized session" : "Initializing session"}</span>{expanded ? <ChevronDown size={14} /> : start.initialized ? <span aria-hidden>›</span> : <ChevronRight size={14} />}</button>
-      {expanded && <div className="acpmux-cloud-start__checklist" aria-label="Cloud startup checklist">{rows.map((step) => <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}><span className="acpmux-cloud-start__mark" aria-hidden>{mark(step)}</span><span className="acpmux-cloud-start__row-label">{step.label}</span>{step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}{step.id === "setup" && step.action ? <span className="acpmux-cloud-start__detail"><button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>Add a setup script</button> to install dependencies and configure your environment.</span> : step.detail ? <span className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}>{step.detail}</span> : null}</div>)}</div>}
+      <button type="button" className="acpmux-cloud-start__summary" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}><span>{start.initialized ? t("cloudStartup.initialized") : t("cloudStartup.title")}</span>{expanded ? <ChevronDown size={14} /> : start.initialized ? <span aria-hidden>›</span> : <ChevronRight size={14} />}</button>
+      {expanded && <div className="acpmux-cloud-start__checklist" aria-label="Cloud startup checklist">{rows.map((step) => <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}><span className="acpmux-cloud-start__mark">{mark(step, t)}</span><span className="acpmux-cloud-start__row-label">{step.label}</span>{step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}{step.id === "setup" && step.action ? <span className="acpmux-cloud-start__detail"><button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>{t("cloudStartup.setupHint")}</button></span> : step.detail ? <span className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}>{step.detail}</span> : null}</div>)}</div>}
     </div>
     {failed && <output className="acpmux-cloud-start__status" role="alert">{start.message ?? t("sandbox.failed")}</output>}
     {known.length > 0 && <ul className="acpmux-cloud-start__chips" data-look={arm}>{known.map((fact) => <li key={fact.id} data-fact={fact.id}>{fact.id === "folder" ? <Folder size={12} /> : <span className="acpmux-cloud-start__label">{fact.label}</span>}<span>{fact.value}</span></li>)}</ul>}
-    {arm === "steps" && !failed && <ol className="acpmux-cloud-start__legacy-steps" aria-hidden>{CLOUD_START_STEPS.map((name, index) => { const current = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1; const state = index < current ? "done" : index === current ? "current" : "next"; return <li key={name} data-step={state}>{state === "done" ? <Check size={12} /> : state === "current" ? <Spinner size={12} loading /> : null}{name}</li>; })}</ol>}
+    {arm === "steps" && !failed && <ol className="acpmux-cloud-start__legacy-steps" aria-hidden>{CLOUD_START_STEPS.map((name, index) => { const current = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1; const state = index < current ? "done" : index === current ? "current" : "next"; return <li key={name} data-step={state}>{name}</li>; })}</ol>}
   </section>;
 }

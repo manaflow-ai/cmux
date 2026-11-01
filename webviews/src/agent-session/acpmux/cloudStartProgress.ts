@@ -107,6 +107,12 @@ function line(value: unknown, max: number): string | undefined {
   return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
 }
 
+function logLine(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+}
+
 /// `current` with the host's push `push` taken in: only for the same start while it runs, field by
 /// field, each checked (anything else in it is ignored). A step never goes back.
 export function cloudStartPushed(
@@ -224,7 +230,7 @@ function setupStatus(value: unknown): CloudStartupSetup | undefined {
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
   const hasScript = typeof record.hasScript === "boolean" ? record.hasScript : typeof record.has_script === "boolean" ? record.has_script : undefined;
-  const logTail = line(record.logTail ?? record.log_tail ?? record.error, 1200);
+  const logTail = logLine(record.logTail ?? record.log_tail, 1200);
   return {
     ...(base ?? { state: "skipped" as const }),
     ...(status && { status }),
