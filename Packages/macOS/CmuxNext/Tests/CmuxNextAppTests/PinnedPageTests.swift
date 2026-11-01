@@ -247,7 +247,9 @@ struct PinnedPageTests {
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `heldKeyReplay`: where a creation hold's keys run again (the app's own unless a test passes another).
+    /// `bridge`: the app reaches the daemon's socket (its path) through this bridge, a proxy a test scripts.
     static func withApp(heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
+                        bridge: (@Sendable (String) -> DaemonBridge)? = nil,
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pinned-\(UUID().uuidString.prefix(8))")
@@ -263,7 +265,10 @@ struct PinnedPageTests {
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: owner.endpointProvider)
+            let owned = owner.endpointProvider
+            var endpoints = owned
+            if let bridge { endpoints = { var endpoint = try await owned(); endpoint.bridge = bridge(endpoint.socketPath); return endpoint } }
+            return DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: endpoints)
         }
         services.windows.restoreWhenLoaded()
         // Registered before restore can suspend or fail, including before the test body starts.
