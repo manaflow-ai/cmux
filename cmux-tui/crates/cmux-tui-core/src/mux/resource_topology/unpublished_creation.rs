@@ -6,7 +6,8 @@
 //! but never public. A workspace creation is rolled back (the staged
 //! workspace closes, the terminal ends) and its failure is committed, so a
 //! failed create leaves nothing half-created. Other creations (a tab, pane
-//! or screen in an existing workspace) keep the indeterminate settlement.
+//! or screen in an existing workspace) keep the indeterminate settlement,
+//! but their terminal ends and its views leave memory first.
 
 use std::sync::PoisonError;
 
@@ -26,6 +27,17 @@ impl Mux {
             return Ok(ResourceCreationSettlement::Pending);
         }
         if recovery.intent.get("workspace_reservation").is_none() {
+            // A tab, pane or screen in an existing workspace keeps the
+            // indeterminate settlement, but its terminal's views leave
+            // memory first and subscribers get their removal: the store
+            // never published them, and the mark below is a write that a
+            // full disk refuses too (fuzz restore h1).
+            if let Some(terminal_id) =
+                recovery.intent["terminal_reservation"]["terminal_id"].as_str()
+                && let Err(error) = self.close_unpublished_terminal(terminal_id)
+            {
+                eprintln!("cmux-tui: a failed creation's terminal could not be closed: {error:#}");
+            }
             self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
             return Ok(ResourceCreationSettlement::Indeterminate);
         }
@@ -83,7 +95,7 @@ impl Mux {
     /// refuses the tombstone (a full disk); that error comes back after.
     /// The creation fence is already held by the caller, so this does not
     /// go through `close_terminal_guarded` (which takes it).
-    fn close_unpublished_terminal(&self, terminal_id: &str) -> anyhow::Result<()> {
+    pub(super) fn close_unpublished_terminal(&self, terminal_id: &str) -> anyhow::Result<()> {
         let tombstoned = {
             let mut registry =
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -100,6 +112,31 @@ impl Mux {
                     self.emit_terminal_registry_changed(&registry, commit.revision);
                 })
         };
+        // Each view leaves the tree with its close delta (a tab or a pane),
+        // so a subscriber drops what the creation showed it.
+        let views = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .terminal_catalog
+                .values()
+                .find(|surface| {
+                    self.resource_terminal_host_identity(surface)
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .map(|runtime| {
+                    state
+                        .surfaces
+                        .iter()
+                        .filter(|(_, view)| view.shares_terminal_runtime(runtime))
+                        .map(|(id, _)| *id)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        let mut tree_changed = false;
+        for view in views {
+            tree_changed |= self.remove_surface_after_registry(view);
+        }
         let (runtime, removed) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let runtime = state
@@ -116,8 +153,14 @@ impl Mux {
                 .unwrap_or_default();
             (runtime, removed)
         };
+        tree_changed |= !removed.is_empty();
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
+        }
+        if tree_changed {
+            // A client that skips a delta (the app at an unchanged
+            // revision) resyncs to the tree without the views.
+            self.emit(MuxEvent::TreeChanged);
         }
         match runtime {
             Some(runtime) => {
