@@ -2710,6 +2710,7 @@ function SlashMenu({
     </div>
   );
 }
+
 function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
   const parts: React.ReactNode[] = [];
   let at = 0;
