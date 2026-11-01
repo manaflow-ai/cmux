@@ -16,6 +16,7 @@ import type {
   AcpmuxOfferResult,
   AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
+  AcpmuxBackgroundTurn,
   AcpmuxCompaction,
   AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
@@ -97,6 +98,7 @@ import { harnessModeName, highestMode } from "./harnessModes";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
+import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
@@ -471,6 +473,8 @@ const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
 /// acpmux's sub-session records (hub/subsessions.rs `RECORD_KIND`): a child started or ended, and
 /// the chat's `limits` changing.
 const SUBSESSION_KIND = "subsession";
+/// acpmux's bracket around a turn the agent ran on its own (conversation/backgroundTurns.ts).
+const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -1245,6 +1249,37 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
+  /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
+  /// sequence number and its ended record's, once heard. A row an event between them made is that
+  /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
+  /// later) waits in `backgroundEnds`.
+  private backgroundSpans: { id: string; from: number; to?: number }[] = [];
+  private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
+
+  /// A background turn's started record at `seq`; how it ended when its ended record came first.
+  openBackground(id: string, seq: number): AcpmuxBackgroundTurn | undefined {
+    if (this.backgroundSpans.some((span) => span.id === id)) return undefined;
+    const ended = this.backgroundEnds.get(id);
+    this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
+    this.backgroundEnds.delete(id);
+    return ended?.turn;
+  }
+
+  /// A background turn's ended record at `seq`, which says how it ended (`turn`).
+  closeBackground(seq: number, turn: AcpmuxBackgroundTurn): void {
+    const span = this.backgroundSpans.find((span) => span.id === turn.id);
+    if (span) span.to = seq;
+    else this.backgroundEnds.set(turn.id, { seq, turn });
+  }
+
+  /// The background turn an event at `order` belongs to.
+  private backgroundAt(order: number): string | undefined {
+    for (let at = this.backgroundSpans.length - 1; at >= 0; at -= 1) {
+      const span = this.backgroundSpans[at]!;
+      if (span.from < order && (span.to === undefined || order < span.to)) return span.id;
+    }
+    return undefined;
+  }
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -1288,6 +1323,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
+    // never is: it starts a turn of its own (acpmux ends the background turn before it).
+    if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
+      const turn = this.backgroundAt(this.order.get(id)!);
+      if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
+    }
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     return super.set(id, row);
   }
@@ -1357,6 +1398,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.order.clear();
     this.local.clear();
     this.latest = 0;
+    this.backgroundSpans = [];
+    this.backgroundEnds.clear();
     super.clear();
   }
 
@@ -1366,6 +1409,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // A Map visits the entries left after a delete, so deleting while iterating is safe.
     for (const row of this.values()) if (!keep(row)) this.delete(row.id);
     this.latest = 0;
+    // The replay hears the background turns' records again.
+    this.backgroundSpans = [];
+    this.backgroundEnds.clear();
   }
 
   /// Moves the rows made without an event after every event, keeping their order: what a lag
@@ -1378,6 +1424,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
+  }
+
+  /// An optimistic row has been accepted by an event: keep its id, but make the event its order.
+  adoptEventOrder(id: string): void {
+    if (!this.has(id)) return;
+    this.local.delete(id);
+    if (this.current !== undefined) {
+      this.order.set(id, this.current);
+      this.latest = Math.max(this.latest, this.current);
+    }
+    this.ordered = undefined;
+    this.snapshot = undefined;
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
@@ -4650,6 +4708,36 @@ export class AcpmuxDirectClient {
     else this.stopSuperseded = true;
   }
 
+  /// A `background_turn` record: its started record makes the turn's line, which the rows its events
+  /// make fold under (OrderedRows `inBackground`); its ended record says whether that turn was
+  /// quiet. acpmux decides that; the pane never does.
+  private reduceBackgroundTurn(event: EventRecord, msg: Record<string, unknown>): void {
+    const record = backgroundTurnRecord(msg);
+    if (!record) return;
+    const { state, ...turn } = record;
+    const id = backgroundTurnRowId(turn.id);
+    const existing = this.rows.get(id);
+    // Its text never runs on into the reply before it, nor the next turn's into its own.
+    this.endAssistantSegment();
+    if (state === "started") {
+      // An older page's started record after its ended one: the line keeps how it ended.
+      const ended = this.rows.openBackground(turn.id, event.seq);
+      if (existing) return;
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at: event.at,
+        seq: event.seq,
+        kind: BACKGROUND_TURN,
+        background: ended ?? turn,
+      });
+      return;
+    }
+    this.rows.closeBackground(event.seq, turn);
+    if (!existing) return;
+    this.rows.set(id, { ...existing, version: existing.version + 1, background: turn });
+  }
+
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
     if (this.interrupting !== undefined) return "sendNow";
     if (this.stopAffectsRunningTurn() && event.seq > this.stopAfterSeq!) return "user";
@@ -5003,6 +5091,8 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === BACKGROUND_TURN_KIND) {
+        this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "policy_unenforced") {
         // The chat's policy is narrower than approve-all and its harness has no mode that asks
         // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
@@ -5207,6 +5297,7 @@ export class AcpmuxDirectClient {
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
         });
+        if (optimisticRowId) this.rows.adoptEventOrder(durableRowId);
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(durableRowId, attachments);
