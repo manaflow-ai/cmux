@@ -63,15 +63,16 @@ struct Status {
     progress: Progress,
     failed: Option<Failed>,
     notes: Vec<&'static str>,
+    /// When done: what the folder has checked out.
+    head: Option<(String, Option<String>)>,
 }
 
 /// One seed.
 pub struct Job {
     id: String,
     folder: PathBuf,
-    /// `(bundle as requested, WORK)`: with `folder`, the retry key.
-    bundle: String,
-    work: String,
+    /// With `folder`, what makes a retry this job ([`StartParams::retry_key`]).
+    key: String,
     status: Mutex<Status>,
 }
 
@@ -90,6 +91,11 @@ impl Job {
 
     pub(super) fn progress(&self, line: &str) {
         self.update(|status| super::git::read_progress(line, &mut status.progress));
+    }
+
+    /// The checked-out commit and branch ref (`refs/heads/...`) when done.
+    pub(super) fn checked_out(&self, head: String, head_ref: Option<String>) {
+        self.update(|status| status.head = Some((head, head_ref)));
     }
 
     pub(super) fn note(&self, note: &'static str) {
@@ -124,6 +130,12 @@ impl Job {
             },
             "notes": status.notes,
         });
+        if let (State::Done, Some((head, head_ref)), Some(object)) =
+            (status.state, status.head, answer.as_object_mut())
+        {
+            object.insert("head".into(), head.into());
+            object.insert("head_ref".into(), head_ref.map_or(Value::Null, Value::from));
+        }
         if let (Some(failed), Some(object)) = (status.failed, answer.as_object_mut()) {
             object.insert("error_code".into(), failed.code.into());
             object.insert("error".into(), failed.error.into());
@@ -204,25 +216,28 @@ impl GitSeedService {
             jobs.by_id.values().filter(|job| job.folder == folder).cloned().collect();
         for job in &same_folder {
             let state = job.status().state;
-            if job.bundle == params.bundle && job.work == params.work && state != State::Failed {
+            if job.key == params.retry_key() && state != State::Failed {
                 return Ok(json!({ "job": job.id }));
             }
             if state == State::Running {
                 return Err(SeedRefusal::bad_request("another seed is running in this folder"));
             }
         }
-        let bundle = place::bundle(&self.roots, &params.bundle)?;
+        let bundle = match params.clone_only {
+            Some(_) => None,
+            None => Some(place::bundle(&self.roots, &params.bundle)?),
+        };
         let job = Arc::new(Job {
             id: new_id(),
             folder: folder.clone(),
-            bundle: params.bundle.clone(),
-            work: params.work.clone(),
+            key: params.retry_key(),
             status: Mutex::new(Status {
                 state: State::Running,
                 phase: Phase::Clone,
                 progress: Progress::default(),
                 failed: None,
                 notes: Vec::new(),
+                head: None,
             }),
         });
         let credentials =

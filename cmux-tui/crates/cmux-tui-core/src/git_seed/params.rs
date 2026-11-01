@@ -17,13 +17,18 @@ struct Wire {
     folder: String,
     url: String,
     repo: String,
-    base: String,
-    bundle: String,
+    #[serde(default)]
+    base: Option<String>,
+    #[serde(default)]
+    bundle: Option<String>,
     #[serde(default)]
     head_ref: Option<String>,
-    head: String,
-    index: String,
-    work: String,
+    #[serde(default)]
+    head: Option<String>,
+    #[serde(default)]
+    index: Option<String>,
+    #[serde(default)]
+    work: Option<String>,
     #[serde(default)]
     stash: Option<String>,
     #[serde(default)]
@@ -32,6 +37,9 @@ struct Wire {
     lfs: bool,
     #[serde(default)]
     since: Option<String>,
+    /// Clone only: the branch, tag or commit to check out.
+    #[serde(default, rename = "ref")]
+    git_ref: Option<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -52,6 +60,19 @@ pub struct StartParams {
     pub lfs: bool,
     /// A delta seed: the WORK commit of the seed this one builds on.
     pub since: Option<String>,
+    /// Clone only (no bundle, no Mac folder): `Some(ref)` with the branch,
+    /// tag or commit to check out (`None` inside: the remote's default).
+    pub clone_only: Option<Option<String>>,
+}
+
+impl StartParams {
+    /// What makes a retry the same job, with the folder.
+    pub fn retry_key(&self) -> String {
+        match &self.clone_only {
+            Some(git_ref) => format!("clone:{}", git_ref.as_deref().unwrap_or("")),
+            None => format!("seed:{}:{}", self.bundle, self.work),
+        }
+    }
 }
 
 impl StartParams {
@@ -59,12 +80,26 @@ impl StartParams {
         let wire: Wire = serde_json::from_value(params.clone())
             .map_err(|error| SeedRefusal::bad_request(format!("invalid params: {error}")))?;
         check_url(&wire.url, &wire.repo)?;
-        for (name, sha) in [
-            ("base", &wire.base),
-            ("head", &wire.head),
-            ("index", &wire.index),
-            ("work", &wire.work),
-        ] {
+        let seed_fields = [&wire.base, &wire.bundle, &wire.head, &wire.index, &wire.work];
+        if seed_fields.iter().all(|field| field.is_none())
+            && wire.stash.is_none()
+            && wire.since.is_none()
+            && wire.head_ref.is_none()
+        {
+            return Self::clone_only(wire);
+        }
+        if wire.git_ref.is_some() {
+            return Err(SeedRefusal::bad_request("ref is for a clone without a bundle"));
+        }
+        let required = |name: &str, value: Option<String>| {
+            value.ok_or_else(|| SeedRefusal::bad_request(format!("{name} is required")))
+        };
+        let base = required("base", wire.base)?;
+        let bundle = required("bundle", wire.bundle)?;
+        let head = required("head", wire.head)?;
+        let index = required("index", wire.index)?;
+        let work = required("work", wire.work)?;
+        for (name, sha) in [("base", &base), ("head", &head), ("index", &index), ("work", &work)] {
             check_sha(name, sha)?;
         }
         if let Some(stash) = &wire.stash {
@@ -82,18 +117,66 @@ impl StartParams {
         Ok(Self {
             folder: wire.folder,
             url: wire.url,
-            base: wire.base,
-            bundle: wire.bundle,
+            base,
+            bundle,
             branch,
-            head: wire.head,
-            index: wire.index,
-            work: wire.work,
+            head,
+            index,
+            work,
             stash: wire.stash,
             sparse: wire.sparse,
             lfs: wire.lfs,
             since: wire.since,
+            clone_only: None,
         })
     }
+
+    fn clone_only(wire: Wire) -> Result<Self, SeedRefusal> {
+        if let Some(git_ref) = &wire.git_ref {
+            check_clone_ref(git_ref)?;
+        }
+        if wire.sparse.is_some() {
+            return Err(SeedRefusal::bad_request("sparse needs a seed bundle"));
+        }
+        Ok(Self {
+            folder: wire.folder,
+            url: wire.url,
+            base: String::new(),
+            bundle: String::new(),
+            branch: None,
+            head: String::new(),
+            index: String::new(),
+            work: String::new(),
+            stash: None,
+            sparse: None,
+            lfs: wire.lfs,
+            since: None,
+            clone_only: Some(wire.git_ref),
+        })
+    }
+}
+
+/// A clone's `ref`: a full object name, or a branch or tag name in
+/// CloudMachineRepo's safe subset (letters, digits, `.`, `_`, `-`, `/`; no
+/// part starting with `.` or ending with `.lock`, no `..`, not `HEAD`).
+fn check_clone_ref(git_ref: &str) -> Result<(), SeedRefusal> {
+    if check_sha("ref", git_ref).is_ok() {
+        return Ok(());
+    }
+    let refused = || SeedRefusal::bad_request("ref must be a branch, tag or full commit");
+    let safe = !git_ref.is_empty()
+        && git_ref.len() <= 255
+        && git_ref != "HEAD"
+        && !git_ref.starts_with("HEAD/")
+        && !git_ref.starts_with('-')
+        && !git_ref.starts_with('/')
+        && !git_ref.ends_with('/')
+        && !git_ref.ends_with('.')
+        && !git_ref.contains("..")
+        && !git_ref.contains("//")
+        && git_ref.split('/').all(|part| !part.starts_with('.') && !part.ends_with(".lock"))
+        && git_ref.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-/".contains(&byte));
+    if safe { Ok(()) } else { Err(refused()) }
 }
 
 /// `url` is exactly `https://github.com/<owner>/<name>.git` and `repo` is
@@ -187,6 +270,36 @@ mod tests {
         for sha in ["", "abc", &"A".repeat(40), &"g".repeat(40), &"a".repeat(41), "HEAD"] {
             assert!(check_sha("x", sha).is_err(), "{sha}");
         }
+    }
+
+    #[test]
+    fn clone_refs_are_a_safe_subset() {
+        for git_ref in ["main", "feature/x", "v1.2.3", &"a".repeat(40)] {
+            assert!(check_clone_ref(git_ref).is_ok(), "{git_ref}");
+        }
+        for git_ref in ["", "HEAD", "-x", "a..b", "a b", "x.lock", "a~1", "/a", "a/", ".a", "a//b"]
+        {
+            assert!(check_clone_ref(git_ref).is_err(), "{git_ref}");
+        }
+    }
+
+    #[test]
+    fn a_start_is_a_seed_or_a_clone_never_half_of_each() {
+        let clone = StartParams::parse(&serde_json::json!({
+            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "ref": "v1",
+        }))
+        .unwrap();
+        assert_eq!(clone.clone_only, Some(Some("v1".into())));
+        let default = StartParams::parse(&serde_json::json!({
+            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
+            "bundle": null, "head": null, "index": null, "work": null, "stash": null, "since": null, "base": null,
+        }))
+        .unwrap();
+        assert_eq!(default.clone_only, Some(None));
+        let half = StartParams::parse(&serde_json::json!({
+            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "bundle": "/h/b",
+        }));
+        assert_eq!(half.unwrap_err().code, "seed.bad_request");
     }
 
     #[test]

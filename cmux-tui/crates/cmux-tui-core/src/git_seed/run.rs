@@ -50,7 +50,8 @@ pub struct Seed {
     job: Arc<Job>,
     params: StartParams,
     folder: PathBuf,
-    bundle: PathBuf,
+    /// The Mac's bundle (`None`: clone only).
+    bundle: Option<PathBuf>,
     git: Git,
     credentials: Vec<Credential>,
     /// The path that worked last (the first one until one has).
@@ -62,7 +63,7 @@ impl Seed {
         job: Arc<Job>,
         params: StartParams,
         folder: PathBuf,
-        bundle: PathBuf,
+        bundle: Option<PathBuf>,
         git: Git,
         credentials: Vec<Credential>,
     ) -> Self {
@@ -71,6 +72,18 @@ impl Seed {
     }
 
     pub fn run(mut self) -> Result<(), Failed> {
+        self.steps()?;
+        self.report_head();
+        Ok(())
+    }
+
+    fn steps(&mut self) -> Result<(), Failed> {
+        if let Some(git_ref) = self.params.clone_only.clone() {
+            self.clone_new()?;
+            self.checkout_ref(git_ref.as_deref())?;
+            self.submodules(None)?;
+            return self.lfs(None);
+        }
         let Some(since) = self.params.since.clone() else {
             self.clone_or_fetch()?;
             self.base()?;
@@ -78,7 +91,7 @@ impl Seed {
             self.checkout()?;
             self.submodules(None)?;
             self.lfs(None)?;
-            let _ = std::fs::remove_file(&self.bundle);
+            self.remove_bundle();
             return Ok(());
         };
         // A delta seed: no clone and no network for the base.
@@ -89,8 +102,77 @@ impl Seed {
         let changed = self.changed_paths(&since)?;
         self.submodules(Some(&changed))?;
         self.lfs(Some(&changed))?;
-        // The bundle has been applied; it is not needed again.
-        let _ = std::fs::remove_file(&self.bundle);
+        self.remove_bundle();
+        Ok(())
+    }
+
+    /// The bundle has been applied; it is not needed again.
+    fn remove_bundle(&self) {
+        if let Some(bundle) = &self.bundle {
+            let _ = std::fs::remove_file(bundle);
+        }
+    }
+
+    /// Records what the folder has checked out, for the status answer.
+    fn report_head(&self) {
+        let read = |args: &[&str]| {
+            self.git(args).ok().map(|out| String::from_utf8_lossy(&out).trim().to_owned())
+        };
+        if let Some(head) = read(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]) {
+            let head_ref = read(&["symbolic-ref", "-q", "HEAD"]).filter(|name| !name.is_empty());
+            self.job.checked_out(head, head_ref);
+        }
+    }
+
+    /// Clone only: the folder must not exist or be empty (a clone already
+    /// there is refused too: this mode never touches an existing checkout).
+    fn clone_new(&mut self) -> Result<(), Failed> {
+        let folder = self.folder.clone();
+        let not_empty =
+            std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some());
+        if not_empty {
+            return Err(failed("seed.folder_not_empty", "the folder exists and is not empty"));
+        }
+        self.clone_into(&folder)
+    }
+
+    /// Checks out `git_ref` (a remote branch, tracked; a tag or commit,
+    /// detached), else the remote's default branch.
+    fn checkout_ref(&mut self, git_ref: Option<&str>) -> Result<(), Failed> {
+        self.job.enter(Phase::Checkout);
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        let Some(git_ref) = git_ref else {
+            return self.git(&["checkout", "--quiet", "--force"]).map(drop).map_err(wrap);
+        };
+        let exists =
+            |reference: &str| self.git(&["rev-parse", "--verify", "--quiet", reference]).is_ok();
+        let remote_branch = format!("refs/remotes/origin/{git_ref}");
+        let tag = format!("refs/tags/{git_ref}^{{commit}}");
+        if exists(&remote_branch) {
+            let upstream = format!("origin/{git_ref}");
+            self.git(&[
+                "checkout", "--quiet", "--force", "-B", git_ref, "--track", &upstream, "--",
+            ])
+            .map_err(wrap)?;
+            return Ok(());
+        }
+        if exists(&tag) {
+            self.git(&["checkout", "--quiet", "--force", "--detach", &tag, "--"]).map_err(wrap)?;
+            return Ok(());
+        }
+        let commit = format!("{git_ref}^{{commit}}");
+        if !exists(&commit) && git_ref.len() >= 40 {
+            let folder = self.folder.clone();
+            let sha = git_ref.to_owned();
+            let _ = self.net(Some(&folder), &["fetch", "--progress", "origin", &sha], &mut || {});
+        }
+        if !exists(&commit) {
+            return Err(failed(
+                "seed.checkout_failed",
+                format!("no branch, tag or commit {git_ref} in the repository"),
+            ));
+        }
+        self.git(&["checkout", "--quiet", "--force", "--detach", &commit, "--"]).map_err(wrap)?;
         Ok(())
     }
 
@@ -149,6 +231,13 @@ impl Seed {
         }
         check_folder(&self.git, &folder, &self.params.url)
             .map_err(|refusal| failed(refusal.code, refusal.message))?;
+        self.clone_into(&folder)
+    }
+
+    /// A blobless clone without a checkout into the (absent or empty) folder.
+    fn clone_into(&mut self, folder: &Path) -> Result<(), Failed> {
+        self.job.enter(Phase::Clone);
+        let folder = folder.to_path_buf();
         let existed = folder.exists();
         let url = self.params.url.clone();
         let target = self.folder_str();
@@ -233,7 +322,10 @@ impl Seed {
 
     fn apply_bundle(&mut self) -> Result<(), Failed> {
         self.job.enter(Phase::Bundle);
-        let bundle = self.bundle.display().to_string();
+        let Some(bundle) = &self.bundle else {
+            return Err(failed("seed.bundle_invalid", "no bundle"));
+        };
+        let bundle = bundle.display().to_string();
         let invalid = |failure: Failure| step_failed(&failure, "seed.bundle_invalid");
         self.git(&["bundle", "verify", &bundle]).map_err(invalid)?;
         // A bundle is a local file: the one place a seed reads the file

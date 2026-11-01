@@ -547,3 +547,35 @@ fn the_wire_answers_in_the_daemon_envelope() {
     assert!(frame_command(r#"{"id":1,"cmd":"git.seed.cancel"}"#).is_none());
     assert!(advertised().is_none(), "tests never install the fs owner");
 }
+
+fn clone_params(folder: &Path, git_ref: Option<&str>) -> Value {
+    json!({ "folder": folder, "url": URL, "repo": "o/n", "ref": git_ref, "lfs": false })
+}
+
+#[test]
+fn a_clone_only_start_checks_out_the_default_branch_or_a_tag() {
+    let world = World::new("clone");
+    git(&world.mac, &["tag", "v1"]);
+    write(&world.mac.join("a"), "a\nafter the tag\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "after"]);
+    git(&world.mac, &["push", "-q", "origin", "main", "v1"]);
+    let tip = git(&world.mac, &["rev-parse", "HEAD"]);
+    let folder = world.home.join("default");
+    let status = seed(&world, &clone_params(&folder, None));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["head"], tip.as_str());
+    assert_eq!(status["head_ref"], "refs/heads/main");
+    assert_eq!(std::fs::read_to_string(folder.join("a")).unwrap(), "a\nafter the tag\n");
+    assert_eq!(git(&folder, &["status", "--porcelain"]), "");
+    let tagged = world.home.join("tagged");
+    let status = seed(&world, &clone_params(&tagged, Some("v1")));
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["head"], world.base.as_str());
+    assert_eq!(status["head_ref"], Value::Null, "a tag is detached");
+    assert_eq!(std::fs::read_to_string(tagged.join("a")).unwrap(), "a\n");
+    let missing = world.home.join("missing");
+    let status = seed(&world, &clone_params(&missing, Some("no-such-branch")));
+    assert_eq!(status["error_code"], "seed.checkout_failed", "{status}");
+    let status = seed(&world, &clone_params(&folder, None));
+    assert_eq!(status["error_code"], "seed.folder_not_empty", "{status}");
+}
