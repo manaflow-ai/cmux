@@ -151,12 +151,17 @@ final class NewTabSparePool {
             self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
             return spare?.view
         }
-        // A tab opening an existing chat of this Mac adopts it only once it is connected and drew
-        // (SpareSessionAdoption): it switches to the chat in place. One still loading stays here.
+        // A tab opening an existing chat of this Mac adopts it only once its client is connected
+        // (SpareSessionAdoption): it switches to the chat in place. One still connecting stays here,
+        // and the tab opens cold as before: adopted, it would hold the open behind its chat list.
         services.agentTabs.takeConnectedSpare = { [weak self] in
-            guard let self, let spare = slot.peek, spare.model.hasHandshake, spare.model.hasPainted,
+            guard let self, let spare = slot.peek,
+                  Self.servesChat(handshake: spare.model.hasHandshake, painted: spare.model.hasPainted,
+                                  clientReady: spare.model.clientReady,
+                                  lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                  thermal: ProcessInfo.processInfo.thermalState),
                   let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
-            return take(for: window, size: nil)?.view
+            return take(for: window, size: nil, refill: .whenQuiet)?.view
         }
         observeWindows()
         if let window = services.keyWindowSource().flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
@@ -249,12 +254,31 @@ final class NewTabSparePool {
         fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
     }
 
+    /// When the next spare is made after one is handed out.
+    enum Refill {
+        /// On the next main-actor turn: a New Tab or new workspace, so the next Cmd-T finds one.
+        case now
+        /// Once input is quiet (``idleInput``): an existing chat took it, and its page is still
+        /// attaching that chat. A new page's load on the main thread would land in that open,
+        /// and in the next clicks of someone going down the sidebar.
+        case whenQuiet
+    }
+
+    /// Whether the parked spare may serve a tab opening an existing chat (``SpareSessionAdoption``):
+    /// it answered its handshake, drew, and its client is connected (`pane.clientReady`). Not in
+    /// Low Power Mode or at serious thermal state: each such open would take the spare and make
+    /// another page; the tab opens cold instead, and the spare stays for New Tab.
+    nonisolated static func servesChat(handshake: Bool, painted: Bool, clientReady: Bool, lowPower: Bool,
+                                       thermal: ProcessInfo.ThermalState) -> Bool {
+        handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
+    }
+
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
-    /// The caller adopts it at once; the next spare follows when input is quiet.
+    /// The caller adopts it at once; the next spare follows as `refill` says.
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
-    func take(for window: NSWindow?, size: NSSize?) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
+    func take(for window: NSWindow?, size: NSSize?, refill: Refill = .now) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
@@ -262,7 +286,7 @@ final class NewTabSparePool {
         // Hand the parked page out now, then start making its replacement without waiting for
         // the user's input to go quiet. The replacement is background work on the next turn;
         // a later New Tab click therefore does not fall back to a cold mount.
-        defer { scheduleWarmImmediately() }
+        defer { if refill == .now { scheduleWarmImmediately() } else { scheduleWarm() } }
         snapshotGeneration &+= 1
         view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false

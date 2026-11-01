@@ -9788,6 +9788,8 @@ function AcpmuxPane() {
             catalogClientId.current += 1;
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
+            // Until a client connects again, an open handed this page would wait for that connect.
+            if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
             // Quiet while it comes back: nothing shows until the handshakes fail past the deadline.
             failingSince = Date.now();
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
@@ -10609,6 +10611,9 @@ function AcpmuxPane() {
         };
         // An adoption that came while this page was still connecting runs on this client.
         runPendingAdoption.current();
+        // The host may now hand this page (a prewarmed New Tab page) to a tab opening an existing
+        // chat: its actions answer, so the switch attaches at once (NewTabSparePool.servesChat).
+        if (!mock) void postNative("pane.clientReady", { ready: true }).catch(() => undefined);
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
           snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current) : undefined,

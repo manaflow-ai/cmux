@@ -27,6 +27,10 @@ public final class AgentPaneModel {
     /// own give-up path, each of which keeps the fade.
     public internal(set) var paintedFromKeptTail = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
+    /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
+    /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
+    @ObservationIgnored public internal(set) var clientReady = false
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
@@ -340,7 +344,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
@@ -365,6 +369,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .commandAvailability(let commands):
             pageCommands = Set(commands)
+            return AgentPaneReply.success()
+        case .clientReady(let ready):
+            clientReady = ready
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])

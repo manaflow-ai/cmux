@@ -35,8 +35,47 @@ struct SpareSessionAdoptionTests {
         let reply = await spare.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
         try #require(reply["value"] is [String: Any], "\(reply)")
         _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
-        try #require(spare.model.hasHandshake && spare.model.hasPainted)
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.clientReady", "params": ["ready": true]]))
+        try #require(spare.model.hasHandshake && spare.model.hasPainted && spare.model.clientReady)
         return spare
+    }
+
+    /// The page says when its acpmux client is connected (`pane.clientReady`); a new handshake (a
+    /// reload, a reconnect) starts it over. Reporting it touches nothing: the spare stays untouched.
+    @Test func thePageReportsItsClientReady() async throws {
+        let tabs = Self.run(records: [:])
+        let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
+        #expect(AgentPaneRequest(body: ["method": "pane.clientReady", "params": ["ready": true]]) == .clientReady(true))
+        #expect(AgentPaneRequest(body: ["method": "pane.clientReady", "params": [:]]) == .unsupported("pane.clientReady"))
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        #expect(!spare.model.clientReady)
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.clientReady", "params": ["ready": true]]))
+        #expect(spare.model.clientReady)
+        #expect(!spare.model.userTouched, "a ready report counted as the person's touch")
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.clientReady", "params": ["ready": false]]))
+        #expect(!spare.model.clientReady)
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "pane.clientReady", "params": ["ready": true]]))
+        _ = await spare.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        #expect(!spare.model.clientReady, "a new handshake kept the old connection's ready")
+    }
+
+    /// HQ#5914 finding 1, review of #27759: a spare whose client is still connecting is not taken
+    /// for an existing chat (the open would wait behind its chat list), nor in Low Power Mode or
+    /// at serious thermal state (each open would make another page).
+    @Test func whichSpareServesAChat() {
+        func serves(handshake: Bool = true, painted: Bool = true, clientReady: Bool = true, lowPower: Bool = false,
+                    thermal: ProcessInfo.ThermalState = .nominal) -> Bool {
+            NewTabSparePool.servesChat(handshake: handshake, painted: painted, clientReady: clientReady,
+                                       lowPower: lowPower, thermal: thermal)
+        }
+        #expect(serves())
+        #expect(serves(thermal: .fair))
+        #expect(!serves(handshake: false))
+        #expect(!serves(painted: false))
+        #expect(!serves(clientReady: false))
+        #expect(!serves(lowPower: true))
+        #expect(!serves(thermal: .serious))
+        #expect(!serves(thermal: .critical))
     }
 
     @Test func anExistingChatOpensOnTheConnectedSpare() async throws {
