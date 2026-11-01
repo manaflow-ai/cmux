@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
+import Foundation
 import Testing
 
 /// `cloud.startChat`'s harness login (Leo, 2026-10-31: "A TOKEN GETS PASSED"; DEV and dogfood only).
@@ -8,13 +9,13 @@ struct CloudStartChatLoginTests {
     typealias Step = CloudStartChat.LoginStep
 
     @Test func theSettingWinsElseOnlyDogfoodBuildsPassALogin() {
-        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: nil))
-        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: nil))
-        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: true))
-        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: true))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, setting: nil))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, setting: nil))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, setting: true))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, setting: true))
         // `defaults write ... cmux.cloud.passHarnessLogin -bool NO`: a DEV build behaves as production.
-        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: true, setting: false))
-        #expect(!CloudStartChat.passesHarnessLogin(isDogfoodBuild: false, setting: false))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, setting: false))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, setting: false))
     }
 
     /// The NEXT nightly is dogfood (only the team uses NEXT Cloud), so it passes the login by
@@ -23,7 +24,20 @@ struct CloudStartChatLoginTests {
                       ("com.cmuxterm.app", false, false), ("com.cmuxterm.app.rc", false, false)])
     func dogfoodBundlesPassALoginByDefault(bundleID: String, isDebugBuild: Bool, passes: Bool) {
         let dogfood = DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
-        #expect(CloudStartChat.passesHarnessLogin(isDogfoodBuild: dogfood, setting: nil) == passes)
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: dogfood, setting: nil) == passes)
+    }
+
+    /// The switch reads `cmux.cloud.passHarnessLogin` from the defaults it is given.
+    @Test func theDefaultsKeyIsTheSwitch() throws {
+        let suite = "CloudStartChatLoginTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
+        defaults.set(false, forKey: "cmux.cloud.passHarnessLogin")
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
+        defaults.set(true, forKey: "cmux.cloud.passHarnessLogin")
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
     }
 
     @Test func harnessFamiliesMapToTheirProvider() {

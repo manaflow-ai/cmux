@@ -416,8 +416,8 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         (None, _, false) => "the daemon was shut down".to_owned(),
     };
     let build = match daemon_build {
-        Some(b) if b != crate::hub::BUILD => {
-            format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD)
+        Some(b) if b != crate::hub::build() => {
+            format!(" It ran build {b}; this command is build {}.", crate::hub::build())
         }
         _ => String::new(),
     };
