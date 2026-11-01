@@ -112,6 +112,11 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .testTarget(
+            name: "CmuxiOSPushTests",
+            dependencies: ["CmuxiOSPush", .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSIdentity",
             dependencies: [
