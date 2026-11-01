@@ -300,7 +300,11 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
-    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN
+        .iter()
+        .copied()
+        .chain(crate::shell_integration::inherited_keys_to_unset(&launch.env))
+    {
         env.remove(OsStr::new(key));
     }
     env

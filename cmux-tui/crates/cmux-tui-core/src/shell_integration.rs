@@ -213,10 +213,18 @@ pub fn inherited_keys_to_unset(env: &[(String, String)]) -> Vec<&'static str> {
 }
 
 fn inherited_keys_to_unset_from(
-    _env: &[(String, String)],
-    _inherited: &dyn Fn(&str) -> Option<String>,
+    env: &[(String, String)],
+    inherited: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<&'static str> {
-    Vec::new()
+    let own = |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone());
+    // An incognito terminal keeps its markers; a daemon started outside an
+    // incognito terminal has none to pass on.
+    if is_incognito(&own) || !is_incognito(inherited) {
+        return Vec::new();
+    }
+    std::iter::once(INCOGNITO_ENV)
+        .chain(["fish_private_mode", "HISTFILE"].into_iter().filter(|key| own(key).is_none()))
+        .collect()
 }
 
 /// Whether `env` is an incognito terminal's.
@@ -268,8 +276,10 @@ fn integrate_with(
     let lookup = |key: &str| -> Option<String> { own(key).or_else(|| inherited(key)) };
     // An incognito shell is integrated even under the opt-outs: the
     // integration is what keeps its history off (design/spaces.md
-    // "Incognito": nothing kept).
-    let incognito = is_incognito(&lookup);
+    // "Incognito": nothing kept). Only the launch says so: the daemon's own
+    // environment carries an incognito terminal's marker when the daemon
+    // started in one ([`inherited_keys_to_unset`]).
+    let incognito = is_incognito(&own);
     if lookup(OPT_OUT_ENV).as_deref() == Some("none") && !incognito {
         return ShellLaunch { command, env: extra_env };
     }

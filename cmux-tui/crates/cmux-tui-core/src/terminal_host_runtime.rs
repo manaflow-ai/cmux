@@ -621,8 +621,12 @@ mod unix {
                 command.env(key, value);
             }
         }
-        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
-            command.env_remove(*key);
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN
+            .iter()
+            .copied()
+            .chain(crate::shell_integration::inherited_keys_to_unset(&launch.extra_env))
+        {
+            command.env_remove(key);
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
