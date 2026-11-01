@@ -100,6 +100,18 @@ HEAVY_CHECKS = frozenset({
     "cmux-next generated files (shared build)",
     "wait for the same-tree cmux-tui",
 })
+# cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml) and the jobs it carries: a
+# feat-cmux-next push no longer runs them (cmuxterm-hq#5424).
+BASE_TIER_TITLE = "cmux-next base tier · "
+# How many base tier runs a job's newest verdict is looked for in (a run whose tree was not
+# published yet skips the tree jobs; its same-tree run, a later run, carries them).
+BASE_TIER_LOOKBACK = 6
+BASE_TIER_JOBS = frozenset({
+    "cmux app scheme compile (Debug)",
+    "cmux-next daemon tests",
+    "cmux-next generated files",
+    "cmux-next crash ends the app",
+})
 # One job, many static checks. Its last step lists each red one; the queue
 # compares those, not the job, with the base (one base red never hides another).
 CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -387,15 +399,20 @@ def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
     return checks
 
 
+# Conclusions that say nothing about the code (merge_guard.py: SETTLED leaves them out).
+SILENT = frozenset({"cancelled", "skipped"})
+
+
 def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str, str, str]]:
     """One (name, status, conclusion) per check: its newest run, by start time.
 
     A head keeps every run of a check (a rerun, a second workflow event, a
     concurrency-cancelled one), and an old red would otherwise hold the PR after
     a later run passed. A run not started yet counts as the newest. A cancelled
-    newest run says nothing about the code, so the newest run of the same check
-    that finished otherwise stands instead (a superseded run cancelled late);
-    with none, the cancelled run counts."""
+    or skipped newest run says nothing about the code, so the newest run of the
+    same check that finished otherwise stands instead (a superseded run
+    cancelled late, or a label event a workflow skips: a `risk:*` swap must not
+    hide a red); with none, the cancelled or skipped run counts."""
     by_key: dict[str, list[tuple[str, str, str, str, str]]] = {}
     for run in runs:
         by_key.setdefault(run[0], []).append(run)
@@ -404,8 +421,8 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
         # Stable sort: among runs with the same start time, the later one in the rollup wins.
         ordered = sorted(items, key=lambda run: run[4] or "\uffff")
         newest = ordered[-1]
-        if newest[2] == "completed" and newest[3] == "cancelled":
-            finished = [run for run in ordered if run[2] == "completed" and run[3] != "cancelled"]
+        if newest[2] == "completed" and newest[3] in SILENT:
+            finished = [run for run in ordered if run[2] == "completed" and run[3] not in SILENT]
             if finished:
                 newest = finished[-1]
         checks.append((newest[1], newest[2], newest[3]))
@@ -1314,8 +1331,8 @@ class Controller:
         return sorted(failed)
 
     def job_log(self, job_id: int | str) -> str | None:
-        # The job's log, readable while the rest of its run still goes.
-        # A gh too old for the escape flag is asked once more without it; any other failure stays None.
+        # The job's log, readable while the rest of its run still goes. The classifier
+        # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
         got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
         if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
@@ -1343,9 +1360,9 @@ class Controller:
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
-        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+        if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        crashes = base_red_excuse.crash_signals(log)  # a non-test job's (a test job's crash returned above)
+        crashes = base_red_excuse.crash_signals(log)  # test_reds covers cut-short evidence; this adds step signals.
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
@@ -1456,7 +1473,52 @@ class Controller:
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
         self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
+        # The base tier's jobs fall back to its newest run only where the base's own push run gave them no
+        # verdict: with coalescing off, or a push that kept its scheme compile, the exact base decides.
+        judged = self.judged_jobs(done[0]["id"]) if done else set()
+        self.base_failures |= {red for red in self.base_tier_failures() if red.split(":", 1)[0] not in judged}
         return self.base_failures
+
+    def judged_jobs(self, run_id: int) -> set[str]:
+        """The jobs of a run that ended with a verdict (passed or failed outright)."""
+        jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
+        return {job["name"] for job in jobs if (job.get("conclusion") or "") in OUTRIGHT_RED | {"success"}}
+
+    def base_tier_failures(self) -> set[str]:
+        """Outright reds of the base's newest base tier verdict for each of its jobs (cmuxterm-hq#5424).
+
+        A feat-cmux-next push leaves daemon tests, generated files and the Debug scheme compile to
+        a `cmux-next base tier · <sha>` dispatch at most every 15 minutes, so the base's push run has
+        no verdict for them. For each job, the newest completed base tier run that ran it to a verdict
+        (passed or failed outright) stands in, named with its commit and age. A run that skipped the
+        job (its cmux-tui tree was not published yet, so its same-tree run carries it) is passed over
+        for that job, so it never hides an older red. A red the base head fixed shows as inherited.
+        """
+        runs = self.gh.runs(HEAVY_WORKFLOW, f"branch={BASE}&event=workflow_dispatch&status=completed&per_page=50")
+        # A cancelled base tier run (the kick cancels superseded ones before a Mac job starts) has no verdict:
+        # it never counts toward the lookback.
+        tiers = [run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
+                 and run.get("conclusion") not in ("skipped", "cancelled")][:BASE_TIER_LOOKBACK]
+        failed: set[str] = set()
+        pending = set(BASE_TIER_JOBS)
+        for tier in tiers:
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{tier['id']}/jobs?per_page=100&filter=latest")["jobs"]
+            tested = tier["display_title"][len(BASE_TIER_TITLE):]
+            for job in jobs:
+                name, conclusion = job.get("name") or "", job.get("conclusion") or ""
+                if name not in pending or conclusion not in OUTRIGHT_RED | {"success"}:
+                    continue
+                pending.discard(name)
+                reds = self.expand_job(name, job["id"], job) if conclusion in OUTRIGHT_RED else set()
+                failed |= reds
+                log(f"base tier verdict for {name} from {tier.get('html_url') or tier['id']} at {tested[:12]} "
+                    f"(created {tier.get('created_at', '?')}; the newest for it, not necessarily the base head): "
+                    f"{', '.join(sorted(reds)) or 'passed'}")
+            if not pending:
+                break
+        if pending:
+            log(f"no base tier verdict in the newest {len(tiers)} base tier runs for: {', '.join(sorted(pending))}")
+        return failed
 
     def stop_base_probe(self) -> None:
         """A batch that ends before its probe does cancels the probe's run."""

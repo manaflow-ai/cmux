@@ -25,6 +25,9 @@ public nonisolated enum AppPlatformResources {
     /// BUNDLED marker): whole packages, which the local daemon's supervisor
     /// reads as its first-party directory (`CMUX_APPS_FIRST_PARTY_DIR`).
     public static var firstParty: URL { root.appending(path: "first-party", directoryHint: .isDirectory) }
+    /// The App Store examples (`samples/apps/<name>` with a STORE marker): whole packages the
+    /// local daemon's supervisor lists as third-party apps the user installs (`CMUX_APPS_DIRS`).
+    public static var storeExamples: URL { root.appending(path: "store", directoryHint: .isDirectory) }
 
     /// The bundled sample manifests (sorted by directory name). Reads the
     /// disk: call it off the main actor (`preload`), or in tests and the

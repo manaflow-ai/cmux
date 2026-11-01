@@ -1,0 +1,9 @@
+{
+  "title": "Sidebar empty group",
+  "steps": [
+    {"title": "Launch: the sidebar as it opens", "wait": 2, "shot": false},
+    {"title": "A new group with no workspaces: its open row offers a + (user 17912)", "cmux": ["workspace", "group", "create", "--name", "Sleep alarm"], "wait": 2},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

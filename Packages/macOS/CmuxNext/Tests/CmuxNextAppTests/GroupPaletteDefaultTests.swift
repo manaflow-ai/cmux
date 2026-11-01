@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// and a group header's more button opens his group editor (cx-rcby), not the
 /// right-click menu. #18991 and #19179 had moved the colors onto the theme's ANSI
 /// palette, and #19019 had pointed the more button at the full menu.
-@MainActor @Suite(.serialized) struct GroupPaletteDefaultTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupPaletteDefaultTests {
     /// Lawrence's palette: hue in degrees and relative chroma.
     static let hues: [GroupColor: (hue: CGFloat, chroma: CGFloat)] = [
         .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
@@ -136,8 +137,9 @@ import Testing
         sidebar.contextMenuProvider = { _ in menuAsked = true; return nil }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)
@@ -174,8 +176,9 @@ import Testing
         var asked: [SidebarContextTarget] = []
         sidebar.contextMenuProvider = { target in asked.append(target); return menu }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         sidebar.list.reload(animated: false)
         sidebar.layoutSubtreeIfNeeded()

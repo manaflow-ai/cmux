@@ -10,16 +10,15 @@ stalled behind them. They read `vars.LINUX_RUNNER || 'blacksmith-4vcpu-...'`
 (and 2 vCPU for two others), a size outside the declared set.
 
 Leo's rule (2026-10-28): no job names one runner size; every job resolves its
-runner from one declared set (Blacksmith 32 vCPU, Blacksmith 16 vCPU, the GCP
-pool), with stall-aware failover. In this workflow that is the expression the
+runner from one declared set (the GCP pool, then the Blacksmith size and failover
+.github/runners.json linux_sizes measured for the job), with stall-aware failover. In this workflow that is the expression the
 publish jobs already use:
 
     !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER
-    || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'
-    || 'blacksmith-32vcpu-ubuntu-2404'
+    || vars.CI_CLOUD_OVERFLOW_SAVED && '<failover>' || '<size>'
 
-A non-Blacksmith pool named by LINUX_RUNNER wins; otherwise 32 vCPU, and 16 vCPU
-while the overflow switch (scripts/ci/cloud_overflow_switch.py) has failed
+A non-Blacksmith pool named by LINUX_RUNNER wins; otherwise the job's size, and its
+failover while the overflow switch (scripts/ci/cloud_overflow_switch.py) has failed
 over. A Blacksmith size the switch or anyone writes into LINUX_RUNNER (it has
 named blacksmith-4vcpu-ubuntu-2404) is ignored, so it can never pin these jobs.
 
@@ -40,11 +39,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
 from test_ci_tui_routes_avoid_nightly_label import route  # noqa: E402
+from blacksmith_linux_sizes import failover_label, size_label  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
-BLACKSMITH_SET = {BIG, SMALL}
+
+
+def blacksmith_set(job: str) -> set[str]:
+    """The job's Blacksmith size and its failover, from .github/runners.json linux_sizes (Leo, 2026-11-01: "we
+    should have resized a long-ass time ago")."""
+    return {size_label(WORKFLOW.name, job), failover_label(WORKFLOW.name, job)}
 # A non-Blacksmith Linux pool LINUX_RUNNER may name (the GCP pool, say).
 POOL = "gcp-linux-pool"
 # The overflow switch writes GitHub-hosted Ubuntu into LINUX_RUNNER when it fails over.
@@ -117,7 +122,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             label = route(runs_on, context("manaflow-ai", linux_runner, overflow, trusted))
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith.
-            allowed = BLACKSMITH_SET | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+            allowed = blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertIn(label, allowed)
 
@@ -125,8 +130,10 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for name, runs_on in linux_routes().items():
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, "", "")), BIG)
-                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")), SMALL)
+                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, "", "")),
+                                     size_label(WORKFLOW.name, name))
+                    self.assertEqual(route(runs_on, context("manaflow-ai", linux_runner, OVERFLOW_RECORD, "")),
+                                     failover_label(WORKFLOW.name, name))
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes().items():

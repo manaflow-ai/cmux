@@ -5,7 +5,10 @@
    family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
    bold? And why is there space, a fucking gap in between them?"). */
 .cv-disclosure {
-  margin: 2px 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
   min-width: 0;
   color: var(--cv-text);
 }
@@ -14,7 +17,7 @@
   align-items: center;
   min-width: 0;
   min-height: var(--cv-disclosure-line-height);
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--grid-gap);
 }
 .cv-disclosure__toggle,
 .cv-disclosure__open {
@@ -23,12 +26,19 @@
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--grid-gap);
   box-sizing: border-box;
   min-height: var(--cv-disclosure-line-height);
-  cursor: pointer;
+  cursor: default;
   border-radius: 6px;
+  /* The line's first toggle takes its start inset back (below), so its icon sits in the one
+     column (conversation.css --cv-row-icon). */
   padding: 0 var(--ds-space-1);
+}
+/* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
+   shared column. */
+.cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
    own toggle right after it. */
@@ -55,7 +65,9 @@
 .cv-disclosure__icon {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  align-items: center;
   justify-content: center;
   color: var(--cv-text-muted);
 }
@@ -93,20 +105,41 @@
   color: var(--agent-status-failure);
 }
 .cv-disclosure__panel {
-  margin: calc(var(--ds-space-1) / 2) 0 var(--ds-space-1) 24px;
-  padding: var(--ds-space-2) calc(var(--ds-space-2) + 2px);
+  margin: 0;
+  margin-inline-start: var(--grid-icon-box);
+  padding: var(--grid-cards-padding);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
   border-radius: 8px;
   background: color-mix(in srgb, var(--cv-text) 5%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
 }
 .cv-disclosure__panel > .cv-subsession__raw {
   margin-inline-start: 0;
-  margin-top: var(--ds-space-2);
+  margin-top: 0;
 }
 .cv-disclosure__panel .cv-subsession__markdown,
 .cv-disclosure__panel .cv-subsession__cut {
   margin-inline-start: 0;
 }
 .cv-disclosure__panel > .cv-disclosure {
-  margin: calc(var(--ds-space-1) / 2) 0;
+  margin: 0;
+}
+
+/* The caret sits right after the words, never pushed to the line end (cmux#28018). */
+.cv-disclosure__toggle > .cv-rotor {
+  flex: none;
+}
+.cv-disclosure__panel > .cv-subsession__under {
+  padding-inline-start: 0;
+}
+/* Opened, the line's state reads whole (a lane's error, what it waits on): the panel under it does
+   not repeat it (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO
+   WAY TO EXPAND WHAT WAS SAID TO SEE"). */
+.cv-disclosure[data-open] .cv-disclosure__status {
+  flex: 0 1 auto;
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

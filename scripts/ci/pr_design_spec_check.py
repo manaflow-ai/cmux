@@ -14,6 +14,11 @@ tabs across the top, and nobody noticed the earlier design was gone until Leo di
 It only warns: a `::warning` annotation per surface and a short summary, and it always exits 0 (2 on bad
 input). A mapped path that no longer exists in the checkout is warned about too, so the map follows moves.
 
+A surface may name a `checklist` (the spec section every PR on it passes, one numbered rule per item with
+Leo's words, e.g. `design/model-picker.md#checklist`). Every PR that changes the surface gets a notice naming
+it, cited or not, so a lane patching one corner reads the whole list (Leo 2026-10-31: "WHY IS THE MODEL
+PICKER ALWAYS ALWAYS FUCKING SHIT", after many lanes patched the picker piecemeal).
+
 The map is read twice: the base branch's (--map) and the pull request's (--pr-map). Their surfaces are joined,
 path by path, so a PR that drops or empties the map, or removes a surface's paths, is still judged by the
 base's map; a PR that moves a surface's files and maps the new paths is judged on both.
@@ -48,6 +53,8 @@ def join_maps(*maps: dict[str, dict] | None) -> dict[str, dict]:
     for m in maps:
         for name, s in (m or {}).items():
             have = out.setdefault(name, {"spec": s["spec"], "paths": []})
+            if isinstance(s.get("checklist"), str):
+                have.setdefault("checklist", s["checklist"])
             have["paths"] += [p for p in s["paths"] if p not in have["paths"]]
     return out
 
@@ -73,6 +80,18 @@ def cites(body: str, spec: str) -> bool:
     """The description names the spec: its file name (model-picker.md) or its design/ path, in any form."""
     name = Path(spec_file(spec)).name
     return bool(name) and re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", body or "", re.IGNORECASE) is not None
+
+
+def checklists(surfaces: dict[str, dict], paths: list[str]) -> list[str]:
+    """A notice per changed surface that names a checklist: the rules every PR on it passes."""
+    changed = [norm(p) for p in paths if norm(p)]
+    out = []
+    for name, s in sorted(surfaces.items()):
+        checklist = s.get("checklist")
+        if isinstance(checklist, str) and any(owns(o, p) for p in changed for o in s["paths"]):
+            out.append(f"This PR changes the {name} surface: it must pass every item of {checklist} "
+                       f"({s['spec']}). Say in the description which items it touches.")
+    return out
 
 
 def check(surfaces: dict[str, dict], paths: list[str], body: str,
@@ -118,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError) as err:
             print(f"::warning title=Design spec::this PR's {DEFAULT_MAP} is missing or unreadable ({err}); "
                   "using the base branch's map")
-    uncited, _ = check(join_maps(base, theirs), paths, body)
+    joined = join_maps(base, theirs)
+    uncited, _ = check(joined, paths, body)
+    for note in checklists(joined, paths):
+        print(f"::notice title=Design checklist::{note}")
     _, gone = check(theirs or base, [], body, tree=tree)
     for w in uncited + gone:
         print(f"::warning title=Design spec::{w}")

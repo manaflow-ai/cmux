@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
 import Testing
@@ -11,7 +12,7 @@ import UniformTypeIdentifiers
 /// 2026-10-21) turned Home's chat header off by default: no centered avatar, no "Chief >" name pill,
 /// and with the pill went the one click that opens the Chief's settings. By default the chat shows
 /// the header again: the avatar centered over the chat, the pill under it.
-@MainActor @Suite(.serialized) struct HomeChatHeaderDefaultTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeChatHeaderDefaultTests {
     @Test func theChatShowsTheCenteredAvatarAndNamePillByDefault() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(HomeTunables.all)

@@ -12,7 +12,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   source "$script_dir/swift-test-debug-info.sh"
   source "$script_dir/swiftpm-binary-module-guard.sh"
-  swiftpm_binary_module_guard "$package_path"
+  swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
   # SwiftPM copies raw catalogs but can retain old compiled tables on warm
   # slots. Refresh them after building and before either exporter reads them.
   swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --build-tests
@@ -200,7 +200,7 @@ else
   echo "ci-phase .build has no earlier build of this script (cold or first use)"
 fi
 phase build-and-list
-swiftpm_binary_module_guard "$package_path"
+swiftpm_binary_module_guard "$package_path" || exit $? # 75: fetch failed, no test ran
 swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 phase filters

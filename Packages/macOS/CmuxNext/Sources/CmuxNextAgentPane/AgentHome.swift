@@ -45,6 +45,12 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return canonical
     }
 
+    /// `path` in canonical form (``AcpmuxPathPolicy/canonical(_:)``: realpath, the filesystem's
+    /// spelling, NFC) when it exists, else nil, for callers outside this module. Touches the disk.
+    public static func canonical(_ path: String) -> String? {
+        AcpmuxPathPolicy.canonical(path)
+    }
+
     /// Whether `path` is `/`, the home folder `home` or a folder above it (by path components,
     /// after `~` and `..` are resolved as text). Such a folder is never a chat's implicit folder.
     public static func isHomeOrAbove(_ path: String, home: String? = NSHomeDirectory()) -> Bool {

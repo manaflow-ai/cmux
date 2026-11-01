@@ -80,6 +80,19 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
+    /// The agent working-state mark's glyph: the settled thin arc (`6388291c7c3`, 2026-10-02, and
+    /// #20410's Codex-like default), turning smoothly on the shared clock. Never the macOS activity
+    /// indicator's segmented spokes: #29903 swapped them in and Leo answered "why the f*** did you
+    /// make the spinner into this????" (2026-11-01). The spokes stay only as the explicit
+    /// "macOS Spinner" loading style.
+    public static let workingGlyph: Glyph = .arc
+
+    /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
+    /// working row moves in phase (#29903).
+    public static func working(tint: Tint) -> StatusIndicatorPlan {
+        StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: tint)
+    }
+
     /// The plan for `state` in `style`. `animates` is false while the host
     /// is off screen or occluded, and under Reduce Motion or loops off
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
@@ -100,7 +113,7 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,
             // 2026-10-14: a static ring under Reduce Motion or the Static mode). Loading keeps its stopped arc;
             // the working dot stays a dot.
-            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == .arc { plan.glyph = .mark(.vector(.idle)) }
+            if set == .codex, state.isWorking, state.progress == nil, plan.glyph == workingGlyph { plan.glyph = .mark(.vector(.idle)) }
         }
         return plan
     }

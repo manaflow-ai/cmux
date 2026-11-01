@@ -8,6 +8,10 @@ extension ShellWindow {
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
+        // A press while this window's Chromium page, a panel or no window holds the key acts at once (`FirstClickPolicy`):
+        // made key first, AppKit gives the press to the view under it instead of spending it on making the window key.
+        if FirstClickPolicy().takesFirstClick(event, in: self, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow,
+                                              appIsActive: NSApp.isActive, appIsModal: NSApp.modalWindow != nil) { makeKey() }
         cursorRectHold?.windowWillSend(event, in: self)
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
@@ -29,19 +33,18 @@ extension ShellWindow {
         super.invalidateCursorRects(for: view)
     }
 
-    /// AppKit ends an edit by removing its field editor, and the responder change that follows
-    /// reached the focus model inside that teardown. When the model still wanted an address bar
-    /// whose pane was moving (header [+] beside a browser), it put the responder back on the field,
-    /// which began an edit inside the one ending; that edit's end did the same, until the
-    /// main-thread watchdog stopped the app (cx-p0fz). The focus model hears of changes made
-    /// during the teardown once, when the outermost `endEditing(for:)` returns.
-    override func endEditing(for object: Any?) {
+    /// A responder change reported inside an edit's teardown let the focus model put the responder
+    /// back on a moving address bar, beginning an edit inside the one ending, until the watchdog
+    /// stopped the app (cx-p0fz); the focus model hears of the teardown's changes once, at its end.
+    override func endEditing(for object: Any?) { holdingResponderReports { super.endEditing(for: object) } }
+
+    /// Runs `body` (an edit's end, a `makeFirstResponder`); its responder changes are reported once, at the outermost end.
+    func holdingResponderReports<T>(_ body: () -> T) -> T {
         editTeardown.depth += 1
-        super.endEditing(for: object)
+        let result = body()
         editTeardown.depth -= 1
-        guard editTeardown.depth == 0, editTeardown.pending else { return }
-        editTeardown.pending = false
-        reportResponder()
+        if editTeardown.depth == 0, editTeardown.pending { editTeardown.pending = false; BenchSpans.measure("focus.reportResponder") { reportResponder() } }
+        return result
     }
 
     /// Tells the focus model the first responder changed, or holds that for the edit's end.

@@ -7,12 +7,12 @@ webviews/src/agent-session/acpmux/chips/chips.css	size	1
 webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx	size	1
 webviews/src/agent-session/acpmux/conversation/conversation.css	size	3
 webviews/src/agent-session/acpmux/diffTheme.ts	size	3
-webviews/src/agent-session/acpmux/handoff/styles.css	size	4
+webviews/src/agent-session/acpmux/handoff/styles.css	size	3
 webviews/src/agent-session/acpmux/keys.css	size	1
 webviews/src/agent-session/acpmux/mockFixture.ts	size	2
-webviews/src/agent-session/acpmux/newtab/screen.css	size	10
+webviews/src/agent-session/acpmux/newtab/screen.css	size	5
 webviews/src/agent-session/acpmux/prototype/prototype.css	size	17
-webviews/src/agent-session/acpmux/styles.css	size	43
+webviews/src/agent-session/acpmux/styles.css	size	40
 webviews/src/agent-session/acpmux/subagents/subagents.css	size	2
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css	size	1
 webviews/src/gallery/env.ts	size	1
@@ -23,7 +23,7 @@ webviews/src/gallery/shell/shell.css	size	36
 webviews/src/icon-picker/styles.css	size	13
 webviews/src/optchat-inspector/styles.css	size	12
 webviews/src/pages/apps/styles.css	size	7
-webviews/src/pages/cloud/styles.css	size	19
+webviews/src/pages/cloud/styles.css	size	17
 webviews/src/pages/coderouter/styles.css	size	3
 webviews/src/pages/editor/settings.ts	size	1
 webviews/src/pages/editor/styles.css	size	2
@@ -33,8 +33,8 @@ webviews/src/pages/markdown/styles.css	size	4
 webviews/src/pages/passwords/styles.css	size	6
 webviews/src/pages/settings/components/AgentHarnesses.tsx	size	17
 webviews/src/pages/settings/components/ThemePreview.tsx	size	1
-webviews/src/pages/settings/layout.css	size	10
-webviews/src/pages/settings/styles.css	size	14
+webviews/src/pages/settings/layout.css	size	6
+webviews/src/pages/settings/styles.css	size	13
 webviews/src/pages/shared/pageBase.css	size	1
 webviews/src/sidebar/AllChatsDesigns.css	size	3
 webviews/src/styles.css	size	11

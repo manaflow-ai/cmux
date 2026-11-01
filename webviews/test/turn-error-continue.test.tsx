@@ -209,6 +209,31 @@ test("a sign-in failure offers no Continue: going on would fail the same way", a
   expect(actionLabels()).not.toContain("Retry");
 });
 
+// The palette, CLI and MCP command runs the way on it finds directly, with no login before it: a
+// sign-in failure retried that way fails the same way again. Only the card offers Retry there, beside
+// its Sign in again, so the command keeps base's answer for sign-in: nothing to continue.
+test("the palette, CLI and MCP command offers no retry for a sign-in failure, even with a login", async () => {
+  const asked: string[] = [];
+  const actions = {
+    resume: async () => void asked.push("resume"),
+    retry: () => void asked.push("resend"),
+    retryFailed: async () => {
+      asked.push("acpmux");
+      return undefined;
+    },
+    reauthenticate: () => void asked.push("login"),
+  };
+  for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+    const worked = turnView([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000, { error })], new Set(), {
+      now: 300_000,
+    });
+    const fresh = turnView([prompt("p1", 1_000), summary("s1", 2_000, { error })], new Set(), { now: 300_000 });
+    expect([error, errorRecovery(lastFailedTurn(worked)!, undefined, actions)]).toEqual([error, undefined]);
+    expect([error, errorRecovery(lastFailedTurn(fresh)!, undefined, actions)]).toEqual([error, undefined]);
+  }
+  expect(asked).toEqual([]);
+});
+
 test("the palette, CLI and MCP command finds the same way on as the card", async () => {
   const calls: string[] = [];
   const actions = {

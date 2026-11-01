@@ -1,6 +1,6 @@
 // The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, pinned
 // to the pane's left edge with a spacing-token inset. Hovering magnifies the rows near the pointer
-// like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
+// like the Dock and, on the same frame (CARD_DELAY), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
 // as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
@@ -38,7 +39,6 @@ import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
@@ -80,6 +80,7 @@ function keyboardFocused(node: HTMLElement): boolean {
 }
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
+const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
@@ -121,12 +122,16 @@ const bubbleOf = (row: HTMLElement | undefined) => row?.querySelector<HTMLElemen
 
 export function ThreadMinimap({
   rows,
+  earlier = EMPTY_EARLIER,
+  promptCount,
+  loadThrough,
   sessionId,
   layout,
   scroller,
   scrollTop,
   viewportHeight,
   foot,
+  railBox,
   scrolls,
   width,
   columnWidth = width,
@@ -134,6 +139,13 @@ export function ThreadMinimap({
   change,
 }: {
   rows: readonly AcpmuxRow[];
+  /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
+  earlier?: readonly AcpmuxRow[];
+  /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
+  /// `promptCount`): it decides whether the chat has enough prompts for a rail. It reserves no rows: the
+  /// box holds only the ticks drawn, centered, so held ticks never sit at its foot.
+  promptCount?: number;
+  loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
@@ -142,6 +154,12 @@ export function ThreadMinimap({
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
+  /// The rail's own vertical box, when the transcript gives one: the scroller's height and the foot of
+  /// its resting bottom stack (VirtualTranscript `railBox`). The rail's height and top read only this,
+  /// so a composer that grows, a tray that opens or a followed view's lift never move it (Leo,
+  /// 2026-11-01: "the left side scroll rail needs to not really get affected by most other layout
+  /// things it shouldn't really shift much at all"). Without one, `viewportHeight` and `foot`.
+  railBox?: { height: number; foot: number };
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
@@ -154,6 +172,7 @@ export function ThreadMinimap({
   change?: RowsChange;
 }) {
   const t = useT();
+  const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`) wins when set, live.
@@ -171,11 +190,16 @@ export function ThreadMinimap({
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
-  const read = useMemo(() => minimapTurns(rows, sessionId, lastTurns.current, change), [rows, sessionId, change]);
+  const read = useMemo(
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows),
+    [rows, sessionId, change, earlierRows],
+  );
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
   const { turns, ticks } = read;
+  const loadedTurns = read.loadedTurns ?? turns.filter((turn) => turn.index >= 0);
+  const loadedStart = read.loadedStart ?? 0;
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// When the pane is too narrow for the rail beside the text, the edge strip can reveal it over the
@@ -215,9 +239,8 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  // The card's hover intent (ui/hoverIntent.ts): the first waits Codex's 250 ms (CARD_DELAY), then
-  // the card follows the pointer from row to row at once, and the rail cools a moment after it goes.
-  // Keyboard focus shows it at once.
+  // The card's hover intent (ui/hoverIntent.ts) with no dwell (CARD_DELAY): the card shows on the
+  // frame the pointer reaches a row and follows it from row to row. Keyboard focus shows it at once.
   const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
@@ -261,7 +284,6 @@ export function ThreadMinimap({
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
   /// The prompt key of the tick the page's focus is on, if one is.
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -273,7 +295,6 @@ export function ThreadMinimap({
   /// scrolls under a still pointer, the hovered row is the one now under it.
   const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
-  const windowHeight = globalThis.innerHeight || viewportHeight;
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
   /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
   /// instead and follows the reader on the scroll's own frame.
@@ -292,16 +313,35 @@ export function ThreadMinimap({
     restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
+  const boxHeight = railBox?.height ?? viewportHeight;
+  const boxFoot = railBox?.foot ?? foot;
+  /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
+  /// `viewportHeight`: that is the view less the room under the last row (the stack plus the rest
+  /// gap, #30297), so a composer that grows would shorten the rail (Leo, 2026-11-01: "the left side
+  /// scroll rail needs to not really get affected by most other layout things").
+  const windowHeight = globalThis.innerHeight || boxHeight;
+  /// Every prompt the chat has, held or not yet: only whether the chat has enough prompts for a rail.
+  const known = Math.max(turns.length, promptCount ?? 0);
+  /// The box holds the ticks the rail draws, centered in the view (model.ts railTop), never a run of
+  /// empty rows for prompts not held yet: those pushed the held ticks to the box's foot, so the rail
+  /// sat at the bottom of the pane (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing
+  /// scroll rail at the bottom???"). The prompt index (`earlier`) gives every prompt its tick from the
+  /// first frame, so the box is full height as soon as it answers.
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
-  const height = railHeight(
+  const boxRail = railHeight(
     turns.length,
     windowHeight,
-    viewportHeight,
-    foot,
+    boxHeight,
+    boxFoot,
     onScreen.last - onScreen.first + 1,
     railHeightConfig(heightArm),
   );
+  /// The list's own height: the whole box.
+  const height = boxRail;
+  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
+  /// Where the list's first row draws in the view.
+  const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
   // Session Info's chat shift; only its own pane-width inset changes.
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
@@ -312,13 +352,18 @@ export function ThreadMinimap({
   const edge = placement.reserve + placement.left;
   const [cardFocus, setCardFocus] = useState(false);
   const railVisible = !placement.overlapsText || railRevealed || domFocus !== undefined || cardFocus || scrubbing;
-  const railWidth = placement.overlapsText && railVisible ? ROW_WIDTH : placement.width;
+  // A rail compressed narrower than a magnified tick and its dot (TICK_BOX + 4 px) widens over the text
+  // while it is in use (hovered, focused, scrubbed or revealed), so those ticks draw whole; at rest it
+  // keeps its gutter.
+  const inUse = railRevealed || hovered !== undefined || domFocus !== undefined || cardFocus || scrubbing;
+  const widens = (placement.overlapsText && railVisible) || (inUse && placement.width < TICK_BOX + 4);
+  const railWidth = widens ? ROW_WIDTH : placement.width;
   // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
   // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
   const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. At
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH;
+  const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= ROW_PITCH;
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -333,6 +378,7 @@ export function ThreadMinimap({
     sessionId,
     shown,
     hovered,
+    loadedStart,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -346,6 +392,7 @@ export function ThreadMinimap({
       sessionId,
       shown,
       hovered,
+      loadedStart,
     };
   });
 
@@ -356,11 +403,11 @@ export function ThreadMinimap({
     if (!node) return;
     const scrolled = () => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
       // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
       // would draw the band after this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -400,10 +447,10 @@ export function ThreadMinimap({
       const node = scroller.current;
       if (!node) return;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -420,16 +467,42 @@ export function ThreadMinimap({
     };
   }, [scroller, sessionId]);
 
-  /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// Scrolls the transcript to turn `index`. A click or a scrub lands at once, in the frame of the
+  /// input (Leo, 2026-10-29: "faster scrttoll"; a jump the reader asked for by pointing needs no
+  /// travel to read, and the 200-400 ms glide was the slowest step of a rail click). A Previous or
+  /// Next Turn step and a bookmark jump glide on the measured curve when the row is mounted. Any jump
+  /// lands at once when its row is not drawn, or under Reduce Motion. It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
+  /// A click on a prompt not loaded yet: the jump that runs once its row is held, in that chat.
+  const waiting = useRef<{ id: string; how: Jump; sessionId?: string } | undefined>(undefined);
+  const loadThroughNow = useRef(loadThrough);
+  loadThroughNow.current = loadThrough;
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
+    if (turn.index < 0) {
+      const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
+      const load = loadThroughNow.current;
+      if (!Number.isFinite(seq) || !load) return undefined;
+      const pending = { id: turn.id, how, sessionId: live.current.sessionId };
+      waiting.current = pending;
+      // A read that stopped short of the prompt (no history left, a failed page) drops the jump, so
+      // it never fires later on a page the reader asked for nothing.
+      const drop = () => {
+        if (waiting.current === pending) waiting.current = undefined;
+      };
+      void load(seq).then((held) => {
+        if (!held) drop();
+      }, drop);
+      return undefined;
+    }
     const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+      physicalScrollTop(
+        node,
+        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+      );
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.
@@ -455,13 +528,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
-    if (how === "scrub" || !row || reducedMotion()) {
+    if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -469,6 +544,18 @@ export function ThreadMinimap({
     }
     return to;
   });
+  useLayoutEffect(() => {
+    const pending = waiting.current;
+    if (!pending) return;
+    if (pending.sessionId !== sessionId) {
+      waiting.current = undefined;
+      return;
+    }
+    const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
+    if (index < 0) return;
+    waiting.current = undefined;
+    jump(index, pending.how);
+  }, [turns, jump, sessionId]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
@@ -486,7 +573,7 @@ export function ThreadMinimap({
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
-      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
+      const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
       else
@@ -533,10 +620,6 @@ export function ThreadMinimap({
   // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    const node = card.current;
-    if (showCard && node) setCardHeight(node.offsetHeight);
-  }, [showCard, cardTurn]);
 
   // Older turns that load above the reader (the transcript pages them in as it nears the top) add
   // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
@@ -553,7 +636,6 @@ export function ThreadMinimap({
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
-    const railTop = railTopAt(height, viewportHeight, foot);
     let scrolled = listTop;
     if (added !== undefined && was) {
       holding.current = true;
@@ -798,7 +880,7 @@ export function ThreadMinimap({
     return (
       <ScrollMap
         rows={rows}
-        turns={turns}
+        turns={loadedTurns}
         layout={layout}
         scroller={scroller}
         viewportHeight={viewportHeight}
@@ -827,7 +909,6 @@ export function ThreadMinimap({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
@@ -837,10 +918,8 @@ export function ThreadMinimap({
   // reveal the rail over the text only while the strip, rail, card or keyboard focus holds it open.
   const magnified = hovered;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
-  const cardTop =
-    cardRow === undefined
-      ? 0
-      : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
+  /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
+  const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop;
   return (
     <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
@@ -851,9 +930,9 @@ export function ThreadMinimap({
           data-side={side}
           style={{
             ...railEdge(side, placement.reserve),
-            top: railTop,
+            top: boxTop,
             width: railVisible ? placement.left : stripWidth,
-            height,
+            height: boxRail,
           }}
           onPointerEnter={() => {
             overStrip.current = true;
@@ -873,9 +952,9 @@ export function ThreadMinimap({
           style={
             {
               ...railEdge(side, edge),
-              top: railTop,
+              top: boxTop,
               width: railWidth,
-              height,
+              height: boxRail,
               "--acpmux-minimap-lit": lit,
               "--acpmux-minimap-mark": mark.bar,
               "--acpmux-minimap-mark-dot": mark.dot,
@@ -883,6 +962,8 @@ export function ThreadMinimap({
           }
           data-hovering={hovered !== undefined || undefined}
           data-occluded={!railVisible || undefined}
+          // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
+          data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}
@@ -923,8 +1004,9 @@ export function ThreadMinimap({
             style={
               {
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
-                // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css).
-                "--acpmux-minimap-first": Math.floor(listTop / ROW_PITCH),
+                // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
+                // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's
+                // rows inherit: a per-scroll value here restyled every drawn row on every scrolled frame.
                 "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
               } as React.CSSProperties
             }
@@ -939,8 +1021,17 @@ export function ThreadMinimap({
             }}
             onScroll={(event) => {
               listOffset.current = event.currentTarget.scrollTop;
-              setListTop(listOffset.current);
-              followPointer(event.currentTarget);
+              // Committed in the scroll event, before the frame paints: a scroll is a continuous
+              // event, whose update React renders in a task after the frame, so the frame showed the
+              // list at its new offset with the rows of the old one (blank at the edge it scrolled
+              // toward on a fast wheel, Leo 2026-10-31: "it can flicker and disapper at the edges").
+              // The row under a still pointer (and so the card's row) moves in the same commit, so the
+              // card never shows its old row at the list's new offset.
+              const node = event.currentTarget;
+              flushSync(() => {
+                setListTop(listOffset.current);
+                followPointer(node);
+              });
             }}
             onPointerOver={(event) => {
               pointerY.current = event.clientY;
@@ -1007,6 +1098,7 @@ export function ThreadMinimap({
               active={active}
               first={onScreen.first}
               last={onScreen.last}
+              listFirst={Math.floor(listTop / ROW_PITCH)}
               described={showCard ? cardRow : undefined}
               cardId={cardId}
               actions={actions}
@@ -1024,13 +1116,13 @@ export function ThreadMinimap({
           // card.right == rail.left on the right.
           x={edge + railWidth}
           railLeft={placement.left}
-          y={cardTop}
+          center={cardCenter}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
@@ -1078,6 +1170,7 @@ const TickList = memo(function TickList({
   active,
   first,
   last,
+  listFirst,
   described,
   cardId,
   actions,
@@ -1092,6 +1185,9 @@ const TickList = memo(function TickList({
   /// The band: the prompts on screen.
   first: number;
   last: number;
+  /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
+  /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
+  listFirst: number;
   /// The row the open card describes.
   described: number | undefined;
   cardId: string;
@@ -1149,6 +1245,7 @@ const TickList = memo(function TickList({
         <Tick
           entering={entering.pending.has(tick.key)}
           index={index}
+          place={index - listFirst}
           last={ticks.length - 1}
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
@@ -1186,6 +1283,7 @@ type TickActions = {
 const Tick = memo(function Tick({
   entering,
   index,
+  place,
   last,
   progress,
   active,
@@ -1197,6 +1295,9 @@ const Tick = memo(function Tick({
 }: {
   entering: boolean;
   index: number;
+  /// Its row's place in the list's view when it mounted, for its entrance stagger
+  /// (threadMinimap.css). Read only at mount, so a scroll re-renders no tick (tickPropsEqual).
+  place: number;
   last: number;
   progress: number;
   active: boolean;
@@ -1208,6 +1309,7 @@ const Tick = memo(function Tick({
 }) {
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
+  const [entrance] = useState(place);
   const length = tickLength(progress);
   return (
     <MinimapTick
@@ -1222,7 +1324,7 @@ const Tick = memo(function Tick({
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
-      style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
+      style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}
       aria-describedby={describedBy}
@@ -1265,4 +1367,13 @@ const Tick = memo(function Tick({
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );
-});
+}, tickPropsEqual);
+
+const MOUNT_ONLY = new Set(["place", "entering"]);
+
+/// A tick's props as `memo` compares them, but for `place` and `entering`, which only its mount reads.
+function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
+  for (const key in next) if (!MOUNT_ONLY.has(key) && !Object.is(was[key], next[key])) return false;
+  for (const key in was) if (!(key in next)) return false;
+  return true;
+}

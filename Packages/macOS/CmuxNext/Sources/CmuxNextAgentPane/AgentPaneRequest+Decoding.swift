@@ -67,6 +67,14 @@ extension AgentPaneRequest {
             return
         }
         let params = object["params"] as? [String: Any]
+        if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
+            self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
+            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
@@ -138,9 +146,23 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.setAttachmentView":
-            // The composer's Inline or Strip choice; the page writes only this key with it.
+            // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setRemoteControl":
+            // Session Info's Remote Control switch: one Bool, nothing else.
+            if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
+                self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tips.state":
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
             } else {
                 self = .unsupported(method)
             }
@@ -154,6 +176,12 @@ extension AgentPaneRequest {
                 } else {
                     self = .unsupported(method)
                 }
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.clientReady":
+            if let ready = params?["ready"] as? Bool {
+                self = .clientReady(ready)
             } else {
                 self = .unsupported(method)
             }
@@ -194,6 +222,8 @@ extension AgentPaneRequest {
             }
         case "acpmux.restart":
             self = .restartAcpmux
+        case "acpmux.restartStuck":
+            self = .restartStuckAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
@@ -275,6 +305,16 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.handoffTurn":
+            // The store's session ids only (`SESSION` in backend handoffs/routes.ts).
+            guard let session = params?["sessionId"] as? String,
+                  session.range(of: #"^[A-Za-z0-9_.:-]{1,128}$"#, options: .regularExpression) != nil else {
+                self = .unsupported(method)
+                return
+            }
+            self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
+        case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -287,6 +327,7 @@ extension AgentPaneRequest {
             }
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
+        case "machine.share.self": self = .shareMachineWithMe
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
@@ -296,6 +337,19 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.attach.source":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
+               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
+                // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
+                let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
+                self = .attachSource(kind, names: names, gestureAt: gestureAt)
+            } else {
+                self = .unsupported(method)
+            }
+        case "attachment.sourceIcon":
+            if let bundleId = params?["bundleId"] as? String, AttachmentSource.isBundleId(bundleId) { self = .attachmentSourceIcon(bundleId) }
+            else { self = .unsupported(method) }
         case "workspace.useFolder":
             // Any text: a path that is not an existing absolute folder is refused by the host
             // (`transport.path_invalid`), so the page never takes it for an older host.
@@ -380,8 +434,14 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
             } else { self = .unsupported(method) }
+        case "chat.subagentShown":
+            let id = params?["subagent"] as? String
+            if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+            }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":

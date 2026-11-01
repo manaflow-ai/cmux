@@ -73,7 +73,7 @@
    text, focused or not (Chromium shows it only on focus or hover; search by keys keeps the focus
    on the page, not the field). */
 .keys-search::-webkit-search-cancel-button {
-  cursor: pointer;
+  cursor: default;
   opacity: 1;
   pointer-events: auto;
 }

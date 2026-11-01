@@ -4,19 +4,22 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
+import os
 import Testing
 
 /// A setting toggled on the palette's Settings page shows its new value on its row at once, keeps
 /// it once the write lands, and goes back when the write fails (cx-9ce.20). The row read the
 /// loaded settings, the write landed later, and nothing reloaded the page: the row kept its old
 /// value until something else reloaded it.
-@MainActor @Suite(.serialized) struct PaletteSettingWriteTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaletteSettingWriteTests {
     struct Harness {
         let settings: SettingsController
         let palette: PaletteController
         let descriptor: SettingDescriptor
         let url: URL
+        let panels: [NSWindow]
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
@@ -25,7 +28,14 @@ import Testing
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
 
         func tearDown() {
+            // The palette keeps its panel for the next open; this palette has none, so it closes.
+            // The search field ends editing first, so the system's text input window goes with it.
+            for panel in panels { panel.makeFirstResponder(nil) }
             palette.hide()
+            for panel in panels {
+                panel.parent?.removeChildWindow(panel)
+                panel.close()
+            }
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
     }
@@ -33,6 +43,10 @@ import Testing
     func make() async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-setting-\(UUID().uuidString)")
+        var completed = false
+        defer {
+            if !completed { try? FileManager.default.removeItem(at: directory) }
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
@@ -46,9 +60,14 @@ import Testing
         sources.settings = SettingsPaletteSource(settings: settings, themeColors: { [] })
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: sources, frecencyPersistence: nil)
         #expect(palette.show(scope: PaletteScopeID.settings))
+        // Keep ownership independently of visibility before the first suspension can lose focus.
+        let harness = Harness(settings: settings, palette: palette, descriptor: descriptor, url: url,
+                              panels: NSApp.windows.filter { palette.owns($0) })
+        defer { if !completed { harness.tearDown() } }
         palette.model.send(.setQuery(descriptor.title))
         await palette.model.settle()
-        return Harness(settings: settings, palette: palette, descriptor: descriptor, url: url)
+        completed = true
+        return harness
     }
 
     /// Runs the row's toggle as Return does.
@@ -62,6 +81,23 @@ import Testing
     func settle(until done: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    @Test func teardownClosesTheOwnedPanelAfterThePaletteHides() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        let panel = try #require(harness.panels.first)
+        let closes = OSAllocatedUnfairLock(initialState: 0)
+        let observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                              object: panel, queue: nil) { _ in
+            closes.withLock { $0 += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        harness.palette.hide()
+        #expect(harness.palette.visiblePanel == nil)
+        harness.tearDown()
+        #expect(closes.withLock { $0 } == 1, "a hidden owned panel must be closed, not only ordered out")
+        #expect(panel.parent == nil)
     }
 
     @Test func aToggledSettingShowsItsNewValueAtOnceAndKeepsItWhenTheWriteLands() async throws {

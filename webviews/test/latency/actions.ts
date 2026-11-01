@@ -4,6 +4,7 @@
 import type { Page } from "playwright";
 import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
 import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
+import { measureRailSweep } from "./rail-sweep";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
  *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
@@ -655,9 +656,9 @@ async function flowChat(page: Page): Promise<void> {
   await page.waitForSelector(composerEditor);
   await page.waitForFunction(() => !document.querySelector(".nt-screen"));
   await page.keyboard.press("Escape");
-  if (await page.$("aside.acpmux-chat-inspector")) {
+  if (await page.$("aside.acpmux-session-info")) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+    await page.waitForSelector("aside.acpmux-session-info", { state: "detached" });
   }
   await clearComposer(page);
   await quiet(page);
@@ -788,15 +789,15 @@ const flowActions: LatencyAction[] = [
       await flowChat(page);
       if (!open) {
         await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-        await page.waitForSelector("aside.acpmux-chat-inspector[data-presence='shown']");
+        await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
         await quiet(page);
       }
       return open
-        ? shown("aside.acpmux-chat-inspector[data-presence='shown']")
-        : `document.querySelector("aside.acpmux-chat-inspector") === null`;
+        ? shown("aside.acpmux-session-info[data-presence='shown']")
+        : `document.querySelector("aside.acpmux-session-info") === null`;
     },
     async input(page) {
-      await page.click("button.acpmux-chat-inspector-toggle");
+      await page.click("button.acpmux-session-info-toggle");
     },
     settle: quiet,
   })),
@@ -807,7 +808,7 @@ const flowActions: LatencyAction[] = [
     requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
-      return shown("aside.acpmux-chat-inspector[data-presence='shown']");
+      return shown("aside.acpmux-session-info[data-presence='shown']");
     },
     async input(page) {
       // The same bridge used by the native palette, with native command lookup/IPC excluded.
@@ -897,6 +898,198 @@ export const RAIL_DRAG_PAGE: LatencyPageSpec = {
   })),
 };
 
+// The session rail at 3,000 prompts (Leo: "on the left, faster scroll and hover, scrollable"; "ultra
+// fast ultra responsive"), on the same resident chat as the rail drag. Each case starts with the
+// transcript and the rail list at their ends, the pointer off the rail and the hover cards' group
+// cold. A hover arms the probe on its `pointerover` (the probe's default inputs are presses, keys
+// and wheels: without it a hover never starts the clock and every run timed out at 5 s).
+const RAIL_LIST = ".acpmux-minimap__list";
+const RAIL_CARD = ".acpmux-minimap__card";
+/** Past the rail card's leave grace and the hover group's warmth (ui/hoverIntent.ts). */
+const RAIL_COOL_MS = 800;
+const RAIL_WHEEL_STEPS = 10;
+const RAIL_WHEEL_DELTA = 100;
+/** How far above the hovered tick a click case's target is, in rows: 150 px of transcript and more. */
+const RAIL_CLICK_ROWS = 15;
+
+type RailTick = { index: number; x: number; y: number };
+const railTicks = new WeakMap<Page, RailTick>();
+
+/** What the rail shows now, for an error that says why a case could not start. */
+const railState = (page: Page) =>
+  page
+    .evaluate(() => {
+      const rail = document.querySelector(".acpmux-minimap__rail");
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
+      return JSON.stringify({
+        rail: !!rail,
+        occluded: rail?.hasAttribute("data-occluded") ?? null,
+        ticks: document.querySelectorAll("[data-tick]").length,
+        list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
+        card: !!document.querySelector(".acpmux-minimap__card"),
+        sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
+      });
+    })
+    .catch((error: unknown) => `unreadable: ${String(error)}`);
+
+async function railAway(page: Page): Promise<void> {
+  const size = page.viewportSize() ?? { width: 1280, height: 800 };
+  await page.mouse.move(size.width - 4, 4);
+  await page.waitForFunction((card) => !document.querySelector(card), RAIL_CARD, { timeout: 5_000 });
+  await quiet(page);
+}
+
+/** Puts the transcript and the rail list at their ends; the tick `above` rows over the one in the
+ *  middle of the rail's view, clear of its fades. */
+async function railRestTick(page: Page, above = 0): Promise<RailTick> {
+  try {
+    // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
+    // every build draws the rail beside the text, so every arm measures the same rail.
+    if (await page.$("aside.acpmux-session-info")) {
+      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+      await page.waitForSelector("aside.acpmux-session-info", { state: "detached", timeout: 5_000 });
+    }
+    await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
+    await page.evaluate((selector) => {
+      const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      transcript.scrollTop = transcript.scrollHeight;
+      const list = document.querySelector<HTMLElement>(selector)!;
+      list.scrollTop = list.scrollHeight;
+    }, RAIL_LIST);
+    await railAway(page);
+    // fixed-wait: the hover group stays warm this long after a card hides; a cold first hover is measured
+    await page.waitForTimeout(RAIL_COOL_MS);
+    return await page.evaluate(
+      ([selector, rows]) => {
+        const list = document.querySelector<HTMLElement>(selector)!;
+        const box = list.getBoundingClientRect();
+        const ticks = [...list.querySelectorAll<HTMLElement>("[data-tick]")].filter((tick) => {
+          const rect = tick.getBoundingClientRect();
+          return rect.height > 0 && rect.top >= box.top + 48 && rect.bottom <= box.bottom - 48;
+        });
+        if (ticks.length <= rows) throw new Error(`only ${ticks.length} rail ticks clear of the fades`);
+        const tick = ticks[Math.floor(ticks.length / 2) - rows]!;
+        const rect = tick.getBoundingClientRect();
+        const at = { index: Number(tick.dataset.tick), x: rect.left + 8, y: rect.top + rect.height / 2 };
+        const top = document.elementFromPoint(at.x, at.y);
+        if (!top?.closest("[data-tick]")) throw new Error(`the point over tick ${at.index} hits ${top?.className}`);
+        return at;
+      },
+      [RAIL_LIST, Math.floor(above)] as const,
+    );
+  } catch (error) {
+    throw new Error(
+      `rail not ready (${String((error as Error).message ?? error).split("\n")[0]}): ${await railState(page)}`,
+    );
+  }
+}
+
+function railHover(id: string, name: string, predicate: (index: number) => string): LatencyAction {
+  return {
+    id,
+    name,
+    metricType: "target_painted",
+    inputEvent: "pointerover",
+    requiredInstrumentation: requiredProfiled,
+    async prepare(page) {
+      const tick = await railRestTick(page);
+      railTicks.set(page, tick);
+      return predicate(tick.index);
+    },
+    async input(page) {
+      const tick = railTicks.get(page)!;
+      await page.mouse.move(tick.x, tick.y);
+    },
+    settle: railAway,
+  };
+}
+
+export const RAIL_POINTER_PAGE: LatencyPageSpec = {
+  name: "chat rail pointer",
+  path: "/test/latency/flows.html?mock&turns=3000&resident",
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [
+    railHover(
+      "chat.rail.hover.tick",
+      "rail hover lights the tick",
+      (index) => `document.querySelector('[data-tick="${index}"]')?.getAttribute("data-tone") === "active"`,
+    ),
+    railHover("chat.rail.hover.card", "rail hover opens the preview card", () => shown(RAIL_CARD)),
+    {
+      id: "chat.rail.wheel",
+      name: "rail wheel scroll",
+      metricType: "scroll_frame_time",
+      requiredInstrumentation: requiredProfiled,
+      async prepare(page) {
+        const tick = await railRestTick(page);
+        // The pointer rests on the rail, and the card its hover opens has opened, before the wheel.
+        await page.mouse.move(tick.x, tick.y);
+        await quiet(page);
+        const from = await page.evaluate(
+          (selector) => document.querySelector<HTMLElement>(selector)!.scrollTop,
+          RAIL_LIST,
+        );
+        const travel = RAIL_WHEEL_STEPS * RAIL_WHEEL_DELTA;
+        if (from < travel + 100) throw new Error(`rail list at ${from} has too little history to wheel through`);
+        return `document.querySelector(${js(RAIL_LIST)}).scrollTop <= ${from - travel + RAIL_WHEEL_DELTA / 2}`;
+      },
+      async input(page) {
+        for (let step = 0; step < RAIL_WHEEL_STEPS; step += 1) {
+          await page.mouse.wheel(0, -RAIL_WHEEL_DELTA);
+          await page.evaluate(() => window.cmuxPaintFrame());
+        }
+      },
+      settle: railAway,
+    },
+    {
+      id: "chat.rail.click",
+      name: "rail click lands the prompt",
+      metricType: "target_painted",
+      requiredInstrumentation: requiredProfiled,
+      async prepare(page) {
+        const tick = await railRestTick(page, RAIL_CLICK_ROWS);
+        // The pointer rests on the tick first, as a person's does before a click (not measured).
+        await page.mouse.move(tick.x, tick.y);
+        await quiet(page);
+        railTicks.set(page, tick);
+        // Landed: the prompt's bubble drawn LANDING_OFFSET (35 px) below the transcript's top.
+        return `(() => {
+          const view = document.querySelector(".acpmux-scroll")?.getBoundingClientRect();
+          const bubble = document.querySelector('.acpmux-row[data-row-id="synthetic-user-${tick.index}"] .cv-user__bubble');
+          if (!view || !bubble) return false;
+          const at = bubble.getBoundingClientRect().top - view.top;
+          return at > 0 && at < 120;
+        })()`;
+      },
+      async input(page) {
+        await page.mouse.down();
+        await page.mouse.up();
+      },
+      settle: railAway,
+    },
+  ],
+};
+
+// The rail hover sweep (rail-sweep.ts): the pointer crosses up to 120 ticks of the rail's view and
+// back, one move per painted frame, on the 3,000-prompt chat and a typical 100-prompt one. Each move
+// is timed to the frame that shows its tick lit and the card previewing its prompt.
+const RAIL_SWEEP_TICKS = 120;
+export const RAIL_SWEEP_PAGES: LatencyPageSpec[] = [3000, 100].map((turns) => ({
+  name: `chat rail sweep ${turns}`,
+  path: `/test/latency/flows.html?mock&turns=${turns}&resident`,
+  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+  actions: [
+    {
+      id: `chat.rail.hover.sweep.${turns}`,
+      name: `rail hover sweep (${turns} prompts)`,
+      metricType: "target_painted",
+      requiredInstrumentation: requiredProfiled,
+      measureRun: measureRailSweep(RAIL_SWEEP_TICKS),
+      settle: railAway,
+    },
+  ],
+}));
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -954,6 +1147,134 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+/** Opening another chat with Session Info open, once per arm of the chat-switch-motion experiment
+ *  (flows.harness.ts `switch=`): the frames from the switch until every part of its motion settled. */
+function chatSwitch(arm: string): LatencyPageSpec {
+  return {
+    name: `chat switch ${arm}`,
+    path: `/test/latency/flows.html?mock&switch=${arm}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.switch.${arm}`,
+        name: `open another chat (${arm} motion)`,
+        metricType: "frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await page.waitForSelector(".acpmux-scroll .acpmux-row");
+          if (!(await page.$("aside.acpmux-session-info")))
+            await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+          await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+          await quiet(page);
+          const from = await page.evaluate(() => document.querySelector(".acpmux-thread-title")?.textContent ?? "");
+          // Landed and settled: another title, rows drawn, and no part of the switch still moving.
+          return `(() => {
+            const title = document.querySelector(".acpmux-thread-title")?.textContent ?? "";
+            if (title === ${js(from)} || !document.querySelector(".acpmux-scroll .acpmux-row")) return false;
+            return !document.getAnimations().some((animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+          })()`;
+        },
+        async input(page) {
+          await page.evaluate("window.__latency.markInput('chat-switch'); window.__latencyFlows.openOtherChat()");
+        },
+        async settle(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await quiet(page);
+        },
+      },
+    ],
+  };
+}
+
+const GLASS_WHEEL_STEPS = 12;
+const GLASS_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled under its glass (composer, user bubbles, Session Info) over a
+ *  picture, once per glass mode (flows.harness.ts `glass=`): the frame cost of each glass. */
+function glassScroll(mode: string): LatencyPageSpec {
+  return {
+    name: `chat glass ${mode}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident&glass=${mode}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.glass.${mode}.scroll`,
+        name: `scroll under ${mode} glass`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = GLASS_WHEEL_STEPS * GLASS_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + GLASS_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < GLASS_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -GLASS_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const CHAT_SWITCH_PAGES: LatencyPageSpec[] = ["off", "fade", "stagger", "depth"].map(chatSwitch);
+export const GLASS_PAGES: LatencyPageSpec[] = ["plain", "lens-flat", "lens", "prism", "svg"].map(glassScroll);
+
+const LIVE_WHEEL_STEPS = 12;
+const LIVE_WHEEL_DELTA = 120;
+
+/** The 3,000-turn chat scrolled over a live background (flows.harness.ts `live=`; `none` draws
+ *  none): what the background's loop costs the transcript's frames. */
+function liveScroll(style: string): LatencyPageSpec {
+  return {
+    name: `chat live background ${style}`,
+    path: `/test/latency/flows.html?mock&turns=3000&resident${style === "none" ? "" : `&live=${style}`}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.live-background.${style}.scroll`,
+        name: `scroll over live background (${style})`,
+        metricType: "scroll_frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.waitForSelector(".acpmux-scroll");
+          await page.evaluate(() => {
+            const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            scroll.scrollTop = scroll.scrollHeight;
+          });
+          await quiet(page);
+          const from = await page.locator(".acpmux-scroll").evaluate((node) => node.scrollTop);
+          const travel = LIVE_WHEEL_STEPS * LIVE_WHEEL_DELTA;
+          if (from < travel + 100) throw new Error("long transcript does not have a scrollable history");
+          await page.locator(".acpmux-scroll").hover();
+          return `document.querySelector(".acpmux-scroll").scrollTop <= ${from - travel + LIVE_WHEEL_DELTA / 2}`;
+        },
+        async input(page) {
+          for (let step = 0; step < LIVE_WHEEL_STEPS; step += 1) {
+            await page.mouse.wheel(0, -LIVE_WHEEL_DELTA);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+        },
+        settle: quiet,
+      },
+    ],
+  };
+}
+
+export const LIVE_BACKGROUND_PAGES: LatencyPageSpec[] = ["none", "aurora", "grain"].map(liveScroll);
+
 export const PAGES: LatencyPageSpec[] = [
   DIFF_PAGE,
   MARKDOWN_PAGE,
@@ -964,4 +1285,11 @@ export const PAGES: LatencyPageSpec[] = [
   ...LONG_CHAT_PAGES,
   SETTINGS_PAGE,
   RAIL_DRAG_PAGE,
+  RAIL_POINTER_PAGE,
+  ...RAIL_SWEEP_PAGES,
+  // Experiment comparisons (design/glass.md, design/motion-and-polish.md in leo-workspace): run on
+  // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
+  ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
 ];

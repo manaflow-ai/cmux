@@ -37,7 +37,7 @@ final class NewTabButtonView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         fillLayer.cornerRadius = Metrics.tabCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.space1 * 0.7
@@ -61,13 +61,6 @@ final class NewTabButtonView: NSView {
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    /// The pointing hand over the plus, as over every clickable chrome control (`ClickableButton`).
-    /// A cursor rect works with no hit testing; it covers only the plus's visible rect, and none
-    /// while the plus is hidden or scrolled out of view.
-    override func resetCursorRects() {
-        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
-    }
 
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
         super.setAccessibilityFocused(accessibilityFocused)

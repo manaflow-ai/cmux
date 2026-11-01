@@ -94,3 +94,59 @@ async fn the_unreadable_log_mark_is_no_move_to_end_or_watch() {
     assert!(!transfer_out::names_a_move(transfer_out::MOVED_AWAY));
     assert!(transfer_out::names_a_move("01a18c4c-f606-71c1-89dd-58599de4cb0c"));
 }
+
+/// A chat attached with `waitLogs:false` can answer before its background log restore. Once the
+/// queue is rebuilt, one queue snapshot wakes that attachment; restoring the same log again emits
+/// no duplicate snapshot.
+#[test]
+fn restoring_a_queue_publishes_one_snapshot_for_an_early_attach() {
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Hub::new(config, store);
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "early-attach", "name": "early",
+        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+    }))
+    .unwrap();
+    hub.store.save(&meta).unwrap();
+    let session = hub.make_session(meta);
+    hub.append(
+        &session,
+        "mux",
+        "queued",
+        json!({
+            "promptId": "p1", "turnId": "t1", "text": "queued after restart", "client": "acpmux"
+        }),
+    );
+    hub.append(&session, "mux", "queue_paused", json!({"held": ["p1"]}));
+    assert_eq!(hub.session_summary(&session)["queued"], 0, "early attach sees no queue");
+    let before_restore = session.seq.load(Ordering::SeqCst);
+    let mut events = hub.subscribe();
+    hub.restore_queue(&session);
+    let event = events.try_recv().expect("restore publishes the queue snapshot");
+    assert_eq!(event.record.kind, "queue_restored");
+    assert!(event.record.seq > before_restore);
+    assert!(event.record.msg.get("order").is_none(), "a notice must not replay stale order");
+    assert_eq!(hub.session_summary(&session)["queued"], 1);
+    assert_eq!(hub.session_summary(&session)["queue"][0]["promptId"], "p1");
+    assert!(session.queue()[0].held, "the restored held prompt remains held");
+    let mut snapshots = Vec::new();
+    hub.store
+        .scan_kinds(&session.id, &["queue_restored"], &mut |event| {
+            snapshots.push(event.msg);
+            true
+        })
+        .unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert!(snapshots[0].get("order").is_none());
+    hub.restore_queue(&session);
+    let mut count = 0;
+    hub.store
+        .scan_kinds(&session.id, &["queue_restored"], &mut |_| {
+            count += 1;
+            true
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}

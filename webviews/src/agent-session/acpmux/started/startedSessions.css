@@ -132,26 +132,27 @@
   background: none;
 }
 
-/* A started chat's name in a reply: a tinted chip that opens it. */
+/* A started chat's name in a reply: a chip that opens it, in the theme's text on a wash of it,
+   never the link blue (AgentTag.css; Leo, 2026-11-01: "dont do blue by default, theme it"). */
 .acpmux-started-chip {
   display: inline;
   margin: 0;
   padding: 1px 5px;
   border: 0;
   border-radius: 5px;
-  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 14%, transparent);
-  color: var(--cv-link, var(--agent-accent));
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  color: var(--cv-text, var(--agent-text));
   font: inherit;
   text-align: inherit;
-  cursor: pointer;
+  cursor: default;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
 .acpmux-started-chip:hover {
-  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 22%, transparent);
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
 }
 .acpmux-started-chip:focus-visible {
-  outline: 1px solid var(--cv-link, var(--agent-accent));
+  outline: 1px solid color-mix(in srgb, var(--cv-text, var(--agent-text)) 50%, transparent);
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: no-preference) {

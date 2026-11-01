@@ -94,6 +94,8 @@ class OneListOfTheExports(unittest.TestCase):
         "scripts/cmux-next/pr-autofix-apply.sh",              # lets a repair push them
         "scripts/cmux-next/swift-exports-key.py",             # keys the export cache on them
         "scripts/ci/generated_files_guard.py",                # hands it to generated_outputs.py
+        "scripts/cmux-next/base-autofix-exports-pack.sh",     # packs them for the base autofix
+        "scripts/cmux-next/base_autofix_pushed_exports.py",   # takes that pack's files, digest-checked
     )
 
     # A test's own fixture may name the exports it drives: a short copy there weakens that test,

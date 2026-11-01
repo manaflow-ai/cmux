@@ -8,8 +8,8 @@
 // fallback, so a harness acpmux has no drawable icon for (a glyph) still shows it.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChildSessionRows } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
-import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
+import { ChildSessionRows } from "../src/agent-session/acpmux/session-info/ChildSessionRows";
+import { SubagentsSection } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import { rowIconSize } from "../src/agent-session/acpmux/icons/iconSize";
 import { agentTone } from "../src/agent-session/acpmux/subagents/agentTones";
@@ -103,4 +103,19 @@ test("a harness with no drawable mark (a glyph icon) keeps the toned icon, and t
   const [, late] = icons(render());
   expect(late?.inner).toContain("🦊");
   expect(late?.tone).toBeUndefined();
+});
+
+test("a subagent row keeps its name and harness mark without a fork icon or usage counts", () => {
+  const html = renderToStaticMarkup(
+    <SubagentsSection
+      agents={[{ ...agent("reviewer", "codex"), tokens: 107_500, toolUses: 211 }]}
+      waiting={new Set()}
+    />,
+  );
+  expect(html).toContain("reviewer");
+  expect(icons(html)[0]?.inner).toBe(mark("codex"));
+  expect(html).not.toContain("acpmux-agent-line__kind-icon");
+  expect(html).not.toContain("acpmux-agent-line__progress");
+  expect(html).not.toContain("107.5K");
+  expect(html).not.toContain("211 tool uses");
 });

@@ -59,6 +59,11 @@ protocol ChatIntents: AnyObject {
     func canRetrySend(_ message: ID) -> Bool
     /// Try Again: the send goes again (`HomeStore.retry`).
     func retrySend(_ message: ID)
+    /// A committed person message in a Chief conversation can ask the Chief
+    /// to answer that message again. This is separate from `retrySend`, which
+    /// resends a failed local upload.
+    func canRetryChiefTurn(_ message: ID) -> Bool
+    func retryChiefTurn(_ message: ID)
     /// Delete: the failed send goes (`HomeStore.discardFailed`).
     func deleteFailedSend(_ message: ID)
     /// Forward… is offered (the host routes a bubble's text to another chat).
@@ -75,6 +80,16 @@ protocol ChatIntents: AnyObject {
     func toggleVideo(_ ref: PartRef, _ attachment: ID)
     /// The inline playback state of a video part (the menu's Play or Pause).
     func videoState(_ ref: PartRef) -> HomeVideoState
+    /// A double-click on a video bubble, its expand button or View Larger: the video opens in
+    /// the large viewer over the pane (the user, 2026-10-30), from where the bubble was.
+    func openVideo(_ ref: PartRef, _ attachment: ID)
+    /// A click on an agent-message fold's row: its messages show in full, or fold again.
+    func toggleAgentMessages(_ group: String)
+    /// A click on the row of message `message`: an agent-message fold or notes row opens or closes
+    /// (true); false for every other row, which keeps its own click.
+    func agentRowClicked(_ message: ID) -> Bool
+    /// What a click on the row of message `message` opens when it is a Feed row; nil for every other row.
+    func feedRowURL(_ message: ID) -> URL?
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
     /// The rows read a new window place (RowCell.windowPlace: the pane moved by a fraction of a point or
@@ -85,9 +100,19 @@ protocol ChatIntents: AnyObject {
 
 extension ChatIntents {
     func canInteract(with message: ID) -> Bool { true }
+    /// Hosts without agent messages have no folds.
+    func toggleAgentMessages(_ group: String) {}
+    func agentRowClicked(_ message: ID) -> Bool { false }
+    /// Hosts without Feed rows have none to open.
+    func feedRowURL(_ message: ID) -> URL? { nil }
+    /// Hosts without a large viewer play the video in its bubble.
+    func openVideo(_ ref: PartRef, _ attachment: ID) {}
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// Hosts without a Chief control path do not expose turn retry.
+    func canRetryChiefTurn(_ message: ID) -> Bool { false }
+    func retryChiefTurn(_ message: ID) {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,

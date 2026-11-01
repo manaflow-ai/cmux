@@ -72,15 +72,53 @@ screen with a close button, state cards and display paging.
 | `.refresh` | Refresh Screen. |
 | `.hideToolbar` | Hide the toolbar; a chevron brings it back. |
 | `.resumeOnForeground` | Reconnect at once when the app returns after the stream dropped. |
+| `.inputModeToggle` | Direct Touch / Trackpad in the options menu (`preferences.inputMode`). |
 
 ```swift
 ScreenSessionView(session: session, features: [.displayPaging, .keyboard, .shortcutsBar, .resumeOnForeground]) { … }
 ```
 
-Always on: the touch input model (tap clicks where you touch, press-and-hold
-then drag drags, two-finger tap right-clicks, two fingers scroll, pinch
-zooms, one finger pans a zoomed view) and the connecting, reconnecting,
+Always on: the touch input model (below) and the connecting, reconnecting,
 sign-in and error cards.
+
+## Input
+
+`session.preferences.inputMode` (`ScreenInputMode`, saved with the other
+preferences; `.direct` by default and for preferences saved before it):
+
+| | Direct Touch (`.direct`) | Trackpad (`.trackpad`) |
+| --- | --- | --- |
+| One finger | Tap clicks where you touch; two quick taps double-click (at one point); press-and-hold then drag drags; on a zoomed view, pans it | Moves a cursor (faster strokes go further); tap clicks at the cursor, two taps double-click; tap then touch again and drag, or a long press, drags; a zoomed view follows the cursor |
+| Two fingers | Tap right-clicks where you touch; drag scrolls what is under them | Tap right-clicks at the cursor; drag scrolls under the cursor |
+| Pinch | Zooms | Zooms |
+
+In trackpad mode a cursor is drawn locally even when the Mac sends no
+cursor shape, and a tap holds the button for 0.25 s before releasing it, so
+a touch inside that time continues the press as a drag (as on a Mac
+trackpad). Display paging there is by the page dots.
+
+Sticky ⌃ ⌥ ⌘ (the keyboard bar) also apply to the next click or drag: the
+keys go down before it and up after it (`session.click(_:modifiers:)`); a
+host that lists `mods` applies held modifiers to every mouse event until
+their key up.
+
+On iPad with a mouse or trackpad: hover moves the remote pointer, the
+primary button clicks and drags at once, the secondary button right-clicks,
+the wheel and two-finger scrolling scroll the Mac, and the system pointer
+hides over the screen. Buttons need `UIApplicationSupportsIndirectInputEvents`
+= YES in the app's Info.plist (without it a click arrives as a touch).
+
+Scrolling is smooth (pixels) when the Mac says it takes it: a newer host
+sends `{"t":"caps","s":"scroll-px,mods"}` (a comma list, on the ordered
+channel before the first `displays`) when the input channel opens
+(`ScreenStreamViewer.onCapabilities`); `session.hostCapabilities` holds it and `session.supportsPixelScroll`
+reads it, and scrolls then go as `{"t":"scroll","x":..,"y":..,"dx":..,"dy":..,"u":"px"}`
+(`dx`/`dy` in pixels of the streamed video frame, positive where the
+content moves right and down; the host turns them into its own scroll
+units). An older host sends no `caps` and gets wheel lines, as before.
+
+Apply a mode to a live screen: `ScreenView(…, inputMode:)` (nil follows
+`session.preferences.inputMode`) or `ScreenViewController.inputMode`.
 
 Orientation lock needs one line in the app delegate:
 
@@ -93,12 +131,12 @@ func application(_ application: UIApplication,
 
 ## Bring your own chrome
 
-`ScreenView(session:fitToDisplay:displayPaging:keyboardVisible:)` is the
+`ScreenView(session:fitToDisplay:displayPaging:keyboardVisible:inputMode:)` is the
 screen alone (SwiftUI). `ScreenViewController(session:)` is the same thing
 for UIKit. Drive everything else from `ScreenSession`:
 
 - state: `phase` (`.connecting`, `.connected`, `.failed(message:needsSignIn:)`, `.ended`), `isReconnecting`, `stats`, `streamPath`, `frameSize`;
-- input: `tap(_:modifiers:)`, `type(_:modifiers:)`, `key(_:down:)`, `click(_:)`, `movePointer(to:)`, `press(_:down:)`, `scroll(dx:dy:)`;
+- input: `tap(_:modifiers:)`, `type(_:modifiers:)`, `key(_:down:)`, `click(_:)`, `click(_:modifiers:)`, `movePointer(to:)`, `press(_:down:)`, `scroll(dx:dy:)` (lines), `scrollPixels(dx:dy:)` (when `supportsPixelScroll`); `hostCapabilities`;
 - `relayOnly`: connect only through the relay server (for testing that path).
 - control: `selectDisplay(_:)`, `preferences.quality` + `applyQuality()`, `refresh()`, `resumeIfNeeded()`, `connect()`, `reconnect()` (connect again with retries), `close()`.
 

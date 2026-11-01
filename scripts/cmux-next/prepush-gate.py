@@ -7,10 +7,19 @@ the pushed commits ADD. Base debt never blocks a push.
 
 Which commits are the push's own (push_range.py, shared with guardrails.py, the arch ratchet and the web lint,
 so all of them judge the same range): the commits of each pushed head that none of its remote head, its
-remote-tracking ref, this clone's origin/feat-cmux-next and the remote's HEAD reaches. Their boundary is the
-base: the remote head for a second push (every new commit is judged, nothing pushed before), where HEAD meets
-origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits the rebase brought in are not
-judged; the rebased commits are). A branch that merged origin/feat-cmux-next in is judged over the upstream it
+remote-tracking ref, this clone's origin/feat-cmux-next, the remote's HEAD and the integration branch it was cut
+from reaches. That last one is read, not guessed: the pushed branch's configured upstream when it is a
+remote-tracking ref of the pushed remote (`git worktree add -b topic origin/perf/chrome-parity` records it, for
+any long-lived branch), plus the known integration refs (push_range.INTEGRATION_REFS: origin/perf/chrome-parity,
+origin/main) for a branch cut with --no-track. Each is one more `--not` of git's walk, so git itself stops at the
+nearest one by history; none is chosen by name, and none hides a commit nobody pushed (a local branch or another
+remote's branch never counts). A push onto an integration branch itself adds none of them. With none of them
+nearer, nothing changes: the base is where HEAD meets origin/feat-cmux-next. (2026-10-29: a branch cut from perf
+was judged over its 9,426 commits past feat-cmux-next and refused for files it never touched.)
+Their boundary is the base: the remote head for a second push (every new commit is judged, nothing pushed
+before), where HEAD meets origin/feat-cmux-next for a new branch or a rebase onto it (the upstream commits the
+rebase brought in are not judged; the rebased commits are), where HEAD left perf for a branch cut from perf.
+A branch that merged origin/feat-cmux-next in is judged over the upstream it
 merged, less what its old remote head already had over the upstream it started from (gate_own), so upstream's
 changes are never the push's and an upstream removal never pays for the branch's debt. With none of those refs
 in the clone, or a shallow clone cut below the pushed commits, every ref of the remote bounds the walk; when even
@@ -30,7 +39,8 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                source guard, fleet host names in gallery fixtures (also on Packages/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
-  swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
+  swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
+               local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
@@ -51,6 +61,14 @@ a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing 
 Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
 calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
 font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
+
+Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
+gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
+the release-notary job's test (scripts/whats-new/test_digest.py, test_the_repository_highlights_validate) validates
+it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/validate.py's rules: a tryIt or docs
+link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
+the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
+#30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -77,7 +95,7 @@ arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
-  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over origin/feat-cmux-next
+  scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it left
   scripts/cmux-next/prepush-gate.py --base A --head B  # exactly what B adds over A
   scripts/cmux-next/prepush-gate.py --pre-push       # the hook: reads pre-push stdin
   scripts/cmux-next/prepush-gate.py --commits A..B   # CI: each commit against its parent, named
@@ -120,6 +138,9 @@ CONTEXT = (
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
 )
+# Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
+# copy reads its own, beside it). Like the check code, it is the head's on both sides.
+CHECK_CODE = ("scripts/swift_source_mask.py",)
 DATA_SUFFIXES = (".tsv", ".json")
 # A push that changes the manifest can drop a dependency an unchanged file imports: the dependency check then
 # needs every Swift file of the package, not only the changed ones. It alone gets trees with them all (DEPS_CHECK):
@@ -150,6 +171,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
+     ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
+     (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
     ("No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)", ["/bin/bash", "{s}/check-no-swift-cli.sh", "{root}"], (PKG + "/",)),
     ("No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)",
      ["/bin/bash", "{s}/check-no-swift-closed-history.sh", "{root}"], (PKG + "/",)),
@@ -212,6 +236,40 @@ FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 # The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
 LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
 LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
+
+# The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
+HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
+HIGHLIGHTS_DIR = "release-notes/next/highlights/"
+HIGHLIGHTS_CODE = ("scripts/whats-new/digest.py", "scripts/whats-new/validate.py")
+HIGHLIGHTS_HINT = ("Fix the highlight: add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, "
+                   "240 characters (release-notes/next/WRITING.md).")
+# Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
+# (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
+# as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
+# digest.parse refuses is its ValueError. The result, one JSON object {name: [problem, ...]}, goes to the result file,
+# never to stdout or stderr: a warning the validator prints cannot hide it (review of #31260).
+HIGHLIGHTS_PROGRAM = """\
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import digest
+out = {}
+pairs = sys.argv[3:]
+for name, path in zip(pairs[0::2], pairs[1::2]):
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except UnicodeDecodeError as error:
+        out[name] = [f"is not UTF-8 text ({error}); the release-notary test cannot read it"]
+        continue
+    try:
+        out[name] = list(digest.entry_problems(digest.parse(name, text)))
+    except ValueError as error:
+        out[name] = [str(error)]
+with open(sys.argv[2], "w", encoding="utf-8") as f:
+    json.dump(out, f)
+"""
+# The validator names the made-up nightly document it wraps one entry in; the finding names the file instead.
+HIGHLIGHTS_DOCUMENT = re.compile(r"^[^\s:]+\.json: ")
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -393,6 +451,8 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
                 files[p] = base if p in base_data else head  # each side's own baselines
         for p in CONTEXT:
             files[p] = rev
+        for p in CHECK_CODE:
+            files[p] = head
         for p in changed:
             files[p] = rev
         dest = work / side
@@ -636,13 +696,21 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     return "\n".join(sorted(lines))
 
 
+# A SwiftFormat --lint finding line (0.64): `/abs/path/A.swift:3:1: error: (consecutiveBlankLines) Remove ...`.
+SWIFTFORMAT_FINDING = re.compile(r"^\S.*\.swift:\d+:\d+: (?:error|warning): \([A-Za-z]+\) ")
+
+
 def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    cache = tools_dir() / "swiftformat.cache"
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), "--quiet", *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # No cache: the trees are fresh temporary folders on every run and SwiftFormat keys its cache by absolute path,
+    # so a persistent one never hits. It only grew (335 MB on a busy machine) and every call spent ~50 s reading and
+    # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
+    # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
+    # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
+    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
@@ -838,6 +906,55 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
+                       restrict: set[str] | None = None) -> list[str]:
+    """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
+
+    The validator is the release-notary test's (HIGHLIGHTS_CODE): for the hook (TRUSTED_SCRIPTS) the one at this
+    clone's origin/feat-cmux-next, so a pushed edit to it cannot pass its own highlight; for a plain run the head's.
+    It fails open: no validator at that ref, or one that does not run, prints a warning and refuses nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
+                HIGHLIGHTS_DIR).decode()
+    files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
+    try:
+        if code_rev is None:
+            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+        blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
+        if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
+            return []  # a validator older than the highlights' rules: CI's test is older too
+        with tempfile.TemporaryDirectory(prefix="cmux-prepush-highlights-") as tmp:
+            work = Path(tmp)
+            for p in HIGHLIGHTS_CODE:
+                (work / Path(p).name).write_bytes(blobs[f"{code_rev}:{p}"])
+            args = []
+            for index, p in enumerate(files):
+                (work / f"{index}.md").write_bytes(blobs[f"{head}:{p}"] or b"")
+                args += [Path(p).name, str(work / f"{index}.md")]
+            result = work / "result.json"
+            code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
+                            timeout=60)
+            # The exit code and the result file are the answer; the output is only for the warning below.
+            if code != 0 or not result.is_file():
+                raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
+            problems = json.loads(result.read_text(encoding="utf-8"))
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
+        log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
+            "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
+        return []
+    found = []
+    for p in files:
+        name = Path(p).name
+        for problem in problems.get(name, []):
+            problem = HIGHLIGHTS_DOCUMENT.sub("", problem, count=1)
+            problem = problem[len(name) + 2:] if problem.startswith(name + ": ") else problem
+            found.append(f"{p}: {problem}")
+    return found
+
+
 def window_freezes(repo: Path, base: str, head: str, window: Path | None = None) -> list[str]:
     """Each pushed commit that changes a path a WINDOW FREEZE line holds without that line's token.
 
@@ -868,7 +985,12 @@ def window_freezes(repo: Path, base: str, head: str, window: Path | None = None)
 
 
 def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
-    """Each pushed commit that changes the sidebar's drawing code without the owner's record.
+    """Each pushed commit that changes the sidebar's drawing code without the owner's record (sidebar_owner_by_commit)."""
+    return [finding for _, finding in sidebar_owner_by_commit(repo, base, head, ack_rev)]
+
+
+def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[tuple[str, str]]:
+    """(sha, finding) for each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
     look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
@@ -879,7 +1001,7 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
     `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
     run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
-    found: list[str] = []
+    found: list[tuple[str, str]] = []
     note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
     logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
     # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
@@ -896,18 +1018,23 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
-            found.append(f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
-                         f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`.")
+            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
+                               f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`."))
         elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
-            found.append(f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
-                         f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log.")
+            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
+                               f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log."))
     return found
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
-         restrict: set[str] | None = None) -> list[tuple[str, list[str]]]:
-    """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given."""
+         restrict: set[str] | None = None, swiftformat_layer: bool = False,
+         highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
+    """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
+
+    SWIFTFORMAT_LAYER: run SwiftFormat (main() sets it for the local pre-push hook and a plain local run only), or
+    when `--only` names swiftformat. HIGHLIGHTS_LAYER: validate the What's New highlights the push changes (set
+    like SWIFTFORMAT_LAYER), or when `--only` names highlights."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
@@ -931,6 +1058,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
             reserved.append((CRASH_ALLOW_CHECK, unreviewed))
+    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates): CI's release-notary test stays the backstop.
+    if highlights_layer if only is None else "highlights" in only:
+        t0 = time.monotonic()
+        bad = highlight_problems(repo, base, head, trusted_scripts, restrict)
+        if timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
+        if bad:
+            reserved.append((HIGHLIGHTS_CHECK, bad))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
         return reserved
@@ -976,7 +1111,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if sources and (only is None or "ast-grep" in only):
             jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
-        if swift and (only is None or "swiftformat" in only):
+        # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
+        # --commits) never refused a SwiftFormat finding, and must not start to (CLAUDE.md: no new CI gates).
+        if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
         if swift and (only is None or "swiftlint" in only):
@@ -1072,7 +1209,8 @@ def finding_key(record: str) -> str:
 
 
 def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
-             trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
+             trusted_scripts: Path | None = None, swiftformat_layer: bool = False,
+             highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
     """[(check, findings)] the push's own range OWN (push_range.OwnRange) adds.
 
     gate() over own.base..own.head; for a merge (own.before), less what gate() finds over each range the push
@@ -1084,11 +1222,16 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     taken off and refuses (fails closed). A record without a file location in a check that also printed located
     ones describes them (`check-crash-safety: 1 violation(s)`): it is kept only when one of that check's located
     findings is."""
-    found = gate(repo, own.base, own.head, only, timings, trusted_scripts)
+    found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer,
+                 highlights_layer=highlights_layer)
     if not own.before or not found:
         return found
     changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed)) for b, a in own.before]
+    changed |= {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head, "--",
+                               HIGHLIGHTS_DIR).decode().split("\0") if p}
+    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
+                        highlights_layer=highlights_layer))
+              for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
     for name, fresh in found:
@@ -1339,8 +1482,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote", default="origin",
                         help="the pushed remote's name (the hook's first argument; a URL for a push to a URL)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
+    parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
+                                            "finding on a commit outside it (on the base) is a warning that names the "
+                                            "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
-                                       "sidebar,crash-allow,freeze")
+                                       "sidebar,crash-allow,freeze,highlights")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1357,12 +1503,26 @@ def main(argv: list[str] | None = None) -> int:
         # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
         tip = git(repo, "rev-parse", args.commits.split("..")[-1] or "HEAD").decode().strip()
         base = args.commits.split("..")[0]
-        fresh = sidebar_owner(repo, base, tip)
+        found = sidebar_owner_by_commit(repo, base, tip)
+        # A pull request is judged on its own commits: a base commit without the owner's record is the base's
+        # debt, named as a warning here and still an error on every push sweep of the branch (2026-10-29: two
+        # base commits put an error on every feat-cmux-next pull request's checks, #27454).
+        own = (set(git(repo, "rev-list", "--no-merges", args.own_range).decode().split())
+               if args.own_range else None)
+        fresh = [finding for sha, finding in found if own is None or sha in own]
+        inherited = [(sha, finding) for sha, finding in found if own is not None and sha not in own]
         if fresh:
             print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
                   "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
-        print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s) ({time.monotonic() - started:.1f}s)")
+        for sha, finding in inherited:
+            # The whole finding (one line); % escaped, as a workflow command reads %0A as a new line.
+            text = (f"{finding} This commit is on the base, not in this pull request: the owner logs {sha[:11]} in "
+                    f"{SIDEBAR_NOTE}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::warning title=Sidebar look owner (base commit)::{text}")
+        print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
+              + (f", {len(inherited)} on base commits (warnings)" if inherited else "")
+              + f" ({time.monotonic() - started:.1f}s)")
         return 1 if fresh else 0
 
     if args.commits:
@@ -1406,9 +1566,14 @@ def main(argv: list[str] | None = None) -> int:
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
+    # SwiftFormat only for the pre-push hook and a plain local run (no --base: CI's pull request run, the fast gates
+    # and the car guards name one), never on GitHub Actions.
+    swiftformat_layer = not args.base and not os.environ.get("GITHUB_ACTIONS")
     found_any = []
     for own in ranges:
-        found_any += gate_own(repo, own, only, args.timings, trusted_scripts)
+        # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
+        found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
+                              highlights_layer=swiftformat_layer)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
@@ -1457,6 +1622,8 @@ def main(argv: list[str] | None = None) -> int:
             print("prepush-gate: push refused by the guardrails (CMUX_NEXT_CHECKS_SKIP_REASON does not skip them)")
             return 1
         return 0
+    if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
+        print(HIGHLIGHTS_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

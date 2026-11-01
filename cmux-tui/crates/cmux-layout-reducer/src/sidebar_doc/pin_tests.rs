@@ -295,3 +295,41 @@ fn pins_survive_a_save_and_load() {
         "the remembered place survives a restart"
     );
 }
+
+/// Each space owns its pins (leo-workspace design/spaces.md): a link, tab or app
+/// moved into Pinned from another band takes the acting window's space, which
+/// `item.update {patch: {room}}` stores as `extra.room` in the same change as
+/// the move; its inverse takes it back, and a null room clears it.
+#[test]
+fn item_update_stores_the_items_space_and_its_inverse_takes_it_back() {
+    let mut pinned = Section::pinned();
+    pinned.order = super::order_key::spread(1).remove(0);
+    let mut link = Item::new(
+        "l1",
+        PINNED_SECTION_ID,
+        Body::Url { url: "https://a.example".into(), title: None, icon_url: None },
+    );
+    link.order = super::order_key::spread(1).remove(0);
+    let mut doc = Doc::from_parts(0, vec![pinned], vec![link]);
+    let room = |doc: &Doc| doc.item("l1").expect("l1").extra.get("room").cloned();
+    let update: Vec<Op> = serde_json::from_value(serde_json::json!([
+        {"op": "item.update", "id": "l1", "patch": {"room": "prof_work"}}
+    ]))
+    .expect("ops read");
+    let inverse = run(&mut doc, update);
+    assert_eq!(room(&doc), Some(serde_json::Value::String("prof_work".into())));
+    run(&mut doc, inverse);
+    assert_eq!(room(&doc), None, "undo takes the space back");
+
+    let set: Vec<Op> = serde_json::from_value(serde_json::json!([
+        {"op": "item.update", "id": "l1", "patch": {"room": "prof_work"}}
+    ]))
+    .expect("ops read");
+    run(&mut doc, set);
+    let clear: Vec<Op> = serde_json::from_value(serde_json::json!([
+        {"op": "item.update", "id": "l1", "patch": {"room": null}}
+    ]))
+    .expect("ops read");
+    run(&mut doc, clear);
+    assert_eq!(room(&doc), None, "a null room clears it");
+}

@@ -53,6 +53,13 @@ const viaReach = bash(
   "completed",
   { output: "queued" },
 );
+// The same send over plain ssh (ask-1b0c0b04de): the session is on that host, as through reach.
+const viaSsh = bash(
+  `ssh -o ConnectTimeout=5 build-box 'acpmux send --no-wait docs-lane "The copy pass is yours; #4182 merged."'`,
+  "Hand the copy pass to docs-lane on build-box",
+  "completed",
+  { output: "steered" },
+);
 const fromFile = bash(
   `acpmux send --no-wait reports:leo "$(cat /tmp/net-retries/summary.md)"`,
   "Send the summary to Leo's reports",
@@ -112,7 +119,7 @@ const sent = () => {
   const snapshot = chat(
     [
       user("Report the merge, tell scroll-jitter, and ask for the re-review.", 4),
-      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, subsessionSend], 3.8),
+      activity([reported, viaTimeout, viaHeredoc, viaReach, viaSsh, fromFile, subsessionSend], 3.8),
       assistant("Reported to coord-deputy, told scroll-jitter, and asked review-astra for a re-review.", 3.5),
       summary(3.5, { status: "completed" }),
     ],
@@ -137,12 +144,7 @@ const recordedFile = () => {
 /// Opens the finished turn's "Worked for" line, where its calls are.
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent, .cv-msggroup__line"));
-  // A run of sends draws as one group (MessageGroupRow.tsx): open it, so each send's own row shows.
-  if (ctx.document.querySelector('.cv-msggroup__line[aria-expanded="false"]')) {
-    await ctx.click({ selector: ".cv-msggroup__line" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
-  }
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
 };
 
 /// Opens the turn, then its first sent row.

@@ -1,6 +1,7 @@
 //! Link services (PROTOCOL.md "Services"). Default deny: a service not
 //! listed here is closed with `unknown_service`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -12,10 +13,12 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::chief_policy::ChiefPolicy;
+use crate::cloud_acp::{Adapter as CloudAcpAdapter, Effects as CloudAcpEffects};
 use crate::config::{AcpmuxTarget, ServiceConfig};
 use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
@@ -77,12 +80,15 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
+        "cloud-directory" => cloud_directory(&sender, &args).await,
+        "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
+        "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -123,7 +129,10 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 2] = ["removal-v1", "file-preview-v1"];
+/// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
+/// reaches a port on this Mac's loopback).
+pub const CAPABILITIES: [&str; 5] =
+    ["removal-v1", "file-preview-v1", "localhost-forward-v1", "cloud-directory-v1", "cloud-acpmux-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -158,6 +167,207 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
         "capabilities": capabilities(config),
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
+}
+
+fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
+    let Some(value) = value.and_then(Value::as_str) else {
+        return Err(Refusal::new("bad_request", format!("{name} is required")));
+    };
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 160
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    {
+        return Err(Refusal::new("bad_request", format!("invalid {name}")));
+    }
+    Ok(value.to_owned())
+}
+
+/// Return only authenticated Cloud machines. Carrier paths and owner markers
+/// are never exposed to the phone.
+async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
+    if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
+        return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
+    }
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut counts = HashMap::<(String, String), usize>::new();
+    for link in &links {
+        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
+    }
+    let machines = links
+        .into_iter()
+        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
+        .map(|link| serde_json::json!({"machine_id": link.machine_id, "team_id": link.team_id, "name": link.name}))
+        .collect::<Vec<_>>();
+    sender
+        .send(Bytes::from(serde_json::json!({"machines": machines}).to_string()))
+        .await
+        .map_err(|_| Refusal::new("closed", "phone channel closed"))
+}
+
+/// Open an authenticated Cloud carrier. The phone supplies ids only; the app
+/// resolves the current owner link and socket, then the carrier's scoped ACP
+/// adapter applies Web/phone mode and approval policy.
+async fn cloud_acpmux(
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+    args: &Value,
+) -> Result<(), Refusal> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| Refusal::new("bad_request", "cloud-acpmux arguments must be an object"))?;
+    if object.keys().any(|key| key != "machine_id" && key != "team_id") {
+        return Err(Refusal::new("bad_request", "cloud-acpmux accepts only machine_id and team_id"));
+    }
+    let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
+    let team_id = cloud_id(object.get("team_id"), "team_id")?;
+    let links =
+        control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
+    let mut matches = links
+        .into_iter()
+        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
+        .collect::<Vec<_>>();
+    if matches.len() != 1 || !matches[0].owner {
+        return Err(Refusal::new(
+            "forbidden",
+            "Cloud machine is not an unambiguous authenticated owner link",
+        ));
+    }
+    let link = matches.pop().expect("one link checked above");
+    let path =
+        link.socket.ok_or_else(|| Refusal::new("unavailable", "Cloud machine link has no carrier socket"))?;
+    if !path.is_absolute() {
+        return Err(Refusal::new("unavailable", "Cloud machine link has an invalid carrier socket"));
+    }
+    let socket = UnixStream::connect(&path)
+        .await
+        .map_err(|error| Refusal::new("unavailable", format!("Cloud carrier unavailable: {error}")))?;
+    let (read, mut write) = socket.into_split();
+    let mut read = BufReader::new(read);
+    timeout(Duration::from_secs(5), cloud_mobile_handshake(&mut read, &mut write))
+        .await
+        .map_err(|_| Refusal::new("timeout", "Cloud carrier handshake timed out"))??;
+    let mut native_line = Vec::new();
+    let mut phone_message = MessageAssembler::default();
+    let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            event = receiver.recv() => match event {
+                Some(ChannelEvent::Data(bytes)) => {
+                    let Some(message) = phone_message.push(&bytes)? else { continue; };
+                    let request: Value = serde_json::from_str(message.as_str())
+                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                }
+                Some(ChannelEvent::Closed(_)) | None => break,
+            },
+            native = read_cloud_line(&mut read, &mut native_line) => {
+                let line = native?;
+                let response: Value = serde_json::from_slice(&line)
+                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+            }
+            _ = tick.tick() => {
+                let effects = adapter.expire();
+                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+            }
+        }
+    }
+    Ok(())
+}
+
+const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
+
+// The app already dialed the authenticated native carrier. Identify the VM's
+// supported policy before marking this connection mobile; an old daemon may
+// accept unknown client capabilities without enforcing them.
+async fn cloud_mobile_handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Refusal>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    for request in [
+        serde_json::json!({"cmd":"identify","id":"cloud-mobile-identify"}),
+        serde_json::json!({"cmd":"set-client-info","id":"cloud-mobile-host",
+            "kind":"ios","device_kind":"iphone",
+            "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}),
+    ] {
+        write
+            .write_all(request.to_string().as_bytes())
+            .await
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        let bytes = read_cloud_line(read, &mut Vec::new()).await?;
+        let response: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid handshake"))?;
+        if response.get("id") != request.get("id")
+            || response.get("ok").and_then(Value::as_bool) != Some(true)
+        {
+            return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat handshake"));
+        }
+        if request["cmd"] == "identify"
+            && !response
+                .pointer("/data/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|caps| caps.iter().any(|cap| cap == "cloud-mobile-chat-v1"))
+        {
+            return Err(Refusal::new(
+                "forbidden",
+                "Cloud machine does not support phone prompt restrictions",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn read_cloud_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+) -> Result<Vec<u8>, Refusal> {
+    loop {
+        let chunk =
+            reader.fill_buf().await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
+        if chunk.is_empty() {
+            return Err(Refusal::new("unavailable", "Cloud carrier closed"));
+        }
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let take = newline.unwrap_or(chunk.len());
+        if line.len().saturating_add(take) > MAX_CLOUD_NATIVE_LINE {
+            return Err(Refusal::new("bad_request", "Cloud carrier line is too large"));
+        }
+        line.extend_from_slice(&chunk[..take]);
+        reader.consume(take + usize::from(newline.is_some()));
+        if newline.is_some() {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(std::mem::take(line));
+        }
+        // Keep the accumulated bytes outside the future. If select! cancels this
+        // read while a phone frame arrives, the next poll resumes from this exact
+        // partial line instead of dropping it.
+    }
+}
+
+async fn apply_cloud_effects(
+    write: &mut tokio::net::unix::OwnedWriteHalf,
+    sender: &ChannelSender,
+    effects: CloudAcpEffects,
+) -> Result<(), ()> {
+    for value in effects.to_native {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        write.write_all(&bytes).await.map_err(|_| ())?;
+        write.write_all(b"\n").await.map_err(|_| ())?;
+    }
+    for value in effects.to_phone {
+        let bytes = serde_json::to_vec(&value).map_err(|_| ())?;
+        sender.send(Bytes::from(bytes)).await.map_err(|_| ())?;
+    }
     Ok(())
 }
 
@@ -1563,14 +1773,31 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
+        assert_eq!(
+            capabilities(&config),
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1"
+            ]
+        );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
         assert_eq!(
             capabilities(&config),
-            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+            [
+                "removal-v1",
+                "file-preview-v1",
+                "localhost-forward-v1",
+                "cloud-directory-v1",
+                "cloud-acpmux-v1",
+                BROWSER_STREAM,
+                BROWSER_VIDEO_TRACK
+            ]
         );
     }
 
@@ -1609,6 +1836,60 @@ mod tests {
         );
         assert_eq!(assembler.push(br#"{"b":1}"#).unwrap().as_deref(), Some(r#"{"b":1}"#));
         assert_eq!(assembler.push(b"not json").unwrap_err().code, "bad_request");
+    }
+
+    #[tokio::test]
+    async fn cloud_handshake_refuses_old_daemons_before_sending_mobile_commands() {
+        for (caps, allowed) in [
+            (serde_json::json!([]), false),
+            (serde_json::json!(["agent-session-tabs-v1"]), false),
+            (serde_json::json!(["cloud-mobile-chat-v1"]), true),
+        ] {
+            let replies = format!(
+                "{}\n{}\n",
+                serde_json::json!({"id":"cloud-mobile-identify","ok":true,"data":{"capabilities":caps}}),
+                serde_json::json!({"id":"cloud-mobile-host","ok":true})
+            );
+            let mut read = std::io::Cursor::new(replies.into_bytes());
+            let mut write = Vec::new();
+            let result = cloud_mobile_handshake(&mut read, &mut write).await;
+            assert_eq!(result.is_ok(), allowed);
+            let commands: Vec<Value> = String::from_utf8(write)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(commands[0]["cmd"], "identify");
+            assert_eq!(commands.len(), if allowed { 2 } else { 1 });
+            if allowed {
+                assert_eq!(commands[1]["capabilities"][0], "cloud-mobile-chat-v1");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_preserves_partial_data_when_read_is_cancelled() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        writer.write_all(b"{\"id\":1").await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(5), read_cloud_line(&mut reader, &mut partial),)
+                .await
+                .is_err()
+        );
+        assert_eq!(partial, br#"{"id":1"#);
+        writer.write_all(b"}\n").await.unwrap();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap(), br#"{"id":1}"#);
+    }
+
+    #[tokio::test]
+    async fn cloud_native_line_rejects_oversize_before_newline() {
+        let (mut writer, reader) = tokio::io::duplex(MAX_CLOUD_NATIVE_LINE + 16);
+        writer.write_all(&vec![b'x'; MAX_CLOUD_NATIVE_LINE + 1]).await.unwrap();
+        let mut reader = BufReader::new(reader);
+        let mut partial = Vec::new();
+        assert_eq!(read_cloud_line(&mut reader, &mut partial).await.unwrap_err().code, "bad_request");
     }
 
     #[test]

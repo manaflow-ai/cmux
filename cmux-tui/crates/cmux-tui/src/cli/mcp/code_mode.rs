@@ -152,27 +152,47 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
              - To run a command for the person: tab_create_terminal {{name}}, with no pane \
-             (pane: \"current\" is this chat's own pane), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
+             (pane: \"current\" is this chat's own pane; for a tab beside it, pass its id from pane_get), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
              when there is none), then terminal_input_write {{terminal: value.terminal_id, \
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
              argv) the tab runs only that command and closes when it exits.\n\
-             - pane_split {{pane, direction}}: only when the person says \"split\" or wants \
-             two terminals \"side by side\" (split the workspace's pane, then use the new \
-             value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
+             - pane_split {{pane, direction}}: only when the person says \"split\", \"below\" \
+             or \"underneath\" (direction: \"down\"), or wants two terminals \"side by side\". \
+             The split makes the new pane's terminal (value.terminal_id): write into it, do not \
+             add a tab. \"Next to my logs\", \"beside X\" or \"on the right\" means a \
              new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
              right of this chat (pane: \"current\" is this chat's own pane, not the right).\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \
              \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
-             {{terminal}} read it.\n\
+             {{terminal}} read it (history answers {{text}}, the scrollback's lines); return only the \
+             lines you need: (await cmux.terminal_history_read({{terminal}})).text.split(\"\\n\").\
+             filter((l) => l.includes(\"error\")). Return small results: a list's ids and names, \
+             not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
-             {{workspace, name}}.\n\
+             {{workspace, name}}; tab_move {{tab, destination_pane}} (or destination_workspace: \
+             its active pane; it goes last); workspace_create {{name}} (it opens with a terminal \
+             pane that a moved tab can go into; initial_content: \"empty\" has no pane); \
+             terminal_input_keys \
+             {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
+             \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
+             left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
+             {{workspace}}. Several opens with where: right share one column. To make an \
+             existing column sticky: column_update {{screen, column, dock: true, edge}} \
+             (column: its column_id in screen_layout_export).\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
-             notification_create {{title, body}}.\n\n\
+             workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
+             pill); \
+             notification_create {{title, body}}.\n\
+             - A video file (a screen recording, an attached .mp4 or .mov): video_frames {{path, \
+             at: [seconds] | range: {{from, to, count}} | scenes: true, maxSide}} answers its \
+             frames as images you see, with each one's time; video_info {{path}} its length, \
+             size, fps and audio. Use these instead of ffmpeg.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
@@ -253,6 +273,36 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
+    // those tools only; the rest of the search goes in `more` by name. A full search put
+    // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
+    let mut words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    words.dedup();
+    let exact: Vec<&Value> = words
+        .iter()
+        .filter_map(|word| {
+            tools.iter().find(|tool| tool.get("name").and_then(Value::as_str) == Some(*word))
+        })
+        .collect();
+    if !exact.is_empty() && exact.len() == words.len() && exact.len() <= DOCS_MAX_LIMIT {
+        let mut answer = search(tools, &query, limit);
+        let named: Vec<&str> =
+            exact.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+        let rest = answer
+            .get("tools")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .filter(|name| !named.contains(name))
+            .map(|name| json!(name));
+        let more: Vec<Value> = rest
+            .chain(answer.get("more").and_then(Value::as_array).into_iter().flatten().cloned())
+            .collect();
+        answer.set("tools", Value::Array(exact.into_iter().map(compact).collect()));
+        answer.set("more", Value::Array(more));
+        return Ok(answer);
+    }
     Ok(search(tools, &query, limit))
 }
 
@@ -941,8 +991,9 @@ fn closed() -> Value {
 }
 
 /// Images a script's calls returned that one `cmux_exec` result carries
-/// (a computer use screenshot), and their total base64 bytes.
-const MAX_IMAGES: usize = 8;
+/// (a computer use screenshot, a `video_frames` call's frames), and their
+/// total base64 bytes.
+const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
 
 /// A tool result as a script sees it. A result without structured content

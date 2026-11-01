@@ -17,16 +17,23 @@ inline bool IsArtifactFrameURL(const std::string& url) {
   return url.substr(0, url.find_first_of("?#")) == kArtifactFrameURL;
 }
 
-inline bool IsAgentPageURL(const std::string& url) {
-  const std::string origin = "cmux-page://cmux.agent";
+inline bool IsPageOriginURL(const std::string& url, const std::string& origin) {
   return url.compare(0, origin.size(), origin) == 0 &&
          (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
           url[origin.size()] == '#');
 }
 
+inline bool IsAgentPageURL(const std::string& url) { return IsPageOriginURL(url, "cmux-page://cmux.agent"); }
+
+// Pages whose srcdoc frames hold saved documents (PageDescriptor.passiveFrames): the agent page
+// and the Artifacts page. Such a frame can neither navigate nor load anything but inline media.
+inline bool IsPassiveFramePageURL(const std::string& url) {
+  return IsAgentPageURL(url) || IsPageOriginURL(url, "cmux-page://cmux.artifacts");
+}
+
 inline bool ArtifactContextRestricted(const std::string& frame, const std::string& parent) {
   return IsArtifactFrameURL(frame) || IsArtifactFrameURL(parent) ||
-         (frame == "about:srcdoc" && IsAgentPageURL(parent));
+         (frame == "about:srcdoc" && IsPassiveFramePageURL(parent));
 }
 
 // Only an empty, direct child of the agent page may load the bootstrap once.

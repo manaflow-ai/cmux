@@ -112,6 +112,13 @@ public final class AddDeviceModel {
         }
     }
 
+    /// "Set up a new device" for a computer also offers Other Computer… (add by host name): the card
+    /// opens there when the network lists nothing, and a computer the person already reaches with
+    /// ssh needs no setup line (HQ #4877 break 5).
+    public var offersOtherComputer: Bool {
+        way == .newDevice && platform.setupLine != nil
+    }
+
     /// Runs a control (its click or its key). Returns true when the card should close.
     @discardableResult
     public func perform(_ action: AddDeviceAction) -> Bool {

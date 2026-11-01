@@ -25,15 +25,26 @@ const WINDOW_ID_MAX_LEN: usize = 257;
 /// One tab a closed screen recreates.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ClosedTabRecord {
-    /// Known values: `terminal`, `browser`. Other values are future kinds.
+    /// Known values: `terminal`, `browser`, `conversation`. Other values are future kinds.
+    /// Canonical closed chat kinds require `closed-conversation-tabs-v1`.
     pub kind: String,
     pub name: Option<String>,
     pub cwd: Option<String>,
     pub url: Option<String>,
     pub browser_profile_id: Option<String>,
     pub pinned: bool,
+    /// The safe public identity of a closed agent chat. Host/install metadata
+    /// is intentionally omitted by the daemon's closed-history projection.
+    pub agent_session: Option<ClosedAgentSessionRecord>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
+}
+
+/// The session id and harness type of a closed agent chat.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ClosedAgentSessionRecord {
+    pub session: Option<String>,
+    pub harness: Option<String>,
 }
 
 /// One screen a closed item recreates.

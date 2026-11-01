@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
@@ -10,7 +11,7 @@ import Testing
 /// dot of a workspace row: the same glyph (the shared indicator's done dot, `Palette.notificationBlue`),
 /// the same size, on the same trailing column (the group header chevron's x), at every sidebar
 /// density, in light and dark. Each case prints a `HOMEDOT|` line so a fleet log shows the numbers.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct HomeUnreadBlueDotTests {
     static let home = LayoutItemID("itm_home")
     static let unreadWorkspace = WorkspaceID("ws-unread")
@@ -120,6 +121,10 @@ struct HomeUnreadBlueDotTests {
 
     @Test(arguments: cases)
     func homeDrawsTheWorkspaceRowsBlueDot(_ density: SidebarDensity, _ dark: Bool) throws {
+        // The static look (Reduce Motion) draws done as a green check, not the blue dot. Pin it off:
+        // a runner with the system's Reduce Motion on (Blacksmith macOS) otherwise fails here.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let saved = DesignSettings.shared.sidebarSections.density
         DesignSettings.shared.sidebarSections.density = density
         defer { DesignSettings.shared.sidebarSections.density = saved }

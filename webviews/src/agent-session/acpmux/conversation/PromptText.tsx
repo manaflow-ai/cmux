@@ -7,24 +7,29 @@
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import {
   COLLAPSED_PROMPT_LINES,
+  HUGE_PROMPT_HEAD_CHARS,
   type PasteRange,
+  hasHugeTypedPart,
+  isHugePrompt,
   looksLongPrompt,
   pasteLines,
   pasteName,
+  headParts,
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken } from "./softBreaks";
-
-// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
-// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
-const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
+import { SoftBroken, softBreaks } from "./softBreaks";
+import { isPromptMarkdown } from "./promptMarkdown";
+import { githubRefLabel, UrlChip } from "../chips/LinkChips";
+import { textLinks } from "../chips/paths";
+import { SkillWordsContext } from "./skillWords";
+import { withSkillWords } from "./SkillWord";
 
 export function PromptText({
   rowId,
@@ -32,6 +37,7 @@ export function PromptText({
   pasted,
   show,
   children,
+  huge: hugeTyped,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -40,7 +46,12 @@ export function PromptText({
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
   /// Ordered attachments share this fold; opening a pasted block also opens the prompt.
-  children?: (open: () => void) => ReactNode;
+  /// `head`: the prompt is huge and collapsed, so only its first `HUGE_PROMPT_HEAD_CHARS` of text
+  /// need drawing (`headParts`).
+  children?: (open: () => void, head: boolean) => ReactNode;
+  /// Whether its typed text is huge (`hasHugeTypedPart`), for `children`, whose parts `text` alone
+  /// cannot tell from its pastes.
+  huge?: boolean;
 }) {
   const t = useT();
   const id = useId();
@@ -49,9 +60,15 @@ export function PromptText({
   // Whether the prompt is taller than the collapsed lines: guessed from its text until laid out,
   // then measured against its line height (open or closed), again when its width changes. A
   // measure is of one text: a bubble drawn again with another prompt guesses again.
-  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3;
+  // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
+  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
-  const long = measured?.parts === parts ? measured.long : guess;
+  // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
+  // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
+  // whole text without end. Its Show more stays; the cost is at most a needless one.
+  // Its typed text, not its pastes (chips whatever their size); an inline prompt says (`huge`).
+  const huge = hugeTyped ?? hasHugeTypedPart(parts);
+  const long = huge || (measured?.parts === parts ? measured.long : guess);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = body.current;
@@ -81,6 +98,14 @@ export function PromptText({
     return () => observer.disconnect();
   }, [parts, long, open, children]);
   const collapsed = long && !open;
+  // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
+  // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
+  const head = huge && collapsed;
+  const shownParts = useMemo(
+    () =>
+      head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
+    [head, parts],
+  );
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
   // bottom and you're in the same place"):
@@ -152,7 +177,7 @@ export function PromptText({
   // needs it open to draw.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
-  const hit = Boolean(needle && text.toLocaleLowerCase().includes(needle));
+  const hit = Boolean(needle && foldFind(text).includes(needle));
   useLayoutEffect(() => {
     if (!hit || !collapsed) return;
     setOpen(true);
@@ -165,10 +190,10 @@ export function PromptText({
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {children
-          ? children(() => setOpen(true))
-          : parts.map((part, index) =>
+          ? children(() => setOpen(true), head)
+          : shownParts.map((part, index) =>
               part.kind === "text" ? (
-                <PromptTyped key={index} text={part.text} show={show} />
+                <PromptTyped key={index} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
               ) : (
                 <PasteChip
                   key={index}
@@ -198,19 +223,59 @@ export function PromptText({
   );
 }
 
-/// One typed block of a sent prompt: Markdown when it can hold any, else its literal text with
-/// break points in long tokens. A sent prompt's inline parts draw theirs with it too
+/// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),
+/// else its literal text, its line breaks kept (the bubble's `pre-wrap`), a bare web address as a
+/// link, and break points in long tokens. A sent prompt's inline parts draw theirs with it too
 /// (InlinePromptContent.tsx), so a placed prompt reads as a legacy one does.
-export function PromptTyped({ text, show }: { text: string; show: (text: string) => string }) {
-  return PROMPT_MARKDOWN.test(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false}>
-      {show(text)}
+export function PromptTyped({
+  text,
+  show,
+  plain,
+}: {
+  text: string;
+  show: (text: string) => string;
+  /// Draw it as one literal text node (a huge prompt's part; promptCollapse.ts HUGE_PROMPT_CHARS).
+  plain?: boolean;
+}) {
+  const shown = show(text);
+  // A skill's `/name` draws as the composer's command words do, its description on hover.
+  const skills = useContext(SkillWordsContext).words;
+  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
+  // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
+  // only in its own plain text.
+  return isPromptMarkdown(text) ? (
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={skills} commonmark>
+      {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      <SoftBroken text={show(text)} />
+      {skills.size && shown.includes("/") ? (
+        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />)
+      ) : (
+        <LiteralText text={shown} />
+      )}
     </span>
   );
+}
+
+/// Literal prompt text with each bare web address a link (UrlChip, as in a reply); the rest keeps
+/// its break points (softBreaks.tsx).
+function LiteralText({ text }: { text: string }) {
+  const urls = text.includes("://") ? textLinks(text).filter((link) => link.kind === "url") : [];
+  if (!urls.length) return <SoftBroken text={text} />;
+  const out: ReactNode[] = [];
+  let at = 0;
+  urls.forEach((link, index) => {
+    if (link.start > at) out.push(...softBreaks(text.slice(at, link.start), `t${index}`));
+    out.push(
+      <UrlChip key={`u${index}`} href={link.value}>
+        {githubRefLabel(link.value) ?? link.value}
+      </UrlChip>,
+    );
+    at = link.end;
+  });
+  if (at < text.length) out.push(...softBreaks(text.slice(at), "tail"));
+  return <>{out}</>;
 }
 
 /// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
@@ -232,7 +297,7 @@ export function PasteChip({
   const language = usePaneLanguage();
   const id = useId();
   const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}:paste:${index}`);
-  const hit = Boolean(needle && text.toLocaleLowerCase().includes(needle));
+  const hit = Boolean(needle && foldFind(text).includes(needle));
   const reveal = useContext(FindReveal);
   useLayoutEffect(() => {
     if (!hit || open) return;

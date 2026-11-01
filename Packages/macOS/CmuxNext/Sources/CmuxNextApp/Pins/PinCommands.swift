@@ -14,24 +14,24 @@ import CmuxNextDesign
 struct PinCommands {
     let context: AppActionContext
 
-    /// Pins or unpins the tab `id` (a daemon tab id), shown or not.
-    func setTabPinned(_ id: String, pinned: Bool, origin: ActionOrigin) {
-        guard apply(id, pinned: pinned) else { return }
+    /// Pins or unpins the tab `id` (a daemon tab id), shown or not, on `machineID` when given (forks keep ids).
+    func setTabPinned(_ id: String, pinned: Bool, origin: ActionOrigin, machineID: String? = nil) {
+        guard apply(id, pinned: pinned, machineID: machineID) else { return }
         guard origin == .user else { return }
         registerUndo(title: pinned ? PinStrings.pinTab : PinStrings.unpinTab) { commands in
-            commands.setTabPinned(id, pinned: !pinned, origin: .user)
+            commands.setTabPinned(id, pinned: !pinned, origin: .user, machineID: machineID)
         }
     }
 
     /// Sends the pin through the strip that shows the tab (its store
     /// intent), else straight to the daemon. False when the tab is gone.
-    private func apply(_ id: String, pinned: Bool) -> Bool {
-        guard let (tab, pane) = context.services.locateTab(id) ?? context.refuseQuietly(RefusalStrings.noTab(id)) else { return false }
+    private func apply(_ id: String, pinned: Bool, machineID: String?) -> Bool {
+        guard let (tab, pane) = context.targetTab(id, ActionInvocation().onMachine(machineID)) ?? context.refuseQuietly(RefusalStrings.noTab(id)) else { return false }
         if let controller = context.services.paneController(for: pane) {
             controller.setPinned(StripTabID(id), pinned: pinned)
         } else {
             let surface = tab.surface
-            context.send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
+            context.services.daemon(for: pane).send("set-tab-pinned") { _ = try await $0.setTabPinned(surface, pinned) }
         }
         return true
     }

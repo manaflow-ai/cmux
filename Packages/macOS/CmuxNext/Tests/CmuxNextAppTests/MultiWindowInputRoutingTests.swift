@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextFocusUI
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-23: "i click a workspace in one window, and it triggers it in the other
 /// window… sometimes i type in one window of cmux, but the text appears in another window".
@@ -13,7 +14,7 @@ import Testing
 /// - a workspace a person picks in window A's sidebar shows in window A;
 /// - a New Tab hold never takes the key window from another window;
 /// - keys the daemon gives back go only to a terminal of the window they were typed in.
-@MainActor @Suite(.serialized) struct MultiWindowInputRoutingTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct MultiWindowInputRoutingTests {
     private struct Harness {
         let services: AppServices
         let a: WindowController
@@ -21,16 +22,23 @@ import Testing
 
         func close() {
             for controller in services.windows.controllers { controller.window?.close() }
+            // What the app opened for its windows while the test ran (their overlay panels).
+            AppHarnessWindows.closeThoseThisTestOpened()
         }
     }
 
     private static func harness() throws -> Harness {
+        var completed = false
+        defer {
+            if !completed { AppHarnessWindows.closeThoseThisTestOpened() }
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
         let a = try #require(services.windows.openWindow(workspaces: ["mw-a1"]))
         let b = try #require(services.windows.openWindow(workspaces: ["mw-b1", "mw-b2"]))
         #expect(a !== b)
+        completed = true
         return Harness(services: services, a: a, b: b)
     }
 

@@ -1,17 +1,17 @@
 public import AppKit
 public import CmuxHomeCore
-import CmuxNextDesign
+public import CmuxNextDesign
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// over one translucent scrim of the window's background
-/// (`Palette.legibilityScrim`): the window's material or background image
-/// shows through, as behind the transcript, and the labels keep a calmer
-/// base over a light image. No vibrancy material (it drew a solid gray
-/// panel) and no opaque fill. It owns no data: the page gives it the model
+/// on the chat's own fill (Home's one veil: `Palette.fill(for: .home)`, clear over a
+/// translucent window), so the workspace sidebar, this list and the chat read as one
+/// colour over the window's tint or background image (the user, 2026-10-31: "chief
+/// sidebar bg and chief header bg needs to be same as rest of the bgs"; a 35% scrim of
+/// its own made it a third grey). No vibrancy material (it drew a solid gray panel). It owns no data: the page gives it the model
 /// after every change and handles the choices.
-public final class HomeSidebarView: NSView {
+public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public var onSelect: (ConversationID) -> Void = { _ in }
     /// The person opened a conversation: a plain click on its row or pinned tile (the selected one
     /// too) or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command- or
@@ -27,12 +27,25 @@ public final class HomeSidebarView: NSView {
     public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
+    /// Delete Conversation… on a row's menu and its left swipe (nil: not offered). A teammate row has none.
+    public var onDelete: ((ConversationID) -> Void)? {
+        didSet {
+            guard let onDelete else { list.onDelete = nil; return }
+            list.onDelete = { [weak self] id in
+                guard let self, teammate(for: id) == nil else { return }
+                onDelete(ConversationID(id))
+            }
+        }
+    }
     /// Teammates matching a query that have no DM yet (the list's extra search section). Without
     /// a search, the model's ``HomeSidebarModel/teammates`` are rows after the conversations.
     public var teammates: (String) -> [HomeContact] = { _ in [] }
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
+    /// The x on the New Message draft row (shown while the pointer is over it, as in Messages)
+    /// was clicked: the page discards the draft (`home.closeNewMessage`).
+    public var onCloseDraft: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
@@ -100,6 +113,8 @@ public final class HomeSidebarView: NSView {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
+        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
+        list.avatarLoopGate = { Motion.home.animatesLoops }
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -133,6 +148,11 @@ public final class HomeSidebarView: NSView {
             return CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
                 CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
             })
+        }
+        list.closeTitle = HomeConversationStrings.closeNewMessage
+        list.onClose = { [weak self] id in
+            guard let self, id == Self.draftRowID.rawValue else { return }
+            onCloseDraft()
         }
         list.onSelectSearchResult = { [weak self] id in
             guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
@@ -172,14 +192,17 @@ public final class HomeSidebarView: NSView {
     var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
-    /// grid, no time, as in Messages).
+    /// grid, no time, as in Messages). The row shows an x while the pointer
+    /// is over it (``onCloseDraft``).
     public func setDraftRow(_ title: String?) {
         guard title != draftRowTitle else { return }
         draftRowTitle = title
+        list.closableID = title == nil ? nil : Self.draftRowID.rawValue
         reshow()
     }
 
     private func reshow() {
+        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
@@ -209,6 +232,13 @@ public final class HomeSidebarView: NSView {
         list.itemFramesInWindow.map { (ConversationID($0.id), $0.pinned, $0.frame) }
     }
 
+    /// The New Message row's centre in window base coordinates, or nil without the row (a
+    /// synthesized hover over it shows its x: `debug.home.sidebar_fixture hover_draft`).
+    public var draftRowCenterInWindow: NSPoint? {
+        guard let window, let frame = itemFramesInWindow.first(where: { $0.id == Self.draftRowID })?.frame else { return nil }
+        return NSPoint(x: frame.midX, y: (window.contentView?.bounds.height ?? window.frame.height) - frame.midY)
+    }
+
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: ConversationID?) { list.select(id?.rawValue) }
 
@@ -216,7 +246,8 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
+                         avatarMotion: item.chiefAvatar == nil ? nil : item.chiefIsWorking ? .working : .idle)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -263,8 +294,8 @@ public final class HomeSidebarView: NSView {
 
     /// The unread dot is the notification blue, as in Messages and on the unread rings (or the
     /// user's `unreadDotColor`), never the theme accent: the default theme's accent is a grey, and
-    /// the dot read as missing (the user, 2026-10-21). The column lays the theme's legibility
-    /// scrim; the selection is the theme's translucent selection tint, never the system blue.
+    /// the dot read as missing (the user, 2026-10-21). The column paints Home's one veil, the
+    /// chat's fill; the selection is the theme's translucent selection tint, never the system blue.
     func applyColors() {
         list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
@@ -272,7 +303,7 @@ public final class HomeSidebarView: NSView {
         // The menu ring: the label colour, not the system accent.
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
-        layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
+        layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
         for button in [compose, unreadToggle] { button.applyTint() }
         applySearchColors()
     }
@@ -320,7 +351,7 @@ public final class HomeSidebarView: NSView {
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
-    func updateWindowControlsAvoidance() {
+    public func updateWindowControlsAvoidance() {
         guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
@@ -477,8 +508,15 @@ public final class HomeSidebarView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        WindowControlsAvoiders.join(self)
         applyColors()
         // A new window has its own traffic lights (or none, in full screen).
+        updateWindowControlsAvoidance()
+    }
+
+    /// A hidden workspace skipped window updates; re-read its position when shown.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
         updateWindowControlsAvoidance()
     }
 

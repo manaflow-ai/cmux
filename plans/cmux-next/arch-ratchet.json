@@ -509,6 +509,16 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "First-click fix (user 2026-10-30: buttons need two clicks). All logic is in CmuxNextDesign (FirstClickPolicy, FirstClickAudit); the App keeps only the one call it must own, in ShellWindow.sendEvent (Windows/ShellWindow+Events.swift, 4 lines: a 2-line comment and the call split over 2 lines; a lower package cannot override the App's NSWindow subclass), and the DEBUG-only `debug.first_click` forward in Control/DebugWindowsControl.swift (5 lines, beside the other debug.* routes the App's control router composes).",
+      "author": "first-click subagent (Chief, Buttons respond first click)",
+      "owner": "PL-arch",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at 4743358fd681f62ddfd717a7deb0c2b2a983ca69",
+      "expiry": "2026-11-30"
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
@@ -563,60 +573,246 @@
       "applied_sha": "1fb69bf23aaf93ed996f1183458a047b7a7b84d2"
     },
     {
-      "date": "2026-10-24",
+      "date": "2026-10-30",
       "row": "global_mutable_statics",
       "allow": 1,
-      "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
+      "why": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaletteScope.swift:45 `private static let shared = OSAllocatedUnfairLock(uncheckedState: Shared())`: it replaces four unsynchronized statics (the 2026-10-28 PaletteScope state and the stored Fixture.paletteGeneration) with one lock, because render workers read the process palette and the base generation while the main thread writes them (a data race the nonisolated(unsafe) marks hid). The state is read through the computed Fixture.theme, Fixture.baseGeneration and Fixture.paletteGeneration (Vendor/catalyst/Fixture.swift:63-94) from the vendored catalyst renderer's static drawing helpers (RowDrawing, Transcript, TiledBubble, LongText, Morph, MarkdownDraw), which have no instance or view to take an injected palette from, off the main thread too; the per-view palette already goes through the @TaskLocal scope (PaletteScope.swift:29). An instance would need a new patch in every vendored helper (Patches/catalyst__*.patch), so the one process-wide value stays, now race-free. Follow-up: pass the PaletteBox down the render path when the vendor patches are next rebased.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 84bca8e324a (Lawrence Chen, #28036)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
     },
     {
-      "date": "2026-10-24",
+      "date": "2026-10-30",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/CrashWatcher.swift:174 `nonisolated(unsafe) private var watcherDescriptor: Int32`: CrashWatcher.arm() (:156) reads it from CrashReporter.fatalSignalBegan() (CrashReporter.swift:150), the first call of a fatal-signal handler, and from the uncaught-exception path. A sigaction handler is a C function pointer with no context argument, so it cannot reach an injected instance; the only async-signal-safe way to find the watcher's pipe is a global word. It is one aligned Int32 written once by install(sampleFile:) (:149-150, guarded by `< 0`) at launch and then only read; an Atomic would still be a counted global. Same reason as CrashDeadline's semaphore.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit b3ec6ee1e38 (lawrencecchen, #22844)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24."
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/KillSwitches.swift:15 `public static let shared = KillSwitches()`: it holds the one verified set of per-PR kill switches that the signed flags document turns off for this process, and the free function killSwitch(_:) (:39-41) reads it so that any risky change in any package can add `if killSwitch(\"pr-N\") { old } else { new }` as a one-line rollback seam with no new init parameter (threading an instance into each call site would make the rollback seam itself a wide, risky diff). This is the model of Chrome's process-wide base::FeatureList. The state is a Mutex<Set<String>>, written only by the updater's KillSwitchReader after signature verification; tests replace and reset it (KillSwitchesTests.swift:265). Only this site is covered; KillSwitchReader.swift:33 `static weak var app` is not (proposed FIX).",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 52c918f9e28 (Leo, #24212)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
     },
     {
-      "date": "2026-10-25",
+      "date": "2026-10-30",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift:29 `static let shared = BlockingViolationTable()`: the main-thread blocking detector's table. A violation can happen in any module, inside any lock and before the composition root exists, and the check (and allowBlocking) runs on that thread with no context, so it cannot take its table through init (Chrome keeps ScopedBlockingCall state in globals for the same reason). Tests bind their own table through the @TaskLocal `scoped` (:32), and `active` (:35) prefers it. The whole file is `#if DEBUG || CMUX_BLOCKING_CHECKS` (:1), so Release has no such state.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit f668c89a38a (lawrencecchen, no PR; landed in 18c0b7af779)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
       "row": "observer_sites",
-      "allow": 7,
-      "why": "DesktopWallpaperWatch (from #23009): macOS posts no public notice when the desktop picture changes, so one watch per app (owned by BackdropImageStore.shared, injected into every WindowMaterialView) follows the wallpaper store folder with a file-system source (not an observer) and re-reads the main screen's picture on the seven system moments that can change it or that it must catch up after: macOS's com.apple.desktop notice, a Space switch, waking, a screen-parameter change, a window's occlusion changing (it reads nothing while no window shows, so a window shown, unhidden or uncovered catches it up), a window becoming key and a window changing screens. Each is observed once per app. The original PR's app-activation and AppleInterfaceThemeChanged observers were dropped (the view's own appearance callback covers the second); Codex review of 7bb4472 asked for wake and com.apple.desktop back."
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:144: macOS's `com.apple.desktop` distributed notice, the only system signal that the desktop picture changed (the store-folder file source covers writes, not every change). The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
     },
     {
-      "date": "2026-10-26",
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:147: NSWorkspace.activeSpaceDidChangeNotification: a Space switch can show another picture with no desktop notice. The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:148: NSWorkspace.didWakeNotification: the picture can change while the Mac sleeps; no app-wide wake adapter exists to subscribe to (CloudService, SSHService, FeedService, StatusIndicatorAppearance and IPhoneHostService each observe wake themselves). The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift:149: NSApplication.didChangeScreenParametersNotification: the main screen, and so its picture, can change. The watch is one per app (BackdropImageStore.shared.desktop, made by DesktopWallpaperWatch.live, :35-41), start() registers once (`guard observers.isEmpty`, :136), and the handler only calls refresh(), which reads nothing while no app window shows (isHidden) and coalesces into one read. It is the row's FIX shape: one observation per app in an adapter that tells only its registered WindowMaterialViews. Lines :151-153 (window notices with object nil) are not covered.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 46dd17cbb22 (Leo, #25308)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService.swift:164 `MainActorObservation(NSWorkspace.didWakeNotification)`: the app makes one IPhoneHostService (AppServices.swift:142), so it is one wake observation per app, released on stop or deinit; the handler returns at once unless the host is on, and then sends one networkChanged to the supervisor so hostd reconnects after sleep. Wake has no other signal, and no app-wide wake adapter exists in the tree (no SuspendWatch or AppEvents fan-out; five other services observe wake themselves), so there is nothing to subscribe to instead. If such an adapter lands, this site moves to it.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 8d40995d237 (Leo, #27297)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWindowRecord.swift:133 `addObserver(NSWindow.willCloseNotification, object: window, queue: .main)`: the file is `#if DEBUG || CMUX_BENCH_HOOKS` (:1-258), so Release has no such observer; it is scoped to the one recorded window (object: window), so only that window's close wakes it, and it ends a --record-launch recording at once instead of capturing a closed window until the 30 s cap. That is the row's per-window shape. The `queue: .main` plus assumeIsolated at :135 is a separate assume_isolated_outside_adapters FIX (use MainActorObservation); this entry covers only the observer count.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit fc532ccb574 (Leo, #23680)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-30",
       "row": "blocking_allow_escapes",
       "allow": 1,
-      "why": "CmuxNextUpdater SingleInstanceGuard.claim: the single-instance claim (mkdir of <Application Support>/<bundle id>, open, flock) runs once in CmuxNextApp.main before NSApp exists and before any other thread starts. Whether this process may start at all (a second copy must not reach CEF or the session) decides everything after it, so it cannot move off the main thread or after launch. Codex xhigh review of PR #25918."
-    },
-    {
-      "date": "2026-10-27",
-      "row": "observer_sites",
-      "allow": 1,
-      "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
-    },
-    {
-      "date": "2026-10-29",
-      "row": "stateful_singletons",
-      "allow": 2,
-      "why": "Per-PR kill switches are deliberately process-wide: the public killSwitch API must read one verified set across all call sites, and one KillSwitchReader follows the app updater so a ring change cannot leave competing readers or stale writes. The state is replaced only after signature verification; the reader is created at the updater composition seam. Independent review of cmux#24212 covers this lifecycle."
-    },
-    {
-      "date": "2026-10-28",
-      "row": "global_mutable_statics",
-      "allow": 4,
-      "why": "MessagesLabHome PaletteScope (per-chat bubble colours, user 2026-10-28): the vendored MessagesLab renderer reads its palette from process-wide statics (Fixture.theme, Fixture.paletteGeneration) on any thread, so two Home chats on screen with different Chat Colors overwrote each other. The fix mirrors the renderer's existing RenderScaleScope: a main-thread scope slot (mainThreadScoped, as RenderScaleScope's, to avoid binding a task local on main outside a task), the process palette that replaces the stored Fixture.theme, a main-only intern table so equal palettes share cache ids, and Fixture.baseGeneration that replaces the stored paletteGeneration. Moving them into an injected instance would mean rewriting every static drawing helper of the vendored renderer, which reads Fixture.* by design."
-    },
-    {
-      "date": "2026-10-30",
-      "row": "global_mutable_statics",
-      "allow": 1,
-      "owner": "cmux-next Performance Lead (cmux-orchestrator-1), PR #28036",
-      "expires": "2026-11-13",
-      "why": "MessagesLabHome PaletteScope's one lock (crash ratchet base red, 2026-10-30): it replaces the four unsynchronized statics of the 2026-10-28 exception above (mainThreadScoped, process, the box table and Fixture.baseGeneration; three nonisolated(unsafe) waivers and one counted hit) with one OSAllocatedUnfairLock that guards them, because render workers read the process palette and the base generation while the main thread writes them: a data race the nonisolated(unsafe) marks only hid. The count falls by three. The state stays process-wide for the same reason as that exception: the vendored MessagesLab renderer reads Fixture.* statics from every static drawing helper by design."
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift:126 `// blocking-allow:` for claim(at:): mkdir of the Application Support folder, open and flock(LOCK_EX | LOCK_NB). It runs once from CmuxNextApp.main (CmuxNextApp.swift:40) before NSApp exists, before LaunchWarmup and CEF start, so no frame exists that could wait. Whether this copy may launch at all decides everything after it (a second copy must not read sessions or reach CEF), so the main thread must wait for the answer whichever thread computes it; moving it off main only adds a hop. flock is non-blocking (LOCK_NB); mkdir and open of a local folder are the only waits.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 91476681618 (Leo, #25918)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at da4aa9b201f50adee3a85273b3a053c46f498cf2",
+      "expiry": "2026-11-30"
     },
     {
       "date": "2026-10-30",
       "row": "observer_sites",
       "allow": 1,
-      "why": "CaptureBackdropPanel (#27514, DEBUG-only debug.capture_backdrop): a capture backdrop observes the willClose of its one target window (object: target, at most one backdrop per window), so closing the window removes and closes its screen-sized backdrop instead of leaving it on screen (Codex review of 71131c81 asked for this). No shared adapter for a window close exists in CmuxNextDesign, and only that window close concerns the backdrop. The observation holds the panel weakly (the window keeps the panel, so no cycle) and stops when the backdrop is replaced, taken away or its window closes (remove()), or when the panel is released."
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/CaptureBackdropPattern.swift:86 `MainActorObservation(NSWindow.willCloseNotification, object: target)` in CaptureBackdropPanel.init: since 2391c5ec903 the panel, its view and NSWindow.setCaptureBackdrop/captureBackdrop are `#if DEBUG || CMUX_BENCH_HOOKS` (:59-118, :121-160, :177-216), the same condition as their only callers (DebugWindowSnapshot.swift:215-238, AppControl+Input.swift:30-59, the debug.capture_backdrop route), so Release has no such observer and keeps only constant read helpers (no backdrop). The observation is scoped to the one target window object (at most one backdrop per window), so only that window's close wakes it, and it removes and closes the screen-sized backdrop instead of leaving it on screen. It holds the panel weakly and ends in remove() (:106-109) or when the panel is released. That is the row's per-window shape; no shared window-close adapter exists in CmuxNextDesign.",
+      "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 8fb4805d251 (Leo, #27514); gated in 2391c5ec903 (lawrencecchen, audit-rh)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 485,
+      "why": "cmux#28111 (cloud.startChat, Leo 2026-10-30: \"like the initial 0 to 1 chat auto it sends to cloud\"): Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift and CloudStartChat+Machine.swift, plus their strings. They drive CloudService, CloudMove, the machine store and the agent tabs, which all live in CmuxNextApp today, so no domain package can hold them without moving those first. Per the rulebook (new logic in Rust, Swift a thin shell) the machine pick, the per-send ledger and the account checks move to acpmux/cmux-tui in the cloud.startChat Rust move that is already under way, which removes these lines from the App. 485 includes the account scoping the reviews asked for (CloudService.listedMachineIDs and its uses).",
+      "author": "claude lane carry-26791-crash (cmux#28111)",
+      "owner": "the cloud.startChat Rust move (follow-up of cmux#28111)",
+      "receipt": "Review (codex gpt-6-astra, router-review): SHIP at d76a98d8f47f8b85a4c2f8d4e4b644d183978d17",
+      "expiry": "2026-11-21"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 21,
+      "why": "Composition-root wiring that makes the Automations page reachable (docs/automations-platonic-ideal.md section 8): InternalPageID.automations, the TopPageRoute and SidebarBridge mappings, and in TopPages.registerProviders the AutomationsPageHost made from ProcessRunner (bundled CLI) and CloudAutomationRelay (CloudAuth), a WebPageTab provider and the typed automations.show binding. The page, its model and view are in CmuxNextCloudUI; only the App can join ProcessRunner, CloudAuth and the page registry. Package.swift is frozen (WINDOW PKG) and new App files are refused, so the wiring is in existing App files.",
+      "author": "a908",
+      "owner": "a908 (move into a CmuxNextAutomations target once a PKG slot is granted)",
+      "receipt": "Review (independent review subagent, read-only): SHIP at 6b959f3e38f1ea616a24710d117f01bbf28785d7",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 232,
+      "why": "#28989 (carry of #28044, Leo's 'anything opened on the right goes to the lower pane'): the right-column wiring is App-side glue around the pure rule and turn queue, which live in CmuxNextAgentPane (RightColumnPlacement, RightColumnTurns). The App lines are LinkOpener's target/turn plumbing, its three geometry helpers over PaneController and WorkspaceContentController (App types), AgentTabStore.openOnRight, and the in-place/refusal completion paths the reviews asked for. LinkOpenPlacement moving to CmuxNextAgentPane is the payback.",
+      "author": "claude-sr2-coord helper (carry of #28044)",
+      "owner": "ux-tabs-panes area owner",
+      "receipt": "Review (codex gpt-6-astra high, independent): SHIP at e603a67ba94164c9366c706f153157fbc8a30230",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "#28609 bug fix in WindowManager window membership (CmuxNextApp/Windows/WindowManager.swift, +Creation, +Membership): a backgroundClaims set and its three uses so a no-focus create never opens an unopened Cloud machine. Membership has no domain package yet (the Windows folder's destination is unset), so the 9 lines go where the reconcile they change lives; moving WindowManager out of the App is its own refactor.",
+      "author": "cloud-sidebar-vms (claude)",
+      "owner": "cloud-sidebar-vms",
+      "receipt": "Review (codex gpt-6-astra): SHIP at 5f7db1579443b56e7f57e17ff14e9c82bba8578c",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 3,
+      "why": "#28613 (Leo: 'we should just have it', Codex/opencode on the person's own Cloud VM): AgentTabRemoteHost's ownerCloud field and the one composition-root line in AgentTabs+Wiring that builds it from the machine's CloudMachineLinks and the daemon's agent-session-start-owner-cloud-v1. The decision lives in CmuxNextAgentPane (RemoteAcpmuxWire.ownerCloud) and cmux-tui-core; the PR had offset these lines by moving the owner-answer helper out of the App, which base's #29365 (CloudMachineLinks) has since done itself.",
+      "author": "cloud-codex (claude)",
+      "owner": "cloud-codex",
+      "receipt": "Review (codex gpt-6.1-sol xhigh via router-review): SHIP at 9a033c254b4ab6e660557c8c93b3a4cdb15fd1b9",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/FrameScheduler+Sight.swift:53: the one app-wide NSWindow.didChangeOcclusionStateNotification observer (started once by watchSight, held by FrameScheduler.app). Its handler finds the posting window's SightNote and its existing scheduler through associated objects (O(1)) and tells only that scheduler to end its animations (scheduler(of:) makes none). The row's fix shape: one observation per app in an adapter that tells only the affected subscriber. It lets a window out of sight get no animation frames (Chrome's hidden-tab rule; found while triaging the feat tip Swift suite 41190088925, whose hang it does not change: the test process gets no occlusion reports).",
+      "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
+      "owner": "Performance Lead (Wakeups)",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 24,
+      "why": "#28794 (HQ #4877 G4/G5, Leo's recovery-flow ask): SSHMachineSession's retriesSpent/waitsForUser reads and its restart() (a fresh link and daemon connection once the daemon reconnect gave up), and SSHService's byPerson gate on reconnect and connect. The decisions live outside the App (DaemonConnection.observeRetriesSpent, DaemonStore.retriesSpent, SSHConnectionMachine.waitsForUser, Status.reconnectStep's .restart). The PR had offset these lines by moving the reconnect step out of SSHService, which base's #28799 (SSHConnectionMachine+Reconnect) has since done itself.",
+      "author": "cloud-ux-flows builder (claude)",
+      "owner": "cloud-ux-flows",
+      "receipt": "Review (codex gpt-6-astra high via router-review): SHIP at c11edce515cad9c92dc27832f162b82f6125e044",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 24,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/TabHandlers+More.swift moveToSpace and the tab.moveToSpace bind (+24 lines): Move Tab to Space moves only the tab (a lone tab pins its workspace; a tab with siblings goes to a new workspace through TabMoves.toNewWorkspace, then that workspace is pinned to the space). It reads App-only types (TabMoves, WindowProfiles, TabPromotion, AppServices, AppActionContext), so it cannot move to a package until those do; the handler folder's destination-map row owns that move.",
+      "author": "aid-68ba07270dde07b96ff4",
+      "owner": "aid-68ba07270dde07b96ff4",
+      "receipt": "Review (codex gpt-6-astra high fast): SHIP at 75ee0affe9dc80b0a7550cc2533d46b54538403b",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 34,
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AgentChatCopyHandlers.swift (+34 lines, Leo's ask ask-70ded0db7b): the five Cmd+Shift+P session-file copy binds (paths, transcript, harness config, harness settings, acpmux session.json), their refusal strings and a filesReader beside the existing infoReader. The reads, labels and stale-clipboard logic live outside the App (CmuxNextAgentPane AgentChatCopyOperations, AgentChatCopyText, AgentPaneSessionCopySocket); the binds use App-only AppActionContext, AgentPaneView and focus checks, so they move with the Handlers folder's destination-map row.",
+      "author": "aid-cd1f8adf631e85594229",
+      "owner": "aid-cd1f8adf631e85594229",
+      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 7c12f1e51b1540c3940e7c8452119fd7c73762b5",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 29,
+      "why": "HomeService+ChiefRoster.swift observeFeedRows and its stored task in HomeService.swift (+29 lines, Leo's ask ask-b9334a120b): the observation that maps the Feed's open notices to the default Chief's transcript rows. The rows, their merge and the store setter live in CmuxHomeCore (HomeFeedRow, HomeStore+FeedRows) and the drawing in MessagesLabHome; the wiring reads App-only AppServices.feed and HomeService.defaultChiefConversation, so it moves with the Home folder's destination-map row.",
+      "author": "aid-a260e311693a0346346f",
+      "owner": "aid-a260e311693a0346346f",
+      "receipt": "Review (subagent claude-opus-5-5 medium): SHIP at 0925c487ce3c270211f6752319dca8432d31dc1a",
+      "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 13,
+      "why": "Cloud refresh coalescing (#13325): 13 App lines retain the account snapshot/result fence, service stop forwarding, and the call into CloudRefreshGate. MachineRegistry and auth reconciliation remain App-owned; all new batch coordination lives in CmuxNextCloud. Moving those unrelated app dependencies would broaden this correctness fix.",
+      "author": "cloud refresh implementation",
+      "owner": "cloud refresh implementation",
+      "receipt": "Review (independent Codex gate-design-review subagent): SHIP at f786167eebcf937d410ce58abac50d81db82b6c2",
+      "expiry": "2026-11-30"
+    }
+  ],
+  "escape_reviews": [
+    {
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift",
+      "text": "// blocking-allow: runs once in `main` before NSApp exists and before any other thread starts; whether this copy may start at all decides everything after it, so nothing can run first (one mkdir of an existing folder)",
+      "state": "reviewed",
+      "author": "the adding commit 91476681618 (Leo, #25918)",
+      "owner": "Performance Lead",
+      "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
+      "expiry": "2026-11-30",
+      "note": "claim(at:) (mkdir, open, flock LOCK_EX|LOCK_NB, which never waits for the lock) runs once from CmuxNextApp.main (CmuxNextApp.swift:40) before NSApp, LaunchWarmup and CEF, so no frame can wait, and every launch step after it depends on its answer, so moving it off main only adds a hop."
     }
   ],
   "observer_wrappers": [

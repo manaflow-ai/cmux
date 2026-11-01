@@ -488,6 +488,87 @@ fn terminal_report_drains_more_than_one_pending_retry_page() {
 }
 
 #[test]
+fn live_hook_catchup_failure_charges_the_failing_receipt() {
+    assert_live_hook_catchup_retry_budget(false);
+}
+
+#[test]
+fn live_hook_catchup_failure_preserves_replayed_receipt_budget() {
+    assert_live_hook_catchup_retry_budget(true);
+}
+
+fn assert_live_hook_catchup_retry_budget(replay: bool) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-catchup-budget-{}", WorkspacePublicId::random().unwrap()));
+    let mux = open_persistent_test_mux("hook-catchup-budget", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "catchup-budget"}),
+        )
+        .unwrap()
+    };
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_catchup_notification BEFORE INSERT ON resource_effect_receipts
+             WHEN NEW.operation = 'notification.create'
+             BEGIN SELECT RAISE(ABORT, 'forced catchup notification failure'); END;",
+        )
+        .unwrap();
+    let retry_state = |key: &str| {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .agent_hook_pending_retry_state_for_test(
+                crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                "test",
+                key,
+            )
+            .unwrap()
+    };
+    mux.append_journal_ingress(&ingress("PermissionRequest"), "test", "bad-permission").unwrap();
+    assert_eq!(retry_state("bad-permission").unwrap().0, 1);
+
+    // Each later live arrival retries the earlier failure. Waiting behind it must
+    // not consume the healthy receipt's own retry budget, even on exact replays.
+    let prompt = ingress("UserPromptSubmit");
+    for attempt in 2..=crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS {
+        let key =
+            if replay { "healthy-prompt".into() } else { format!("healthy-prompt-{attempt}") };
+        mux.append_journal_ingress(&prompt, "test", &key).unwrap();
+        assert_eq!(retry_state("bad-permission").unwrap().0, attempt);
+        assert_eq!(retry_state(&key).unwrap().0, 0, "waiting is not a projection failure");
+    }
+    assert_eq!(retry_state("bad-permission").unwrap().1, "agent hook retry limit reached");
+    let key = if replay { "healthy-prompt" } else { "final-healthy-prompt" };
+    let receipt = mux.append_journal_ingress(&prompt, "test", key).unwrap();
+    assert!(retry_state(key).is_none(), "healthy hook projects after the bad hook is quarantined");
+    assert!(
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(&terminal_id)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, receipt.sequence);
+    assert_eq!(mux.agent_records.lock().unwrap()[&terminal_id].state, AgentState::Working);
+    assert!(mux.resource_notifications(16).is_empty(), "quarantined notification stays unposted");
+
+    connection.execute_batch("DROP TRIGGER fail_catchup_notification").unwrap();
+    drop(connection);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn permanently_failed_hook_projection_is_quarantined() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
@@ -538,6 +619,29 @@ fn permanently_failed_hook_projection_is_quarantined() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         1
     );
+
+    // A later live hook catches up on earlier queued hooks, but a quarantined one stays
+    // quarantined: it neither blocks the terminal nor projects again.
+    let later = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(&terminal_id.to_string()),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    mux.apply_agent_hook_record(&later, receipt.sequence + 1).unwrap();
+    let after = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .agent_hook_pending_retry_state_for_test(
+            crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+            "test",
+            "dead-letter",
+        )
+        .unwrap()
+        .expect("quarantined hook is not replayed by a later live hook");
+    assert_eq!(after.0, crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS);
 }
 
 #[test]

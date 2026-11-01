@@ -22,7 +22,7 @@ import Testing
     @Test func theTipStampedDevAppIsNightlyAndRunsSparkle() {
         let tip = Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed)
         #expect(tip.isTipBuild)
-        #expect(tip.track == .nightly)
+        #expect(tip.track == .nightlyNext)
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
         // A managed DisableAutoUpdate still wins.
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: true) == .managedPolicy)
@@ -32,13 +32,13 @@ import Testing
         #expect(feed.url == Self.tipFeed)
         #expect(tip.feed(architecture: .x86_64).url == Self.tipFeed)
         #expect(UpdateFeedResolver().resolve(infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast.xml").channel == .nightlyNext)
-        // DEV has no NIGHTLY/stable counterpart to switch to.
-        #expect(tip.channelSwitchTarget == nil)
+        // The published DEV app switches to cmux NEXT's NIGHTLY (and that NIGHTLY to it).
+        #expect(tip.channelSwitchTarget == .nightlyNext)
     }
 
     @Test func theTipAppWithoutAKeyDoesNotRunSparkle() {
         let tip = Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed, hasPublicKey: false)
-        #expect(tip.track == .nightly)
+        #expect(tip.track == .nightlyNext)
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == .missingPublicKey)
     }
 
@@ -78,5 +78,22 @@ import Testing
         let local = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.stableFeed),
                                    policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
         #expect(local.disabledReason == .developmentBuild)
+    }
+
+    /// cmux NEXT Stable (scripts/ci/stable-next-identity.sh): a nightly-kind bundle id with the stable
+    /// feed under /nightly-next/, so it runs Sparkle and resolves like cmux NEXT, and every ring
+    /// accepts its `cmux-next-stable` items.
+    @Test func cmuxNextStableIsANightlyTrackOnItsOwnFeed() {
+        let feedURL = "https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml"
+        let stable = Self.identity("com.cmuxterm.app.nightly.cmux-next-stable", feed: feedURL)
+        #expect(stable.track == .nightlyNext)
+        #expect(stable.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
+        let feed = stable.feed(architecture: .arm64)
+        #expect(feed.channel == .nightlyNext)
+        #expect(feed.url == feedURL)
+        for ring in UpdateRing.allCases {
+            #expect(feed.channel.allowedSparkleChannels(ring: ring).contains("cmux-next-stable"), "\(ring)")
+        }
+        #expect(stable.channelSwitchTarget == nil)
     }
 }

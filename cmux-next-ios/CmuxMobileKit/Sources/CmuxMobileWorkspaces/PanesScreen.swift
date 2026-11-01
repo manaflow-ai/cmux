@@ -35,6 +35,7 @@ struct PanesScreen: View {
                     .accessibilityIdentifier("panes.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renamePane(pane, to: paneName) } }
+                    .keyboardShortcut(.defaultAction)
             } message: { _ in
                 Text("Leave the name empty to clear it.")
             }
@@ -88,7 +89,7 @@ struct PanesScreen: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
-                                   description: Text("\(source.macName) hasn't listed this workspace's panes yet."))
+                                   description: Text("\(source.macName) hasn't listed this workspace's panes."))
         }
     }
 
