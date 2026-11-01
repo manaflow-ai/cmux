@@ -2418,6 +2418,8 @@ const DRAWN_SEARCH_ROWS = 64;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 /// Viewports of rows kept mounted either side of the reader, built between frames.
 const WARM_VIEWPORTS = 1;
+/// How far the reader scrolls, in viewports, before the warm rows move with them.
+const WARM_STEP_VIEWPORTS = 0.5;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
 /// How long a scroll event can be attributed to the reader's most recent input. Expiring this
@@ -3809,7 +3811,13 @@ export function VirtualTranscript({
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(unplacedScroll.top - origin) + placementDelta;
+  // The deferred offset moves in steps of WARM_STEP_VIEWPORTS: an offset that changed every pixel
+  // gave each scroll frame a second render of the whole transcript (often restarted by the next
+  // scroll event) that drew the same warm rows. A step leaves at least WARM_VIEWPORTS less half a
+  // step warm on either side.
+  const warmStep = Math.max(1, height * WARM_STEP_VIEWPORTS);
+  const warmAt = Math.round((unplacedScroll.top - origin) / warmStep) * warmStep;
+  const warmTop = useDeferredValue(warmAt) + placementDelta;
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
