@@ -1125,24 +1125,22 @@ class WiringTests(unittest.TestCase):
         following = re.search(r"\n  [a-z0-9-]+:\n", rest[len(name) + 3:])
         return rest[:following.start() + len(name) + 3] if following else rest
 
-    def test_publish_nightly_needs_the_gates_verdict_not_the_mac_job(self):
+    def test_publish_nightly_does_not_need_visual_jobs(self):
         publish = self.job("publish-nightly")
         needs = [name.strip() for name in
                  publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0].split(",")]
-        # A gate queued for a runner taken after the pick could hold publication for a day: publish
-        # waits on the Linux job that stops waiting after the queue budget, never on the Mac job.
-        self.assertIn("visual-gate-nightly-verdict", needs)
+        # Visual coverage is advisory: a display or Linux queue can never hold the feed.
+        self.assertNotIn("visual-gate-nightly-verdict", needs)
+        self.assertNotIn("route-visual-gate-nightly", needs)
         self.assertNotIn("visual-gate-nightly", needs)
-        self.assertNotIn("needs.visual-gate-nightly.", publish)
-        # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks this
-        # run's own build only, never a recovered one (judged by its own verdict).
+        self.assertNotIn("needs.visual-gate-nightly", publish)
+        # In every visual mode publication depends only on signed and verified build artifacts.
         condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
-        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks != 'true'", own.split("((", 1)[1])
         self.assertNotIn("visual-gate-nightly", recovered)
-        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks == 'true' || "
-                      "needs.route-visual-gate-nightly.outputs.mode == 'invalid'", publish)
-        self.assertIn('[ "$OWN_GATE_BLOCKS" != true ]', publish)
+        self.assertNotIn("visual-gate-nightly-verdict.outputs.blocks", own)
+        self.assertNotIn("route-visual-gate-nightly.outputs.mode", own)
+        self.assertNotIn("OWN_GATE_BLOCKS", publish)
 
     def test_a_gate_mode_that_cannot_be_resolved_holds_this_runs_build(self):
         # The gate's own misconfiguration fails closed: the resolver failing gives `invalid`, which
@@ -1170,10 +1168,10 @@ class WiringTests(unittest.TestCase):
             self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", self.job(name))
         publish = self.job("publish-nightly")
         needs = publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0]
-        self.assertIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
+        self.assertNotIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
         condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own = condition.split(" || (needs.recover-nightly-next-notarization")[0]
-        self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
+        self.assertNotIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
 
     def test_the_verdict_job_is_skipped_with_the_gate_and_reads_only_actions(self):
         verdict = self.job("visual-gate-nightly-verdict")
@@ -1245,7 +1243,7 @@ class WiringTests(unittest.TestCase):
         # The gate's own outputs stay for the report job.
         self.assertIn("blocks: ${{ steps.verdict.outputs.blocks }}", gate)
         report = self.job("report-visual-gate-nightly")
-        self.assertIn("HELD: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}", report)
+        self.assertNotIn("HELD:", report)
 
     def test_a_recovered_build_is_judged_by_its_own_verdict(self):
         find = self.job("find-nightly-next-recovery")
