@@ -131,6 +131,8 @@ as for broken states):
 A state with no row only warns. A shift or violation must show on every retry to count. Rows only
 go down: download a run's `gallery-health-*` artifacts and run `bun shift-baseline.ts --from <dir>`
 or `bun invariant-baseline.ts --from <dir>`; `--add` writes rows for states that have none.
+Shift rows are written from the worst of the downloaded runs, so a 0 row is a state no run shifted;
+seed from more than one run (several artifacts in one folder) to keep a flaky state off 0.
 
 ## Geometry audit
 

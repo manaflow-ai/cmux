@@ -14,8 +14,9 @@
 //
 //   bun shift-baseline.ts --from <downloaded gallery-health-* artifacts>
 //
-// lowers every row the run beat. It never raises a row; `--add` writes rows for states that have
-// none, the run's scores, a change the PR diff shows.
+// lowers every row the runs beat, scored by the worst of the downloaded runs (so a flaky state never
+// gets a 0 row). It never raises a row; `--add` writes rows for states that have none, the same
+// way, a change the PR diff shows.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -88,6 +89,15 @@ export function least(runs: Map<string, { score: number; moves: string[] }>[]): 
   return best;
 }
 
+/** The most each state shifted across runs. Rows are written from this, so a 0 row is one no run
+ * shifted: a state that shifts in some runs gets a row above its flakes, not a flaky 0. */
+export function most(runs: Map<string, { score: number; moves: string[] }>[]): Map<string, { score: number; moves: string[] }> {
+  const worst = new Map<string, { score: number; moves: string[] }>();
+  for (const scores of runs)
+    for (const [state, value] of scores) if (!worst.has(state) || value.score > worst.get(state)!.score) worst.set(state, value);
+  return worst;
+}
+
 export type ShiftFinding = { state: string; score: number; baseline: number; moves: string[] };
 
 export function readShiftBaseline(path = SHIFT_BASELINE_PATH): ShiftBaseline {
@@ -132,7 +142,7 @@ export function shiftSummary(found: ReturnType<typeof judgeShift>): string {
   return lines.join("\n");
 }
 
-/** The baseline lowered to a run's scores; rows never rise, and `add` writes rows for new states. */
+/** The baseline lowered to a run's scores (the CLI passes the worst run's); rows never rise, and `add` writes rows for new states. */
 export function lowered(baseline: ShiftBaseline, scores: Map<string, number>, add = false): ShiftBaseline {
   const states: Record<string, number> = {};
   for (const [state, row] of Object.entries(baseline.states)) {
@@ -157,7 +167,8 @@ function resultsUnder(dir: string): ShiftResult[][] {
 if (import.meta.main) {
   const { values } = parseArgs({ options: { from: { type: "string" }, add: { type: "boolean", default: false }, baseline: { type: "string", default: SHIFT_BASELINE_PATH } } });
   if (!values.from) throw new Error("--from <dir of gallery-health artifacts> is required");
-  const scores = new Map([...least(resultsUnder(values.from).map(shiftScores))].map(([state, { score }]) => [state, score]));
+  const runs = resultsUnder(values.from).map(shiftScores);
+  const scores = new Map([...most(runs)].map(([state, { score }]) => [state, score]));
   const next = lowered(readShiftBaseline(values.baseline), scores, values.add);
   writeFileSync(values.baseline, `${JSON.stringify(next, null, 2)}\n`);
   console.log(`${Object.keys(next.states).length} rows (${Object.values(next.states).filter((row) => row > 0).length} non-zero) in ${values.baseline}`);

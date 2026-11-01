@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { caseScore, judgeShift, least, limit, lowered, shiftScores, shiftSummary } from "./shift-baseline";
+import { caseScore, judgeShift, least, limit, lowered, most, shiftScores, shiftSummary } from "./shift-baseline";
 
 const result = (entry: string, variant: string, load: number, steps: number[] = [], ready = "1") => ({
   params: { entry, variant },
@@ -37,4 +37,11 @@ test("a shift only one run saw is noise: the least score across runs counts", ()
 test("rows only go down; --add writes rows for new states", () => {
   const next = lowered({ states: { "a#x": 0.05, "b#y": 0 } }, new Map([["a#x", 0.02], ["b#y", 0.3], ["c#z", 0.00001]]), true);
   expect(next.states).toEqual({ "a#x": 0.02, "b#y": 0, "c#z": 0 });
+});
+
+test("rows are written from the worst run, so a state that shifts in some runs never gets a 0 row", () => {
+  const worst = most([shiftScores([result("a", "x", 0)]), shiftScores([result("a", "x", 0.02)])]);
+  const scores = new Map([...worst].map(([state, { score }]) => [state, score]));
+  expect(lowered({ states: {} }, scores, true).states["a#x"]).toBe(0.02);
+  expect(lowered({ states: { "a#x": 0.05 } }, scores).states["a#x"]).toBe(0.02);
 });
