@@ -84,7 +84,8 @@ import Testing
         row.needsLayout = true
         row.layoutSubtreeIfNeeded()
         #expect(row.activity.showsGlyph)
-        #expect(abs(row.activity.frame.midX - (row.chiefMark.frame.midX - SidebarStyle.trailingSlotPitch)) < 0.5)
+        // statusGlyphFrame rounds to the nearest backing pixel (including the half-pixel tie).
+        #expect(abs(row.activity.frame.midX - (row.chiefMark.frame.midX - SidebarStyle.trailingSlotPitch)) <= 0.5 / window.backingScaleFactor)
         #expect(!row.activity.frame.intersects(row.chiefMark.frame))
     }
 
