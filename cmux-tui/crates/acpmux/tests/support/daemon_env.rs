@@ -184,6 +184,15 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
             env.push(((*key).to_owned(), value));
         }
     }
+    // Threads at the daemon's worker stack (`cli/entry.rs`), not std's 2 MiB: a hub this process
+    // runs polls the same request futures the daemon polls on its workers, and they need more than
+    // 2 MiB in places (a `/btw` side session's start, 2.0-2.3 MiB on Linux CI, 2026-10-31). A test
+    // on a smaller thread than the daemon's would fail on a stack the daemon never has, and one on
+    // a larger thread would pass where the daemon aborts. A host's own RUST_MIN_STACK, kept above,
+    // wins.
+    if !env.iter().any(|(key, _)| key == "RUST_MIN_STACK") {
+        env.push(("RUST_MIN_STACK".into(), acpmux::cli::entry::WORKER_STACK_BYTES.to_string()));
+    }
     for (key, value) in process.inject {
         env.retain(|(k, _)| k != key);
         env.push(((*key).to_owned(), (*value).to_owned()));
@@ -202,6 +211,23 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     }
     let err = cmd.args(args).env_clear().envs(env).exec();
     panic!("start {} again with the hermetic environment: {err}", exe.display());
+}
+
+/// The readiness line a `daemon run --ready-fd 1` writes on `stdout`. The daemon's log shares
+/// stdout, so a line it logs first (a startup warning) comes before it; each such line goes on
+/// to this test's stderr.
+pub fn ready_line(stdout: impl std::io::Read) -> String {
+    use std::io::BufRead;
+    let mut stdout = std::io::BufReader::new(stdout);
+    loop {
+        let mut line = String::new();
+        let read = stdout.read_line(&mut line).expect("read the daemon's stdout");
+        assert!(read > 0, "the daemon exited before it was ready");
+        if line.contains("\"ready\":true") {
+            return line;
+        }
+        eprint!("daemon before ready: {line}");
+    }
 }
 
 /// The binary under test. Only for values (a path a daemon passes on, an

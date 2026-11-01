@@ -49,8 +49,17 @@ pub(super) async fn serve_stream(
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
     tokio::spawn(read_lines(rd, in_tx, last_tx, limits));
     tokio::spawn(write_lines(wr, out_rx, last_rx));
-    serve_connection_from(hub, in_rx, out_tx, Origin::Local, ConnAuth::LocalSocket, peer, None)
-        .await;
+    serve_connection_from(
+        hub,
+        in_rx,
+        out_tx,
+        Origin::Local,
+        ConnAuth::LocalSocket,
+        peer,
+        None,
+        None,
+    )
+    .await;
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the

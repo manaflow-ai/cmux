@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -41,7 +42,7 @@ public struct TabItemMapping {
         item.isNewTabPage = isNewTabPage
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         // A terminal title's spinner glyph (`⠐ Fix the bug`) shows as the working mark, not as text.
-        else if item.indicator == .idle, tab.titleActivity == .working { item.indicator = .working(progress: nil) }
+        else if item.indicator == .idle, tab.titleActivity == .working, DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs { item.indicator = .working(progress: nil) }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)
@@ -98,7 +99,9 @@ public struct TabItemMapping {
     public func title(_ tab: TabModel, fallbackTitle: String) -> String {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
-        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
+        let untitled = tab.displayTitle.isEmpty
+            || (!isBrowser && !isConversation && (tab.name?.isEmpty ?? true) && TerminalTitle.isBareShell(tab.title))
+            || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
         // A terminal its shell has not titled yet shows its folder, which the
         // shell's first title usually is, so the label does not change a
         // frame after the tab opens.

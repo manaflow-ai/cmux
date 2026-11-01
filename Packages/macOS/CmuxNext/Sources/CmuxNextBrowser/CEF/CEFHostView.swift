@@ -61,6 +61,32 @@ final class CEFHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // MARK: Presses on the page area
+
+    /// A press reaches this view only where the page window takes no mouse: the whole page before a
+    /// tab's first real page (the New Tab page, a blank page), which is cut out of the page window
+    /// (`CEFTab.applyOcclusion`). Chromium focuses the web contents on such a press, and the omnibox
+    /// blurs (`OmniboxViewViews::OnBlur`), so the press makes this view first responder: an edit in
+    /// the omnibar ends there (its typed text stays), and the focus model reads the responder as the
+    /// pane's page (`FocusResponderClassifier`) and gives the page the keyboard, as a press inside
+    /// the page window does (Lawrence 2026-10-30: "i click outside and omnibar is still focused").
+    override var acceptsFirstResponder: Bool { true }
+    /// Not a stop of the keyboard loop: only a press focuses the page this way.
+    override var canBecomeKeyView: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { focusPageOnPress() }
+    override func rightMouseDown(with event: NSEvent) {
+        focusPageOnPress()
+        super.rightMouseDown(with: event)
+    }
+    override func otherMouseDown(with event: NSEvent) { focusPageOnPress() }
+
+    private func focusPageOnPress() {
+        guard let window, window.firstResponder !== self else { return }
+        window.makeFirstResponder(self)
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateBackground()

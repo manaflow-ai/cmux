@@ -324,6 +324,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
+            machine: crate::login_env::machine_stamp(),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -701,6 +702,14 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    // A delivery or revocation since its key was made (also
+                    // while this claim waited on its start): a cold start
+                    // reads the machine's secrets afresh.
+                    if p.key.machine != crate::login_env::machine_stamp() {
+                        tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
                     // `stop_pool` may have drained the pool and the claims
                     // while the entry was out of both.
                     if self.pool.stopping.load(Ordering::SeqCst) {
@@ -792,6 +801,10 @@ impl Hub {
         session: &Arc<Session>,
         mut p: Pooled,
     ) -> anyhow::Result<(Arc<ChildAgent>, bool)> {
+        // As in `start_hosted`: the session's old host is gone, so a host this build could not
+        // speak to no longer counts, cleared before the pooled record goes live so no off push in
+        // between ends the pooled agent for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);

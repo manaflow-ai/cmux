@@ -65,12 +65,12 @@ const INFO = {
 };
 
 /// Each host call, with a way to answer it later.
-type Call = { method: string; params: Record<string, unknown>; answer(value: unknown): void };
+type Call = { method: string; params: Record<string, unknown>; answer(value: unknown): void; fail(error: Error): void };
 let calls: Call[] = [];
 setChipHost(
   (method, params) =>
-    new Promise((resolve) => {
-      calls.push({ method, params, answer: resolve });
+    new Promise((resolve, reject) => {
+      calls.push({ method, params, answer: resolve, fail: reject });
     }),
 );
 
@@ -162,6 +162,21 @@ try {
     expect(state?.reading).toBe(0);
     expect(state?.attachments[0]?.video).toBeUndefined();
     expect(host.querySelector(".acpmux-attachment-video")).toBeNull();
+    expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
+  });
+
+  test("a rejected video.info request ends the spinner and leaves the file ready to send", async () => {
+    await render([video()]);
+    expect(state?.reading).toBe(1);
+    expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+
+    // A disconnected or outdated host may refuse the native video.info call.
+    await act(async () => calls[0]!.fail(new Error("video.info unavailable")));
+
+    expect(state?.reading).toBe(0);
+    expect(state?.attachments).toHaveLength(1);
+    expect(state?.attachments[0]?.video).toBeUndefined();
+    expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
     expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
   });
 

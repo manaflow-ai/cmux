@@ -249,6 +249,7 @@ impl Hub {
                     "fromHarness": from_harness,
                     "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
+                    "subagentRetry": super::subagent_retry::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })
             })
