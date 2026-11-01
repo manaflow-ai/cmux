@@ -70,7 +70,7 @@ import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullReque
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
-import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList } from "./SessionInfoGroup";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
@@ -272,6 +272,7 @@ export function useSessionInfo({
   repository,
   cloudRepositoryAvailable,
   shell,
+  grants,
   onOpenOutput,
   onOpenSourceFile,
   onOpenUrl,
@@ -322,6 +323,8 @@ export function useSessionInfo({
   cloudRepositoryAvailable?: boolean;
   /// The pane's shell: Session Info measures it to float or push.
   shell?: HTMLElement | null;
+  /// What the chat was granted (folder trust, a chat-wide allowance), each revocable in Environment.
+  grants?: readonly AccessGrant[];
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
@@ -504,6 +507,7 @@ export function useSessionInfo({
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
+        grants={grants}
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
@@ -575,6 +579,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   repository,
   cloudRepositoryAvailable,
   shell,
+  grants,
   beside,
   wide,
   openedOutputAt,
@@ -613,6 +618,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   shell?: HTMLElement | null;
+  grants?: readonly AccessGrant[];
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
   /// A handoff review's form shows: whether the panel lies over the chat is measured against it.
@@ -801,6 +807,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
+        // A subagent's view lists its own things: the grants are the chat's.
+        grants={scope ? undefined : grants}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
@@ -1027,6 +1035,7 @@ export function SessionInfo({
   machineName,
   peerKinds,
   repository,
+  grants,
   cloudRepositoryAvailable,
   made,
   links = [],
@@ -1076,6 +1085,8 @@ export function SessionInfo({
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
+  /// What the chat was granted, revocable in Environment.
+  grants?: readonly AccessGrant[];
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
@@ -1256,6 +1267,7 @@ export function SessionInfo({
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
+        grants={grants}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
         projectLook={projectRowLook}
