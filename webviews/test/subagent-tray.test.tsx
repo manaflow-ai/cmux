@@ -5,7 +5,7 @@
 //   line where it ended, with its name and how long it ran, a failure in the danger color.
 // - The tray lists each running subagent (nested ones under their parent), background command and
 //   chat the agent started: name, what it does now, its state and its time. Several get a header;
-//   more than three keep a bounded set of status cards with View all.
+//   every one stays in the list that scrolls (no View all).
 // - It is the one place running background work shows: no "Running in background" row in the
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
@@ -58,7 +58,7 @@ const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subage
 const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
-const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
+const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { nestAgents } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
@@ -395,8 +395,9 @@ describe("the tray", () => {
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       await act(async () => head.click());
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      // A fixed running-work mark, never the spinner (#27103) and never the chat bubble.
-      expect(head.querySelector('svg[data-icon="app.sample.runningagents"]')).not.toBeNull();
+      // No mark shows (Leo, 2026-11-01: "why did you guys not remove the 3/4"): its slot is blank, so the
+      // counts keep the text column; never the spinner (#27103) and never the chat bubble.
+      expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
       expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
@@ -410,7 +411,7 @@ describe("the tray", () => {
       await shown.done();
     }
     const many = trayItems(
-      Array.from({ length: TRAY_OPEN_MAX + 1 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index })),
+      Array.from({ length: 4 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index })),
       [],
       NONE,
       true,
@@ -423,7 +424,7 @@ describe("the tray", () => {
       expect(head.getAttribute("aria-expanded")).toBe("false");
       expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       await act(async () => head.click());
-      expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
+      expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(4);
     } finally {
       await folded.done();
     }
@@ -888,7 +889,7 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a tray with nothing running is settled: no card around what ended", async () => {
+  test("a lone ended line is settled with no card; a headed settled tray keeps its own surface", async () => {
     const now = Date.now();
     const ended = agent("Linter", { state: "completed", startedAt: now - 90_000, endedAt: now - 6000 });
     const { root, done } = await render(
@@ -901,9 +902,31 @@ describe("a tray line says what it is and what a click does", () => {
       }),
     );
     try {
-      expect(root.querySelector(".acpmux-running-tray")!.hasAttribute("data-settled")).toBe(true);
+      const tray = root.querySelector(".acpmux-running-tray")!;
+      expect(tray.hasAttribute("data-settled")).toBe(true);
+      expect(tray.hasAttribute("data-card")).toBe(false);
     } finally {
       await done();
+    }
+    // Several ended: headed, and never the chat's own glass (Leo, 2026-11-01: "you can't just have it
+    // be the exact same glass as the background").
+    const more = agent("Fuzzer", { state: "completed", startedAt: now - 80_000, endedAt: now - 5000 });
+    const headed = await render(
+      createElement(SubagentTray, {
+        items: [],
+        finished: finishedTrayItems([ended, more], NONE),
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      const tray = headed.root.querySelector(".acpmux-running-tray")!;
+      expect(tray.hasAttribute("data-settled")).toBe(true);
+      expect(tray.hasAttribute("data-card")).toBe(true);
+      expect(tray.getAttribute("data-surface")).toBe("tint");
+    } finally {
+      await headed.done();
     }
   });
 
@@ -981,24 +1004,16 @@ describe("the tray tells the truth", () => {
       expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       expect(lines[3]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
-      // Finished work is visible as cards without changing the running count.
-      const more = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      expect(more.textContent).toContain("View all 4");
-      expect(more.getAttribute("aria-expanded")).toBe("false");
-      expect(names([...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")])).toEqual([
-        "Fuzzer",
-        "Linter",
-        "Fix the dock",
-      ]);
-      await act(async () => more.click());
+      // Finished work is visible as lines without changing the running count, every one of them in the
+      // list that scrolls: no View all (Leo, 2026-11-01: "why is there even a view all 5 button it's
+      // useless just let it be scroll-downable").
+      expect(root.querySelector(".acpmux-running-tray__finished")).toBeNull();
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
       // Ended rows keep their status words in the same track.
       expect(
         ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
       ).toEqual(["Failed", "Done", "Done", "Failed"]);
-      expect(more.textContent).toContain("Show fewer");
-      expect(more.getAttribute("aria-expanded")).toBe("true");
       expect(liveLines(root).length).toBe(5);
     } finally {
       await done();
@@ -1185,7 +1200,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     return { items: trayItems(agents, [], NONE, true), finished: finishedTrayItems(agents, NONE) };
   };
 
-  test("with 118 agents the header is pinned outside the list that scrolls, and View all under it", async () => {
+  test("with 118 agents the header is pinned outside the list that scrolls, which holds every line", async () => {
     const { items, finished } = panel(2, 116);
     const { root, done } = await render(
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
@@ -1194,19 +1209,15 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
-      const more = tray.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      // The tray is the header, then the fold (trayMotion.tsx) with the list and View all under it:
-      // neither pinned part is inside the scroller.
+      // The tray is the header, then the fold (trayMotion.tsx) with the list in it: the pinned header
+      // is outside the scroller, and nothing (no View all) follows the list.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
         "acpmux-running-tray__fold",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual([
         "acpmux-running-tray__list",
-        expect.stringContaining("acpmux-running-tray__finished"),
       ]);
-      expect(more.textContent).toContain("View all 116");
-      await act(async () => more.click());
       expect(list.querySelectorAll("li").length).toBe(118);
       // Scrolling the list to its end leaves the header mounted, first, and the same node.
       const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
