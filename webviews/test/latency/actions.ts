@@ -1147,6 +1147,49 @@ export const SETTINGS_PAGE: LatencyPageSpec = {
   actions: settingsActions,
 };
 
+/** Opening another chat with Session Info open, once per arm of the chat-switch-motion experiment
+ *  (flows.harness.ts `switch=`): the frames from the switch until every part of its motion settled. */
+function chatSwitch(arm: string): LatencyPageSpec {
+  return {
+    name: `chat switch ${arm}`,
+    path: `/test/latency/flows.html?mock&switch=${arm}`,
+    ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
+    actions: [
+      {
+        id: `chat.switch.${arm}`,
+        name: `open another chat (${arm} motion)`,
+        metricType: "frame_time",
+        requiredInstrumentation: requiredProfiled,
+        async prepare(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await page.waitForSelector(".acpmux-scroll .acpmux-row");
+          if (!(await page.$("aside.acpmux-session-info")))
+            await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+          await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+          await quiet(page);
+          const from = await page.evaluate(() => document.querySelector(".acpmux-thread-title")?.textContent ?? "");
+          // Landed and settled: another title, rows drawn, and no part of the switch still moving.
+          return `(() => {
+            const title = document.querySelector(".acpmux-thread-title")?.textContent ?? "";
+            if (title === ${js(from)} || !document.querySelector(".acpmux-scroll .acpmux-row")) return false;
+            return !document.getAnimations().some((animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime));
+          })()`;
+        },
+        async input(page) {
+          await page.evaluate("window.__latency.markInput('chat-switch'); window.__latencyFlows.openOtherChat()");
+        },
+        async settle(page) {
+          await page.evaluate("window.__latencyFlows.restoreChat()");
+          await quiet(page);
+        },
+      },
+    ],
+  };
+}
+
+export const CHAT_SWITCH_PAGES: LatencyPageSpec[] = ["off", "fade", "stagger", "depth"].map(chatSwitch);
+
 export const PAGES: LatencyPageSpec[] = [
   DIFF_PAGE,
   MARKDOWN_PAGE,
@@ -1159,4 +1202,5 @@ export const PAGES: LatencyPageSpec[] = [
   RAIL_DRAG_PAGE,
   RAIL_POINTER_PAGE,
   ...RAIL_SWEEP_PAGES,
+  ...CHAT_SWITCH_PAGES,
 ];

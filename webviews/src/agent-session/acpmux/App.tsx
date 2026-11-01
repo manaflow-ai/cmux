@@ -668,6 +668,8 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
+import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
+import { chatSwitchMotion } from "./chatSwitch.experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -3292,6 +3294,8 @@ export function VirtualTranscript({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The chat switch motion's arm, read once per transcript (a changed arm applies on reload).
+  const [switchArm] = useState(() => experimentArm(chatSwitchMotion));
   /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
   /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
   /// not under the last chat's fade, and a transcript that unmounts leaves none running.
@@ -3307,9 +3311,35 @@ export function VirtualTranscript({
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
-    openFade.current = fadeInOpenedChat(ref.current);
+    // Under a chat switch motion (chatSwitch.ts) the switch's own play draws the open instead.
+    openFade.current = switchArm === "off" ? fadeInOpenedChat(ref.current) : undefined;
     onColdOpenShown?.(coldOpen);
-  }, [coldOpen, rows.length, onColdOpenShown]);
+  }, [coldOpen, rows.length, onColdOpenShown, switchArm]);
+  // CHAT SWITCH MOTION (experiment chat-switch-motion, off by default): opening another chat plays
+  // its rows, title and Session Info in as one movement, on the first frame the new chat's rows draw
+  // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows.
+  // The play's animations end on their own; the next switch starts from where they are, and the
+  // transcript unmounting cancels them.
+  const switchPlay = useRef<ChatSwitchPlay | undefined>(undefined);
+  const switchFrom = useRef(sessionId);
+  const switchPending = useRef(false);
+  const hasRows = rows.length > 0;
+  useLayoutEffect(() => {
+    if (switchFrom.current !== sessionId) {
+      switchPending.current = switchFrom.current !== undefined && sessionId !== undefined;
+      switchFrom.current = sessionId;
+    }
+    if (!switchPending.current || !hasRows) return;
+    switchPending.current = false;
+    switchPlay.current = playChatSwitch(ref.current, switchArm, switchPlay.current);
+  }, [sessionId, hasRows, switchArm]);
+  useLayoutEffect(
+    () => () => {
+      switchPlay.current?.stop();
+      switchPlay.current = undefined;
+    },
+    [],
+  );
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
