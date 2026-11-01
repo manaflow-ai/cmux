@@ -61,6 +61,7 @@ struct TerminalLaunchTimelineTests {
         let timeline = TerminalLaunchTimeline(window: 1, capacity: 2, now: clock.now)
         clock.set(10)
         _ = timeline.shown(key: "tab_a", surface: 1)
+        #expect(!timeline.shown(key: "tab_remote", surface: 0)) // under capacity, but no daemon surface: nothing to time
         _ = timeline.shown(key: "tab_b", surface: 2)
         _ = timeline.shown(key: "tab_c", surface: 3) // past capacity
         clock.set(1_001)

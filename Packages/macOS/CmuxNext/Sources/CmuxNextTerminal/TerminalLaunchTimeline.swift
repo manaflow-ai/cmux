@@ -72,9 +72,10 @@ public nonisolated final class TerminalLaunchTimeline: Sendable {
         }
     }
 
-    /// Records that a pane showed `key` (the first time, in the window, under capacity); whether it did.
+    /// Records that a pane showed `key` (the first time, in the window, under capacity); whether it did. A terminal
+    /// with no daemon surface (0: a remote terminal, one still being made) has no link to time: not recorded.
     func shown(key: String, surface: UInt64) -> Bool {
-        guard isOpen else { return false }
+        guard isOpen, surface != 0 else { return false }
         let at = now()
         return state.withLock { state in
             guard state.entries[key] == nil, state.entries.count < capacity else { return false }
