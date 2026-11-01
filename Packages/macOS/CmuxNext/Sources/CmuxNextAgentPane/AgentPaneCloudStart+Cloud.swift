@@ -14,14 +14,37 @@ extension AgentPaneCloudStart {
         public var clonePhase: String?
         public var cloneStartedAt: Double?
         public var cloneFinishedAt: Double?
+        public var environmentId: String?
+        public var setupState: String?
+        public var setupStatus: String?
+        public var setupStartedAt: Double?
+        public var setupFinishedAt: Double?
+        public var setupError: String?
+        public var setupHasScript: Bool?
+        /// The seed's or copy's live progress (`cmux link seed push`'s stderr lines, ``SeedProgress``).
+        public var cloneProgress: SeedProgress?
 
         public init(name: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
                     cloneState: String? = nil, clonePhase: String? = nil,
-                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil) {
+                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                    environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
+                    setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
+                    setupError: String? = nil, setupHasScript: Bool? = nil, start: CloudStartInfo? = nil) {
             (self.name, self.folder, self.machine, self.size) = (name, folder, machine, size)
             (self.cloneStartedAt, self.cloneFinishedAt) = (cloneStartedAt, cloneFinishedAt)
             (self.cloneState, self.clonePhase) = (cloneState, clonePhase)
+            let setup = start?.setup
+            (self.environmentId, self.setupState, self.setupStatus) = (start?.environmentId ?? environmentId, setup?.state ?? setupState, setup?.status ?? setupStatus)
+            (self.setupStartedAt, self.setupFinishedAt) = (setup?.startedAt ?? setupStartedAt, setup?.finishedAt ?? setupFinishedAt)
+            (self.setupError, self.setupHasScript) = (setup?.error ?? setupError, setup?.hasScript ?? setupHasScript)
         }
+    }
+
+    /// The folder step while its seed or copy runs: the clone row's live progress.
+    public nonisolated static func copying(_ progress: SeedProgress, folder: String?, machine: String?, size: String?) -> Step {
+        var step = Step(name: "folder", folder: folder, machine: machine, size: size, cloneState: "running", clonePhase: progress.phase)
+        step.cloneProgress = progress
+        return step
     }
 
     /// Tells the page's card `step` as it begins.
@@ -29,7 +52,10 @@ extension AgentPaneCloudStart {
         progress(step.name, folder: step.folder, machine: step.machine, size: step.size,
                  cloneState: step.cloneState, clonePhase: step.clonePhase,
                  cloneStartedAt: step.cloneStartedAt, cloneFinishedAt: step.cloneFinishedAt,
-                 to: view)
+                 environmentId: step.environmentId, setupState: step.setupState, setupStatus: step.setupStatus,
+                 setupStartedAt: step.setupStartedAt, setupFinishedAt: step.setupFinishedAt,
+                 setupError: step.setupError, setupHasScript: step.setupHasScript,
+                 cloneProgress: step.cloneProgress, to: view)
     }
 
     /// A machine's size in the card's words: "4 CPU · 16 GB".

@@ -34,6 +34,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/update_tool_call.rs"]
+mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
 // and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[

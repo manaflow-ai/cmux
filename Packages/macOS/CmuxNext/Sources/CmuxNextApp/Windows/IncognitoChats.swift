@@ -9,20 +9,21 @@ import os
 /// so when the workspace closes (its window, Delete Space, quit) acpmux stops and deletes every chat
 /// it recorded for that workspace, and the transcripts they wrote: none lists under Earlier, in the
 /// palette or on New Tab after. acpmux owns which chats those are; the app only names the workspace.
+/// One per app (``AppServices/incognitoChats``).
 @MainActor
-enum IncognitoChats {
+final class IncognitoChats {
     /// Purges not answered yet; the quit waits for them before acpmux's agents end.
-    private static var pending: [UUID: Task<Void, Never>] = [:]
+    private var pending: [UUID: Task<Void, Never>] = [:]
 
     /// `WorkspaceClose.willClose`: every close path tells it before it closes `workspace`.
-    static func closing(_ workspace: WorkspaceModel, _ services: AppServices) {
-        guard let key = key(of: workspace.id, key: workspace.key?.rawValue, incognito: services.windows.isIncognito(workspace:)),
+    func closing(_ workspace: WorkspaceModel, _ services: AppServices) {
+        guard let key = Self.key(of: workspace.id, key: workspace.key?.rawValue, incognito: services.windows.isIncognito(workspace:)),
               // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's: its chats are not this app's to delete.
               let acpmux = QuitAgents.environment(services), !acpmux.isAttached else { return }
         let id = UUID()
-        // task-owner: this enum until acpmux answers (or its deadline); the quit drains it.
+        // task-owner: this object until acpmux answers (or its deadline); the quit drains it.
         pending[id] = Task { @MainActor in
-            defer { pending[id] = nil }
+            defer { self.pending[id] = nil }
             do {
                 // Within a Keep quit's 4 s deadline (QuitSteps).
                 try await acpmux.purgeWorkspace(key: key, deadline: .seconds(3))
@@ -35,7 +36,7 @@ enum IncognitoChats {
 
     /// Quit, before the incognito spaces are deleted (deleting a space closes its workspaces without
     /// `WorkspaceClose.willClose`): every incognito window's workspaces purge their chats now.
-    static func closingForQuit(_ services: AppServices) {
+    func closingForQuit(_ services: AppServices) {
         let windows = services.windows
         let registry = windows.registry.value
         for window in registry.windows where registry.isIncognito(window.id) {
@@ -54,7 +55,7 @@ enum IncognitoChats {
     }
 
     /// Quit: the purges of the incognito workspaces just closed reach acpmux before its agents end.
-    static func drain() async {
+    func drain() async {
         for task in pending.values { await task.value }
     }
 }

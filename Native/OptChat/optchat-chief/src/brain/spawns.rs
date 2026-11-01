@@ -1485,6 +1485,7 @@ impl Brain {
             effort: None,
             floor: policy,
             harness: Some(harness.to_owned()),
+            model: None,
         };
         if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Queued;
@@ -2916,6 +2917,7 @@ impl Brain {
                 effort: None,
                 floor: sub.policy.clone(),
                 harness: None,
+                model: None,
             });
         let s = self
             .state

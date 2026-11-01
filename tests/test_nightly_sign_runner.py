@@ -260,6 +260,46 @@ class Unverified(unittest.TestCase):
         self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
         self.assertNotIn("unverified", summary)
 
+    def test_a_spent_read_token_falls_back_to_the_github_token(self) -> None:
+        # Run 41335987427 (2026-11-01): the routing App's installation answered 403 with
+        # X-RateLimit-Remaining=0 to every read, so the pick was blind. GITHUB_TOKEN has its own budget.
+        calls = []
+
+        def spent(token: str, repo: str) -> dict:
+            calls.append(token)
+            if token == "t":
+                raise OSError("HTTP Error 403: Forbidden")
+            return snapshot({SMALL: 90})
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"CANDIDATE": LARGE, "SNAPSHOT_TOKEN": "t", "SNAPSHOT_FALLBACK_TOKEN": "gh",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output)}
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main(env, read=spent, now=NOW, sleep=lambda s: None), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(calls, ["t", "gh"])
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
+
+    def test_a_fallback_equal_to_the_read_token_adds_no_read(self) -> None:
+        calls = []
+
+        def broken(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise OSError("rate limit")
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"CANDIDATE": LARGE, "SNAPSHOT_TOKEN": "t", "SNAPSHOT_FALLBACK_TOKEN": "t",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(Path(tmp) / "out")}
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main(env, read=broken, now=NOW, sleep=lambda s: None), 0)
+        self.assertEqual(calls, ["t"] * picker.SNAPSHOT_READS)
+
+    def test_the_sign_pickers_pass_the_github_token_fallback(self) -> None:
+        steps = WORKFLOW["jobs"]["pick-nightly-sign-runner"]["steps"]
+        for step_id in ("sign-runner", "sign-linux-runner"):
+            step = next(step for step in steps if step.get("id") == step_id)
+            with self.subTest(step=step_id):
+                self.assertEqual(step["env"]["SNAPSHOT_FALLBACK_TOKEN"], "${{ github.token }}")
+
     def test_a_full_rerun_without_a_snapshot_tries_the_other_size(self) -> None:
         # Attempt 1 took 6 vCPU unverified; a full re-run picks again, still blind, and moves to 12 vCPU.
         values, *_ = self.run_main(lambda t, r: None, attempt="2")
