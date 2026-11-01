@@ -82,7 +82,9 @@ import Foundation
     static func daemonPane(of origin: StandInOrigin, showing handle: PaneID, in store: DaemonStore) -> PaneID? {
         switch origin {
         case .pane(let paneID):
+            // A split made by a move (Split Browser): the pane its tab landed in, under another public id.
             return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+                ?? MovedTabSplit.landedPane(ofStandIn: paneID, in: store)?.handle
         case .workspace(let key):
             return ProvisionalWorkspaceOverlay.adoptedPane(of: key, in: store)
         }
@@ -135,9 +137,11 @@ import Foundation
         return daemonHandle(showing: target, in: store)
     }
 
-    /// The daemon's pane under the split's public pane id, once its records hold it.
+    /// The daemon's pane under the split's public pane id, once its records hold it; for a split whose tab the daemon
+    /// moves in (``DaemonStore/adoptMovedTab(_:for:from:)``), the pane that tab landed in.
     static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
+            ?? MovedTabSplit.landedPane(of: provisional, in: store)
     }
 
     static func apply(target: PaneID, direction: SplitDirection, ratio: Double, provisional: ProvisionalPane,

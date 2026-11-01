@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFocus
 
 /// Browser-category actions that act on the focused page or create browser
@@ -121,43 +122,29 @@ enum BrowserHandlers {
     /// Copies the image `capture` takes to the clipboard (Screenshot Page and
     /// Screenshot Section); a failed capture is logged.
     static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
-        let logger = context.daemon.logger
-        Task {
-            do {
-                let image = try await capture()
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
-            } catch {
-                logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        BrowserScreenshotClipboard(logger: context.daemon.logger).copy(capture)
     }
 
-    /// Split Browser Right/Down: a new app-rendered browser tab moved into a
-    /// new split in one daemon `split {tab}` call.
+    /// Split Browser Right/Down: a new app-rendered browser tab in a new split, shown at once (``splitBrowser(from:direction:url:profile:byPerson:context:)``).
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bindEffect(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
-                try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
-                                 context: context)
+                try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user, context: context)
             })
         }
     }
 
-    /// A new app-rendered browser tab in a new split beside `pane`: the
-    /// default engine at `url` in browser profile `profile`, else the
-    /// new-tab page with its address bar focused; with `url` the page takes
-    /// focus. The split follows the one tool-split rule (`AppServices.toolSplit`,
-    /// cx-yihq), as Split Right does: refused without room, and from the docked
-    /// chat a person's browser is a tab in the strip.
+    /// A new app-rendered browser tab in a new split beside `pane`: the default engine at `url` in browser profile
+    /// `profile`, else the new-tab page with its address bar focused; with `url` the page takes focus. As Split Right
+    /// (`AppServices.toolSplit`, cx-yihq): refused without room, from the docked chat a tab in the strip, and `pane`
+    /// keeps showing its tab (a chat stays the chat).
     ///
-    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
-    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
+    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's return):
+    /// the split (with its stand-in, shown now) and its confirmation, whose failure is reported, not only logged.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
-        let browserTabs = context.services.cache.browserTabs
+        let cache = context.services.cache, browserTabs = cache.browserTabs
         if let refusal = browserTabs.refusal(for: url) { throw ActionFailure(message: refusal) }
         switch context.services.toolSplit(from: model, edge: direction == .right ? .right : .bottom, byPerson: byPerson) {
         case .split:
@@ -165,7 +152,9 @@ enum BrowserHandlers {
         case .refused(let reason):
             throw ActionFailure(message: reason)
         case .tab(let strip):
-            try browserTab(in: strip, url: url, profile: profile, context: context)
+            // The strip pane takes the focus now; its own New Browser Tab (its stand-in shows at once) opens there.
+            if let content = strip.workspace { PaneHandlers.focus(strip.layoutPaneID, in: content) }
+            _ = strip.newBrowserTab(url: url, profile: profile)
             return .done
         case .besideDock(let dock):
             // Home's pinned dock alone: a browser tab aimed at it opens in a new column right of it
@@ -176,47 +165,58 @@ enum BrowserHandlers {
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
-        let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
+        _ = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
-        let intent = pane.workspace?.beginFocusIntent()
-        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
-        return .waiting(.daemonEcho) {
+        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice), target: FocusState.Target = url == nil ? .addressBar : .content
+        // A person's split on this Mac shows its pane at once with a stand-in browser and its page, focused, as Cmd-D's
+        // does (PaneHandlers.split); not for another machine, an incognito window, a run that may not change the view,
+        // or a daemon whose tab moves echo nothing. Either way the daemon's tab is made unselected in `pane`, out of its
+        // strip (OutboundTab), and moved into the split (BrowserSplitCommand); a failure shows it where it is.
+        let standsIn = BrowserSplitCommand.offersStandIn(on: daemon) && ActionRunScope.viewChangeAllowed() && !browserTabs.isIncognitoPane(model)
+        let content = pane.workspace, window = pane.view.window, inputs = context.services.keyRouter.creationInputCoordinator, intent = content?.beginFocusIntent()
+        let command = BrowserSplitCommand(pane: handle, direction: direction, url: address, engine: choice.engine.rawValue, profile: browserTabs.resolveProfile(model, profile))
+        // As Cmd-D: the chain's sizes and the stand-in in one layout, which grows the new pane in from the split edge
+        // (PaneArrival, the `panes` motion) in the key's frame; the daemon's pane later keeps that spring.
+        let shownSizing = standsIn ? content?.layoutModel.showSplitSizing(splitting: pane.layoutPaneID, axis: direction == .right ? .horizontal : .vertical) : nil
+        // The pane the tab is made in (the daemon's pane of a source that was a stand-in) holds it out of its strip.
+        var source: PaneController?, outbound: OutboundTab?
+        let pending = command.intendNow(on: daemon, standIn: standsIn) { into in
+            // The daemon's pane of a stand-in source may not be laid out yet: its controller holds the tab out of its strip.
+            source = context.services.paneController(for: into) ?? { content?.applyCurrent(); return context.services.paneController(for: into) }()
+            outbound = source.map(OutboundTab.begin(in:))
+            return try await browserTabs.open(choice, in: into, url: address, profile: profile, activate: false)
+        }
+        if let tab = pending.tab { content?.focus.expect(.tab(tab), target: target, generation: intent) }
+        let keys = pending.tab.flatMap { inputs.begin(in: window, generation: intent, tab: $0, machine: daemon.machineID) }
+        if standsIn { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
+        let work: @MainActor () async -> ActionWorkFailure? = {
+            var landed = false
+            defer { inputs.resolve(keys, landed: landed, in: window) }
             do {
-                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
-                try await connection.split(handle, direction: direction, movingTab: surface)
-                // The new pane takes focus (its address bar the keyboard
-                // for a new-tab page). The daemon may report the tab in the
-                // source pane before the move: land only in the new pane.
-                pane.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, awayFrom: pane.paneKey,
-                                            generation: intent)
+                let surface = try await pending.send({ outbound?.made($0) }) { surface in
+                    if let standIn = pending.tab, let tab = daemon.store.tab(surface: surface) { _ = cache.moveBrowser(standIn, to: tab) }
+                }
+                outbound?.finish(moved: true)
+                if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
+                // The daemon may report the tab in the source pane before the move: focus lands only in the new pane.
+                content?.expectFocus(on: surface, target: target, awayFrom: source?.paneKey ?? pane.paneKey, generation: intent)
+                landed = true
                 return nil
             } catch {
-                context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+                // Closed first (PaneSplitCancelled): its tab closes hidden, and nothing reports.
+                outbound?.finish(moved: error is PaneSplitCancelled)
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
+                if let standIn = pending.tab { cache.release(standIn) }
+                // A failed move leaves the tab in its pane, listed; selected only while the person picked nothing since.
+                if let left = (error as? BrowserSplitFailed)?.left, intent.map({ content?.focus.state.generation == $0 }) ?? true { source?.selectWhenReported(surface: left) }
+                if error is PaneSplitCancelled { return nil }
+                daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("split-browser", error)
             }
         }
-    }
-
-    /// A split's browser tab opened in strip pane `strip` instead (`ToolSplitDecision.tab`), focused.
-    private static func browserTab(in strip: PaneController, url: URL?, profile: String?, context: AppActionContext) throws {
-        let browserTabs = context.services.cache.browserTabs
-        if let refusal = browserTabs.refusal(in: strip.pane) { throw ActionFailure(message: refusal) }
-        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
-        let content = strip.workspace
-        if let content { PaneHandlers.focus(strip.layoutPaneID, in: content) }
-        let intent = content?.beginFocusIntent()
-        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        let model = strip.pane
-        Task {
-            do {
-                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
-                content?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
-            } catch {
-                context.daemon.logger.error("split-browser tab failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        // action-wait-allow: without a stand-in (another machine, an incognito window, a script's run, a daemon whose tab moves echo nothing) nothing shows before the daemon's move.
+        return standsIn ? .applied(ActionConfirmation(send: work)) : .waiting(.daemonEcho, work)
     }
 
     /// `f` and `F` in a Chromium page (`LinkHintController`).

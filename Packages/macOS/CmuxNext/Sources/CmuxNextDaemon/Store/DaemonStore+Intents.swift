@@ -117,6 +117,7 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
+        let landed = MovedTabSplit.takeLanded(in: self)
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
             noteIntentLeft(intent, rejected: false)
@@ -139,17 +140,19 @@ extension DaemonStore {
         CancelledCreation.requestCloses(in: self)
         // A create waiting for a stand-in's daemon pane goes on once this apply made or refused it.
         resolveStandInWaits()
+        for (handOver, surface) in landed { handOver(surface) }
         return result
     }
 
     /// The pane model of a split that left the log (settled or refused) is no longer provisional.
     private func releaseSettledProvisionalPanes() {
-        guard !provisionalPanes.isEmpty else { return }
+        guard !provisionalPanes.isEmpty || !movedTabSplits.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
             if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
+        MovedTabSplit.prune(in: self)
     }
 
     /// A stand-in handle stays resolvable while a pending create names it as its target.

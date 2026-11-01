@@ -264,6 +264,8 @@ final class ScreenContentView: NSView {
 
         // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
         let shownBefore = arrivals.isEmpty ? [:] : paneFrames
+        // A pane that takes a gone pane's slot (a stand-in's daemon pane under another id, Split Browser) keeps its spring.
+        var replaced = arrivals.isEmpty ? paneFrames.filter { baseGeometry.panes[$0.key] == nil }.map(\.value) : []
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 if carried {
@@ -286,6 +288,10 @@ final class ScreenContentView: NSView {
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
                 if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
+                if let index = replaced.firstIndex(where: { $0.targetRect.isAbout(target) }) {
+                    frame = replaced.remove(at: index)
+                    place(&frame, at: target, animated: animateFrames)
+                }
                 zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
@@ -315,9 +321,14 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
-        // A column edge whose column changed id in place (a New Column stand-in's handoff) keeps its spring.
+        // A column edge whose column changed id in place (a New Column stand-in's handoff) keeps its spring, as does a
+        // split divider (a Split Browser stand-in's split, which the daemon's split takes over under another id).
         var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
             if case .columnEdge = kind, targets[kind] == nil { return frame }
+            return nil
+        }
+        var renamedSplits: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
+            if case .split = kind, targets[kind] == nil { return frame }
             return nil
         }
         for (kind, target) in targets {
@@ -345,6 +356,10 @@ final class ScreenContentView: NSView {
             } else if case .columnEdge = kind,
                       let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
                 var frame = renamedEdges.remove(at: index)
+                place(&frame, at: target.rect, animated: animateFrames)
+                dividerFrames[kind] = frame
+            } else if case .split = kind, arrivals.isEmpty, let index = renamedSplits.firstIndex(where: { $0.targetRect.isAbout(target.rect) }) {
+                var frame = renamedSplits.remove(at: index)
                 place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else {
@@ -447,5 +462,12 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         releaseCovered(all: true)
+    }
+}
+
+private extension CGRect {
+    /// The same rect within half a point: the slot a pane or divider keeps across an id change.
+    func isAbout(_ other: CGRect) -> Bool {
+        abs(minX - other.minX) < 0.5 && abs(minY - other.minY) < 0.5 && abs(width - other.width) < 0.5 && abs(height - other.height) < 0.5
     }
 }

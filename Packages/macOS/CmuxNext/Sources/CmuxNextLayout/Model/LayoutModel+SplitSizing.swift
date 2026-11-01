@@ -61,6 +61,11 @@ extension LayoutModel {
         return sizing
     }
 
+    /// ``showSplitSizing(_:)`` of ``splitSizingChanges(splitting:axis:removing:)``: call before the split shows.
+    public func showSplitSizing(splitting pane: PaneID, axis: SplitAxis) -> PendingSplitSizing {
+        showSplitSizing(splitSizingChanges(splitting: pane, axis: axis))
+    }
+
     /// The split landed: sends the sizing's ratio intents to the daemon, under the transaction
     /// that shows them, so its echo confirms what the window already shows (nothing moves). A
     /// split another gesture took over since (a divider drag) keeps that gesture's value.

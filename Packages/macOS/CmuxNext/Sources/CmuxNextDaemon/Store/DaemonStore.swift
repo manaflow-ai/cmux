@@ -146,6 +146,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
     /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
     @ObservationIgnored var standInWaits: [StandInWait] = []
+    /// Pending splits whose pane is the one a moved tab lands in (Split Browser), by public pane id (``adoptMovedTab(_:for:from:)``).
+    @ObservationIgnored var movedTabSplits: [String: MovedTabSplit] = [:]
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false

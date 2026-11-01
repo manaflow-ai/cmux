@@ -97,6 +97,8 @@ public struct ProvisionalTab: Sendable, Hashable {
     @MainActor private static func echoedSplit(_ delta: PaneDelta, transaction: ClientTransactionID, in store: DaemonStore) {
         guard let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               case .splitPane(_, _, _, let provisional) = entry.kind, let wanted = provisional.tab,
+              // A browser stand-in's split (Split Browser) is no create: its daemon tab is moved in, its page handed over.
+              wanted.kind != .browser,
               let tab = store.pane(delta.pane)?.tabs.first, entry.createdSurface != tab.surface else { return }
         store.intentLog.noteCreated(transaction, surface: tab.surface)
         guard !entry.closeWhenCreated else { return }

@@ -47,8 +47,9 @@ import Foundation
         }
     }
 
+    /// The daemon's pane of a split, by its public id or, for a split made by a move, the pane its tab landed in.
     private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
-        store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
+        ProvisionalSplit.daemonPane(provisional, in: store)
     }
 
     /// The overlay of a cancelled creation: the daemon's tab or pane, when the records hold it, is
