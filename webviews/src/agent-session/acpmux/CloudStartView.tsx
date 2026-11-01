@@ -121,9 +121,9 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
 export function startupChecklist(
   start: CloudStartProgress,
   t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[key] ?? key).replace(/\{(\w+)\}/g, (whole, name: string) =>
-      name in values ? String(values[name]) : name === "harness" ? "Harness" : whole,
-    ),
+    (DEFAULT_STARTUP_STRINGS[key] ?? key)
+      .replace("{harness}", String(values.harness ?? "Harness"))
+      .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
   now = Date.now(),
   language: string = paneLanguage(),
 ): ChecklistStep[] {
