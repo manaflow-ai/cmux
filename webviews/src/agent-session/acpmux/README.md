@@ -32,6 +32,14 @@ webviews/scripts/agent-pane/dev-slot.sh down 1
 
 Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, sessions kept across restarts), port 47900+N and a fresh token, and the [webviews dev server](../../../README.md#dev-server) on port 4180+N (the pane at `/agent-pane/`), the only extra origin that daemon trusts. The printed pane URL carries the endpoint and token in its fragment, which the browser never sends to Vite; `devHost.ts` answers the handshake in Swift's place. The dev server answers the pane's repository reads (`git.status`, `git.diff` and `file.search`) from the slot's folder, read only (`dev-server/agentGitHost.ts`), so the changes view and file search show the real repository; a read outside that folder is refused. `git.checkpoint.diff` lists no files, since a standalone daemon records no checkpoints, and other native-only requests (writes such as stage, commit and push, tabs, dictation) fail as `native.unsupported`. Run one slot per worktree to compare variants side by side. The daemon binary is `$ACPMUX_BIN`, else the newest one bundled in a built app (`/tmp/panedev-*-app` or a tagged DerivedData build); it must be new enough for the pane.
 
+To iterate on your own chats instead of an empty daemon, start the slot from a projection of your acpmux home:
+
+```sh
+webviews/scripts/agent-pane/dev-slot.sh up 1 --from ~/.acpmux [--sessions 30]
+```
+
+`dev_slot_project.py` copies the newest chats that leave no work for a daemon (no unfinished turn, waiting prompt, move or agent pair in flight, or failed last turn a retry may continue) into the slot's `sessions/`, replacing its last projection, and names each chat it skipped and why. The source home is only read and its agent hosts are not copied, so the slot adopts nothing; the slot's config turns auto-resume off. The pane then shows your real transcripts with hot reload. A prompt sent in a copied chat runs there as a new turn (in the chat's own folder), so use a projection for looking, not for working. `dev-slot.sh status` names the home a slot's chats came from.
+
 To iterate on the real pane inside a running cmux-next with hot reload:
 
 1. `cd webviews && bun run dev:agent-pane` serves this directory with Vite at `http://127.0.0.1:4176/`.

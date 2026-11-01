@@ -5,6 +5,8 @@
 # origin as its only extra origin. Run several slots (one per worktree) to compare side by side.
 #
 #   webviews/scripts/agent-pane/dev-slot.sh up 1 [--cwd DIR]   # start slot 1, print its URLs
+#   webviews/scripts/agent-pane/dev-slot.sh up 1 --from ~/.acpmux [--sessions N]
+#                                     # the same, with a copy of your newest quiet chats (default 30)
 #   webviews/scripts/agent-pane/dev-slot.sh url 1              # print the URLs again
 #   webviews/scripts/agent-pane/dev-slot.sh down 1             # stop slot 1 (sessions are kept)
 #   webviews/scripts/agent-pane/dev-slot.sh status
@@ -14,12 +16,16 @@
 # (/tmp/panedev-*-app/*.app or a tagged DerivedData build): acpmux is $ACPMUX_BIN, else that, else
 # `acpmux` on PATH, and must be new enough for this pane; cmux-diff-sidecar is
 # $CMUX_DIFF_SIDECAR_BIN, else that (only /diff/ needs it).
+#
+# --from HOME replaces the slot's chats with a projection of that acpmux home's (dev_slot_project.py):
+# the newest chats with no work left for a daemon, copied, so the pane shows real data and HOME is
+# only read. The slot keeps auto-resume off, and a prompt sent in a copied chat runs as a new turn there.
 set -euo pipefail
 
 WEBVIEWS="$(cd "$(dirname "$0")/../.." && pwd)"
 REPO="$(cd "$WEBVIEWS/.." && pwd)"
 
-usage() { sed -n 2,17p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n 2,22p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 if [[ "$cmd" == status ]]; then
@@ -28,7 +34,7 @@ if [[ "$cmd" == status ]]; then
     slot="${dir##*-}"
     state=down
     if [[ -f "$dir/daemon.pid" ]] && kill -0 "$(cat "$dir/daemon.pid")" 2>/dev/null; then state=up; fi
-    echo "slot $slot: daemon $state, vite $( [[ -f "$dir/vite.pid" ]] && kill -0 "$(cat "$dir/vite.pid")" 2>/dev/null && echo up || echo down) ($(cat "$dir/worktree" 2>/dev/null || echo ?))"
+    echo "slot $slot: daemon $state, vite $( [[ -f "$dir/vite.pid" ]] && kill -0 "$(cat "$dir/vite.pid")" 2>/dev/null && echo up || echo down) ($(cat "$dir/worktree" 2>/dev/null || echo ?))$( [[ -f "$dir/projection" ]] && echo ", chats from $(cat "$dir/projection")")"
   done
   exit 0
 fi
@@ -36,9 +42,13 @@ fi
 slot="${1:-}"; shift || true
 [[ "$slot" =~ ^[0-9]{1,2}$ ]] || { echo "slot must be 0-99" >&2; usage 1; }
 cwd="$REPO"
+from=""
+sessions=30
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cwd) cwd="$(cd "$2" && pwd)"; shift 2 ;;
+    --from) from="$(cd "$2" && pwd)"; shift 2 ;;
+    --sessions) sessions="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "unknown option: $1" >&2; usage 1 ;;
   esac
@@ -108,18 +118,25 @@ case "$cmd" in
   up)
     stop_pid "$home/vite.pid"; stop_port "$vite_port"
     stop_pid "$home/daemon.pid"; stop_port "$daemon_port"
-    mkdir -p "$home"
+    mkdir -p "$home"; chmod 700 "$home"
     bin="$(resolve_bin)"
+    if [[ -n "$from" ]]; then
+      python3 -I "$WEBVIEWS/scripts/agent-pane/dev_slot_project.py" "$from" "$home" --sessions "$sessions"
+      echo "$from" > "$home/projection"
+    fi
     # A fresh token every start; the daemon trusts only this slot's Vite origin.
     openssl rand -hex 24 > "$home/token"
     chmod 600 "$home/token"
     echo "$cwd" > "$home/cwd"
     echo "$WEBVIEWS" > "$home/worktree"
     token="$(cat "$home/token")"
-    python3 - "$home/config.json" "$daemon_port" "$token" "$vite_origin" <<'PY'
+    python3 - "$home/config.json" "$daemon_port" "$token" "$vite_origin" "$from" <<'PY'
 import json, os, sys
-path, port, token, origin = sys.argv[1:]
+path, port, token, origin, projected = sys.argv[1:]
 config = json.load(open(path)) if os.path.exists(path) else {}
+# A projection's chats are copies: no turn a copy cut off goes on by itself (hub/auto_resume.rs).
+if projected:
+    config["autoResumeDelaysMs"] = []
 # tokenRotated: this token is fresh (the daemon's one-time rotation of an old saved token
 # must not replace the token the fragment carries).
 config["websocket"] = {"listen": f"127.0.0.1:{port}", "token": token, "allowed_origins": [origin], "tokenRotated": 1}
@@ -139,7 +156,9 @@ PY
         origin_args+=(--dev)
       fi
     fi
-    (cd "$cwd" && ACPMUX_HOME="$home" nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
+    (cd "$cwd" && env -u ACPMUX_ENV -u ACPMUX_SESSION_ID -u ACPMUX_SESSION_NAME -u ACPMUX_SESSION_TMPDIR \
+      -u ACPMUX_SESSION_TOKEN -u ACPMUX_SESSION_TOKEN_SOCKET ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/acpmux.sock" \
+      nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
       ${origin_args[@]+"${origin_args[@]}"} </dev/null >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")
     wait_port "$daemon_port" "$home/daemon.log"
     sidecar="${CMUX_DIFF_SIDECAR_BIN:-$(newest_app_bin cmux-diff-sidecar)}"
