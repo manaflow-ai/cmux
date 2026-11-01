@@ -1165,11 +1165,15 @@
   border-bottom: 1px solid var(--cv-strong-rule);
   white-space: nowrap;
 }
+/* Row rules a step over the faint rule (4.5%) and the first column, which names each row, in the
+   label weight, so the table reads distinctly at a glance (Leo, 2026-10-31: "at least the left side
+   of our table if we're gonna have it should be more distinctly there it's all almost a bit too
+   faint"). The header keeps its strong rule. */
 .cv-table td {
-  border-bottom: 1px solid var(--cv-faint-rule);
+  border-bottom: 1px solid var(--cv-table-rule, color-mix(in srgb, var(--cv-fg) 9%, transparent));
 }
-/* A table with an empty top-left corner labels its rows with its first column. */
-.cv-table--labeled td:first-child {
+/* The first column labels its rows (a table with an empty top-left corner says so outright). */
+.cv-table td:first-child {
   font-weight: 500;
 }
 .cv-table th:last-child,
@@ -4901,17 +4905,34 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   min-height: 0;
   padding-bottom: var(--cv-meta-gap);
 }
+/* The footer's line sits in the middle of the room between the reply's last line and what follows
+   (Leo, 2026-10-31: "when i hover this little whatever time ago copy sound ellipsis thing should be
+   centered in between the two things you're saying in between / so padding after == padding before
+   that kinda thing all around"). The reply's text box ends a line's half-leading (about 3px) over
+   its row, then the meta gap: 7px over the line against the turn gap's 16px under it. The line
+   moves down inside its own row by half that difference (--cv-footer-drop), taken off its bottom
+   padding, so every footer keeps its height (model.ts estimates, the running line it replaces) and
+   nothing around it moves. Over the same agent's next reply, whose first line has the same
+   half-leading, it moves half as far. test/agent-pane-transcript-spacing.test.ts measures it. */
 .acpmux-row.acpmux-turnSummary {
+  --cv-footer-drop: var(--ds-space-1, 4px);
   /* An empty footer's absolute hover controls still need their complete line. */
   min-height: var(--cv-meta-row);
-  padding-bottom: var(--cv-turn-gap);
+  padding-top: var(--cv-footer-drop);
+  padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
 }
 /* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
-  padding-bottom: var(--cv-turn-gap);
+  padding-bottom: calc(var(--cv-turn-gap) - var(--cv-footer-drop));
+}
+/* The footer that ends the chat has no next row to centre on: under it is the rest gap over the
+   composer (model.ts REST_GAP), so its line stays put. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer:not(:has(~ .acpmux-row)) {
+  --cv-footer-drop: 0px;
 }
 .acpmux-row.acpmux-turnSummary.acpmux-row--continuation-footer {
-  padding-bottom: var(--cv-continuation-gap);
+  --cv-footer-drop: 2px;
+  padding-bottom: calc(var(--cv-continuation-gap) - var(--cv-footer-drop));
 }
 /* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
    the normal turn rhythm without a permanent runway below every turn. */
