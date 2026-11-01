@@ -1050,7 +1050,11 @@ impl Mux {
                 pane_id,
             )
             .expect("new pane is present in tree snapshot");
-            let pane_index = state.workspaces[workspace].screens[screen_index]
+            let pane_index = state
+                .workspaces
+                .get(workspace)
+                .and_then(|workspace| workspace.screens.get(screen_index))
+                .context("the new pane's screen left state")?
                 .root
                 .pane_ids_vec()
                 .iter()
