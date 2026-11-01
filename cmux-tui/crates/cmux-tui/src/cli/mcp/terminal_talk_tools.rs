@@ -219,8 +219,7 @@ mod tests {
         assert_eq!(list["annotations"]["readOnlyHint"], true);
         assert_eq!(send["annotations"]["readOnlyHint"], false);
         assert_eq!(
-            send["inputSchema"]["properties"]["idempotency_key"]["maxLength"],
-            128,
+            send["inputSchema"]["properties"]["idempotency_key"]["maxLength"], 128,
             "a composed send needs a stable retry identity: {send}"
         );
     }
