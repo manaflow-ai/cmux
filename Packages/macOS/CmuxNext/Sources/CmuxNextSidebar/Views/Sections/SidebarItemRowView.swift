@@ -50,11 +50,10 @@ class SidebarItemRowView: NSView {
     var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
-    /// A workspace tile's hover controls (`SidebarItemRowView+HoverActions`): its menu and its close.
+    /// A workspace tile's hover control (`SidebarItemRowView+HoverActions`): its menu. A pinned item draws no
+    /// hover close (Lawrence msg 19392); Close Workspace is in that menu.
     var onMore: (() -> Void)?
-    var onClose: (() -> Void)?
     var hoverMore: OverflowButton?
-    var hoverClose: SidebarIconButton?
     var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
@@ -83,7 +82,7 @@ class SidebarItemRowView: NSView {
             guard isHovered != oldValue else { return }
             if !isHovered { isPressed = false }
             pointerChanged()
-            // A workspace tile's more and close show on hover.
+            // A workspace tile's more button shows on hover (a pinned item has no hover close).
             if info.workspace != nil { needsLayout = true }
         }
     }
@@ -194,9 +193,15 @@ class SidebarItemRowView: NSView {
             let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
             avatarView.isStrong = strong
             pin.contentTintColor = Palette.textSecondary
-            icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
+            let fallbackAgentTint = info.agentColor.flatMap { color in
+                guard let brand = info.brand else { return SidebarStyle.color(color) }
+                return AgentBrandCatalog.templateImage(brand: brand, size: SidebarStyle.kindGlyphSize) == nil
+                    ? SidebarStyle.color(color) : nil
+            }
+            icon.contentTintColor = fallbackAgentTint
+                ?? (wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
-                : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
+                : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary)
         }
     }
 
@@ -299,7 +304,7 @@ class SidebarItemRowView: NSView {
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         var badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
-            : b.width - inset * 2 - badgeWidth
+            : SidebarStyle.trailingColumnFrame(rowWidth: b.width - inset, centerY: b.midY, side: badgeWidth).minX
         if let columnStart = layoutColumnMark(in: b) {
             // A count beside the column's mark (a Chief's) sits left of the column.
             badgeX = badge.isHidden || style == .chip ? columnStart : columnStart - Metrics.space2 - badgeWidth
