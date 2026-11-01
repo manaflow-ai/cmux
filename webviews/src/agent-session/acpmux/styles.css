@@ -384,7 +384,7 @@
 /* The pinned actions and the folders are two sections: a hairline with the menu's 4px on either
    side, never a blank gap, and none when no folder follows. */
 .acpmux-project-menu .ui-combobox-pinned{margin-bottom:0;padding-bottom:0}
-.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .acpmux-project-browse{display:flex;align-items:center;gap:8px}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
