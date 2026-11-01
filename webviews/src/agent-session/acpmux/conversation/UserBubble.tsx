@@ -25,6 +25,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
+import { withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import {
@@ -40,14 +41,17 @@ import { TurnActionsContext } from "./turnActions";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
-  row,
-  text,
+  row: given,
+  text: givenText,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
+  // A video's frames and their note went to the agent only; the bubble draws the video's tile.
+  const row = useMemo(() => withoutVideoFrames(given), [given]);
+  const text = useMemo(() => withoutFramesNotes(givenText), [givenText]);
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -155,7 +159,9 @@ export function UserBubble({
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
         )}
-        {!row.failed && !row.queued && (text || pending) && (
+        {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
+            moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
+        {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={pending}

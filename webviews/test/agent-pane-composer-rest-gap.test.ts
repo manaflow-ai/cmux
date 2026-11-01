@@ -32,7 +32,9 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       await (await engine[1].launch({ headless: true })).close();
       engines.push(engine);
     } catch {
-      console.warn(`agent-pane-composer-rest-gap: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
+      console.warn(
+        `agent-pane-composer-rest-gap: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`,
+      );
     }
   }
   if (engines.length === 0) {
@@ -116,8 +118,21 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       ),
     ],
   ];
-  const busy = busySteps.map(([dir, kind, msg], index) => ({ sessionId: BUSY, seq: index + 1, at: Date.now(), dir, kind, msg }));
-  const busySummary = () => ({ ...summary(), sessionId: BUSY, title: "Retry write-up", status: "running", turnCount: 1 });
+  const busy = busySteps.map(([dir, kind, msg], index) => ({
+    sessionId: BUSY,
+    seq: index + 1,
+    at: Date.now(),
+    dir,
+    kind,
+    msg,
+  }));
+  const busySummary = () => ({
+    ...summary(),
+    sessionId: BUSY,
+    title: "Retry write-up",
+    status: "running",
+    turnCount: 1,
+  });
 
   function answer(method: string, params: { sessionId?: string }): unknown {
     switch (method) {
@@ -147,9 +162,10 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
         params: { sessionId: SESSION, session: summary(), kind: "status", seq: events.length },
       }),
     );
-  const WORDS = "the client waits a little longer before each retry and adds random jitter so a crowd does not retry in step".split(
-    " ",
-  );
+  const WORDS =
+    "the client waits a little longer before each retry and adds random jitter so a crowd does not retry in step".split(
+      " ",
+    );
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -249,7 +265,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     };
     w.__frames = [];
     const start = () => {
-      if (!document.querySelector(".acpmux-scroll .acpmux-row") || !document.querySelector(".acpmux-dock")) return false;
+      if (!document.querySelector(".acpmux-scroll .acpmux-row") || !document.querySelector(".acpmux-dock"))
+        return false;
       const probe = document.createElement("div");
       probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
       document.body.append(probe);
@@ -257,13 +274,16 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
         const gap = w.__restGap();
         if (gap !== undefined) w.__frames.push({ t: Math.round(performance.now()), gap: Math.round(gap * 10) / 10 });
       }).observe(probe);
+      // Each frame's callbacks resize the probe, so its observer samples the gap once per frame,
+      // after the pane's own observers (window.cmuxAfterPaint's drive runs in the frame callbacks).
       let wide = false;
-      const frame = () => {
-        wide = !wide;
-        probe.style.width = wide ? "2px" : "1px";
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+      window.cmuxAfterPaint(
+        () => true,
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
       return true;
     };
     // The first rows mount in a React commit whose layout effects make the pane's observers; this
@@ -326,17 +346,22 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
   const outside = (taken: { t: number; gap: number }[], want: number) =>
     taken.filter((frame) => frame.gap <= 0 || frame.gap > want + 1).map((frame) => `${frame.t}ms: ${frame.gap}px`);
 
-  test.each(engines.map(([name]) => name))("%s: a chat loads with the rest gap on every painted frame", async (name) => {
-    const page = await open(name);
-    const settled = await gap(page);
-    const taken = await frames(page);
-    const shifted = off(taken, settled!);
-    console.log(`${name} load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
-    expect(taken.length).toBeGreaterThan(0);
-    expect(Math.abs(settled! - REST_GAP)).toBeLessThanOrEqual(1);
-    expect(shifted).toEqual([]);
-    await page.close();
-  });
+  test.each(engines.map(([name]) => name))(
+    "%s: a chat loads with the rest gap on every painted frame",
+    async (name) => {
+      const page = await open(name);
+      const settled = await gap(page);
+      const taken = await frames(page);
+      const shifted = off(taken, settled!);
+      console.log(
+        `${name} load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`,
+      );
+      expect(taken.length).toBeGreaterThan(0);
+      expect(Math.abs(settled! - REST_GAP)).toBeLessThanOrEqual(1);
+      expect(shifted).toEqual([]);
+      await page.close();
+    },
+  );
 
   test.each(engines.map(([name]) => name))(
     "%s: a running chat with rich history and the tray loads with the rest gap on every painted frame",
@@ -347,7 +372,9 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const settled = await gap(page);
       const taken = await frames(page);
       const shifted = off(taken, settled!);
-      console.log(`${name} busy load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
+      console.log(
+        `${name} busy load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`,
+      );
       expect(taken.length).toBeGreaterThan(0);
       expect(Math.abs(settled! - REST_GAP)).toBeLessThanOrEqual(1);
       expect(shifted).toEqual([]);
@@ -382,7 +409,9 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       }
       await rest(page);
       const streamed = await frames(page);
-      console.log(`${name} streaming: ${streamed.length} frames, gaps ${[...new Set(streamed.map((f) => f.gap))].join(", ")}`);
+      console.log(
+        `${name} streaming: ${streamed.length} frames, gaps ${[...new Set(streamed.map((f) => f.gap))].join(", ")}`,
+      );
       seen.streaming = await gap(page);
       shifts.streaming = outside(streamed, REST_GAP);
 
@@ -398,8 +427,12 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       await page.locator(".acpmux-running-tray").waitFor({ timeout: 20_000 });
       await rest(page);
       const trayed = await frames(page);
-      const trayTop = await page.evaluate(() => document.querySelector(".acpmux-running-tray")!.getBoundingClientRect().top);
-      const card = await page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().top);
+      const trayTop = await page.evaluate(
+        () => document.querySelector(".acpmux-running-tray")!.getBoundingClientRect().top,
+      );
+      const card = await page.evaluate(
+        () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().top,
+      );
       expect(trayTop).toBeLessThan(card);
       console.log(`${name} tray: ${trayed.length} frames, gaps ${[...new Set(trayed.map((f) => f.gap))].join(", ")}`);
       seen.tray = await gap(page);

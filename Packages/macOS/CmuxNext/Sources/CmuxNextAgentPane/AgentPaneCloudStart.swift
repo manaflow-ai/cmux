@@ -16,8 +16,6 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var home = false
     public var harness: String?
     public var model: String?
-    /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
-    public var environment: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -25,9 +23,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
-        self.environment = environment
     }
 
     /// The page's params, checked; nil for anything else.
@@ -40,12 +37,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
-              let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
+              let harness = name("harness"), let model = name("model") else { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
         self.home = home as? Bool ?? false
     }
 
@@ -208,36 +205,11 @@ extension AgentPaneCloudStart {
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
-                                    cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
-                                    setupLogTail: String? = nil,
-                                    machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
-                                    harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil,
                                     to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
         if let size { value["size"] = .string(size) }
-        var cloneFields: [String: JSONValue] = [:]
-        if let cloneState { cloneFields["state"] = .string(cloneState) }
-        if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
-        var cloneProgress: [String: JSONValue] = [:]
-        if let cloneReceivedBytes { cloneProgress["received_bytes"] = .number(Double(cloneReceivedBytes)) }
-        if let cloneObjects { cloneProgress["objects"] = .number(Double(cloneObjects)) }
-        if let cloneTotalObjects { cloneProgress["total_objects"] = .number(Double(cloneTotalObjects)) }
-        if !cloneProgress.isEmpty { cloneFields["progress"] = .object(cloneProgress) }
-        if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
-        var setupFields: [String: JSONValue] = [:]
-        if let setupStatus { setupFields["status"] = .string(setupStatus) }
-        if let setupLogTail { setupFields["log_tail"] = .string(setupLogTail) }
-        if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
-        if let machineStartedAt { value["machineStartedAt"] = .number(machineStartedAt) }
-        if let machineFinishedAt { value["machineFinishedAt"] = .number(machineFinishedAt) }
-        if let harnessStartedAt { value["harnessStartedAt"] = .number(harnessStartedAt) }
-        if let harnessFinishedAt { value["harnessFinishedAt"] = .number(harnessFinishedAt) }
-        // The harness timing comes from the host's start response. Swift only forwards it;
-        // do not stamp Date() here because the page owns elapsed-time rendering.
-        if step == "opening" { value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

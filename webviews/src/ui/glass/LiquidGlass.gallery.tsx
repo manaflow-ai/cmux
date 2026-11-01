@@ -11,10 +11,21 @@ import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?
 import { componentEntry } from "../../gallery/format";
 import { chromiumGlassUnderlay } from "./chromiumUnderlay.experiment";
 import { Glass } from "./Glass";
+import { installSvgRefraction } from "./svgRefraction";
 import type { GlassMode } from "./glassState";
 
 type Scheme = "dark" | "light";
-type Props = { mode: GlassMode; scheme: Scheme; transcript?: boolean; seeThrough?: boolean };
+/** The lens's look, as tokens on the root (glass.css): unset keeps the mode's own. */
+type Look = { gloss?: number; magnify?: number; refraction?: number };
+type Props = {
+  mode: GlassMode;
+  scheme: Scheme;
+  transcript?: boolean;
+  seeThrough?: boolean;
+  look?: Look;
+  /** Chromium's SVG feDisplacementMap backdrop instead of the lens (svgRefraction.ts). */
+  svg?: boolean;
+};
 
 /** The theme tokens each scheme sets, as WebTheme.swift does, over a see-through window. */
 const SCHEMES: Record<Scheme, Record<string, string>> = {
@@ -37,6 +48,24 @@ const SCHEMES: Record<Scheme, Record<string, string>> = {
 const TINT: Record<Scheme, string> = { dark: "rgba(0, 0, 0, 0.18)", light: "rgba(255, 255, 255, 0.16)" };
 
 type BackdropHost = { cmuxTheme?: { backdrop?: (partial: unknown) => void } };
+
+function useLook(look: Look | undefined, svg: boolean): void {
+  const { gloss, magnify, refraction } = look ?? {};
+  useEffect(() => {
+    const root = document.documentElement;
+    const set: [string, number | undefined, string][] = [
+      ["--glass-gloss", gloss, ""],
+      ["--glass-magnify", magnify, ""],
+      ["--glass-refraction", refraction, "px"],
+    ];
+    for (const [name, value, unit] of set) if (value !== undefined) root.style.setProperty(name, `${value}${unit}`);
+    const undoSvg = svg ? installSvgRefraction(document) : undefined;
+    return () => {
+      undoSvg?.();
+      for (const [name] of set) root.style.removeProperty(name);
+    };
+  }, [gloss, magnify, refraction, svg]);
+}
 
 function useWallpaper(mode: GlassMode, scheme: Scheme, seeThrough: boolean): void {
   useEffect(() => {
@@ -172,8 +201,9 @@ function TranscriptUnderGlass() {
   );
 }
 
-function LiquidGlassGallery({ mode, scheme, transcript = false, seeThrough = false }: Props) {
+function LiquidGlassGallery({ mode, scheme, transcript = false, seeThrough = false, look, svg = false }: Props) {
   useWallpaper(mode, scheme, seeThrough);
+  useLook(look, svg);
   if (transcript) return <TranscriptUnderGlass />;
   return (
     <div
@@ -258,8 +288,32 @@ export default componentEntry<Props>({
   },
   variants: {
     lens: {
-      note: "Lens (the default): a clear center, the wallpaper bent inward at each rounded rim, a thin top-lit specular rim.",
+      note: "Lens: a clear center, the wallpaper bent inward at each rounded rim, a thin top-lit specular rim, and the lens's gloss (--glass-gloss 0.7): the rim facing the light catches a bright line, the far rim a faint one.",
       props: { mode: "lens", scheme: "dark" },
+    },
+    "lens-no-gloss": {
+      note: "The lens as it was before the gloss (--glass-gloss 0), to compare.",
+      props: { mode: "lens", scheme: "dark", look: { gloss: 0 } },
+    },
+    "liquid-thick": {
+      note: "A thick lens: a deeper bend (34px), full gloss and a 6% zoom at the center.",
+      props: { mode: "lens", scheme: "dark", look: { gloss: 1, magnify: 0.06, refraction: 34 } },
+    },
+    "liquid-prism": {
+      note: "Spectrum with full gloss: the bend split per channel at the rim, lit along its top edge.",
+      props: { mode: "spectrum", scheme: "dark", look: { gloss: 1 } },
+    },
+    "svg-displace": {
+      note: "Chromium only: the SVG feDisplacementMap backdrop-filter bends the page's own pixels instead of the lens's canvas. In the app the wallpaper is native, behind the page, so this would bend only the transcript; it re-filters every glass on every scroll frame (design/glass.md).",
+      props: { mode: "plain", scheme: "dark", svg: true },
+    },
+    "svg-displace-text": {
+      note: "The SVG backdrop over transcript text: the letters under the composer bend at its rim.",
+      props: { mode: "plain", scheme: "dark", transcript: true, svg: true },
+    },
+    "liquid-thick-light": {
+      note: "The thick lens in a light theme.",
+      props: { mode: "lens", scheme: "light", look: { gloss: 1, magnify: 0.06, refraction: 34 } },
     },
     plain: {
       note: "Plain glass: the blur glass from before the lens (tint, blur, thin rim, no specular).",

@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -23,6 +24,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import type { Experiment } from "./experiment";
 
@@ -47,10 +49,12 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   cloudStartLook,
+  agentStartLook,
   trayPanelLook,
   trayRowLook,
   trayMotionLook,
   trayHeadLook,
+  chatSwitchMotion,
   composerPlusCommands,
 ];
 

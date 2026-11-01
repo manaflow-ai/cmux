@@ -57,6 +57,7 @@ import {
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
   LANE_NOTICE_BATCH,
+  isLineRow,
   restRoom,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
@@ -82,7 +83,6 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
-import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -600,6 +600,8 @@ import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
+import { ManagedBanner } from "./ManagedBanner";
+import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -670,6 +672,8 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
+import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
+import { chatSwitchMotion } from "./chatSwitch.experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -1274,7 +1278,7 @@ const MessageRow = memo(
             <div className="cv-user__context">
               <details>
                 <summary>
-                  <ChevronRight size={10} className="cv-user__context-chevron" />
+                  <ChevronRight size={12} className="cv-user__context-chevron" />
                   <span className="cv-user__context-label">
                     {t("transcript.chiefContext", { count: envelope.lines })}
                   </span>
@@ -1329,19 +1333,6 @@ const MessageRow = memo(
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
-              {row.queued && !readOnly && (
-                <button
-                  type="button"
-                  className="cv-user__cancel"
-                  onClick={() =>
-                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({
-                      promptId: row.queued,
-                    })
-                  }
-                >
-                  {t("switch.cancelPrompt")}
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -1422,10 +1413,9 @@ const DateRow = memo(
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
-    const queued = useTranscriptReadOnly() ? undefined : row.queued;
     return (
       <Thinking
-        status={row.status}
+        starting={row.queued !== undefined}
         since={row.at}
         doing={row.doing}
         doingAt={row.doingAt}
@@ -1438,19 +1428,12 @@ const ThinkingRow = memo(
         quietKey={row.quietKey}
         below={row.below}
         command={row.doingCommand}
-        onCancel={
-          queued
-            ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
-            : undefined
-        }
       />
     );
   },
-  // The start status line (version 0) becomes "Thinking" (version 1) in place.
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
-    a.row.status === b.row.status &&
     a.row.queued === b.row.queued &&
     a.row.at === b.row.at &&
     a.row.doing === b.row.doing &&
@@ -2211,7 +2194,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -2247,10 +2230,13 @@ const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
-/// compaction, a failover, a policy the harness cannot keep or a session start note.
+/// compaction, a failover, a policy the harness cannot keep or a session start note, and the one-line
+/// rows drawn on the tool rows' line (model.ts `isLineRow`: another agent's message, a notice, an
+/// inbox notice, a report batch's or the waiting group's head), so they all sit one line apart.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
-  (row.kind === "backgroundTask" ||
+  (isLineRow(row) ||
+    row.kind === "backgroundTask" ||
     row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
@@ -3313,6 +3299,8 @@ export function VirtualTranscript({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The chat switch motion's arm, read once per transcript (a changed arm applies on reload).
+  const [switchArm] = useState(() => experimentArm(chatSwitchMotion));
   /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
   /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
   /// not under the last chat's fade, and a transcript that unmounts leaves none running.
@@ -3324,11 +3312,38 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
+  // CHAT SWITCH MOTION (experiment chat-switch-motion, off by default): opening another chat plays
+  // its rows, title and Session Info in as one movement, on the first frame the new chat's rows draw
+  // (cached: the frame the switch lands; cold: when its rows arrive). Not the first chat a page shows,
+  // and not an empty chat's first send. This effect only notes the switch (before the cold-open fade
+  // below reads it); the play runs in the transcript's last layout effect, after the new chat's rows
+  // are placed and scrolled (search "CHAT SWITCH PLAY"). The play's animations end on their own; the
+  // next switch starts from where they are, and the transcript unmounting cancels them.
+  const switchPlay = useRef<ChatSwitchPlay | undefined>(undefined);
+  const switchFrom = useRef(sessionId);
+  const switchPending = useRef(false);
+  const hasRows = rows.length > 0;
+  useLayoutEffect(() => {
+    if (switchArm === "off" || switchFrom.current === sessionId) return;
+    // A chat with no rows and none on the way (coldOpen undefined) is an empty chat: its first send
+    // is not a switch.
+    switchPending.current =
+      switchFrom.current !== undefined && sessionId !== undefined && (hasRows || coldOpen !== undefined);
+    switchFrom.current = sessionId;
+  }, [sessionId, hasRows, coldOpen, switchArm]);
+  useLayoutEffect(
+    () => () => {
+      switchPlay.current?.stop();
+      switchPlay.current = undefined;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
-    openFade.current = fadeInOpenedChat(ref.current);
+    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead.
+    openFade.current = switchPending.current ? undefined : fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
   }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
@@ -5176,6 +5191,13 @@ export function VirtualTranscript({
   if (seeking || renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE) jumpShown.current = true;
   const behind = jumpShown.current;
+  // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
+  // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
+  useLayoutEffect(() => {
+    if (!switchPending.current || !hasRows) return;
+    switchPending.current = false;
+    switchPlay.current = playChatSwitch(ref.current, switchArm, switchPlay.current);
+  }, [sessionId, hasRows, switchArm]);
   // The prompt rail's own box: the view's height, less the bottom stack at its smallest at this
   // height (the composer at rest). A composer that grows a line, a tray or bar that opens over the
   // view, or the lift a followed view takes leaves the rail where it is; a new view height, another
@@ -5732,7 +5754,6 @@ function AcpmuxPane() {
   // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
   const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
-  const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -6468,6 +6489,14 @@ function AcpmuxPane() {
   chatViewRef.current = chatView;
   const viewToggled = viewToggles.get(chatView) ?? NO_FOLD_TOGGLES;
   const folds = useMemo(() => viewFolds(chatView, expanded, viewToggled), [chatView, expanded, viewToggled]);
+  // Who runs this chat when it is not the person (managedBy.ts): the line over the composer.
+  const [takenOverAt, setTakenOverAt] = useState(0);
+  const manager = useMemo(
+    () => (isTakenOver(shownSessionId) ? undefined : managedBy(shownSessionId, snapshot.sessions)),
+    // takenOverAt: the person's Take over, read back from the store.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shownSessionId, snapshot.sessions, takenOverAt],
+  );
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -8175,7 +8204,6 @@ function AcpmuxPane() {
     snapshot: cardSnapshot,
     machineName,
     repository: githubRepository,
-    cloudRepositoryAvailable,
     shell,
     onOpenOutput: quick ? undefined : sessionInfoSubagent ? openSubagentOutput : openOutput,
     onOpenSourceFile: quick || !sessionInfoLocal ? undefined : (path) => openSourceFile(path, callNative),
@@ -8601,6 +8629,7 @@ function AcpmuxPane() {
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
             key={shownSessionId}
+            chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
             working={snapshot.isWorking}
@@ -9475,7 +9504,6 @@ function AcpmuxPane() {
           cloudCredentialRecoveryAvailable?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
-          cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           model?: unknown;
@@ -9484,7 +9512,6 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
-        setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
@@ -11549,7 +11576,8 @@ function AcpmuxPane() {
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
     // Use Private Folder (or Keep) there gives the typed text back to the composer.
-    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
+    if (cwd && cwd !== inherited)
+      void requestFolder(cwd, start, text ? () => isCurrent() && setDraft(text) : undefined);
     else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
@@ -11709,7 +11737,7 @@ function AcpmuxPane() {
       onPick: chooseProject,
       onBrowse: (request?: BrowseRequest) =>
         callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+          if (result?.cwd && !request?.deferPick) void chooseProject(result.cwd);
           return result?.cwd;
         }),
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
@@ -12160,7 +12188,7 @@ function AcpmuxPane() {
         if (!result?.cwd) return;
         if (!request?.deferPick) {
           setChooseFolder(false);
-          chooseProject(result.cwd);
+          void chooseProject(result.cwd);
         }
         return result.cwd;
       })
@@ -12341,6 +12369,20 @@ function AcpmuxPane() {
             </button>
           </output>
         </Notice>
+        {/* A chat the Chief or another chat's agent runs: who, and Take over (ManagedBanner.tsx). */}
+        <Notice id="managed-by" tier="status" when={!quick && manager}>
+          {manager && shownSessionId && (
+            <ManagedBanner
+              manager={manager}
+              onOpenManager={openSenderChat}
+              onTakeOver={() => {
+                takeOverManaged(shownSessionId);
+                setTakenOverAt(Date.now());
+                composerHandle.current?.focus();
+              }}
+            />
+          )}
+        </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
         {trayPlacement === "tray" && trayNode}
@@ -12510,7 +12552,10 @@ function AcpmuxPane() {
               });
               return held;
             }}
-            onStop={stopThroughReconnect.stop}
+            // A prompt held while the agent starts goes back to the composer; else Stop stops the turn.
+            onStop={() => {
+              if (!harnessSwitch.cancelQueuedAll()) stopThroughReconnect.stop();
+            }}
             onQueueRemove={(promptId) =>
               startingSends.owns(promptId) ? Promise.resolve(startingSends.remove(promptId)) : removeQueued(promptId)
             }
@@ -12587,7 +12632,7 @@ function AcpmuxPane() {
                 : freshChat && !quick
                   ? (request?: BrowseRequest) =>
                       callNative<{ cwd?: string }>("project.browse").then((result) => {
-                        if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+                        if (result?.cwd && !request?.deferPick) void chooseProject(result.cwd);
                         return result?.cwd;
                       })
                   : undefined
@@ -13542,7 +13587,6 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
-        <CloudEnvironmentEditor />
         <DeleteChatDialog
           open={deleteConfirmOpen}
           onOpenChange={(next) => {
