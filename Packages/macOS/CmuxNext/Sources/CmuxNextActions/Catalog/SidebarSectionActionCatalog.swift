@@ -343,15 +343,6 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], isDebugOnly: true,
                 surfacePlan: plan(cli: .exempt(.devOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options)])
             ),
-            // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
-            // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
-            // Options; the workspace row's ⋮ keeps its pointer menu focused.
-            ActionDescriptor(
-                id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
-                keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
-                surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options)])
-            ),
             ActionDescriptor(
                 id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
                     "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
