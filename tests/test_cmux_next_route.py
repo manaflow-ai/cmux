@@ -747,10 +747,13 @@ class BundleInputs(unittest.TestCase):
         import cmux_next_route as route_module
         cls.route = route_module
 
-    # Page JavaScript a suite runs, and the ways a suite gives the page its own document.
+    # Page JavaScript a suite runs, and the ways a suite gives the page its own document. An agent pane
+    # pointed at a dev server URL (AgentPaneSource.devURLVariable, honored in Debug test builds) loads that
+    # URL, not the built bundle: AgentPageHibernationTests points it at a loopback port nobody serves and
+    # waits for that load to end (#30312).
     TALKS_TO_PAGE = re.compile(r"\b(?:evaluateJavaScript|callAsyncJavaScript|waitUntilLoaded|WKUserScript)\b")
     OWN_DOCUMENT = re.compile(r'loadHTMLString|registerBundledRoot|allowFixtureRoot|AgentPageTestRoot'
-                              r'|source:\s*\.bundled\(|index\.html|\.html"')
+                              r'|source:\s*\.bundled\(|index\.html|\.html"|AgentPaneSource\.devURLVariable')
     OPT_IN = re.compile(r"\.enabled\(if:\s*ProcessInfo\.processInfo\.environment\[")
 
     def test_the_bundle_targets_are_the_ones_the_bundle_build_writes_into(self):
