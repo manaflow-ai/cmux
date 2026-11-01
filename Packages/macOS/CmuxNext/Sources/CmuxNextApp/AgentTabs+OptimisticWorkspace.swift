@@ -30,12 +30,13 @@ extension AgentTabStore {
 
     /// Shows workspace `key` named `name` with its New Tab page (starting in `cwd`; `token` is the
     /// key hold of the press) at daemon-order `index` in this turn, and returns the work that
-    /// confirms it. Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
-    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?,
-                       on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
+    /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4).
+    /// Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
+    func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?, chat: AgentPaneSeed? = nil,
+                       session: (id: String, host: String?, linked: Bool)? = nil, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
         guard showsWorkspaceAtOnce(on: daemon), let localHost else { return nil }
         let store = daemon.store
-        let record = AgentSessionRef(host: localHost, hostName: localHostName)
+        let record = AgentSessionRef(host: session?.host ?? localHost, hostName: localHostName, session: session?.id)
         let provisional = ProvisionalTab()
         let tabKey = provisional.id
         let snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
@@ -47,10 +48,15 @@ extension AgentTabStore {
             store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: name, tab: snapshot), index: index),
                          transaction: transaction)
         }
-        seeds[tabKey] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[tabKey] = firstPage(cwd: cwd, token: token)
+        if let session {
+            sessions[tabKey] = session.id
+            if session.linked { linkedSessions.insert(tabKey) }
+        } else {
+            seeds[tabKey] = AgentPaneSeedSource(chat.map { var chat = $0; chat.cwd = chat.cwd ?? cwd; return chat } ?? AgentPaneSeed(cwd: cwd))
+            if chat == nil { newTabPages[tabKey] = firstPage(cwd: cwd, token: token) }
+        }
         track(tabKey, in: store)
-        if let spare = takeSpare?(), let page = newTabPages[tabKey]?.page { adoptSpare(spare, key: tabKey, page: page) }
+        if let page = newTabPages[tabKey]?.page, let spare = takeSpare?() { adoptSpare(spare, key: tabKey, page: page) }
         let fail: @MainActor () -> Void = { [weak self] in
             store.rejectIntent(transaction)
             self?.release(tabKey)

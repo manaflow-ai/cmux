@@ -85,15 +85,15 @@ struct WorkspaceSpawner {
         }
     }
 
-    /// Cmd-N's New Tab page workspace on this Mac, shown in this turn (instant-new-surfaces): the
-    /// store shows it with its page (`AgentTabStore.showWorkspace`) and its window selects it
+    /// Cmd-N's New Tab page workspace on this Mac, or a chat's, shown in this turn (instant-new-surfaces): the
+    /// store shows it with its page or chat (`AgentTabStore.showWorkspace`) and its window selects it
     /// now; the returned work pins its room, then creates it and its first tab in the window's
     /// create lane, and places it at its slot once the daemon has it. Nil: the create waits for
-    /// the daemon (a terminal, a command, a chat, another machine).
+    /// the daemon (a terminal, a command, another machine).
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon
-        guard spawn.opensNewTabPage, spawn.command == nil, spawn.firstChat == nil, spawn.firstSession == nil,
+        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
               spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
@@ -104,8 +104,8 @@ struct WorkspaceSpawner {
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
-                                                           on: daemon, repair: repair) else { return nil }
+        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
+                                                           session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows

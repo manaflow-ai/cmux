@@ -58,21 +58,13 @@ enum AgentSessionWorkspace {
         // the trimmed name (`join`).
         let group = givenGroup
         let parent = invocation.callerAgentSession.flatMap { caller in
-            Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
+            AgentSessionParents.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
         let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
                             top: placement == "top", focus: invocation.allowsViewChange, parent: parent, services: context.services)
         context.services.registry.track(task)
-    }
-
-    /// Resolves a caller only when every tab with its session belongs to one host. Duplicate tabs
-    /// on that host are the same lineage; the same id on two hosts is intentionally ambiguous.
-    @MainActor static func callerIdentity(_ caller: String, in records: [AgentSessionRef]) -> AgentSessionParents.Identity? {
-        let hosts = Set(records.filter { $0.session == caller }.map(\.host))
-        guard hosts.count == 1, let host = hosts.first else { return nil }
-        return AgentSessionParents.identity(host: host, session: caller)
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -103,16 +95,24 @@ enum AgentSessionWorkspace {
         expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves
         // under it once the tab has opened.
-        AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
-                                             in: SidebarSessionTreeFeed.shared.recordedParents)
+        SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
+        // No group to join: the workspace and its chat show in this turn (P4), so the page starts before the daemon's creates.
+        let tabs = services.agentTabs, machine = MachineID(daemon.machineID)
+        let refused = AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) != nil
+        let shownName = name ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
+        let instant = group != nil || refused ? nil
+            : tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
-                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: services.agentTabs)
+                if let instant { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) }
+                let tab = if let instant { tabs.resolve(instant.tabKey) } else {
+                    try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
+                        try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: tabs)
+                    }
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
@@ -157,16 +157,6 @@ enum AgentSessionWorkspace {
         NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
     }
 
-    /// Records `caller`, the session of the agent that opened `session`'s
-    /// workspace, as `session`'s lineage parent. The sidebar's tree reads it
-    /// only where the session's daemon lists no lineage of its own, so a
-    /// daemon's `spawnedBy`/`startedBy` still wins. A person's open (no
-    /// caller) records nothing.
-    @MainActor static func recordParent(_ caller: AgentSessionParents.Identity?, of child: AgentSessionParents.Identity,
-                                         in parents: AgentSessionParents) {
-        parents.record(caller, of: child)
-    }
-
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
@@ -187,8 +177,7 @@ enum AgentSessionWorkspace {
                         window.state.selection.select(created.key, in: pane.id)
                     }
                 }
-                AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session),
-                                                     in: SidebarSessionTreeFeed.shared.recordedParents)
+                SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session))
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
