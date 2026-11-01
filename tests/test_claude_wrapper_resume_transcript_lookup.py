@@ -200,6 +200,27 @@ def check_depth_one_needs_no_search(failures: list[str]) -> None:
     expect(failures, "other root hit searches only the current root", len(run.find_calls) == 1, run.find_calls)
 
 
+def check_current_root_is_never_repointed(failures: list[str]) -> None:
+    def deep_here_shallow_there(home: Path) -> None:
+        write_transcript(home / "foreign", "a", "b", "c")
+        write_transcript(home / ".claude", "a")
+
+    run = run_wrapper(deep_here_shallow_there)
+    expect(failures, "deep in the current root wins", relative_config_dir(run) == "foreign", run.config_dir)
+
+
+def check_depth_is_relative_to_the_root(failures: list[str]) -> None:
+    # An ancestor folder named projects must not make a stray file look one level deeper.
+    def stray_under_projects_ancestor(home: Path) -> None:
+        current = home / "projects" / "config" / "projects"
+        current.mkdir(parents=True)
+        (current / TRANSCRIPT).write_text("{}\n", encoding="utf-8")
+        write_transcript(home / ".claude", "a", "b")
+
+    run = run_wrapper(stray_under_projects_ancestor, current_root="projects/config")
+    expect(failures, "stray file under a projects ancestor", relative_config_dir(run) == ".claude", run.config_dir)
+
+
 def check_every_supported_depth_still_resolves(failures: list[str]) -> None:
     for folders in (
         ("a",),
@@ -289,6 +310,8 @@ def main() -> int:
     failures: list[str] = []
     check_miss_walks_once_per_root(failures)
     check_depth_one_needs_no_search(failures)
+    check_current_root_is_never_repointed(failures)
+    check_depth_is_relative_to_the_root(failures)
     check_every_supported_depth_still_resolves(failures)
     check_what_counts_as_a_transcript(failures)
     check_symlinks_resolve_as_the_globs_did(failures)
