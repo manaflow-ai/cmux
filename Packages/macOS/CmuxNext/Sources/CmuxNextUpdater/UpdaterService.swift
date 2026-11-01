@@ -590,10 +590,14 @@ public final class UpdaterService {
 }
 
 extension UpdaterService {
-    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the counterpart of the running app.
+    /// ``switchChannel(to:)`` by name (`stable`, `nightly`, `dev`); nil means the counterpart of
+    /// the running app. On the DEV app `nightly` names cmux NEXT's NIGHTLY, its counterpart.
     @discardableResult
     public func switchChannel(named name: String?) throws -> Task<String?, Never> {
-        let requested = name.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+        let counterpart = identity.channelSwitchTarget
+        let requested = name.flatMap { name in
+            counterpart.flatMap { $0.isNamed(name) ? $0 : nil } ?? AppChannelSwitchTarget(rawValue: name.lowercased())
+        }
         guard let target = requested ?? identity.channelSwitchTarget, name == nil || requested != nil else {
             throw UpdaterUnavailable.cannotSwitch(to: name ?? "?", from: identity.track)
         }
