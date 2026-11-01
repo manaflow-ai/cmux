@@ -20,6 +20,8 @@ public final class DividerMouseCatchers {
     private var panels: [String: DividerMousePanel] = [:]
     /// Called with (divider id, hovered) for the divider's hover line.
     public var onHover: ((String, Bool) -> Void)?
+    /// Whether a layout divider drag runs: only then does a pressed panel keep the resize cursor off the panel.
+    public var isDividerDragging: () -> Bool = { false }
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
@@ -67,6 +69,7 @@ public final class DividerMouseCatchers {
     private func makePanel(id: String) -> DividerMousePanel {
         let panel = DividerMousePanel()
         panel.catcher.onHover = { [weak self] hovered in self?.onHover?(id, hovered) }
+        panel.catcher.isDividerDragging = { [weak self] in self?.isDividerDragging() ?? false }
         return panel
     }
 }
@@ -134,6 +137,13 @@ final class DividerMouseCatcherView: NSView {
     private(set) var pendingCursorSet: Task<Void, Never>?
     /// Between this catcher's enter and its exit.
     private var isEntered = false
+    /// Between a press here and its release: the drag's events come here wherever the pointer goes, and this
+    /// panel stays where the press found it until the release (`WindowOverlayLayer`, `isInLayoutMotion`).
+    private var isPressed = false
+    /// A press that started a divider drag keeps the resize cursor; one forwarded elsewhere (a panel frozen over a
+    /// terminal during a spring) or a drag cancelled with Escape does not.
+    var isDividerDragging: () -> Bool = { false }
+    private var keepsResizeCursor: Bool { isPressed && isDividerDragging() }
 
     override func cursorUpdate(with event: NSEvent) { cursor.set() }
     override func mouseEntered(with event: NSEvent) {
@@ -156,12 +166,23 @@ final class DividerMouseCatcherView: NSView {
     }
     override func mouseExited(with event: NSEvent) {
         isEntered = false
+        // A drag that carried the pointer past this panel keeps its resize cursor until the release.
+        if keepsResizeCursor { cursor.set() }
         onHover?(false)
     }
 
-    override func mouseDown(with event: NSEvent) { forward(event) }
-    override func mouseDragged(with event: NSEvent) { forward(event) }
-    override func mouseUp(with event: NSEvent) { forward(event) }
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        forward(event)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        if keepsResizeCursor, !isEntered { cursor.set() }
+        forward(event)
+    }
+    override func mouseUp(with event: NSEvent) {
+        isPressed = false
+        forward(event)
+    }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
     override func otherMouseDown(with event: NSEvent) { forward(event) }
@@ -173,7 +194,7 @@ final class DividerMouseCatcherView: NSView {
         content.hitTest(point)?.scrollWheel(with: event)
     }
 
-    /// The event's screen point. The panel moves while a divider drags, so
+    /// The event's screen point. The pointer leaves the panel while a divider drags, so
     /// the event's own global location is used, not the panel's frame.
     private func screenPoint(of event: NSEvent) -> NSPoint {
         guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
