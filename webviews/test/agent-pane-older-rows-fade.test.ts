@@ -120,10 +120,13 @@ await requireBrowserLane("agent-pane-older-rows-fade.test.ts", async () => {
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
           inflight++;
-          setTimeout(() => {
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-            inflight--;
-          }, message.method === "_acpmux/events" ? eventsDelay : 40);
+          setTimeout(
+            () => {
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+              inflight--;
+            },
+            message.method === "_acpmux/events" ? eventsDelay : 40,
+          );
         },
       },
     });

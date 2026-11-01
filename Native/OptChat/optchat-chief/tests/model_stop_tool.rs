@@ -68,3 +68,45 @@ fn the_owners_stop_line_still_stops_the_chief() {
     assert!(answer.contains("stopped"), "{answer}");
     assert_eq!(*seen.lock().unwrap(), vec![ControlRequest::Stop]);
 }
+
+#[test]
+fn owner_continue_and_retry_lines_reach_the_control_layer() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let socket = serve(&dir.path().join("chief"), seen.clone());
+    for request in [
+        serde_json::json!({"tool": "continue"}),
+        serde_json::json!({"tool": "retry", "message": "msg_1"}),
+    ] {
+        let mut conn = UnixStream::connect(&socket).unwrap();
+        writeln!(conn, "{request}").unwrap();
+        let mut answer = String::new();
+        BufReader::new(conn).read_line(&mut answer).unwrap();
+        assert!(!answer.contains("error"), "{answer}");
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            ControlRequest::Continue,
+            ControlRequest::Retry("msg_1".into())
+        ]
+    );
+}
+
+#[test]
+fn retry_without_a_message_never_reaches_the_brain() {
+    let dir = tempfile::tempdir().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let socket = serve(&dir.path().join("chief"), seen.clone());
+    for request in [
+        serde_json::json!({"tool": "retry"}),
+        serde_json::json!({"tool": "retry", "message": "  "}),
+    ] {
+        let mut conn = UnixStream::connect(&socket).unwrap();
+        writeln!(conn, "{request}").unwrap();
+        let mut answer = String::new();
+        BufReader::new(conn).read_line(&mut answer).unwrap();
+        assert!(answer.contains("bad_request"), "{answer}");
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}

@@ -50,8 +50,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "palette.cloud.ports": """
             Lists the TCP ports listening on the machine (--target machine:<id>) and returns machine_id and \
-            ports (comma-separated). Needs the machine connected: resume a paused one first with \
-            `cmux cloud resume-machine --target machine:<id>`.
+            ports (comma-separated). New Cloud also returns private previews, listening and unavailable \
+            ports; its menu opens a detected port in the app browser. On the classic link, connect first \
+            with `cmux cloud resume-machine --target machine:<id>`.
             """,
         "palette.cloud.tools": """
             Shows the machine's login shell, where zsh, git, gh, htop, btop, node, bun and python3 are \

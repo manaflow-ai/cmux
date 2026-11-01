@@ -3,6 +3,7 @@
 // the user edits is a draft from then on, which the arrows no longer replace.
 import { useMemo, useRef } from "react";
 import type { AcpmuxRow } from "../model";
+import { withoutSkillDollars } from "../slashCommands";
 
 type PromptGroup = {
   text: string;
@@ -20,7 +21,8 @@ export function usePromptHistory(rows: readonly AcpmuxRow[]) {
     const byRowId = new Map<string, PromptGroup>();
     for (const row of rows) {
       // Another agent's message or a task's result is not a prompt the person wrote.
-      const text = row.kind === "user" && !row.untyped ? row.text?.trim() : undefined;
+      // A Codex skill comes back as typed, `/name` (send writes `/$name` again).
+      const text = row.kind === "user" && !row.untyped ? withoutSkillDollars(row.text?.trim() ?? "") : undefined;
       // The same prompt sent twice in a row is one step.
       if (!text) continue;
       const last = groups.at(-1);

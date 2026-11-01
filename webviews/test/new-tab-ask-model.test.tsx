@@ -253,7 +253,8 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
     act(async () =>
       editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
-  const status = () => host.querySelector(".nt-composer output.acpmux-composer-remote-note")?.textContent;
+  const status = () => host.querySelector(".nt-composer output.acpmux-hidden-label")?.textContent;
+  const sendSpins = () => host.querySelector(".nt-send[data-starting] .cv-spinner") !== null;
   const alert = () => host.querySelector(".nt-composer [role=alert]")?.textContent;
   return {
     root,
@@ -266,6 +267,7 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
     type,
     pressReturn,
     status,
+    sendSpins,
     alert,
   };
 }
@@ -324,13 +326,16 @@ test("Return on a one-word prompt asks with that prompt", async () => {
 
 // A start that has not answered, while the page still shows (a chat on another machine or in no
 // project leaves only once it started; before acpmux's handshake every start waits): the page says
-// the chat is starting, and a second Return sends nothing more.
+// the chat is starting (Send spins in its own box; the words are for screen readers, so nothing
+// moves, Leo 2026-11-01), and a second Return sends nothing more.
 test("a chat start that has not answered says it is starting", async () => {
   const page = await newTabPage({ auth: READY, onAsk: () => new Promise(noop) });
   try {
     await page.pressReturn();
     expect(page.asks).toHaveLength(1);
     expect(page.status()).toBe("Starting Codex…");
+    expect(page.sendSpins()).toBe(true);
+    expect(host.querySelector(".nt-composer .acpmux-composer-remote-note")).toBeNull();
     await page.pressReturn();
     expect(page.asks).toHaveLength(1);
   } finally {
