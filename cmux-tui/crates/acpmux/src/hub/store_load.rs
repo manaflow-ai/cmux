@@ -130,6 +130,18 @@ impl Hub {
         } else {
             "ready"
         };
-        json!({"phase": phase, "sessionsLoaded": loaded, "sessionsTotal": total})
+        let startup_done = *self.startup_work_done.borrow();
+        json!({"phase": phase, "sessionsLoaded": loaded, "sessionsTotal": total,
+               "startupDone": startup_done})
+    }
+
+    /// The daemon's startup task runs (`daemon.rs`) until [`Hub::end_startup_work`].
+    pub(crate) fn begin_startup_work(&self) {
+        self.startup_work_done.send_replace(false);
+    }
+
+    /// The daemon's startup task ended: `_acpmux/status` `loading.startupDone`.
+    pub(crate) fn end_startup_work(&self) {
+        self.startup_work_done.send_replace(true);
     }
 }

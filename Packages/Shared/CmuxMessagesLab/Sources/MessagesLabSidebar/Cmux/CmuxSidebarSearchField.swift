@@ -4,6 +4,12 @@ public import AppKit
 /// the keyboard and when its edit ends, so the host can draw its own focus ring and caret instead
 /// of AppKit's system-blue ones, and open a collapsed search while it edits.
 public final class CmuxSidebarSearchField: NSSearchField {
+    /// Its text centred on one line when unbezeled (``CmuxSidebarSearchFieldCell``).
+    public override class var cellClass: AnyClass? {
+        get { CmuxSidebarSearchFieldCell.self }
+        set {}
+    }
+
     /// True when the field takes the keyboard, false when its edit ends.
     public var onEditingChange: ((Bool) -> Void)?
     /// The text changed (typing, the cancel button, a host's `stringValue`): a host whose layout

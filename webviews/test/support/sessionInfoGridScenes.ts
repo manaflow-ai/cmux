@@ -31,7 +31,7 @@ const trail = (name: string, selector: string): GridLine => ({
   all: true,
   expected: token("sidebar-trail-center"),
 });
-const p = ".acpmux-chat-inspector";
+const p = ".acpmux-session-info";
 const section = (id: string) => `${p}-section[data-section="${id}"]`;
 const scene = (variant: string, lines: GridLine[]): GridScene => ({
   surface: "session-info",
@@ -96,7 +96,7 @@ export const sessionInfoGridScenes: GridScene[] = [
   ...["workflow-running", "workflow-agent-row-narrow"].map((variant) =>
     scene(variant, [
       text("workflow title", ".acpmux-workflow-task__name"),
-      trail("workflow stop", ".acpmux-workflow-task__head > .acpmux-chat-inspector-stop"),
+      trail("workflow stop", ".acpmux-workflow-task__head > .acpmux-session-info-stop"),
       text("workflow phase", ".acpmux-workflow-phase__name"),
       trail("workflow phase", ".acpmux-workflow-phase__head > svg"),
       lead("workflow agents", ".acpmux-workflow-agent__icon", true),

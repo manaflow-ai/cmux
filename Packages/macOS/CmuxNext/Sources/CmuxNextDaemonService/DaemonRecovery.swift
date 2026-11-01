@@ -15,9 +15,17 @@ import os
 @Observable
 public final class DaemonRecovery {
     /// The last `server ensure` failed as a stuck owner makes it fail (the
-    /// restore bound passed, or no answer): `--replace-unresponsive` cannot
-    /// tell a stuck owner from a slow restore, so it is offered only then.
+    /// restore bound passed, or no answer), or the connected daemon leaves its
+    /// heartbeat unanswered (``daemonNotAnswering``): `--replace-unresponsive`
+    /// cannot tell a stuck owner from a slow restore, so it is offered only then.
     public private(set) var offersRestart = false
+    /// The connected daemon leaves its heartbeat unanswered while its process is alive (stopped or wedged):
+    /// its connection stays open and its requests keep waiting (P0 2026-10-30), and Restart is offered.
+    public private(set) var daemonNotAnswering = false
+    /// The launcher's last ensure looked stuck (``DaemonLauncher/EnsureOutcome/ownerLooksStuck``).
+    @ObservationIgnored private var ensureLooksStuck = false
+    /// The `server ensure` a not-answering daemon's heartbeat started (``noteDaemonAnswering(_:)``); nil when none runs.
+    @ObservationIgnored private var ownerProbe: Task<Void, Never>?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
     public private(set) var isRestarting = false
     /// Why the last Restart did not work (the refusal code or error, for Copy
@@ -60,11 +68,52 @@ public final class DaemonRecovery {
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
-            offersRestart = outcome.ownerLooksStuck
+            ensureLooksStuck = outcome.ownerLooksStuck
             // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
-            if !offersRestart { restartFailure = nil }
+            if !ensureLooksStuck { restartFailure = nil }
+            updateOffer()
         }
-        offersRestart = outcome.ownerLooksStuck
+        ensureLooksStuck = outcome.ownerLooksStuck
+        updateOffer()
+    }
+
+    /// The connected daemon answers its heartbeat (true) or left one more ask unanswered while its connection stays
+    /// open (false; ``DaemonConnection/observeAnswering(_:)``). While it does not answer, each unanswered ask runs one
+    /// plain `server ensure` when none runs, so ``UnresponsiveOwnerWatch`` judges the owner exactly as it did when a
+    /// missed heartbeat closed the connection and the reconnect ran the ensure: a stuck owner is still restarted (when
+    /// ``restartsUnresponsiveOwner`` allows it) and Restart is offered, while the connection and its requests wait.
+    func noteDaemonAnswering(_ answering: Bool) {
+        if daemonNotAnswering == answering {
+            daemonNotAnswering = !answering
+            logger.notice("cmux-tui \(answering ? "answers again" : "is not answering; its connection stays open", privacy: .public)")
+            updateOffer()
+        }
+        if answering {
+            ownerProbe?.cancel()
+            ownerProbe = nil
+        } else {
+            probeOwner()
+        }
+    }
+
+    /// One `server ensure` for the watch, unless one runs already.
+    private func probeOwner() {
+        guard ownerProbe == nil, let launcher else { return }
+        // task-owner: one ensure at a time (`ownerProbe`), bounded by the ensure's own deadlines; an answer or
+        // `detach` cancels it. Off main: it awaits the ensure process; its one step on main clears `ownerProbe`.
+        ownerProbe = Task { @concurrent [weak self] in
+            await launcher.probeOwner()
+            await self?.ownerProbeEnded()
+        }
+    }
+
+    private func ownerProbeEnded() {
+        ownerProbe = nil
+    }
+
+    /// Restart is offered while an ensure looked stuck or the connected daemon does not answer, and a launcher is known.
+    private func updateOffer() {
+        offersRestart = launcher != nil && (ensureLooksStuck || daemonNotAnswering)
     }
 
     /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so
@@ -72,6 +121,8 @@ public final class DaemonRecovery {
     func detach() {
         watch?.stop()
         watch = nil
+        ownerProbe?.cancel()
+        ownerProbe = nil
     }
 
     /// The watch's restart: on the main actor, only while no Restart runs and the watch still

@@ -24,8 +24,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
+             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudHandoffs
     }
 
     public var protocolVersion: Int
@@ -110,11 +110,18 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var pastTurns: [AgentPanePastTurn]?
     /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
     public var cloudMachineID: String?
+    /// Account and team that own this Cloud chat; absence never proves deletion.
+    public var cloudAccount: [String?]?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
+    /// True when this app opens the chat's hand-off turns (`cloud.handoffTurn`).
+    public var cloudHandoffs: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// This Mac's name, always, even when ``machineName`` names the machine a seeded chat runs on
+    /// (a peer or a Cloud machine): the environment picker's This Mac row. Pages that predate it ignore it.
+    public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?
     /// What a hidden chat's released page held that acpmux does not (``AgentPaneWakeState``): the

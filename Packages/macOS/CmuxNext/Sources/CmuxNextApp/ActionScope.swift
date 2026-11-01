@@ -17,7 +17,7 @@ struct ActionScope {
         if let target = invocation.target ?? invocation["tab"]?.targetValue ?? invocation["pane"]?.targetValue {
             switch target.kind {
             case .tab:
-                guard let (_, pane) = services.locateTab(target.id) else { return notFound(RefusalStrings.noTab(target.id)) }
+                guard let (_, pane) = AppActionContext(services: services).targetTab(target.id, invocation) else { return notFound(RefusalStrings.noTab(target.id)) }
                 // In a hidden or parked workspace: no controller to act on.
                 guard let controller = services.paneController(for: pane) else {
                     services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
@@ -45,6 +45,10 @@ struct ActionScope {
 
     var workspace: WorkspaceModel? {
         if let target = invocation.target ?? invocation["workspace"]?.targetValue, target.kind == .workspace {
+            if let machine = invocation.targetMachineID {
+                return services.machines.daemon(machine: machine)?.store.workspaces.first { $0.id == target.id }
+                    ?? notFound(RefusalStrings.noWorkspace(target.id))
+            }
             return services.workspace(id: target.id) ?? notFound(RefusalStrings.noWorkspace(target.id))
         }
         return window?.state.workspaceID.flatMap(services.workspace(id:))

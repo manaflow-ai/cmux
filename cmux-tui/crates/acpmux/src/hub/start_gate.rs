@@ -521,14 +521,15 @@ impl Hub {
             return e;
         }
         let last = || {
+            // The tail holds cleaned lines (`Session::stderr_stream`).
             session
                 .stderr_tail
                 .lock()
                 .unwrap()
                 .iter()
                 .rev()
-                .map(|l| l.trim().to_owned())
                 .find(|l| super::exit_reason::explains_exit(l))
+                .cloned()
         };
         Self::drain_inbound(session).await;
         let mut found = last();

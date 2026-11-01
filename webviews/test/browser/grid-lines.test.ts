@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 600
 // Discovered by run-webviews-tests.sh (browser import + gallery Vite config);
 // tests/test-execution.toml registers Python tests only. No duplicate browser registry.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -24,6 +25,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
     level: string;
     entry: string;
     variant: string;
+    root: string;
     width: number;
     scheme: string;
     lines: GridResult[];
@@ -48,7 +50,6 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
     try {
       await mkdir(path.dirname(artifact), { recursive: true });
       const report = { tolerance, measuredAt: new Date().toISOString(), records, fixtureErrors };
-      console.log(`GRID_LINES_JSON=${JSON.stringify(report)}`);
       await writeFile(artifact, JSON.stringify(report, null, 2) + "\n");
       console.log(
         "| Surface / variant | Theme / width | Level | Line | Expected | Measured | Delta | Diagnostic |\n|---|---|---|---|---:|---:|---:|---|",
@@ -72,7 +73,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
   for (const scene of gridScenes)
     for (const width of [720, 420])
       for (const scheme of ["light", "dark"])
-        test(`${scene.surface}/${scene.variant}: ${scheme}, ${width}px [${scene.level}]`, async () => {
+        test(`${scene.surface}/${scene.variant} (${scene.root}): ${scheme}, ${width}px [${scene.level}]`, async () => {
           const page = await browser!.newPage({
             viewport: { width, height: 900 },
             colorScheme: scheme as "light" | "dark",
@@ -99,7 +100,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
             lines = await page.evaluate(measureGridLines, scene);
             if (scene.surface === "session-info") {
               clippedHeadings = await page
-                .locator(".acpmux-chat-inspector-section__title")
+                .locator(".acpmux-session-info-section__title")
                 .evaluateAll((titles) =>
                   titles.filter((title) => title.scrollWidth > title.clientWidth + 1).map((title) => title.textContent),
                 );
@@ -120,15 +121,21 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
           } finally {
             await page.close();
           }
-          records.push({
+          const record = {
             surface: scene.surface,
             level: scene.level,
             entry: scene.entry,
             variant: scene.variant,
+            root: scene.root,
             width,
             scheme,
             lines,
-          });
+          };
+          records.push(record);
+          // Emit before assertions so failed scenes and truncated runs retain measurements.
+          console.log(
+            `GRID_LINES_JSON=${JSON.stringify({ tolerance, measuredAt: new Date().toISOString(), records: [record] })}`,
+          );
           for (const line of lines.filter(problem)) {
             const detail = `${line.line} expected ${number(line.expected)} got ${number(line.actual)} (delta ${number(line.delta)}); ${scheme}/${width}${line.diagnostic ? `; ${line.diagnostic}` : ""}`;
             console.warn(

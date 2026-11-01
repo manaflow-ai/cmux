@@ -74,7 +74,14 @@ export function measureGridLines(scene: GridScene): GridResult[] {
         ].filter(visible);
         if (marked.length) return marked;
       }
-      return (selector === ":scope" ? [root] : [...within.querySelectorAll(selector)]).filter(visible);
+      return (
+        selector === ":scope"
+          ? [root]
+          : [
+              ...(within instanceof Element && within.matches(selector) ? [within] : []),
+              ...within.querySelectorAll(selector),
+            ]
+      ).filter(visible);
     };
     const select = (selector: string, role?: string, scope?: GridPoint["scope"]) => {
       const el = matches({ selector, role, scope })[0];
@@ -117,13 +124,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
       let node: Node | null;
       while ((node = walker.nextNode())) {
         const start = node.textContent?.search(/\S/) ?? -1;
-        if (
-          start < 0 ||
-          !node.parentElement ||
-          !visible(node.parentElement) ||
-          node.parentElement.closest('[aria-hidden="true"]')
-        )
-          continue;
+        // Accessibility-hidden placeholders still paint text; measure their ink too.
+        if (start < 0 || !node.parentElement || !visible(node.parentElement)) continue;
         const range = document.createRange();
         range.setStart(node, start);
         range.setEnd(node, start + 1);

@@ -90,6 +90,9 @@ BUNDLE_CODE = [
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
     re.compile(r"verify-diff-sidecar-artifact\.sh(?!.*--static-only)"),
+    # The cmux NEXT fresh-home launch smoke (nightly.yml's pre-publish gate and its harness).
+    re.compile(r"launch-smoke-gate\.sh"),
+    re.compile(r"fresh_home_launch_smoke\.py"),
 ]
 # Run blocks moved out of a workflow into their own script (inline_step_scripts).
 STEP_SCRIPT = re.compile(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh")
@@ -163,6 +166,16 @@ LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 # `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
 # a boolean record choosing between two literal Blacksmith Linux labels.
 OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
+# `vars.NAME == '<label>' && '<label>' ||`: a variable that only chooses between literal labels.
+# Its value is compared, never used as the label, so the job still runs on the literal it names.
+LITERAL_SELECTOR = re.compile(
+    r"vars\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'\s*&&\s*'([^']*)'\s*\|\|\s*", re.IGNORECASE)
+
+
+def strip_literal_selectors(runs_on: str) -> str:
+    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral; anything else stays for the checks."""
+    return LITERAL_SELECTOR.sub(
+        lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
 
 
 def commands(run: str) -> list[str]:
@@ -256,7 +269,16 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
-        runs_on = str(job.get("runs-on", ""))
+        runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        trusted_linux_pool = (
+            "fromJSON(vars.RUNNER_POOLS).linux" in runs_on
+            and all(label in runs_on for label in (
+                "blacksmith-4vcpu-ubuntu-2404",
+                "blacksmith-16vcpu-ubuntu-2404",
+                "blacksmith-32vcpu-ubuntu-2404",
+            ))
+            and "contains(fromJSON(" in runs_on
+        )
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -265,6 +287,8 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_linux_pool and variable == "RUNNER_POOLS":
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
@@ -438,8 +462,22 @@ def check_live_runner_variables(failures: list[str]) -> None:
     )
 
 
+def check_literal_selectors(failures: list[str]) -> None:
+    """A selector is dropped only when it picks the literal it compares against, and that literal is ephemeral."""
+    cases = {
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}":
+            "${{ 'blacksmith-32vcpu-ubuntu-2404' }}",
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+    }
+    for runs_on, expected in cases.items():
+        if strip_literal_selectors(runs_on) != (runs_on if expected is None else expected):
+            failures.append(f"strip_literal_selectors mishandles {runs_on}")
+
+
 def main() -> int:
     failures: list[str] = []
+    check_literal_selectors(failures)
     check_live_runner_variables(failures)
     signing_jobs = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):

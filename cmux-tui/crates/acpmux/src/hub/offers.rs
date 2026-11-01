@@ -36,8 +36,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 
-pub(super) const MAX_TITLE_CHARS: usize = 80;
-pub(super) const MAX_PROMPT_CHARS: usize = 20_000;
+use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
 pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
 /// Longest `groupId`, in bytes.
@@ -209,9 +208,7 @@ impl Hub {
                 if meta.lineage.is_none() {
                     meta.lineage = lineage;
                 }
-                if meta.status != super::SessionStatus::Closed {
-                    self.subsessions.set_open(&session.id, &child.id, true);
-                }
+                self.subsessions.note_status(&session.id, &child.id, meta.status);
             }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
