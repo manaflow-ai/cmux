@@ -139,6 +139,9 @@ pub(crate) fn harness_command(
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
+    // The app the daemon follows is not the agent's: a daemon its commands start must not
+    // follow it too (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -238,9 +241,11 @@ pub(crate) fn harness_command(
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
-        (true, Some((id, _))) => {
-            crate::claude_auth::remember(id, &command_env_with(&cmd, !remote_environment))
-        }
+        (true, Some((id, _))) => crate::claude_auth::remember(
+            id,
+            &command_env_with(&cmd, !remote_environment),
+            route_unset.is_some(),
+        ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
