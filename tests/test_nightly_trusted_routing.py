@@ -19,6 +19,10 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 # The nightly signer jobs and their pick: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+TAIL_CONTROL_JOBS = (
+    'route-visual-gate-nightly', 'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
+    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+)
 
 
 def evaluate(node, context):
@@ -76,6 +80,25 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
+    def test_tail_controls_never_use_the_dedicated_build_runner(self):
+        # The dedicated label is admitted only by build-nightly-app. A picker can
+        # expose it through `owned`, so every bookkeeping control must explicitly
+        # reject that value before taking the owned route.
+        context = {
+            'github.repository_owner': 'manaflow-ai',
+            'github.run_attempt': 1,
+            'needs.pick-nightly-build-runner.outputs.attempt': '1',
+            'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
+            'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly',
+            'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-32vcpu-ubuntu-2404',
+            'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404',
+        }
+        for name in TAIL_CONTROL_JOBS:
+            with self.subTest(job=name):
+                source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+                self.assertEqual(evaluate(parse_expression(source), context), 'blacksmith-32vcpu-ubuntu-2404')
+                self.assertIn('outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated', source)
+
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
