@@ -162,6 +162,7 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
+      actions: read
     outputs:
       runner: ${{ steps.place.outputs.runner }}
       placement: ${{ steps.place.outputs.placement }}
@@ -207,6 +208,7 @@ jobs:
         timeout-minutes: 1
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           ROOT_RUNNER: ${{ inputs.pr_root_runner }}
           ADMISSION_WARM: ${{ inputs.pr_admission_warm }}
         run: python3 scripts/ci/admission_placement.py
@@ -1387,6 +1389,7 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
+      actions: read
     outputs:
       # Only jobs the rescue watch can find move: a marker that failed to
       # upload leaves every job where the picker put it.
@@ -1436,6 +1439,7 @@ jobs:
         timeout-minutes: 1
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           MACOS: ${{ inputs.macos }}
           FULL_SUITE: ${{ inputs.full_suite }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
