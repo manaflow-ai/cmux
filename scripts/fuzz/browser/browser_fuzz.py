@@ -85,9 +85,12 @@ def unreported() -> list[dict]:
     """The failures a hang or a stop must still print, each once: the one being shrunk (unshrunk), the seed's failures
     that wait for report(), those its end steps were running for, and the judged stalls of the seed that runs now;
     less those already reported."""
-    out, keys = [], set()
+    # Findings report() already printed are never printed or counted again (between findings.append and the clear of
+    # pending, a stop saw the same failure in both; review of #29818).
+    keys = {finding_key(f) for f in LIVE.get("findings") or []}
+    out = []
     pending = LIVE.get("pending")
-    if pending:
+    if pending and finding_key(pending) not in keys:
         out.append(dict(pending, note="its shrink was cut short; the ops are unshrunk"))
         keys.add(finding_key(pending))
     candidates = [(r, "it waited for its shrink; not shrunk") for r in LIVE.get("queued") or []]
@@ -111,6 +114,15 @@ def live_stalls() -> list[dict]:
     if getattr(opts, "build_config", "debug") == "debug":
         return []
     return [failure_record(stall, seed, ops, opts) for stall in list((getattr(session, "stalls", None) or {}).values())]
+
+
+def start_pending(record: dict, key: str, queued: dict | None):
+    """report()'s one step that makes a failure the pending one: pending first, then out of the queue, then its key
+    seen. Each moment a stop or a hang can come, the failure is printed once (review of #29818: the key was seen
+    before the failure was pending, and a stop there lost it)."""
+    LIVE["pending"] = record
+    take_queued(queued)
+    LIVE["seen"].add(key)
 
 
 def take_queued(record: dict | None):
@@ -1193,7 +1205,6 @@ def main() -> int:
             print(f"browser-fuzz: seed {seed}: {failure.oracle} again (already a finding): {failure.detail[:200]}", flush=True)
             take_queued(queued)
             return
-        seen.add(key)
         prefix = ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1]
         replays = {"tried": 0, "failed": 0, "harness_errors": 0}
 
@@ -1216,10 +1227,10 @@ def main() -> int:
             return hit
 
         # Until the shrink ends, a hang or a stop prints this failure unshrunk (end_now), so it is never lost.
-        LIVE["pending"] = {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "ops_per_seed": opts.ops,
-                           "build_config": opts.build_config, "oracle": failure.oracle, "detail": failure.detail[:1500],
-                           "op_index": failure.op_index, "reproduced": None, "ops": prefix, "extra": failure.extra}
-        take_queued(queued)  # it is the pending one now (set just above)
+        start_pending({"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "ops_per_seed": opts.ops,
+                       "build_config": opts.build_config, "oracle": failure.oracle, "detail": failure.detail[:1500],
+                       "op_index": failure.op_index, "reproduced": None, "ops": prefix, "extra": failure.extra},
+                      key, queued)
         reproduced = opts.shrink_replays > 0 and fails(prefix)
         shrunk = prefix
         if reproduced and len(prefix) > 1:
