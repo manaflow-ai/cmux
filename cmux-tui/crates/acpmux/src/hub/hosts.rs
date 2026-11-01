@@ -868,7 +868,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
-                    work.turn_persons = false;
+                    // The open turn is still the person's own on a new harness (`turn_started`).
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;

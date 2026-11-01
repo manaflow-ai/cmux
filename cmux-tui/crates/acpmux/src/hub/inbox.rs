@@ -1009,10 +1009,12 @@ impl Hub {
                             };
                             // A review box's turn takes no notice: what its inbox held before
                             // it became one waits for the turn's end (module docs). Nor does
-                            // the person's own: the notice goes in as a turn after it.
+                            // the person's own: the notice goes in as a turn after it, never
+                            // into a turn carried on from it (`carried_turn.rs`).
                             held_by_person = turn.persons;
                             if !steers
                                 || turn.persons
+                                || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
                                 || prompt_waits(session)
                                 || crate::review_box::of_meta(&meta)

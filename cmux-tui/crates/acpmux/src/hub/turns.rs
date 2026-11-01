@@ -1531,6 +1531,8 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
+            // What the inbox held for this turn goes now (`inbox.rs`), as after a failed start.
+            self.inbox_turn_ended(session);
             return;
         }
         let mut e = e.clone();
