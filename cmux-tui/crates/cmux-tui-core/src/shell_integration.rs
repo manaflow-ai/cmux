@@ -230,7 +230,7 @@ fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> 
         |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone());
     is_incognito(&lookup)
         && detect_shell(command).is_some()
-        && command[1..].iter().all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
+        && command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
         && !FRONTEND_INTEGRATION_KEYS.iter().any(|key| lookup(key).is_some())
 }
 
