@@ -139,15 +139,16 @@ pub(crate) fn byte_page<R>(
     // Stable, so of a row listed twice the first is kept.
     order.sort_by(|(a, at), (b, bt)| a.cmp(b).then_with(|| pair(*at).cmp(&pair(*bt))));
     order.dedup_by(|(_, at), (_, bt)| pair(*at) == pair(*bt));
-    let (mut page, mut used, mut last) = (Vec::new(), 0, None);
+    let (mut page, mut used, mut last) = (Vec::new(), 0_usize, None);
     for &(hash, at) in &order {
         let value = row(at);
         // One more byte for the comma between rows.
-        let bytes = size(&value) + 1;
-        if last.is_some_and(|last| last != hash) && used + bytes > budget {
+        let bytes = size(&value).saturating_add(1);
+        let total = used.saturating_add(bytes);
+        if last.is_some_and(|last| last != hash) && total > budget {
             break;
         }
-        (used, last) = (used + bytes, Some(hash));
+        (used, last) = (total, Some(hash));
         page.push(value);
     }
     let next = (page.len() < order.len()).then(|| format!("h{:032x}", last.unwrap_or_default()));

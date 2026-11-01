@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// drawn offscreen in each layout, light and dark (Soft Blue), with an open group (a member selected), a subgroup and a
 /// collapsed group. Written as PNGs under `group-line-gallery/` in the package and bundled to `group-line-gallery.tar`
 /// for `cmux-ci run --artifact`. Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
-@MainActor @Suite(.serialized) struct AAGroupLineGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAGroupLineGalleryTests {
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func ws(_ id: String) -> SidebarWorkspace { SidebarWorkspace(id: WorkspaceID(id), title: id) }

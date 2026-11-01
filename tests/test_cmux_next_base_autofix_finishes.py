@@ -67,7 +67,8 @@ class BaseAutofixFinishes(unittest.TestCase):
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
-        self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        # A run that took the push's packed exports (pushed-exports) has nothing to defer.
+        self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true' && needs.pushed-exports.outputs.hit != 'true'")
         self.assertNotIn("continue-on-error", job)
         run = "\n".join(s.get("run", "") for s in job["steps"])
         self.assertIn("GITHUB_STEP_SUMMARY", run)
@@ -90,7 +91,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         # and the next push replaced it: half an hour of Mac exports lost. That autofix has a group of
         # its own; the others still queue only the latest, one group per branch.
         group = DOC["jobs"]["autofix"]["concurrency"]["group"]
-        self.assertIn("needs.action-exports.outputs.exports == 'true'", group)
+        self.assertIn("(needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true'", group)
         self.assertIn("github.run_id", group)
         self.assertIn("github.ref_name", group)
 
@@ -280,7 +281,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("timeout-minutes", step)
         self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
         push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
-        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.action-exports.outputs.actions_made_at }}")
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.actions_made_at }}")
         self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
         self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
         self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
@@ -303,7 +304,7 @@ class BaseAutofixFinishes(unittest.TestCase):
 
     def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
         step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
-        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.action-exports.outputs.settings_made_at }}")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.settings_made_at }}")
         self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
 
     def test_the_push_script_knows_every_settings_export(self):

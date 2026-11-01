@@ -63,6 +63,9 @@ regen > "$temp/regen.log" 2>&1 || { cat "$temp/regen.log" >&2; echo "::error::th
 if ! check > "$temp/recheck.log" 2>&1; then
   cat "$temp/recheck.log"
   echo "::error::the action catalog checks fail with fresh exports too: a catalog failure, not a stale file"
+  # The workflow's verdict reads this (steps.actions.outputs.catalog), so its summary says "catalog failure",
+  # never "stale": regenerating changes nothing here (2026-10-29: #27632's "stale" label sent a fix the wrong way).
+  [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "catalog=failure" >> "$GITHUB_OUTPUT"
   exit 1
 fi
 stale=()

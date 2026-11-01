@@ -37,6 +37,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 pub(crate) const CONVERSATION_TABS_CAPABILITY: &str = "conversation-tabs-v1";
+/// Canonical conversation kinds in closed history, independent of live-tab support.
+pub(crate) const CLOSED_CONVERSATION_TABS_CAPABILITY: &str = "closed-conversation-tabs-v1";
 /// The agent session source of a conversation tab and its session bind.
 pub(crate) const AGENT_SESSION_TABS_CAPABILITY: &str = "agent-session-tabs-v1";
 /// The page source of a conversation tab (one of the app's own pages).

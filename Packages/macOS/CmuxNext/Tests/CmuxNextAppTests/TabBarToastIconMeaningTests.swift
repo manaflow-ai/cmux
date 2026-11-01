@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The tab bar's + and a toast's buttons say what they do (affordance audit 2026-10-21): the +
 /// names New Tab, its shortcut and that holding it opens more; an Undo toast's button shows the
 /// Cmd-Z that also runs it; every toast button has a stable identifier for agents and UI tests.
-@MainActor @Suite(.serialized) struct TabBarToastIconMeaningTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabBarToastIconMeaningTests {
     private let audit = AccessibilityAudit()
 
     @Test func theNewTabPlusSaysHoldForMoreAndShowsItsShortcut() {
@@ -49,7 +50,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let violations = audit.violations(under: view)

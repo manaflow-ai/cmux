@@ -90,6 +90,7 @@ export function FileHeader({
         className="acpmux-fh-btn"
         aria-label={t(view.viewed ? "changes.markNotViewed" : "changes.markViewed", { path: file.displayPath })}
         aria-pressed={view.viewed}
+        data-viewed-toggle=""
         onClick={() => on.toggleViewed(file.path)}
       >
         <Eye />

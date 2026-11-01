@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextPopups
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// binding context. Cmd-L (Focus Location Bar) reaches the popup's omnibar,
 /// never the opener's window; Opt-Cmd-F is Search All Windows, never a
 /// search in the popup's omnibar; Cmd-W still closes the popup.
-@MainActor @Suite(.serialized) struct PopupOmnibarKeyTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupOmnibarKeyTests {
     private static var timestamp: TimeInterval = 2000
 
     private struct Harness {
