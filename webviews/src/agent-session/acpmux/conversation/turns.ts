@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { drawsNothing, isBlankText, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
@@ -467,7 +467,11 @@ function shapedTurn(
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
     if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
       let final = shaped.length - 1;
-      while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
+      while (
+        final >= 0 &&
+        (shaped[final]!.kind === DATE || shaped[final]!.kind === "user" || drawsNothing(shaped[final]!))
+      )
+        final -= 1;
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
@@ -498,7 +502,7 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
 }
 
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
-const isReply = (row: AcpmuxRow) => isAnswer(row) && (row.text ?? "").trim().length > 0;
+const isReply = (row: AcpmuxRow) => isAnswer(row) && !isBlankText(row.text);
 
 /// The finished turn's one disclosure, its final answer, and work recorded after that answer.
 export type FoldSegment = { anchor: AcpmuxRow; rows: AcpmuxRow[]; takeaway?: AcpmuxRow; after?: AcpmuxRow[] };

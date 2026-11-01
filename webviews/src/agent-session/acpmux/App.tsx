@@ -46,6 +46,9 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  previousDrawnRow,
+  drawsNothing,
+  isBlankReply,
   isBeforeFooter,
   hasReplyActions,
   isLastFooter,
@@ -1285,6 +1288,9 @@ const MessageRow = memo(
         </div>
       );
     }
+    // A reply with nothing to read (empty, whitespace, zero-width) draws nothing, so its article
+    // takes no room (model.ts isBlankReply, conversation.css `.acpmux-row__gap`-only rows).
+    if (isBlankReply(row)) return null;
     const reply = (
       <RevealedMarkdown
         text={row.text ?? ""}
@@ -1968,7 +1974,7 @@ const RowFrame = React.memo(function RowFrame({
   // the generic entrance too. Only real prompts and replies get the presentation wrapper.
   const messageEntering =
     entering &&
-    (row.kind === "assistant" ||
+    ((row.kind === "assistant" && !isBlankReply(row)) ||
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const handleKeyDown = useCallback(
@@ -4943,6 +4949,9 @@ export function VirtualTranscript({
                 rows.slice(first, last).map((row, index) => {
                   const absoluteIndex = first + index;
                   const next = nextDrawnRow(rows, absoluteIndex);
+                  // A row that draws nothing takes none of its neighbours' edges, and they join
+                  // across it as if it were not there.
+                  const blank = drawsNothing(row);
                   const actions = hasReplyActions(row, next);
                   const kind = rowKind(row);
                   const Component = registry[kind] ?? NoticeRow;
@@ -4954,13 +4963,13 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
-                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
-                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
-                      beforeFooter={isBeforeFooter(row, next)}
+                      joinsPrevious={isStepRow(row) && isStepRow(previousDrawnRow(rows, absoluteIndex))}
+                      joinsNext={isStepRow(row) && isStepRow(next)}
+                      beforeFooter={!blank && isBeforeFooter(row, next)}
                       replyActions={actions}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
-                      lastTurn={row.lastTurn === true}
+                      lastTurn={!blank && row.lastTurn === true}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
