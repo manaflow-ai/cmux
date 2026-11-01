@@ -16,7 +16,6 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
   kind,
   version: 1,
   at: (at += 1_000),
-  ...(kind === "user" ? { text: id } : {}),
   ...extra,
 });
 const tool = (id: string, kind = "read") =>
@@ -68,8 +67,17 @@ test("an empty completed notification turn has no footer, while a failed one kee
   const hidden = row("hidden", "user", { incoming: { kind: "hidden" } as never });
   const empty = [hidden, row("empty", "assistant", { text: "\u200B" }), summary()];
   expect(turnView(empty, new Set())).toEqual([]);
+  expect(turnView([row("empty-prompt", "user", { text: "" }), summary()], new Set())).toEqual([]);
   const failed = [hidden, row("failed", "assistant", { text: "" }), summary("failed")];
   expect(turnView(failed, new Set()).map((entry) => entry.kind)).toEqual(["turnSummary"]);
+});
+
+test("an invisible prompt keeps its logical boundary without adding layout space", () => {
+  const prompt = row("invisible-prompt", "user", { text: "\u200B" });
+  const shaped = turnView([prompt, tool("read"), text("answer"), summary()], new Set());
+  expect(shaped.map((entry) => entry.id)).toContain(prompt.id);
+  const withoutPrompt = shaped.filter((entry) => entry.id !== prompt.id);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(withoutPrompt, 760).totalHeight);
 });
 
 test("an attachment-only prompt is still visible when its text is empty", () => {

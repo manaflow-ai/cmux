@@ -434,7 +434,9 @@ function shapedTurn(
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
   const date = dated && visibleTurn ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
-  const drawnUser = isVisiblyEmptyMessage(user) ? [] : [user];
+  // Keep the logical prompt boundary for turn consumers; an invisible prompt draws null and
+  // measures zero. Only a wholly invisible completed turn is omitted below.
+  const drawnUser = user.incoming?.kind === "hidden" ? [] : [user];
   // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
   // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
   // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
@@ -463,10 +465,14 @@ function shapedTurn(
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    const emptyCompleted =
+      isVisiblyEmptyMessage(user) &&
+      body.length === 0 &&
+      turn.some((row) => row.kind === "turnSummary" && row.status === "completed");
     shaped = [
       ...date,
       // Bookkeeping alone starts a turn but draws nothing (incomingMessage.ts).
-      ...drawnUser,
+      ...(emptyCompleted ? [] : drawnUser),
       ...body,
       ...held,
       ...line,
