@@ -100,17 +100,20 @@ export type SavedEnvironmentRows = {
 };
 
 /// The environment picker (not behind Labs since Leo's 2026-10-30 order): where a chat runs, as Codex's "Where
-/// should this chat run?" menu has it (Leo, 2026-10-31). Two rows, This Mac and Cloud (a pick opens
-/// New Cloud Machine), then a hairline and every other machine acpmux lists, the ones a chat can
-/// start on first and the rest greyed with their state; ⌥⌘1–9 on the first nine that can take a
-/// chat, also while the composer it heads has focus. No section headers, no second lines, and a
-/// search field only from ENVIRONMENT_SEARCH_MIN machines. The setup actions (New Cloud Machine…,
-/// Open Cloud…, SSH…, Add Machine…, Connect Phone…, and on the New Tab page Create and Edit
-/// environment) are the control's right-click menu, besides their homes in the app. On the New Tab
-/// page it also lists the saved environments. A started chat's picker lists only where it runs and
-/// its move (`offload`): Move to Cloud from this Mac, Bring Back Local from a Cloud machine. A new
-/// chat with `runMode` (hq#3367) also offers Sandboxed as Cloud's other face, with no row of
-/// its own: shown while ⌥ is held, while the search names it, and while it is the pick.
+/// should this chat run?" menu has it (Leo, 2026-10-31). Two rows, This Mac and Cloud, one line
+/// each, and no machine list (Leo, 2026-10-31: "it's just a cloud button"). Cloud gives a new
+/// workspace its own new machine (cmux-tui cloud.startChat, one workspace per machine, #30020), so
+/// the picker never chooses one. A machine picked elsewhere is the only other row, checked, while it
+/// is the pick. Every machine acpmux lists, and New Tab's saved environments, are behind Machines…
+/// on the control's right-click menu (`list` "machines"): the ones a chat can start on first and
+/// the rest greyed with their state, a search field from ENVIRONMENT_SEARCH_MIN. ⌥⌘1–9 pick the
+/// first nine that can take a chat, also while the composer it heads has focus. The setup actions
+/// (New Cloud Machine…, Open Cloud…, SSH…, Add Machine…, Connect Phone…, and on the New Tab page
+/// Create and Edit environment) are the right-click menu too, besides their homes in the app. A
+/// started chat's picker lists only where it runs and its move (`offload`): Move to Cloud from this
+/// Mac, Bring Back Local from a Cloud machine. A new chat with `runMode` (hq#3367) also offers
+/// Sandboxed as Cloud's other face, with no row of its own: shown while ⌥ is held and while it is
+/// the pick.
 export function EnvironmentPicker({
   label,
   menu,
@@ -164,6 +167,8 @@ export function EnvironmentPicker({
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
   const [query, setQuery] = useState("");
+  // Which list is open: This Mac and Cloud, or every machine (Machines… on the right-click menu).
+  const [list, setList] = useState<"main" | "machines">("main");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
@@ -173,6 +178,7 @@ export function EnvironmentPicker({
   };
   const reset = () => {
     setQuery("");
+    setList("main");
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -183,6 +189,7 @@ export function EnvironmentPicker({
     if (!closeOnTrustAsk || !open) return;
     setPopoverOpen(false);
     setQuery("");
+    setList("main");
   }, [closeOnTrustAsk, open, setPopoverOpen]);
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
@@ -217,13 +224,16 @@ export function EnvironmentPicker({
   }, [open, offersSandbox]);
   const ordered = useMemo(() => orderEnvironments(environments), [environments]);
   const sections = useMemo(() => environmentSections(environments), [environments]);
-  const sectionOf = (environment: Environment) => sections.get(environment.id) ?? "fleet";
+  const isLocalId = (id: string) => sections.get(id) === "local";
+  const isLocal = (environment: Environment) => isLocalId(environment.id);
   const numbers = useMemo(
     () => new Map(numberedEnvironments(environments).map((environment, index) => [environment.id, index + 1])),
     [environments],
   );
-  // Search only where the list is long (Leo, 2026-10-31): a few machines are read at a glance.
-  const searchable = environments.length + (saved?.environments.length ?? 0) >= ENVIRONMENT_SEARCH_MIN;
+  // Only the machine list searches, and only where it is long (Leo, 2026-10-31): a few machines are
+  // read at a glance, and the main list is two rows.
+  const machineList = list === "machines";
+  const searchable = machineList && environments.length + (saved?.environments.length ?? 0) >= ENVIRONMENT_SEARCH_MIN;
   const words = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
   const shown = useMemo(
     () =>
@@ -249,12 +259,13 @@ export function EnvironmentPicker({
     [shown],
   );
   // The list is two rows, as Codex's "Where should this chat run?" (Leo, 2026-10-31: "JUST A LITTLE
-  // CLOUD ICON OR FUCKING THE SELECTION"): This Mac and Cloud, then a hairline and the person's
-  // other machines when there are any. No section headers and no second lines. The setup actions
-  // (New Cloud Machine…, Open Cloud…, SSH…, Add Machine…, Connect Phone…, Create and Edit
-  // environment) moved off the list to the control's right-click menu (`moreActions`), as they stay
-  // in the command palette, the File menu, Settings > Devices and the Cloud page. A started chat's
-  // list is where it runs and its one move.
+  // CLOUD ICON OR FUCKING THE SELECTION", then "we ideally also can just hide the machines too and
+  // it's just a cloud button"): This Mac and Cloud. No machine list, no section headers and no
+  // second lines. The other machines are Machines… on the control's right-click menu
+  // (`moreActions`), with the setup actions (New Cloud Machine…, Open Cloud…, SSH…, Add Machine…,
+  // Connect Phone…, Create and Edit environment), which also stay in the command palette, the File
+  // menu, Settings > Devices and the Cloud page. A started chat's list is where it runs and its one
+  // move.
   const editing = saved?.current;
   type Action = { value: string; text: string; kind: "local" | "cloud"; run(): void };
   const move: Action | undefined =
@@ -286,8 +297,20 @@ export function EnvironmentPicker({
         }
       : undefined;
   const actions: Action[] = [...(move ? [move] : []), ...(cloud ? [cloud] : []), ...(signIn ? [signIn] : [])];
-  const moreActions = useMemo(() => {
+  // The right-click menu; rebuilt each render, as its items are a handful and read the open state.
+  const moreActions = (() => {
     const items: { id: string; label: string; onSelect(): void }[] = [];
+    // Every machine and saved environment, as a list of its own (the main list has none).
+    if (environments.some((environment) => !isLocalId(environment.id)) || (saved?.environments.length ?? 0) > 0)
+      items.push({
+        id: "machines",
+        label: t("composer.machinesList"),
+        onSelect: () => {
+          setQuery("");
+          setList("machines");
+          setOpen(true);
+        },
+      });
     if (onConnect) {
       if (cloudSignedIn !== true)
         items.push({ id: "cloudSignIn", label: t("composer.cloudSignIn"), onSelect: () => onConnect("cloudSignIn") });
@@ -307,35 +330,30 @@ export function EnvironmentPicker({
         items.push({ id: "edit", label: t("environment.edit"), onSelect: () => saved.onEdit(editing) });
     }
     return items;
-  }, [onConnect, cloudSignedIn, saved, editing]);
-  const isLocal = (environment: Environment) => sectionOf(environment) === "local";
-  const sandboxSearched = offersSandbox && words.length > 0 && matches(words, `${t("composer.sandboxed")} sandbox`);
-  const cloudShown =
-    cloudRow !== undefined &&
-    (words.length === 0 ||
-      matches(
-        words,
-        runMode !== undefined
-          ? `${t("composer.cloud")} ${t("composer.cloudRunDetail")} cloud`
-          : `${t("composer.cloud")} cloud`,
-      ) ||
-      sandboxSearched);
-  // This Mac and Cloud (or a started chat's move) first; the other machines after a hairline.
-  const top = [
-    ...shown.filter(isLocal).map((environment) => environment.id),
+  })();
+  // The main list: This Mac, the picked machine or saved environment when it is neither This Mac nor
+  // a new Cloud machine (one checked row, so the pick is never hidden), a started chat's move,
+  // Cloud, and Sign in for Cloud while signed out.
+  const pickedOther =
+    checkedRow !== undefined && !isLocalId(checkedRow) && (positions.has(checkedRow) || checkedRow.startsWith(SAVED))
+      ? checkedRow
+      : undefined;
+  const main = [
+    ...ordered.filter(isLocal).map((environment) => environment.id),
+    ...(pickedOther ? [pickedOther] : []),
     ...(move ? [move.value] : []),
-    ...(cloudShown && cloudRow ? [cloudRow] : []),
-    ...(signIn && (words.length === 0 || matches(words, `${signIn.text} cloud`)) ? [signIn.value] : []),
+    ...(cloudRow ? [cloudRow] : []),
+    ...(signIn ? [signIn.value] : []),
   ];
-  const others = [
+  // Machines…: every machine, This Mac first, and New Tab's saved environments, as the search keeps them.
+  const machines = [
+    ...shown.filter(isLocal).map((environment) => environment.id),
     ...savedShown.map((environment) => SAVED + environment.id),
     ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
   ];
-  const suggestions = [...top, ...others];
-  const firstOther = others[0];
-  // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is), or while
-  // the search names Sandboxed.
-  const sandboxFace = offersSandbox && (sandboxSearched || sandboxed !== alternate);
+  const suggestions = machineList ? machines : main;
+  // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
+  const sandboxFace = offersSandbox && sandboxed !== alternate;
 
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
@@ -409,7 +427,6 @@ export function EnvironmentPicker({
     else if (machine) onPick(value);
   };
   const row = (value: string) => {
-    const divider = value === firstOther && top.length > 0 ? "" : undefined;
     if (value === CLOUD_RUN && sandboxFace) {
       return (
         <span
@@ -467,7 +484,6 @@ export function EnvironmentPicker({
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-saved"
           data-kind={environment.kind}
-          data-divider={divider}
           data-current={value === checkedRow ? "" : undefined}
         >
           <EnvironmentIcon kind={environment.kind} />
@@ -491,7 +507,6 @@ export function EnvironmentPicker({
       <span
         className="acpmux-location-row acpmux-env-row"
         data-kind={environment.kind}
-        data-divider={divider}
         data-current={environment.id === checkedRow ? "" : undefined}
         data-ready={greyed ? "false" : undefined}
         aria-disabled={greyed ? true : undefined}
@@ -568,7 +583,8 @@ export function EnvironmentPicker({
         label={label}
         className={
           "acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover" +
-          (searchable ? "" : " acpmux-env-searchless")
+          (searchable ? "" : " acpmux-env-searchless") +
+          (machineList ? " acpmux-env-machines" : "")
         }
         side={side}
         flip={flip}
@@ -603,7 +619,7 @@ export function EnvironmentPicker({
           autoHighlight
           inline
         />
-        {query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && !sandboxFace && (
+        {machineList && query.trim() !== "" && shown.length === 0 && savedShown.length === 0 && (
           <div className="acpmux-location-empty">{t("composer.environmentNone")}</div>
         )}
       </Popover>
