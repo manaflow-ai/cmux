@@ -221,7 +221,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-agent-line",
     ".acpmux-lineage__icon",
     ".acpmux-summary-agent__name",
-    ".acpmux-agent-line__stop-slot button",
+    ".acpmux-agent-line__stop-slot",
   ),
   ...["several-running", "grid-31"].map((variant) =>
     stack(
