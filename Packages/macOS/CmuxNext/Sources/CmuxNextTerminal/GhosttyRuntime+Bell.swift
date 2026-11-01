@@ -64,8 +64,10 @@ public nonisolated struct GhosttyBellSettings: Equatable, Sendable {
         self.init(config: config)
     }
 
-    /// What one BEL does.
-    public func effects(appIsActive: Bool) -> [Effect] {
+    /// What one BEL does. `appIsActive` remains in the API for callers that
+    /// already provide application state, but it is intentionally ignored:
+    /// process-level attention is never a terminal effect.
+    public func effects(appIsActive _: Bool) -> [Effect] {
         var effects: [Effect] = []
         if features.contains(.system) { effects.append(.systemBeep) }
         if features.contains(.audio), let audioPath { effects.append(.playSound(path: audioPath, volume: volume)) }
