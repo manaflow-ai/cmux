@@ -1,7 +1,14 @@
 import { translate, type Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
-export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "apps", "sessions", "tabs", "files"] as const;
+/**
+ * The + menu's groups, top to bottom (Leo, 2026-10-31: "our + button is ass" / "inside chat and in
+ * the composer it's ass"; the reference is ChatGPT's + menu): attach first, then the composer's own
+ * actions (Plan, Goal, the project, @ and the one Skills… row), then the searches, then the host's
+ * catalog groups. Skills are never rows here: they live under / (the slash list), which Skills…
+ * opens.
+ */
+export const COMPOSER_PLUS_SECTIONS = ["attach", "add", "files", "tools", "apps", "sessions", "tabs"] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
@@ -19,7 +26,7 @@ export type ComposerPlusEntry = {
 };
 
 export type ComposerPlusExtension = Omit<ComposerPlusEntry, "section"> & {
-  section: Exclude<ComposerPlusSection, "add">;
+  section: Exclude<ComposerPlusSection, "attach" | "add">;
 };
 
 export type ComposerPlusRegistryOptions = {
@@ -45,7 +52,7 @@ const COMMANDS = {
 const staticRows: readonly ComposerPlusEntry[] = [
   {
     id: "add.files",
-    section: "add",
+    section: "attach",
     // Named from the pane's table when the registry is built (`composer.attach`).
     name: "",
     description: "",
@@ -74,7 +81,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push(
       {
         id: "add.screenshot",
-        section: "add",
+        section: "attach",
         name: label("composer.attachScreenshot"),
         description: "",
         icon: "site.permission.camera",
@@ -83,7 +90,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       },
       {
         id: "add.window",
-        section: "add",
+        section: "attach",
         name: label("composer.attachWindow"),
         description: "",
         icon: "site.permission.windowmanagement",
@@ -91,18 +98,6 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
         action: { kind: "command", id: COMMANDS.attachWindow },
       },
     );
-  }
-
-  if (options.canChooseProject) {
-    rows.push({
-      id: "add.project",
-      section: "add",
-      name: label("project.choose"),
-      description: "",
-      icon: "folder",
-      keywords: ["project", "folder", "cwd", "workspace"],
-      action: { kind: "command", id: COMMANDS.chooseProject },
-    });
   }
 
   if (options.planMode) {
@@ -130,18 +125,15 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     });
   }
 
-  for (const command of options.commands ?? []) {
-    if (command.source !== "skill" && command.source !== "prompt") continue;
-    const name = command.name.trim();
-    if (!name) continue;
+  if (options.canChooseProject) {
     rows.push({
-      id: `add.skill.${name.toLowerCase()}`,
+      id: "add.project",
       section: "add",
-      name: `/${name}`,
-      description: command.description || description("composer.slashSkill"),
-      icon: "terminal",
-      keywords: [name, command.description],
-      action: { kind: "slash", command },
+      name: label("project.choose"),
+      description: "",
+      icon: "folder",
+      keywords: ["project", "folder", "cwd", "workspace"],
+      action: { kind: "command", id: COMMANDS.chooseProject },
     });
   }
 
@@ -155,13 +147,15 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       keywords: ["@", "mention", "file", "chat"],
       action: { kind: "command", id: COMMANDS.mention },
     },
+    // Skills… (and every other slash command) is one row that opens the searchable slash list; a
+    // skill is never a row of its own here, however many the agent advertises.
     {
       id: "add.commands",
       section: "add",
-      name: label("composer.commands"),
-      description: "",
+      name: label("composer.plusSkills"),
+      description: description("composer.plusSkillsHint"),
       icon: "terminal",
-      keywords: ["/", "slash", "commands"],
+      keywords: ["/", "slash", "commands", "skills"],
       action: { kind: "command", id: COMMANDS.commands },
     },
   );
@@ -186,6 +180,36 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * The app's search pages the + menu opens (the ChatGPT desktop app's + searches): the command
+ * palette's chats page and its History search page. Both ids are app actions an agent tab may run
+ * (AgentPaneModel.paletteActions); a host that cannot run them leaves these rows out.
+ */
+export const PLUS_SEARCH_ACTIONS = { chats: "agentPane.searchChats", pages: "history.search" } as const;
+
+export function composerPlusSearchExtensions(t: Translate = translate): ComposerPlusExtension[] {
+  return [
+    {
+      id: PLUS_SEARCH_ACTIONS.chats,
+      section: "files",
+      name: t("sidebar.search"),
+      description: t("composer.plusChatsHint"),
+      icon: "agent.chat.list",
+      keywords: ["chats", "conversations", "search"],
+      action: { kind: "command", id: PLUS_SEARCH_ACTIONS.chats },
+    },
+    {
+      id: PLUS_SEARCH_ACTIONS.pages,
+      section: "files",
+      name: t("composer.plusSearchPages"),
+      description: t("composer.plusPagesHint"),
+      icon: "history",
+      keywords: ["pages", "history", "browser", "web", "search"],
+      action: { kind: "command", id: PLUS_SEARCH_ACTIONS.pages },
+    },
+  ];
 }
 
 export function composerPlusSections(

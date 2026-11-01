@@ -62,14 +62,14 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         let client = try daemonClient(workspace.macID)
         if let arrangement = sync.arrangement, arrangement.rows != nil, let registry = sync.tree?.registryID {
             guard let index = arrangement.personalIndex(moving: workspace, by: offset, among: visible, registryID: registry) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace's place yet. Try again in a moment.", isForPerson: true)
+                throw WorkspaceCreationError("The Mac doesn't list this workspace's place. Try again in a moment.", isForPerson: true)
             }
             try await run(client, "set-personal-workspace", ["session_id": registry, "workspace_key": workspace.id, "index": index])
         } else {
             // The Mac's daemon order: the neighbour's index there.
             guard let position = visible.firstIndex(where: { $0.id == workspace.id }), visible.indices.contains(position + offset),
                   let target = sync.tree?.workspaces.firstIndex(where: { $0.id == visible[position + offset].id }) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace yet")
+                throw WorkspaceCreationError("The Mac doesn't list this workspace")
             }
             var params: [String: Any] = ["index": target]
             Self.address(workspace, into: &params)
@@ -86,14 +86,14 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         let client = try daemonClient(workspace.macID)
         if let arrangement = sync.arrangement, arrangement.rows != nil, let registry = sync.tree?.registryID {
             guard let index = arrangement.personalIndex(placing: workspace, next: anchor, after: after, registryID: registry) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace's place yet. Try again in a moment.", isForPerson: true)
+                throw WorkspaceCreationError("The Mac doesn't list this workspace's place. Try again in a moment.", isForPerson: true)
             }
             // The next step of a sort reads the order this move made (the list below reads it again).
             try await run(client, "set-personal-workspace", ["session_id": registry, "workspace_key": workspace.id, "index": index])
         } else {
             guard let tree = sync.tree, let from = tree.workspaces.firstIndex(where: { $0.id == workspace.id }),
                   let to = tree.workspaces.firstIndex(where: { $0.id == anchor.id }) else {
-                throw WorkspaceCreationError("The Mac doesn't list this workspace yet")
+                throw WorkspaceCreationError("The Mac doesn't list this workspace")
             }
             // The daemon's index counts the list with the workspace still in it.
             let index = Self.daemonIndex(from: from, anchor: to, after: after)

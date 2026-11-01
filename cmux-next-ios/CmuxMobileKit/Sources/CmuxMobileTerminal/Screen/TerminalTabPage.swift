@@ -73,29 +73,33 @@ public struct TerminalTabPage: View {
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
-                if model.connectionState.keepsWarmFrame {
-                    // Reattaching: a warm surface keeps its last frame live
-                    // under no overlay; a cold tab shows its frame dimmed. The
-                    // title pill says "Reattaching…" after 400 ms (SPEC P5).
-                    if let frame = model.coldFrame {
-                        TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: frame, showsLabel: false)
+                Group {
+                    if model.connectionState.keepsWarmFrame {
+                        // Reattaching: a warm surface keeps its last frame live
+                        // under no overlay; a cold tab shows its frame dimmed. The
+                        // title pill says "Reattaching…" after 400 ms (SPEC P5).
+                        TerminalConnectingView(state: model.connectionState, topInset: insets.top,
+                                               lastFrame: model.coldFrame,
+                                               showsLabel: !model.connectionState.showsProgress,
+                                               showsPlaceholder: false, retry: model.reconnect)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
-                            .transition(.opacity)
+                    } else if !model.connectionState.isAttached || model.coldFrame != nil {
+                        // One view from "Connecting…" to live (R2-5): a tab back
+                        // from the warm set or a cold restore shows its last frame
+                        // at once; once attached the label goes, the frame stays
+                        // until the live rows are drawn, then goes in one frame: a cut,
+                        // never a fade over live rows at other positions (R3-4).
+                        // (Two views crossfading here flashed the title pill grey.)
+                        TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
+                                               showsLabel: !model.connectionState.isAttached, retry: model.reconnect)
+                            .ignoresSafeArea()
+                            .padding(.bottom, insets.bottom)
+                            .transition(.identity)
                     }
-                } else if !model.connectionState.isAttached || model.coldFrame != nil {
-                    // One view from "Connecting…" to live (R2-5): a tab back
-                    // from the warm set or a cold restore shows its last frame
-                    // at once; once attached the label goes, the frame stays
-                    // until the live rows are drawn, then goes in one frame: a cut,
-                    // never a fade over live rows at other positions (R3-4).
-                    // (Two views crossfading here flashed the title pill grey.)
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
-                                           showsLabel: !model.connectionState.isAttached)
-                        .ignoresSafeArea()
-                        .padding(.bottom, insets.bottom)
-                        .transition(.identity)
                 }
+                .allowsHitTesting(isInteractive)
+                .accessibilityHidden(!isInteractive)
             }
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the

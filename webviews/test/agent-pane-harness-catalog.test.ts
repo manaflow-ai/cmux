@@ -9,6 +9,8 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -293,7 +295,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate(async (target, pendingImage) => {
       if (pendingImage) {
@@ -325,7 +327,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
       .click();
     await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
-    const field = page.locator(".nt-field");
+    const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate((target) => {
       const data = new DataTransfer();
@@ -339,14 +341,16 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   test.each(["", "Implement a todo list"])("first-run Return opens setup and returns to draft %j", async (draft) => {
     const page = await firstRunPage();
     try {
-      const field = page.locator(".nt-field");
+      const field = page.locator(".nt-field .acpmux-md");
       if (draft) await field.fill(draft);
       await field.press("Enter");
       await page.locator(".acpmux-harnesses-close").waitFor();
       expect(await field.isVisible()).toBe(false);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(draft);
+      expect(
+        await field.evaluate((node) => node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value()),
+      ).toBe(draft);
     } finally {
       await page.close();
     }
@@ -356,6 +360,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     const page = await firstRunPage();
     try {
       const { field, image } = await prepareDraft(page, true);
+      const originalDraft = await field.evaluate((node) =>
+        node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value(),
+      );
       const source = await image.getAttribute("src");
       expect(source).toBeTruthy();
       await page.locator('[data-create="chat"]').click();
@@ -365,7 +372,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       expect(await page.evaluate(() => (window as unknown as FirstRunWindow).cmuxWebSwap.hold())).toMatch(/^newtab\./);
       await page.locator(".acpmux-harnesses-close").click();
       await field.waitFor();
-      expect(await field.inputValue()).toBe(DRAFT);
+      expect(
+        await field.evaluate((node) => node.closest<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!.value()),
+      ).toBe(originalDraft);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
       expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
@@ -407,10 +416,14 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       const calls = await page.evaluate(() => (window as unknown as FirstRunWindow).firstRunChatCalls);
       expect(calls.map((call) => call.method)).toEqual(["chat.new", "chat.send"]);
       expect(calls[0]!.params).toEqual({ harness: "claude", noProject: true });
+      // The send names the session its chat.new started (#28543): a later selected chat cannot take it.
       expect(calls[1]!.params).toEqual({
-        text: DRAFT,
+        text: DRAFT + inlineToken((calls[1]!.params.attachments as ComposerAttachment[])[0]!.id),
+        expectedSessionId: "first-chat",
         attachments: [
           expect.objectContaining({
+            id: expect.any(String),
+            inline: true,
             kind: "link",
             name: "first-chat.mov",
             mimeType: "video/quicktime",
@@ -465,10 +478,15 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
         expect(calls[0]!.params).toEqual(
           noProject ? { harness: "claude", noProject: true } : { harness: "claude", cwd: PROJECT },
         );
+        // A no-project start sends after its chat.new and names that session (#28543); a start in a
+        // project queues its send with the harness switch, which owns the prompt (screenActions.ts).
         expect(calls[1]!.params).toEqual({
-          text: DRAFT,
+          text: DRAFT + inlineToken((calls[1]!.params.attachments as ComposerAttachment[])[0]!.id),
+          ...(noProject ? { expectedSessionId: "first-chat" } : {}),
           attachments: [
             expect.objectContaining({
+              id: expect.any(String),
+              inline: true,
               kind: "image",
               name: "first-chat.png",
               mimeType: "image/png",

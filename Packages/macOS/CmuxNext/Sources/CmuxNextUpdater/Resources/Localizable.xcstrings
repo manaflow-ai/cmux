@@ -57,6 +57,78 @@
             "state": "translated",
             "value": "有可用更新（%@）：点按以下载"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostupno ažuriranje (%@): kliknite za preuzimanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering tilgængelig (%@): klik for at downloade"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento disponibile (%@): fai clic per scaricarlo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានបច្ចុប្បន្នភាព (%@)៖ ចុចដើម្បីទាញយក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatering tilgjengelig (%@): klikk for å laste ned"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostępna aktualizacja (%@): kliknij, aby pobrać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização disponível (%@): clique para baixar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступно обновление (%@): нажмите, чтобы загрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีอัปเดต (%@): คลิกเพื่อดาวน์โหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme var (%@): indirmek için tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступне оновлення (%@): натисніть, щоб завантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có bản cập nhật (%@): nhấp để tải xuống"
+          }
         }
       }
     },
@@ -115,6 +187,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "有可用更新：点按以下载"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostupno ažuriranje: kliknite za preuzimanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering tilgængelig: klik for at downloade"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento disponibile: fai clic per scaricarlo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានបច្ចុប្បន្នភាព៖ ចុចដើម្បីទាញយក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatering tilgjengelig: klikk for å laste ned"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostępna aktualizacja: kliknij, aby pobrać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização disponível: clique para baixar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступно обновление: нажмите, чтобы загрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีอัปเดต: คลิกเพื่อดาวน์โหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme var: indirmek için tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступне оновлення: натисніть, щоб завантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có bản cập nhật: nhấp để tải xuống"
           }
         }
       }

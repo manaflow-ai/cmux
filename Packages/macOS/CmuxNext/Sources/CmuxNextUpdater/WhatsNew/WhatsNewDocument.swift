@@ -42,18 +42,21 @@ nonisolated public struct WhatsNewDocument: Codable, Equatable, Sendable, Identi
         public var summary: WhatsNewText
         public var media: Media?
         public var tryIt: TryIt?
+        /// Optional pull request link carried through signed notes to the shared web PR card.
+        public var pr: URL?
         public var docs: URL?
         public var platforms: [String]
         public var audience: Audience
 
         public init(id: String, category: Category, title: WhatsNewText, summary: WhatsNewText, media: Media? = nil,
-                    tryIt: TryIt? = nil, docs: URL? = nil, platforms: [String] = ["macos"], audience: Audience = .all) {
+                    tryIt: TryIt? = nil, pr: URL? = nil, docs: URL? = nil, platforms: [String] = ["macos"], audience: Audience = .all) {
             self.id = id
             self.category = category
             self.title = title
             self.summary = summary
             self.media = media
             self.tryIt = tryIt
+            self.pr = pr
             self.docs = docs
             self.platforms = platforms
             self.audience = audience

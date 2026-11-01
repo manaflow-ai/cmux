@@ -19,10 +19,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var inboxBytes = 0
         /// The inbox's first frames up to the last one the page waits on (``pageWaits``); 0 for none.
         var awaitedThrough = 0
+        /// The inbox's first frames up to the last reply to the page's own request (``answersPage``); 0 for none.
+        var answeredThrough = 0
         /// Daemon frames received and not checked yet, and whether a pass over them is running.
         var raw: [String] = []
         var rawBytes = 0
         var processing = false
+        var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
         var outstandingBytes = 0
@@ -71,14 +74,16 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let ids: AcpmuxRequestIds
     /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
     private let agentReplies: AgentPaneAgentReply.Send?
+    private let onQuestionStateChanged: (@MainActor () -> Void)?
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
+    let statusRead = AcpmuxStatusReadSlot()
     /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
     private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
+         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, onQuestionStateChanged: (@MainActor () -> Void)? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
@@ -89,6 +94,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.connection = connection
         self.ids = ids
         self.agentReplies = agentReplies
+        self.onQuestionStateChanged = onQuestionStateChanged
         self.signal = signal
     }
 
@@ -152,6 +158,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// A daemon frame: it waits for the next pass (``process()``), which checks every waiting
     /// frame in one hop. The bound covers the frames waiting and the frames queued for the page.
+    /// A host read uses the daemon reply path, including its bounds, ids and reply filtering.
+    func receiveLocalReply(_ text: String) { arrived(text) }
+
     private func arrived(_ received: String) {
         let bytes = received.utf8.count
         let (start, overflow) = state.withLock { state -> (Bool, Bool) in
@@ -177,12 +186,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         while !batch.isEmpty {
             var page: [String] = []
             var awaited = 0
+            var answers = 0
+            var questionsChanged = false
             for text in batch {
                 switch ids.toPage(text) {
                 case .drop:
                     continue
                 case .close:
-                    enqueue(page, awaited: awaited)
+                    enqueue(page, awaited: awaited, answers: answers)
                     state.withLock { $0.processing = false }
                     return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
                 case .page(let fresh, let object, let method):
@@ -192,9 +203,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observe(object)
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
+                    let questionVersion = decisions.pendingQuestionVersion()
                     decisions.observe(object, replyTo: method)
+                    questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
                     replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
+                    if Self.answersPage(object) { answers += 1 }
                     page.append(fresh)
                 case .complete(let object, let pageID, let subject):
                     switch AgentPaneAgentReply.step(object, pageID: pageID, subject: subject, sessions: sessions,
@@ -204,8 +218,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     }
                 }
             }
-            enqueue(page, awaited: awaited)
+            enqueue(page, awaited: awaited, answers: answers)
+            if questionsChanged { notifyQuestionsChanged() }
             batch = takeRaw()
+        }
+    }
+
+    private func notifyQuestionsChanged() {
+        let queue = state.withLock { state in
+            guard !state.questionNotificationQueued else { return false }
+            state.questionNotificationQueued = true
+            return true
+        }
+        guard queue else { return }
+        // task-owner: one coalesced native projection update, only after question state changes.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.state.withLock { $0.questionNotificationQueued = false }
+            self.onQuestionStateChanged?()
         }
     }
 
@@ -270,8 +300,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Whether a pane nobody can see gets the waiting frames now (``pageWaits(on:)``).
     var pageWaits: Bool { state.withLock { $0.awaitedThrough > 0 || $0.closed != nil || $0.backlogged(limits) } }
 
-    /// Frames for the page, in order, with one wake for the pacer; `awaited` of them the page waits on.
-    private func enqueue(_ frames: [String], awaited: Int = 0) {
+    /// Whether the waiting frames answer a request the page sent (``answersPage(_:)``): a pane nobody
+    /// can see gets them without its hidden interval (``AgentPaneFramePacer``).
+    var answersWaiting: Bool { state.withLock { $0.answeredThrough > 0 } }
+
+    /// Frames for the page, in order, with one wake for the pacer; `awaited` of them the page waits
+    /// on, `answers` of those replies to its own requests.
+    private func enqueue(_ frames: [String], awaited: Int = 0, answers: Int = 0) {
         guard !frames.isEmpty else { return }
         let bytes = frames.reduce(0) { $0 + $1.utf8.count }
         let (wake, queued, onQueued) = state.withLock { state -> (Bool, Int, (@Sendable (Int) -> Void)?) in
@@ -279,6 +314,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             state.inbox.append(contentsOf: frames)
             state.inboxBytes += bytes
             if awaited > 0 { state.awaitedThrough = state.inbox.count }
+            if answers > 0 { state.answeredThrough = state.inbox.count }
             // A pacer holding a hidden pane's frames is woken again for frames its page waits on.
             let wake = !state.signaled || awaited > 0 || state.backlogged(limits)
             state.signaled = true
@@ -295,7 +331,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
     /// The relay's own answer to a refused request, straight to the page queue. It can reach the page
     /// before earlier daemon frames that still wait in `raw` for the inbound pass.
-    func inject(_ text: String) { enqueue([text], awaited: 1) }
+    func inject(_ text: String) { enqueue([text], awaited: 1, answers: 1) }
 
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
@@ -312,6 +348,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             let frames = Array(state.inbox.prefix(count))
             state.inbox.removeFirst(count)
             state.awaitedThrough = max(0, state.awaitedThrough - count)
+            state.answeredThrough = max(0, state.answeredThrough - count)
             state.inboxBytes -= bytes
             var closed: AgentPaneTransportClose?
             if state.inbox.isEmpty, let close = state.closed, !state.closeDelivered {
@@ -386,6 +423,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             if error != nil {
                 state.inbox.removeAll()
                 state.awaitedThrough = 0
+                state.answeredThrough = 0
                 state.inboxBytes = 0
             }
             // Always woken: the close goes even to a hidden pane (``pageWaits``).

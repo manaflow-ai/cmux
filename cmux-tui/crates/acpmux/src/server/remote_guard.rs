@@ -46,6 +46,8 @@
 //!   (`tools.remote`). Turning an MCP server on, or reconnecting it, makes
 //!   the harness start the stdio command the user's config names on this
 //!   machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `session/cancel` of a chat started on this machine, but from the
+//!   owner's own peer daemon (`cancel_owner.rs`).
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
@@ -70,7 +72,8 @@
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
-//!   forwarding for either.
+//!   forwarding for either. Nor `_acpmux/native_history`, which reads a
+//!   chat's older turns from its Claude Code transcript (`hub/native_history.rs`).
 //!
 //! The unix socket keeps today's behavior.
 
@@ -80,10 +83,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod cancel_owner;
 pub(super) mod hint;
 mod peer_folder;
+pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
-use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
@@ -184,6 +189,7 @@ async fn check_inner(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
@@ -224,7 +230,7 @@ async fn check_inner(
             .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
     }
     if m == method::SESSION_CANCEL && web {
-        check_cancel_ownership(hub, params)?;
+        cancel_owner::check(hub, origin, auth, params)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
@@ -316,7 +322,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer) {
+        match web_only(m, params, peer, policy_proved) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -460,6 +466,15 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
     }
+    // And a chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
+    if m == method::MUX_NATIVE_HISTORY
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "transcriptRead.remote: a chat's transcript is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "transcriptRead.remote"})));
+    }
     // And a subagent's transcript (`hub/subagent_transcript.rs`).
     if m == method::MUX_SUBAGENT_TRANSCRIPT
         && control_of(origin, auth, params) == crate::hub::Control::Web
@@ -528,30 +543,6 @@ pub(super) async fn local_trust_folder(
         return Err(outside_roots("cwd"));
     }
     Ok(())
-}
-
-/// A remote connection may stop only a session that was created by a remote
-/// origin. Local-origin sessions belong to the person at this daemon, even
-/// when a Web/Peer caller can resolve their id.
-fn check_cancel_ownership(
-    hub: &std::sync::Arc<crate::hub::Hub>,
-    params: &Value,
-) -> Result<(), RpcError> {
-    let key = super::session_key(params)?;
-    match hub.resolve(key) {
-        Ok(session) if session.meta().remote_origin => Ok(()),
-        Ok(_) => Err(
-            RpcError::invalid_params(
-                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
-            )
-            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
-        ),
-        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
-        Err(e) => Err(RpcError::invalid_params(format!(
-            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
-            e.message
-        ))),
-    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).
@@ -674,8 +665,9 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
-/// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
+/// skips asking. `policy_proved`: a policy raise the person proved for this
+/// one chat (`hub/person/policy_grant.rs`), whoever relays it.
+fn web_only(m: &str, params: &Value, peer: bool, policy_proved: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -727,6 +719,7 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
         {
             Err(policy_refused())
         }
+        method::MUX_SET_POLICY if policy_proved => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {

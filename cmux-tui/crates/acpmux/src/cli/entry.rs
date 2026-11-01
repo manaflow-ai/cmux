@@ -108,8 +108,10 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
 /// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
 /// The daemon's request futures (`server/requests.rs` `dispatch_request` above all) are large in a
 /// debug build, and a worker that polled one deep in adoption overflowed its stack and aborted the
-/// daemon (`tests/durable_agents.rs`, about one run in three on Linux CI).
-const WORKER_STACK_BYTES: usize = 8 << 20;
+/// daemon (`tests/durable_agents.rs`, about one run in three on Linux CI). The test processes give
+/// their threads the same stack (`tests/support/daemon_env.rs`), so a hub they run in process polls
+/// these futures on the stack the daemon gives them.
+pub const WORKER_STACK_BYTES: usize = 8 << 20;
 
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -149,7 +151,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = Cli::command().name(name).bin_name(name);
+    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,

@@ -21,13 +21,36 @@ nonisolated extension CloudHomeSource {
         return stream
     }
 
+    /// Every page of the cloud inbox (the owner pages `inbox.list` by 200, `nextCursor`), at most
+    /// `inboxPages` of them, one bounded `cloud-inbox-list` read each. An entry a later page lists
+    /// again (its activity moved it during the read) keeps the first page's copy; the list carries the
+    /// first page's revision, so an inbox event after any page is newer than it (`touched`). An older
+    /// daemon sends no cursor: its one page is the list, as before. Any page's failure fails the read
+    /// (the caller replaces the whole list, so a partial list would drop the rest).
+    func allPages(_ commands: any CloudConversationCommands, identity: CloudIdentity) async throws -> CloudInboxList {
+        var list = try await reply(for: identity) { try await commands.inboxList(cursor: nil) }
+        var seen = Set(list.entries.map(\.conversation))
+        var cursor = list.nextCursor
+        for _ in 1..<Self.inboxPages {
+            guard let current = cursor else { break }
+            // Any page's failure is the read's: `inbox()` replaces the whole list, so a partial one
+            // would drop every conversation past it. The store keeps the last whole list.
+            let page = try await reply(for: identity) { try await commands.inboxList(cursor: current) }
+            list.entries += page.entries.filter { seen.insert($0.conversation).inserted }
+            // A cursor that does not move would read the same page again.
+            cursor = page.nextCursor == current ? nil : page.nextCursor
+        }
+        list.nextCursor = cursor
+        return list
+    }
+
     /// The cloud inbox; empty while signed out or without the transport.
     /// Without the lease it reads nothing (the daemon may still hold the
     /// previous account's) and answers what this source knows.
     public func inbox() async throws -> InboxSnapshot {
         let (commands, identity, generation, leased) = state.withLock { ($0.commands, $0.identity, $0.generation, $0.leased) }
         guard let commands, let identity, leased else { return state.withLock { $0.snapshot(me: me) } }
-        let list = try await reply(for: identity) { try await commands.inboxList(limit: Self.inboxLimit) }
+        let list = try await allPages(commands, identity: identity)
         let (inbox, missing, unlisted, current) = state.withLock { state -> (InboxSnapshot, [ConversationID], [ConversationID],
                                                                              (any CloudConversationCommands)?) in
             guard state.generation == generation else { return (state.snapshot(me: me), [], [], nil) }

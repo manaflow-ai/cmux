@@ -498,12 +498,12 @@ import Testing
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("may not have been submitted") == true)
         // The agent started working or asking (or restarted) since the phone looked: the daemon refuses.
         daemon.sendError = "agent not waiting: the terminal's agent is working, asking, or another session"
-        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("busy, asking something, or restarted") == true)
+        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi") == "Open the terminal to answer the agent.")
         #expect(daemon.sent.isEmpty)
         // The card shows why, and the reply can be tried again.
         store.replyToTerminal("term-mac-ntf_2", text: "hi") { item, text in await feed.reply(itemID: item.id, text: text) }
         await Self.settle { store.item(id: "term-mac-ntf_2")?.pending == nil }
-        #expect(store.item(id: "term-mac-ntf_2")?.error?.contains("busy") == true)
+        #expect(store.item(id: "term-mac-ntf_2")?.error == "Open the terminal to answer the agent.")
         #expect(store.item(id: "term-mac-ntf_2")?.replies == [])
         // Not connected.
         feed.request = nil

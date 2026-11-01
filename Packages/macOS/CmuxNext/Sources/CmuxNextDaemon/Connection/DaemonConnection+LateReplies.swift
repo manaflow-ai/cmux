@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -34,44 +35,89 @@ extension DaemonConnection {
         }
     }
 
-    /// How long a create waits for a terminal a busy host starts late (``createTerminalWaitingForStart(in:cwd:)``).
-    /// Each pass waits for the daemon's reply up to the start deadline; on a loaded host a start can
-    /// take far longer than one deadline (Leo, 2026-10-21), and the daemon replays the start that
-    /// lands, so the budget only bounds a daemon that never answers.
-    public static let lateTerminalStartBudget: Duration = .seconds(120)
-
     /// `create-terminal` in workspace `key` that waits for the terminal on a loaded host: sent again
     /// under one terminal id and mutation identity while it misses its start deadline
     /// (`DaemonError.terminalStartTimedOut`), so the terminal the daemon starts late is the one
-    /// returned and none is started twice. A refusal is thrown at once; a start still late after
-    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    /// returned and none is started twice (``requestWaitingForStart(_:)``).
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
         try await requestWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
     }
 
-    /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a
-    /// `split`, `new-pane` or `new-pane-right` under its client-minted `terminal_id`,
-    /// `split-client-keys-v1`), again while it misses its start deadline, so the terminal a loaded
-    /// host starts late is the one returned and none is started twice. A split that gave up at the
-    /// 5 s deadline took back the pane the window already showed: on a loaded Mac every split
-    /// snapped back. A refusal is thrown at once; a start still late after
-    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a `split`,
+    /// `new-pane` or `new-pane-right` under its client-minted ids), again while it misses its
+    /// start deadline, so the terminal a loaded host starts late is the one returned and none is started
+    /// twice. Each pass waits out one whole deadline, and a pass sent again is the same keyed creation, so
+    /// a re-send changes nothing on the daemon. It ends on the reply, the daemon's refusal, the
+    /// connection's end (`notConnected`, `connectionClosed`) or the task's cancellation
+    /// (`CancellationError`), never on a client clock: a give-up after a fixed budget took back a pane the
+    /// window showed while the daemon still made it (P0 2026-10-30, principled-audit R5, R-L5).
     func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
-        let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
-        // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
+        do {
+            return try await Self.waitingThroughLateReplies(R.command) { try await self.request(request) }
+        } catch {
+            // R3: a new terminal is never taken back on a client clock (DEBUG; the loop ends only on other errors).
+            Self.checkNoLateStart(error, R.command)
+            throw error
+        }
+    }
+
+    /// DEBUG: `error` ended a wait that must outlast every client deadline (``waitingThroughLateReplies(_:_:)``).
+    static func checkNoLateStart(_ error: any Error, _ what: String) {
+        #if DEBUG
+        // crash-allow: DEBUG-only invariant check (R3); waitingThroughLateReplies never ends on a late start
+        if (error as? DaemonError)?.isLateStart == true { assertionFailure("R3: \(what) gave up on a late start") }
+        #endif
+    }
+
+    /// A workspace's first terminal (Cmd-N's, a terminal-first new workspace's): `request` carries its
+    /// client-chosen terminal id and mutation identity, so it waits through a late start
+    /// (``requestWaitingForStart(_:)``) instead of failing at the start deadline, which closed the
+    /// workspace the person already saw while the daemon still made the terminal (P0 2026-10-30).
+    @discardableResult
+    public func createTerminalWaitingForStart(_ request: CreateTerminalRequest) async throws -> CreateTerminalResult {
+        try await requestWaitingForStart(request)
+    }
+
+    /// `create-workspace` for workspace `key` that waits through late replies under one mutation identity
+    /// (the daemon replays it), with no budget: it ends on the reply, the daemon's refusal, the connection's
+    /// end or cancellation (``waitingThroughLateReplies(_:_:)``). For a workspace with a first terminal.
+    @discardableResult
+    public func createWorkspaceWaitingForReply(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
+        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
+        do {
+            return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+        } catch {
+            Self.checkNoLateStart(error, CreateWorkspaceRequest.command) // R3 (DEBUG)
+            throw error
+        }
+    }
+
+    /// Runs `send` again while it misses its reply or start deadline, and repeats one keyed change the daemon
+    /// replays. It ends on the reply, the daemon's refusal or any other error, the connection's end (`notConnected`,
+    /// `connectionClosed`) or the task's cancellation (`CancellationError`), never on a client clock (principled-audit
+    /// R5, R-L5). A re-send only repairs a lost request, so it is spaced by full-jitter exponential backoff
+    /// (``lateReplyBackoff``, R-L4), never at the fixed deadline: a hung daemon gets no retry storm.
+    static func waitingThroughLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
+        var backoff = lateReplyBackoff()
+        // wakeup-allow: each pass waits for one reply or its deadline, then a jittered backoff; it ends on a reply, a refusal, the connection's end or cancellation
         while true {
             do {
-                return try await self.request(request)
-            } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
-                Self.lateReplyLogger.info("\(R.command, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
+                return try await send()
+            } catch let error as DaemonError where error.isLateStart {
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); asking again with its client ids")
+                // concurrency-allow: Backoff.wait is an async sleep after a late reply, not a blocking wait.
+                try await backoff.wait(owner: "DaemonConnection.lateReply")
             }
         }
     }
 
-    /// A `split`, `new-pane` or `new-pane-right` with its client-minted ids: waited for through a
-    /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`),
-    /// sent once on an older daemon, which would make a second pane.
+    /// The spacing of late-reply re-sends: full jitter from 1 s, doubling, capped at 30 s.
+    static func lateReplyBackoff() -> Backoff { .fullJitter(initial: .seconds(1), maximum: .seconds(30)) }
+
+    /// A pane creation (`split`, `new-pane`, `new-pane-right`) with its client-minted ids: waited for through a
+    /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`), sent once on
+    /// an older daemon, which would make a second pane. (`new-row` is not replayed: ``RowCommands`` sends it once.)
     func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
         guard identity?.supports(DaemonCapability.splitClientKeys.rawValue) == true else { return try await self.request(request) }
         return try await requestWaitingForStart(request)

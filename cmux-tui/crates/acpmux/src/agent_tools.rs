@@ -720,6 +720,7 @@ impl AgentTools {
                 server.env = vec![
                     (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
             }
             // The sub-session server acts as the session: its caller token
@@ -734,6 +735,7 @@ impl AgentTools {
                 server.env = vec![
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
@@ -894,6 +896,8 @@ impl AgentTools {
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
@@ -913,6 +917,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 /// Windows: the folder and the file owner-only (`owner_only.rs`).
 #[cfg(windows)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;
@@ -967,6 +972,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    crate::config::refuse_lost_home(state_dir)?;
     std::fs::create_dir_all(state_dir)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({
@@ -1031,3 +1037,10 @@ fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
+/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
+/// another home for it.
+fn home_env() -> String {
+    crate::config::home().to_string_lossy().into_owned()
+}

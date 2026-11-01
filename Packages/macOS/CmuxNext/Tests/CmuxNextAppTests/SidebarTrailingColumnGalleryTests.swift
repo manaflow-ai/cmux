@@ -7,7 +7,7 @@ import Testing
 
 /// The trailing column's fixture (Leo 2026-10-28: "if you're hovering over a workspace or whatever, just don't show
 /// the spinner ... why the fuck is it not aligned? Oh, because it's the inner tab thing"): `KindHarness` (every row
-/// kind, groups at depths 0 to 2, inner tab rows that work or are unread) at rest, with a working row hovered and with
+/// kind, groups at depths 0 to 2) at rest, with a working row hovered and with
 /// a loading header hovered, plus `geometry.json`: per row its accessibility identifier, kind, parent and depth, and
 /// every drawn dot, spinner, chevron and hover control as view frames in the list's coordinates (not AX frames).
 /// Artifact `sidebar-trailing-column-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
@@ -80,17 +80,15 @@ import Testing
         switch key {
         case .workspace(let id): ("workspace:\(id.rawValue)", "workspace", nil)
         case .group(let id): ("group:\(id.rawValue)", "groupHeader", nil)
-        case .tab(let ws, let tab): ("tab:\(ws.rawValue)/\(tab.rawValue)", "innerTab", "workspace:\(ws.rawValue)")
         default: nil
         }
     }
 
     static func export(_ h: T.KindHarness, state: String, density: SidebarDensity, image: CGImage, name: String) throws -> State {
         let (parent, groupDepth) = parents(h.model)
-        // A group's nesting depth; a member one deeper than its group; a tab one deeper than its workspace.
+        // A group's nesting depth; a member one deeper than its group.
         func depth(_ key: String) -> Int {
             if key.hasPrefix("group:") { return groupDepth[key] ?? 0 }
-            if key.hasPrefix("tab:") { return depth("workspace:" + key.dropFirst(4).split(separator: "/")[0]) + 1 }
             return parent[key].map { depth($0) + 1 } ?? 0
         }
         var rows: [Row] = []
@@ -102,7 +100,7 @@ import Testing
             }
             var controls: [(String, NSView)] = []
             if let row = view as? WorkspaceRowView {
-                controls = [("close", row.closeButton), ("more", row.moreButton), ("pin", row.pinButton), ("disclosure", row.disclosureButton)]
+                controls = [("close", row.closeButton), ("more", row.moreButton), ("pin", row.pinButton)]
             } else if let header = view as? GroupHeaderRowView {
                 controls = [("more", header.moreButton), ("add", header.addButton)]
             }

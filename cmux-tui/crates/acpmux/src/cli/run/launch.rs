@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use crate::cli::command::NewArgs;
+use crate::cli::errors;
 use crate::client::Client;
 use crate::rpc::method;
 
@@ -78,6 +79,12 @@ impl Launch {
                 Some((json!({"name": name, "base": base}), absolute(repo)?))
             }
         };
+        if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {
+            bail!(
+                "--harness-from copies a session on this machine only: run \
+                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --host {host}"
+            );
+        }
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
         if let Some(group) = &args.group {
             validate_group(group)?;
@@ -145,6 +152,28 @@ impl Launch {
     }
 }
 
+/// `_meta.acpmux` of `new` for the session it takes over from (`hub/lineage/successor.rs`):
+/// `--harness-from`, and `--report-to` (a successor reports to its predecessor).
+pub(super) fn successor_meta(args: &NewArgs, meta: &mut Value) {
+    if let Some(p) = &args.harness_from {
+        meta[crate::hub::lineage::successor::HARNESS_FROM_FIELD] = json!(p);
+    }
+    if let Some(to) = &args.report_to {
+        meta[crate::hub::lineage::successor::REPORT_TO_FIELD] = json!(to);
+    }
+}
+
+/// The warnings in a new session's reply, one line each: started past this host's lane cap
+/// (`hub/admission.rs`), never a refusal, and running unlike the session it takes over from
+/// (`hub/lineage/successor.rs`).
+pub(crate) fn print_new_warnings(created: &Value) {
+    for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
+        if let Some(w) = created.pointer(at).and_then(Value::as_str) {
+            eprintln!("acpmux: warning: {w}");
+        }
+    }
+}
+
 /// `name` as a session name, the same as its worktree's folder and branch
 /// (`cmux/<name>`): lowercase letters and digits, every other run one `-`,
 /// at most 48 characters.
@@ -166,9 +195,11 @@ pub(crate) fn validate_group(group: &str) -> Result<()> {
         .any(|prefix| lower.starts_with(prefix));
     let uuid = uuid::Uuid::parse_str(label).is_ok();
     if label.is_empty() || id_prefix || uuid {
-        bail!(
-            "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group"
-        );
+        let message = "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group";
+        let data = json!({"reason": "usage.group_name", "group": group});
+        return Err(errors::AppError::new(errors::Code::Usage, "group_name", message)
+            .with_data(data)
+            .into());
     }
     Ok(())
 }
@@ -529,9 +560,16 @@ mod tests {
             "workspace_group:42",
             "550e8400-e29b-41d4-a716-446655440000",
         ] {
-            let error = validate_group(group).unwrap_err().to_string();
+            let refused = validate_group(group).unwrap_err();
+            let error = refused.to_string();
             assert!(error.contains("human label"), "{group:?}: {error}");
             assert!(error.contains("omit --group"), "{group:?}: {error}");
+            // A usage error (exit 2) the --json envelope names, before any session is made.
+            let app = crate::cli::errors::classify(&refused);
+            assert_eq!(app.exit_status(), 2, "{group:?}");
+            let envelope = app.envelope();
+            assert_eq!(envelope["error"]["detail"], "group_name", "{envelope}");
+            assert_eq!(envelope["error"]["data"]["reason"], "usage.group_name", "{envelope}");
         }
         assert!(validate_group("GUI push").is_ok());
     }
