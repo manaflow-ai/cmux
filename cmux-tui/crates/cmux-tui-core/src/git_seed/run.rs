@@ -27,10 +27,15 @@ pub fn check_folder(git: &Git, folder: &Path, url: &str) -> Result<(), SeedRefus
         };
     }
     match std::fs::read_dir(folder) {
-        Ok(mut entries) if entries.next().is_some() => {
-            Err(not_empty("the folder exists and is not empty"))
+        Ok(entries) => {
+            let mut entries = entries;
+            if entries.next().is_some() {
+                Err(not_empty("the folder exists and is not empty"))
+            } else {
+                Ok(())
+            }
         }
-        _ => Ok(()),
+        Err(_) => Ok(()),
     }
 }
 
@@ -144,11 +149,9 @@ impl Seed {
         let Some(git_ref) = git_ref else {
             return self.git(&["checkout", "--quiet", "--force"]).map(drop).map_err(wrap);
         };
-        let exists =
-            |reference: &str| self.git(&["rev-parse", "--verify", "--quiet", reference]).is_ok();
         let remote_branch = format!("refs/remotes/origin/{git_ref}");
         let tag = format!("refs/tags/{git_ref}^{{commit}}");
-        if exists(&remote_branch) {
+        if self.has_ref(&remote_branch) {
             let upstream = format!("origin/{git_ref}");
             self.git(&[
                 "checkout", "--quiet", "--force", "-B", git_ref, "--track", &upstream, "--",
@@ -156,17 +159,17 @@ impl Seed {
             .map_err(wrap)?;
             return Ok(());
         }
-        if exists(&tag) {
+        if self.has_ref(&tag) {
             self.git(&["checkout", "--quiet", "--force", "--detach", &tag, "--"]).map_err(wrap)?;
             return Ok(());
         }
         let commit = format!("{git_ref}^{{commit}}");
-        if !exists(&commit) && git_ref.len() >= 40 {
+        if !self.has_ref(&commit) && git_ref.len() >= 40 {
             let folder = self.folder.clone();
             let sha = git_ref.to_owned();
             let _ = self.net(Some(&folder), &["fetch", "--progress", "origin", &sha], &mut || {});
         }
-        if !exists(&commit) {
+        if !self.has_ref(&commit) {
             return Err(failed(
                 "seed.checkout_failed",
                 format!("no branch, tag or commit {git_ref} in the repository"),
@@ -294,6 +297,10 @@ impl Seed {
     fn changed_paths(&self, since: &str) -> Result<Vec<u8>, Failed> {
         self.git(&["diff-tree", "-r", "-z", "--no-renames", since, &self.params.work])
             .map_err(|failure| step_failed(&failure, "seed.checkout_failed"))
+    }
+
+    fn has_ref(&self, reference: &str) -> bool {
+        self.git(&["rev-parse", "--verify", "--quiet", reference]).is_ok()
     }
 
     fn has_commit(&self, sha: &str) -> bool {

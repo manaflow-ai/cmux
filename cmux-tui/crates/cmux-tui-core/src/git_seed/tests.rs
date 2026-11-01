@@ -130,7 +130,7 @@ impl World {
         let head = git(mac, &["rev-parse", "HEAD"]);
         let index_tree = git(mac, &["write-tree"]);
         let index = git(mac, &["commit-tree", &index_tree, "-p", &head, "-m", "index"]);
-        let temp = self.home.join(format!("{name}.index"));
+        let temp = self.home.path.join(format!("{name}.index"));
         let git_dir = PathBuf::from(git(mac, &["rev-parse", "--absolute-git-dir"]));
         std::fs::copy(git_dir.join("index"), &temp).unwrap();
         git_env(mac, &["add", "-A", "--sparse"], &[("GIT_INDEX_FILE", &temp)]);
@@ -154,7 +154,7 @@ impl World {
             git(mac, &["update-ref", "refs/cmux-seed/stash", stash]);
             refs.push("refs/cmux-seed/stash");
         }
-        let bundle = self.home.join(format!("{name}.bundle"));
+        let bundle = self.home.path.join(format!("{name}.bundle"));
         let mut args = vec!["bundle", "create", "-q", bundle.to_str().unwrap()];
         args.extend(refs);
         let excluded: Vec<String> = exclude.iter().map(|sha| format!("^{sha}")).collect();
