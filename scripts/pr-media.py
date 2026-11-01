@@ -365,7 +365,9 @@ def source_fps(path: Path, runner=None, env: dict[str, str] | None = None) -> fl
             continue
         # A variable-rate clip can report its timebase (90000/1) as r_frame_rate; that is not a frame rate.
         if 0 < rate <= 240:
-            return rate
+            # The average undercounts a variable-rate screen capture (no frame while nothing moves), so it
+            # never caps the gif below the default.
+            return rate if key == "r_frame_rate" else max(rate, float(DEFAULT_GIF_FPS))
     return None
 
 
@@ -1056,7 +1058,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="replace a file already on the branch at the same path")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and the Markdown; upload nothing")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.gif_width < 1:
+        parser.error("--gif-width must be at least 1")
+    if args.gif_fps is not None and args.gif_fps < 1:
+        parser.error("--gif-fps must be at least 1")
+    return args
 
 
 def main(argv: list[str] | None = None, runner=None) -> int:

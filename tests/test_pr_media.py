@@ -398,6 +398,12 @@ class GifRateTests(unittest.TestCase):
         self.assertEqual(MODULE.gif_attempts((900,), source_rate=2.0), [(2, 900)])
         self.assertTrue(all(rate <= 24 for rate, _ in MODULE.gif_attempts((900,), source_rate=23.976)))
 
+    def test_a_width_or_rate_under_one_is_refused_up_front(self):
+        for flags in (["--gif-width", "0"], ["--gif-width", "-5"], ["--gif-fps", "0"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                MODULE.parse_args(["--pr", "1", "clip.mp4", *flags])
+        self.assertIsNone(MODULE.parse_args(["--pr", "1", "clip.mp4"]).gif_fps)
+
     def test_widths_step_down_from_the_requested_one(self):
         self.assertEqual(MODULE.gif_widths(900), (900, 720, 558))
 
@@ -408,8 +414,10 @@ class GifRateTests(unittest.TestCase):
         with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffprobe"):
             read = lambda out: MODULE.source_fps(Path("c.mp4"), runner(out))
             self.assertEqual(read('{"streams":[{"r_frame_rate":"60/1","avg_frame_rate":"30/1"}]}'), 60.0)
-            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"30000/1001"}]}'),
-                             30000 / 1001)
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"48/1"}]}'), 48.0)
+            # A variable-rate capture's average undercounts it; it never caps the gif below the default.
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"7/1"}]}'),
+                             float(MODULE.DEFAULT_GIF_FPS))
             self.assertIsNone(read(""))
             self.assertIsNone(read('{"streams":[]}'))
         with mock.patch.object(MODULE.shutil, "which", return_value=None):

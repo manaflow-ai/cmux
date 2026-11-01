@@ -60,7 +60,8 @@ class FakePrMedia:
         return publish.load_pr_media().gif_attempts(widths, fps, source_rate)
 
     def source_fps(self, path, runner=None, env=None):
-        return 60.0
+        # A variable-rate capture's average can read low; publish.py must not probe and use it.
+        return 7.0
 
 
 STEP = {
@@ -192,6 +193,18 @@ class MakeVideoTests(unittest.TestCase):
             self.assertIsNone(publish.capture_file(directory, {"video": "../outside.mov"}))
             (directory / "capture.mov").symlink_to(outside)
             self.assertIsNone(publish.capture_file(directory, {"video": "capture.mov"}))
+
+    def test_the_still_fallback_gif_keeps_its_measured_rate(self):
+        media = FakePrMedia()
+
+        def run(argv, **kwargs):
+            Path(argv[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            publish.make_video(Path(scratch), {"frames": [1, 2], "frame_interval": 0.5}, Path(scratch), media, run=run)
+        self.assertEqual([call[2] for call in media.gif_calls], [2])
 
     def test_a_gif_over_the_limit_steps_down_instead_of_dropping_to_nothing(self):
         # Leo, 2026-10-31: "WHY ... IS IT NOT 30/60/120". Smooth first; narrower, then fewer frames, only to fit.

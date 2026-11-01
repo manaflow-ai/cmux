@@ -189,7 +189,10 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         print(f"warning: no video for {directory.name}: {done.stderr.strip()}", file=sys.stderr)
         return None, None
     gif = into / "tour.gif"
-    for fps, width in pr_media.gif_attempts(GIF_WIDTHS, None, pr_media.source_fps(mp4, run, env)):
+    # The rate is known, so nothing is probed: a native recording runs at the display's rate (a variable-rate
+    # capture's average undercounts it, and must not cap the gif below 30), the still fallback at its measured one.
+    source_rate = float(VIDEO_FPS) if native is not None else float(input_framerate(manifest))
+    for fps, width in pr_media.gif_attempts(GIF_WIDTHS, None, source_rate):
         done = run(pr_media.gif_argv(mp4, gif, fps, width), capture_output=True, text=True, env=env)
         if done.returncode == 0 and gif.is_file() and gif.stat().st_size <= pr_media.INLINE_MAX_BYTES - 512 * 1024:
             return mp4, gif
