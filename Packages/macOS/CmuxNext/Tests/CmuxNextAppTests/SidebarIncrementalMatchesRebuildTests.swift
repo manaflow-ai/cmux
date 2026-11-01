@@ -259,6 +259,14 @@ import Testing
             try? await Task.sleep(for: .milliseconds(50))
         }
         let d5 = CACurrentMediaTime()
+        if sleeps > 0 {
+            func keys(_ layer: CALayer, _ path: String) -> [String] {
+                let own = (layer.animationKeys() ?? []).map { "\(path)/\(type(of: layer.delegate.map { $0 as AnyObject } ?? layer)):\($0)" }
+                return own + (layer.sublayers ?? []).enumerated().flatMap { keys($1, path + ".\($0)") }
+            }
+            let running = list.layer.map { keys($0, "list") } ?? []
+            print("MATCH-REBUILD-DIAG-ANIM \(when) differs=\(snapshot(list) != theirs) fading=\(list.fadingRows.count) keys=\(running.prefix(12))")
+        }
         print(String(format: "MATCH-REBUILD-DIAG %@ settle=%.1fms rebuild=%.1fms snap=%.1fms poll=%.1fms sleeps=%d differs=%d anim=%d fading=%d", when, (d1 - d0) * 1000, (d2 - d1) * 1000, (d3 - d2) * 1000, (d5 - d3) * 1000, sleeps, differs, anim, fading))
         let mine = snapshot(list)
         #expect(mine == theirs, "\(when): the list differs from a fresh rebuild (+ only on screen, - only in the rebuild):\n\(mine.diff(theirs))")
