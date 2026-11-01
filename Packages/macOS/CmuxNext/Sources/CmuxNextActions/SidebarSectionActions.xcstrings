@@ -73,7 +73,7 @@
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elenco compatto degli spazi di lavoro"
+            "value": "Elenco compatto delle aree di lavoro"
           }
         },
         "km": {
@@ -91,13 +91,13 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kompaktowa lista obszarów roboczych"
+            "value": "Kompaktowa lista przestrzeni roboczych"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lista compacta de espaços de trabalho"
+            "value": "Lista Compacta de Áreas de Trabalho"
           }
         },
         "ru": {
@@ -109,7 +109,7 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รายการพื้นที่ทำงานแบบกะทัดรัด"
+            "value": "รายการเวิร์กสเปซแบบกะทัดรัด"
           }
         },
         "tr": {
@@ -121,7 +121,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Компактний список робочих просторів"
+            "value": "Компактний список робочих областей"
           }
         },
         "vi": {
