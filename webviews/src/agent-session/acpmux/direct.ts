@@ -7297,7 +7297,8 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
       return result;
     } catch (error) {
-      const ownsRefusal = generation === this.selectionGeneration && current() && trustCancellation === this.trustCancellation;
+      const ownsRefusal =
+        generation === this.selectionGeneration && current() && trustCancellation === this.trustCancellation;
       failed?.(error);
       if (ownsRefusal) this.routeTrustRefusal(error, again, declined);
       throw error;
@@ -7316,6 +7317,7 @@ export class AcpmuxDirectClient {
     model: string | undefined = this.host.model,
     waitForTrust = false,
   ): Promise<string | undefined> {
+    this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
     const started = (async () => {
       // The New Tab request still owns its draft, attachments and machine. Trust resumes this

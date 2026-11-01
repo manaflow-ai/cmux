@@ -439,3 +439,27 @@ test.each([false, true])("a deferred local switch sends after its gated start (t
     run.client.close();
   }
 });
+
+test("a replacement start settles the earlier chat waiting for Trust", async () => {
+  const run = await start({}, { trustStarts: 1 });
+  let refused = () => {};
+  const refusal = new Promise<void>((resolve) => {
+    refused = resolve;
+  });
+  run.client.onTrustRefused = () => refused();
+  let settled = false;
+  try {
+    const first = run.client.create("fake", "/first", undefined, false, undefined, true).then((id) => {
+      settled = true;
+      return id;
+    });
+    await refusal;
+    expect(settled).toBe(false);
+    await run.client.create("fake", "/second", undefined, false, undefined, true);
+    expect(settled).toBe(true);
+    expect(await first).toBeUndefined();
+    expect(run.snapshot().summary?.cwd).toBe("/second");
+  } finally {
+    run.client.close();
+  }
+});
