@@ -69,6 +69,39 @@ struct CLIExplicitSurfaceRoutingTests {
     }
 
 
+    @Test func surfaceIconRejectsMalformedArgumentsBeforeSocket() throws {
+        let target = [
+            "--workspace", "AABBCCDD-1111-2222-3333-444455556666",
+            "--surface", "AABBCCDD-1111-2222-3333-444455557777",
+            "--owner", "agent-status",
+        ]
+        let token = ["--lease-token", "AABBCCDD-1111-2222-3333-444455558888"]
+        let process = ["--pid", "12345", "--process-start", "generation-1"]
+        let cases: [(arguments: [String], diagnostic: String)] = [
+            (["set"] + target + process, "--asset-file"),
+            (["set"] + target + token, "--pid"),
+            (["set"] + target + process + token + ["--ttl", "121"], "--ttl"),
+            (["set"] + target + process + token + ["--pid", "42"], "--pid"),
+            (["set"] + target + process + token + ["--focus", "true"], "--focus"),
+            (["clear"] + target, "--lease-token"),
+            (["clear"] + target + token, "--revision"),
+            (["clear"] + target + token + ["--revision", "0"], "--revision"),
+            (["set", "--workspace", "workspace:1", "--surface", "surface:1", "--owner", "status"] + process + token, "--workspace"),
+        ]
+        for (index, testCase) in cases.enumerated() {
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: ["surface", "icon"] + testCase.arguments,
+                environment: cliEnvironment(socketPath: Self.makeSocketPath("surface-icon-invalid-\(index)")),
+                timeout: Self.processTimeout
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.stderr.contains(testCase.diagnostic), Comment(rawValue: result.stderr))
+            #expect(!result.stderr.localizedCaseInsensitiveContains("socket not found"), Comment(rawValue: result.stderr))
+        }
+    }
+
     @Test func browserProfileMutationsRejectMalformedArgumentsBeforeSocket() throws {
         let cases: [(name: String, arguments: [String], diagnostic: String)] = [
             ("surface-missing-value", ["browser", "profiles", "delete", "--surface", "--typo", "Work"], "--surface requires a value"),

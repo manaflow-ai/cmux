@@ -42,6 +42,10 @@ extension ControlCommandCoordinator {
             return surfaceRefresh(request.params)
         case "surface.health":
             return surfaceHealth(request.params)
+        case "surface.icon.set":
+            return surfaceIcon(request.params, clear: false, context: context)
+        case "surface.icon.clear":
+            return surfaceIcon(request.params, clear: true, context: context)
         case "surface.resume.set":
             return surfaceResumeSet(request.params)
         case "surface.resume.get":

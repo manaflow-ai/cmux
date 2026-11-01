@@ -2825,6 +2825,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
     let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
     let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
+    /// External decorations are transient; provider identity continues updating underneath.
+    @MainActor lazy var surfaceIconLeases = SurfaceIconLeaseStore { [weak self] panelID, animation in
+        guard let self, let tabID = self.surfaceIdFromPanelId(panelID) else { return }
+        self.bonsplitController.updateTab(tabID, iconAnimation: .some(animation))
+    }
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {

@@ -109,6 +109,29 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test func leasedAnimationSurvivesBrandUpdatesAndRevealsLatestBrandOnClear() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let focusedPanel = workspace.focusedPanelId
+        let animation = TabIconAnimation(id: "external-test", frames: [Data([1])], durations: [0.1], loops: true)
+        let entry = try workspace.surfaceIconLeases.set(
+            panelID: panel.id, ownerID: "cc-island:test", animation: animation, ttl: 30
+        )
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        workspace.recordAgentPID(key: "claude_code", pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)
+        workspace.syncTerminalTabAgentIconAsset(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == animation)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        #expect(workspace.focusedPanelId == focusedPanel)
+        try workspace.surfaceIconLeases.clear(
+            panelID: panel.id, ownerID: "cc-island:test", token: entry.token, expectedRevision: entry.revision
+        )
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAnimation == nil)
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+    }
+
+    @MainActor
     private func expectNoAgentMark(
         workspace: Workspace,
         panel: TerminalPanel,
