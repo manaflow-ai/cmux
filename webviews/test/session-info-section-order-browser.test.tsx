@@ -146,6 +146,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
             return before.content !== "none";
           };
+          const ruled = ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"];
           return {
             // Usage sits after Context in the top block (#28773).
             about: [
@@ -155,7 +156,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             ],
             made: box("sources").top - box("changes").bottom,
             between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
-            rules: ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"].map(rule),
+            rules: ruled.map(rule),
           };
         });
         expect(geometry.about).toEqual([0, 0, 0]);
