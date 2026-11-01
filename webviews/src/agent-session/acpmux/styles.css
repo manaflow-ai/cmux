@@ -308,6 +308,9 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The line and its Details text, one group: it may shrink like the line it wraps did, so a long
+   reason is cut to the line and its button stays on screen. */
+.acpmux-host-line-group{min-width:0}
 /* Details: acpmux's own words behind the plain line (hostLine.ts), a quiet text button; the text it
    opens sits under the line at the same inset, never red. */
 .acpmux-host-line .acpmux-host-line-details{padding:0 4px;background:transparent;color:var(--agent-muted)}
