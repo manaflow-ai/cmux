@@ -65,7 +65,6 @@ fn run_one_command(
     incognito: bool,
     (typed, history): (&str, &Path),
 ) -> String {
-    let _ = fs::remove_file(history);
     if incognito {
         keep_no_history(&mut env);
     }
@@ -82,6 +81,37 @@ fn run_one_command(
         &lookup,
         &ghostty_files::read(&lookup),
     );
+    run_launch(launched, typed, history)
+}
+
+/// Like [`run_one_command`], for a shell the app integrated itself
+/// (`terminal-frontend-shell-integration-v1`): the daemon starts `command`
+/// as given with the app's env (Ghostty's scripts under the app's
+/// `Resources/cmux-cli-path` layer, `BundledCLIEnvironment.swift`), adding
+/// only its own keys.
+fn run_app_command(
+    command: Vec<String>,
+    mut env: Vec<(String, String)>,
+    incognito: bool,
+    (typed, history): (&str, &Path),
+) -> String {
+    if incognito {
+        keep_no_history(&mut env);
+    }
+    run_launch(ShellLaunch { command, env }, typed, history)
+}
+
+/// The repo's Ghostty scripts and the app's layer, as the app bundles them.
+fn app_resources() -> (PathBuf, PathBuf) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    (
+        fs::canonicalize(root.join("ghostty-next/src/shell-integration")).unwrap(),
+        fs::canonicalize(root.join("Resources/cmux-cli-path")).unwrap(),
+    )
+}
+
+fn run_launch(launched: ShellLaunch, typed: &str, history: &Path) -> String {
+    let _ = fs::remove_file(history);
     let mut command = cmux_pty::PtyCommand::new(&launched.command[0]);
     command.args(launched.command[1..].iter().cloned());
     command.env("TERM", "xterm-256color");
@@ -198,4 +228,70 @@ fn an_incognito_fish_keeps_no_history() {
     let run =
         |incognito| run_one_command(Shell::Fish, &fish, &base, env.clone(), incognito, (TYPED_FISH, &history));
     assert_history_kept_only_when_normal("fish", run, &base);
+}
+
+#[test]
+fn an_incognito_zsh_the_app_integrated_keeps_no_history() {
+    let Some(zsh) = find(&["/bin/zsh", "/usr/bin/zsh"]) else {
+        eprintln!("skipped: zsh is not installed");
+        return;
+    };
+    let (ghostty, layer) = app_resources();
+    let base = temp_base("app-zsh");
+    let user = base.join("user");
+    fs::create_dir_all(&user).unwrap();
+    let history = base.join("zsh_history");
+    fs::write(user.join(".zshenv"), "unsetopt global_rcs\n").unwrap();
+    fs::write(
+        user.join(".zshrc"),
+        format!(
+            "HISTFILE={}\nHISTSIZE=100\nSAVEHIST=100\nsetopt inc_append_history\nPS1='> '\n",
+            history.display()
+        ),
+    )
+    .unwrap();
+    // GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply.
+    let env = vec![
+        ("HOME".to_string(), base.to_string_lossy().into_owned()),
+        ("GHOSTTY_ZSH_ZDOTDIR".to_string(), user.to_string_lossy().into_owned()),
+        ("CMUX_CLI_ZSH_ZDOTDIR".to_string(), ghostty.join("zsh").to_string_lossy().into_owned()),
+        ("ZDOTDIR".to_string(), layer.join("zsh").to_string_lossy().into_owned()),
+    ];
+    let command = vec![zsh.to_string_lossy().into_owned()];
+    let run =
+        |incognito| run_app_command(command.clone(), env.clone(), incognito, (TYPED, &history));
+    assert_history_kept_only_when_normal("app zsh", run, &base);
+}
+
+#[test]
+fn an_incognito_bash_the_app_integrated_keeps_no_history() {
+    let Some(bash) = find(&["/opt/homebrew/bin/bash", "/usr/local/bin/bash", "/usr/bin/bash"])
+    else {
+        eprintln!("skipped: an integrated bash is not installed");
+        return;
+    };
+    let (ghostty, layer) = app_resources();
+    let base = temp_base("app-bash");
+    let history = base.join("bash_history");
+    fs::write(
+        base.join(".bashrc"),
+        format!("HISTFILE={}\nPROMPT_COMMAND='history -a'\nPS1='> '\n", history.display()),
+    )
+    .unwrap();
+    // GhosttyShellIntegration.apply, then BundledCLIEnvironment.apply.
+    let env = vec![
+        ("HOME".to_string(), base.to_string_lossy().into_owned()),
+        ("GHOSTTY_BASH_INJECT".to_string(), "1".to_string()),
+        ("HISTFILE".to_string(), base.join(".bash_history").to_string_lossy().into_owned()),
+        ("GHOSTTY_BASH_UNEXPORT_HISTFILE".to_string(), "1".to_string()),
+        (
+            "CMUX_CLI_BASH_ENV".to_string(),
+            ghostty.join("bash/ghostty.bash").to_string_lossy().into_owned(),
+        ),
+        ("ENV".to_string(), layer.join("bash/cmux-cli-path.bash").to_string_lossy().into_owned()),
+    ];
+    let command = vec![bash.to_string_lossy().into_owned(), "--posix".to_string()];
+    let run =
+        |incognito| run_app_command(command.clone(), env.clone(), incognito, (TYPED, &history));
+    assert_history_kept_only_when_normal("app bash", run, &base);
 }
