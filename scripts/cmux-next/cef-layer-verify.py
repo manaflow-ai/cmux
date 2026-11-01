@@ -382,6 +382,11 @@ def main():
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
     os.makedirs(opts.out, exist_ok=True)
+    # An empty saved session, as every bench launch (bench_launch.py start_fresh): a session an earlier bench left
+    # (the STRESS layout) put the probe in a small pane of one of 60 workspaces, and workspace.selectFirst went elsewhere.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bench_launch import BenchApp
+    BenchApp(APP, out=opts.out).start_fresh()
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
