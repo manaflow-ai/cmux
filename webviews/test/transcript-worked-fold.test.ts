@@ -205,7 +205,11 @@ const dateTurn = (id: string, at: number, visible = true): AcpmuxRow[] => [
 test("an invisible turn across days leaves the separator for the next visible turn", () => {
   const start = Date.UTC(2026, 9, 30, 12);
   const nextDay = start + 24 * 3_600_000;
-  const rows = [...dateTurn("old", start), ...dateTurn("hidden", nextDay, false), ...dateTurn("next", nextDay + 60_000)];
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("next", nextDay + 60_000),
+  ];
   const dates = turnView(rows, new Set(), { now: nextDay + 120_000 }).filter((row) => row.kind === "date");
   expect(dates.map((row) => row.id)).toEqual(["date-old", "date-next"]);
   expect(dates[1]!.at).toBe(nextDay + 60_000);
@@ -215,7 +219,11 @@ test("a reused invisible turn does not consume the next visible turn's separator
   const start = Date.UTC(2026, 9, 30, 12);
   const nextDay = start + 24 * 3_600_000;
   const folds = new Set<string>();
-  const rows = [...dateTurn("old", start), ...dateTurn("hidden", nextDay, false), ...dateTurn("hidden2", nextDay + 60_000, false)];
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("hidden2", nextDay + 60_000, false),
+  ];
   const previous = turnViewFrom(rows, folds, { now: nextDay + 120_000 });
   const appended = [...rows, ...dateTurn("next", nextDay + 120_000)];
   const updated = turnViewFrom(appended, folds, { now: nextDay + 180_000 }, previous);
