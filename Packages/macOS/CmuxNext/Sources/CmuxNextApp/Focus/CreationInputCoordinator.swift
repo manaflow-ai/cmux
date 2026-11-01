@@ -178,7 +178,7 @@ final class CreationInputCoordinator {
         }
         let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
         if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
-        services.daemon(for: pane).send("send-key") { connection in
+        services.daemon(for: pane).sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {
                 case .text(let text): try await connection.send(surface, text: text)
