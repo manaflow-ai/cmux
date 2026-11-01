@@ -363,6 +363,12 @@ def traced(run, open_fn):
     trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 600,
                                               "page_timing": True}, timeout=40) or {}
     trace["open_reply"] = opened
+    # The script's own requests on the trace's clock (ms after arming; the app's wall clock at arming
+    # is `armed_wall`): open_sent to open_replied is the open action's wait, show_sent to pane_made the show.
+    armed_wall = trace.get("armed_wall")
+    wall = opened.pop("wall", None) if isinstance(opened, dict) else None
+    if isinstance(armed_wall, (int, float)) and wall:
+        trace["wall_ms"] = {name: round((at - armed_wall) * 1000, 1) for name, at in wall.items()}
     trace["script_ms"] = round((time.monotonic() - began) * 1000, 1)
     trace["flashes"] = flashes(trace.get("frames"))
     trace["first_image_ms"] = first_of(trace.get("frames"), ("image",))
@@ -381,18 +387,26 @@ def open_workspace(run, session):
     agents_workspace_select does): `workspace.selectLast` reads the sidebar's order, which can lag
     the open on a loaded host, and then showed the previous workspace. selectLast is only the
     fallback when the open names no workspace or the switch is refused; `shown` says which ran."""
+    # Wall-clock seconds of each request, so `traced` splits the time before the pane exists into
+    # the open's own wait (the daemon's creates) and the show (`wall_ms`, from the trace's arming).
+    wall = {"open_sent": time.time()}
     opened = run.app.action("agent.openSessionWorkspace", focus=True, session=session)
+    wall["open_replied"] = time.time()
     if opened.get("error"):
-        return opened
+        return {**opened, "wall": wall}
     created = next((ref for ref in opened.get("created") or [] if str(ref).startswith("ws_")), None)
     refused = None
     if created:
+        wall["show_sent"] = time.time()
         reply = run.app.action("goToWorkspace", focus=True, workspace=created)
+        wall["show_replied"] = time.time()
         if not reply.get("error"):
-            return {**opened, "shown": {"via": "goToWorkspace", "reply": reply}}
+            return {**opened, "shown": {"via": "goToWorkspace", "reply": reply}, "wall": wall}
         refused = reply
+    wall["show_sent"] = time.time()
     reply = run.app.action("workspace.selectLast", focus=True)
-    return {**opened, "shown": {"via": "workspace.selectLast", "reply": reply, "refused": refused}}
+    wall["show_replied"] = time.time()
+    return {**opened, "shown": {"via": "workspace.selectLast", "reply": reply, "refused": refused}, "wall": wall}
 
 
 def settle_open(run, session):
