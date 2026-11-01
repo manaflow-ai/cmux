@@ -57,11 +57,21 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// `CLAUDE_CODE_OAUTH_TOKEN` of the environment or `~/.claude/settings.json`, else the access token
     /// of `~/.claude/.credentials.json`. The token goes only to the provider, in a header; the output is
     /// the word, never a token or the provider's reply. A Python that fails once a login is known keeps it.
+    ///
+    /// The classic `/api/vm` exec runs as root (``CloudAPIClient/execRunsAsWorkUser``), whose HOME is
+    /// `/root`, while the login lives in `cmux`'s home, where ``CloudCredentialInstaller`` writes it. So
+    /// the image's detection runs with HOME set to `cmux`'s home (``workHome``), after the config is sourced
+    /// as before, so that script never writes into `cmux`'s home as root.
     static func probe(cachedFingerprint: String?, endpoint: String = endpoint) -> String {
-        ". /etc/cmux/agent-config.sh >/dev/null 2>&1; . /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude || { echo none; exit 0; }\n"
+        ". /etc/cmux/agent-config.sh >/dev/null 2>&1\n" + workHome
+            + ". /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude || { echo none; exit 0; }\n"
             + "python3 - \(CloudCredentialInstaller.quote(cachedFingerprint ?? "")) \(CloudCredentialInstaller.quote(endpoint)) <<'CMUX_LOGIN_PROBE' || echo working\n"
             + script + "\nCMUX_LOGIN_PROBE"
     }
+
+    /// Sets HOME to the work user's (`cmux`) home, the one the installer writes to; the exec's own HOME
+    /// when there is no `cmux` user.
+    static let workHome = #"cmux_probe_home=$(python3 -I -c "import pwd; print(pwd.getpwnam('cmux').pw_dir)" 2>/dev/null) && [ -n "$cmux_probe_home" ] && HOME=$cmux_probe_home && export HOME"# + "\n"
 
     static let script = #"""
         import hashlib, json, os, pathlib, pwd, sys, urllib.error, urllib.request
