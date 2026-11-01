@@ -44,8 +44,10 @@ const toReply: Play = async (ctx) => {
           ) >= 0.5,
       );
       if (moved.length === 0) continue;
-      const node = moved[0]!.node;
-      shifts.push({ value: entry.value, from: node instanceof view.Element ? node.className.toString() : "#text" });
+      const { node, previousRect: was, currentRect: now } = moved[0]!;
+      const name = node instanceof view.Element ? node.className.toString() : "#text";
+      const delta = [now!.x - was!.x, now!.y - was!.y, now!.width - was!.width, now!.height - was!.height];
+      shifts.push({ value: entry.value, from: `${name} [${delta.map((d) => Math.round(d * 10) / 10).join(" ")}]` });
     }
   });
   if (view.PerformanceObserver.supportedEntryTypes?.includes("layout-shift"))
