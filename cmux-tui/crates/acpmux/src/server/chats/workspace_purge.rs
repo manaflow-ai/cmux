@@ -76,7 +76,8 @@ fn of_workspace(hub: &Hub, workspace: &str) -> Vec<Arc<Session>> {
 }
 
 /// The harness transcripts `meta`'s session wrote itself: for a Claude Code or Codex session, the
-/// file the chat index holds for each agent session id it recorded, named for that id, and Claude
+/// file the chat index holds for each agent session id it recorded (current, previous and retired
+/// roots), named for that id, and Claude
 /// Code's folder of the same name beside it (subagents, tool results). Only one born after the
 /// session was created: an older file is a conversation it continued (an adopted chat), which
 /// is not this session's to delete. A watched chat writes none. Other harnesses: none yet.
@@ -89,7 +90,11 @@ fn own_transcripts(hub: &Hub, meta: &SessionMeta) -> Vec<PathBuf> {
     };
     let since = UNIX_EPOCH + Duration::from_millis(meta.created_at);
     let mut files = Vec::new();
-    for id in meta.agent_session_id.iter().chain(&meta.previous_agent_session_ids) {
+    let mut ids: Vec<&String> = meta.agent_session_id.iter().collect();
+    ids.extend(meta.previous_agent_session_ids.iter().chain(&meta.retired_agent_session_ids));
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids {
         let Some(chat) = index.get(&ChatKey { harness, session_id: id.clone() }) else { continue };
         let file = chat.entry.source_path;
         if !(file.is_absolute() && names(&file, id) && born_since(&file, since)) {

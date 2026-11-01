@@ -31,6 +31,19 @@ enum IncognitoChats {
         }
     }
 
+    /// Quit, before the incognito spaces are deleted (deleting a space closes its workspaces without
+    /// `WorkspaceClose.willClose`): every incognito window's workspaces purge their chats now.
+    static func closingForQuit(_ services: AppServices) {
+        let windows = services.windows
+        let registry = windows.registry.value
+        for window in registry.windows where registry.isIncognito(window.id) {
+            for id in window.workspaceIDs {
+                guard let (workspace, _) = services.machines.workspace(id: id) else { continue }
+                closing(workspace, services)
+            }
+        }
+    }
+
     /// The acpmux workspace key whose chats go when workspace `id` closes: its key when it is
     /// incognito, else nil (a normal workspace's chats stay in history).
     static func key(of id: String, key: String?, incognito: (String) -> Bool) -> String? {

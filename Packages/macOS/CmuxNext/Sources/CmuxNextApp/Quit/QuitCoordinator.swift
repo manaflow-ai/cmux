@@ -187,8 +187,10 @@ final class QuitCoordinator {
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
+                // Incognito windows' chats are deleted before their spaces go (prepareForTermination) and
+                // before acpmux's agents end (IncognitoChats).
+                IncognitoChats.closingForQuit(services)
                 await services.windows.prepareForTermination()
-                // The incognito windows' chats it closed are deleted before acpmux's agents end (IncognitoChats).
                 await IncognitoChats.drain()
                 await services.sidebarSnapshots.flush()
                 // Home's drafts, scroll places and unsent sends (its cache's last batch).
