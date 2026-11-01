@@ -23,8 +23,6 @@ public final class CmuxToastView: NSView {
     /// The detail's height cap, set from the toast's window when the details show and again
     /// whenever that window's size changes (``windowGeometryDidChange()``).
     private var detailCapConstraint: NSLayoutConstraint?
-    /// The toast's window's resize and full-screen notifications, while it has a detail.
-    private var windowObservers: [NSObjectProtocol] = []
     /// Whether Details is on: the whole message and ``detailLabel`` show.
     public private(set) var showsDetails = false
     var onAction: (() -> Void)?
@@ -239,7 +237,8 @@ public final class CmuxToastView: NSView {
 
     /// A window that grows or shrinks (a resize, full screen) after Details showed caps the detail
     /// again, and the center sizes and restacks the toast, so a shorter window never pushes the row
-    /// with Details and close off screen.
+    /// with Details and close off screen. The window's overlay host calls it from its one observer
+    /// of the window (``OverlayHandle/onWindowGeometryChange``, set by ``CmuxToastOverlayHost``).
     func windowGeometryDidChange() {
         let before = detailCapConstraint?.constant
         applyDetailCap()
@@ -249,16 +248,7 @@ public final class CmuxToastView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-        windowObservers = []
-        guard let window, detailScroll != nil else { return }
-        for name in [NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
-                     NSWindow.didExitFullScreenNotification] {
-            windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.windowGeometryDidChange() }
-            })
-        }
+        guard window != nil, detailScroll != nil else { return }
         applyDetailCap()
     }
 
