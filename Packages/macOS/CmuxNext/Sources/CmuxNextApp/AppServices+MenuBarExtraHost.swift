@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
-import CmuxNextBridge
 import CmuxNextSettings
 
 extension AppServices: MenuBarExtraHost {

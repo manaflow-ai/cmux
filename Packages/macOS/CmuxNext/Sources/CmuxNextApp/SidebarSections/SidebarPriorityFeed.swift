@@ -47,9 +47,7 @@ extension SidebarPriorityFeed {
                                                 peer: { [weak machines] in machines?.machineName(peer: $0) },
                                                 // This Mac's rows gain its name with `sidebar.showLocalMachine` (#22763).
                                                 local: { nil })
-        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
-            .bind(into: registry)
-        // Go to Next Agent Needing Input, also with the Priority view hidden.
+        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason }).bind(into: registry)
         AgentNeedsInputJump(chats: .app).bind(into: registry) { Self.open($0, services: context.services) }
     }
 }
