@@ -723,7 +723,8 @@ mod line_tests {
     /// (`server/list_reply.rs`) see no change.
     #[test]
     fn a_line_is_the_bytes_of_the_value() {
-        let error = RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
+        let error =
+            RpcError { code: -32000, message: "no".into(), data: Some(json!({"b": 1, "a": 2})) };
         for message in [
             Message::request(1, "session/prompt", json!({"z": 1, "a": [1, 2]})),
             Message::notification("_acpmux/event", json!({"kind": "x"})),

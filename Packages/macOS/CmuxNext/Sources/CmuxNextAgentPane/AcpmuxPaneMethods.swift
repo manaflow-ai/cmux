@@ -110,7 +110,7 @@ nonisolated enum AcpmuxPaneMethods {
         // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
         // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
         "_acpmux/app_reply",
-        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // A chat's background processes (direct.ts listProcesses, tailProcess; Session Info and an
         // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
         // this Mac's clients (server/processes.rs).
         "_acpmux/process/list", "_acpmux/process/tail",
@@ -125,14 +125,14 @@ nonisolated enum AcpmuxPaneMethods {
         // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
         // harness, and optionally its host and route), never another chat.
         "_acpmux/session/auth",
-        // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // Session Info's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
-        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp, the
-        // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
+        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
+        // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
         "_acpmux/mcp/reconnect",
         // The forum's current rules for the rules card above the composer (direct.ts forumRules,

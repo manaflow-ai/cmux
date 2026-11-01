@@ -547,7 +547,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }
     func releasePlane(_ plane: OverlayPlane) { overlayLayer.release(plane) }
-    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane) { overlayLayer.interactiveRectsDidChange() }
+    func interactiveOverlayRectsDidChange(_ plane: OverlayPlane, shapesChanged: Bool) { overlayLayer.interactiveRectsDidChange(shapesChanged: shapesChanged) }
     func planeDidLayout(_ plane: OverlayPlane) { overlayLayer.planeDidLayout(plane) }
     func paneShapesDidChange(_ plane: OverlayPlane) { overlayLayer.paneShapesDidChange() }
 
