@@ -157,6 +157,28 @@ test("a document with script shows its source until Run, then runs in the native
   expect(iframe.getAttribute("srcdoc")).toBeNull();
 });
 
+test("running a scripted fence never authorizes the same code in another chat", async () => {
+  const fenced = '```html\n<button onclick="this.textContent=42">0</button>\n```\n';
+  await show(fenced);
+  expect(frame()).toBeNull();
+  await act(() => button("Run")!.click());
+  expect(frame()?.getAttribute("src")).toBe("cmux-agent://render/artifact");
+
+  // Code/Preview are two views of this *one* document; running remains authorized here.
+  await act(() => button("Code")!.click());
+  expect(frame()).toBeNull();
+  await act(() => button("Preview")!.click());
+  expect(frame()?.getAttribute("src")).toBe("cmux-agent://render/artifact");
+
+  // A new chat can contain byte-identical HTML written by another agent. It deserves its own
+  // Run click, even while the pane JS module survives the chat switch.
+  await show("A different chat\n");
+  await show(fenced);
+  expect(frame()).toBeNull();
+  expect(button("Run")).toBeDefined();
+  expect(host.querySelector(".cv-codeblock")).not.toBeNull();
+});
+
 test("a refresh in the document is inert: the policy's meta is the only http-equiv", async () => {
   await show('```html\n<META HTTP-EQUIV="refresh" content="0;url=https://example.invalid/"><p>hi</p>\n```\n');
   const srcdoc = frame()!.getAttribute("srcdoc")!;
