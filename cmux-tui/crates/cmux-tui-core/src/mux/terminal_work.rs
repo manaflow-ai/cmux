@@ -253,6 +253,12 @@ impl Mux {
             self.terminal_work.standby.refill(&self.terminal_work);
             let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
+            // An incognito terminal is private before its first byte.
+            if workspace_key.as_deref().is_some_and(|key| self.workspace_key_is_ephemeral(key))
+                && let Some(public_id) = host.terminal_public_id()
+            {
+                self.output_store.mark_private(public_id);
+            }
             // The deprecated recovery mirror syncs a file twice; do it here,
             // in parallel, instead of under the creation lock. A tab that
             // lands in another workspace rewrites it there.

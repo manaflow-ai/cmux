@@ -26,9 +26,13 @@ if set -q CMUX_CLI_FISH_XDG_DIR
 end
 
 # A terminal of an incognito workspace (CMUX_TUI_INCOGNITO, set by the daemon)
-# keeps no history; the daemon also exports fish_private_mode.
+# keeps no history; the daemon also exports fish_private_mode. It is turned
+# on again at every prompt, after config.fish (fish reads it per command).
 if set -q CMUX_TUI_INCOGNITO; and test -n "$CMUX_TUI_INCOGNITO"
     set -g fish_private_mode 1
+    function __cmux_tui_incognito_history --on-event fish_prompt
+        set -g fish_private_mode 1
+    end
 end
 
 if status is-interactive

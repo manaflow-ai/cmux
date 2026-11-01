@@ -191,15 +191,7 @@ fn launch_terminal_host_seeded_in(
     if record_path.exists() || endpoint.exists() {
         anyhow::bail!("terminal host identity already exists");
     }
-    let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
-        Some(command) => {
-            crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
-        }
-        None => crate::shell_integration::integrate_default_shell(
-            vec![crate::platform::default_shell()],
-            options.extra_env.clone(),
-        ),
-    };
+    let shell_launch = crate::shell_integration::shell_launch(options.command.clone(), options.extra_env.clone());
     let command = shell_launch.command;
     let launch = HostLaunch {
         endpoint: endpoint.to_string_lossy().into_owned(),

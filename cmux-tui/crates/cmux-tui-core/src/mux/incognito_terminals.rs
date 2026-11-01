@@ -79,8 +79,23 @@ impl Mux {
         (options, cell_pixels)
     }
 
-    /// An incognito terminal was created: it is kept in memory only from
-    /// now on, also after its workspace's flag row is gone.
+    /// The resource identity of a terminal about to spawn; an incognito
+    /// one is private before its first byte (output, commands, an exit),
+    /// and from then on also after its workspace's flag row is gone.
+    pub(super) fn spawn_identity(
+        &self,
+        tab_id: Option<TabPublicId>,
+        incognito: bool,
+    ) -> anyhow::Result<TabResourceIdentity> {
+        let identity = terminal_identity(tab_id)?;
+        if incognito && let ContentPublicId::Terminal(public_id) = &identity.content_id {
+            self.output_store.mark_private(public_id);
+        }
+        Ok(identity)
+    }
+
+    /// An incognito terminal was created: it is kept in memory only (a
+    /// prelaunched host gets its identity before this).
     pub(super) fn note_incognito_terminal(&self, surface: &Surface) {
         if let Some(public_id) = surface.terminal_public_id() {
             self.output_store.mark_private(public_id);

@@ -193,12 +193,45 @@ pub struct ShellLaunch {
 /// the launch unchanged, so a shell always starts.
 /// The launch of a terminal's `command`: the default shell (`None` or
 /// empty), integrated by [`integrate_default_shell`], or the caller's
-/// program unchanged.
+/// program unchanged. An incognito terminal's interactive shell that nobody
+/// integrated is integrated too: its scripts are what keep its history off
+/// after the startup files ran ([`keep_no_history`]).
 pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) -> ShellLaunch {
     match command.filter(|command| !command.is_empty()) {
         None => integrate_default_shell(vec![crate::platform::default_shell()], env),
+        Some(command) if needs_incognito_integration(&command, &env) => {
+            integrate_default_shell(command, env)
+        }
         Some(command) => ShellLaunch { command, env },
     }
+}
+
+/// Whether `env` is an incognito terminal's.
+fn is_incognito(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    lookup(INCOGNITO_ENV).is_some_and(|value| !value.is_empty())
+}
+
+/// The keys of a shell some frontend already integrated (the app's
+/// `GhosttyShellIntegration` and `BundledCLIEnvironment`).
+const FRONTEND_INTEGRATION_KEYS: [&str; 6] = [
+    "GHOSTTY_ZSH_ZDOTDIR",
+    "GHOSTTY_BASH_INJECT",
+    "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
+    "CMUX_CLI_ZSH_ZDOTDIR",
+    "CMUX_CLI_BASH_ENV",
+    "CMUX_CLI_FISH_XDG_DIR",
+];
+
+/// An explicit `command` of an incognito terminal that is a bare
+/// interactive zsh, bash or fish (login and interactive flags only) and
+/// that no frontend integrated.
+fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> bool {
+    let lookup =
+        |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone());
+    is_incognito(&lookup)
+        && detect_shell(command).is_some()
+        && command[1..].iter().all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
+        && !FRONTEND_INTEGRATION_KEYS.iter().any(|key| lookup(key).is_some())
 }
 
 pub fn integrate_default_shell(
@@ -214,7 +247,11 @@ pub fn integrate_default_shell(
             .map(|(_, value)| value.clone())
             .or_else(|| std::env::var(key).ok())
     };
-    if lookup(OPT_OUT_ENV).as_deref() == Some("none") {
+    // An incognito shell is integrated even under the opt-outs: the
+    // integration is what keeps its history off (design/spaces.md
+    // "Incognito": nothing kept).
+    let incognito = is_incognito(&lookup);
+    if lookup(OPT_OUT_ENV).as_deref() == Some("none") && !incognito {
         return ShellLaunch { command, env: extra_env };
     }
     let user = ghostty_files::read(&lookup);
@@ -226,7 +263,9 @@ pub fn integrate_default_shell(
         export_features(&mut env, &lookup, &user);
         env
     };
-    let Some(shell) = shell_for(user.mode, &command) else {
+    let shell = shell_for(user.mode, &command)
+        .or_else(|| if incognito { detect_shell(&command) } else { None });
+    let Some(shell) = shell else {
         return ShellLaunch { env: features_only(extra_env), command };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {

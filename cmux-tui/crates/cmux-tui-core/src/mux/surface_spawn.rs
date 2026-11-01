@@ -154,7 +154,8 @@ impl Mux {
                     prelaunched.into_host().with_tab_id(tab_id),
                     Arc::downgrade(self),
                 ),
-                None => Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+                None => self.spawn_identity(tab_id, incognito).and_then(|identity| {
+                    Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
                     id,
                     opts,
                     Arc::downgrade(self),
@@ -167,10 +168,11 @@ impl Mux {
                         workspace_key,
                         standby: None,
                     },
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
-                ),
+                    )
+                }),
             };
             let surface = match spawned {
                 Ok(surface) => surface,
@@ -309,13 +311,14 @@ impl Mux {
             {
                 hook(&terminal_hex);
             }
+            let identity = self.spawn_identity(tab_id, incognito)?;
             #[cfg(test)]
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
                     id,
                     opts,
                     Arc::downgrade(self),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     cell_pixels,
                 )
             } else {
@@ -324,7 +327,7 @@ impl Mux {
                     opts,
                     Arc::downgrade(self),
                     crate::surface::HostLaunch::default(),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
                 )
@@ -336,7 +339,7 @@ impl Mux {
                     opts,
                     Arc::downgrade(self),
                     crate::surface::HostLaunch::default(),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
                 );
