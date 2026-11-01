@@ -110,41 +110,41 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool))
+        let copy: (CloudMoveCLI.Answer, (chat: String, copied: Bool, sourceTrusted: Bool))
         do {
             // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again (CloudOutdatedMachine).
             copy = try await CloudOutdatedMachine.copy({
                 try await cli.startChatCopy(key: start.key, account: Self.accountText(account), machine: machine.machineID, socket: socket,
-                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots)
+                                            local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots,
+                                            acpmuxHome: QuitAgents.environment(services)?.home.path)
             }, answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) }) { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
         } catch {
             // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
             throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
-        report(.init(name: "folder", folder: folderName, machine: name, size: size,
-                     cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
-                     cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt))
+        report(.init(name: "folder", folder: folderName, machine: name, size: size, cloneState: copy.0.seedState,
+                     clonePhase: copy.0.seedPhase, cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt))
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
-        let remoteChat = copy.1.chat
-        // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
-        // Mac's tab stays.
+        // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         _ = await loginPassed
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size))
-        return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
+        return try await open(start, tab: tab, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey)
     }
 
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes
-    /// this Mac's tab: the chat is the machine's now.
-    private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?,
+    /// this Mac's tab: the chat is the machine's now. A copy of a folder this Mac trusts (`trusted`) is trusted there first.
+    private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?, trusted: Bool = false,
                       tabKey: String) async throws -> String {
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
+        await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
+            appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
             for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
