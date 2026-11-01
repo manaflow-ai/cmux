@@ -91,6 +91,9 @@ extension ChatController {
                 let playing = intents.videoState(ref) == .playing
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+                menu.addItem(MenuAction(title: CmuxStrings.viewVideoLarger, symbol: "arrow.up.left.and.arrow.down.right") { [weak self] in
+                    self?.intents?.openVideo(ref, a.id)
+                })
             }
             content.attachmentItems(name: a.fileName, resolve: attachmentResolver(ref.messageId, a.id)) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)

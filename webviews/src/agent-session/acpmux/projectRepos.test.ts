@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import {
   belowCheckout,
   byRecentUse,
+  chooserRows,
   groupByRepo,
   guessProjectRepo,
   isMainCheckout,
@@ -366,4 +367,45 @@ test("a folder named like a lane but outside a lane root stays listed", () => {
     "/Users/me/Projects/design--notes",
   ]);
   expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label }))).length).toBe(2);
+});
+
+// Leo, "why is this all misaligned in the agent chat project selectin": the agent chat's project
+// picker listed two lanes' worktrees (`~/wt/lanes/<lane>/cmux`) as two "cmux" projects of their own.
+test("the project chooser lists a lane's worktree under its repository, and finds it by search", () => {
+  const main = { root: "/Users/sample/Projects/cmux", name: "cmux", branch: "main", github: "sample/cmux" };
+  const projects = [
+    { cwd: "/Users/sample/wt/lanes/lane-adopt/cmux", label: "cmux" },
+    { cwd: "/Users/sample/wt/lanes/next-reds/cmux", label: "cmux" },
+    { cwd: "/Users/sample/Projects/cmux", label: "cmux", repo: main },
+    { cwd: "/Users/sample/Projects", label: "Projects" },
+    { cwd: "/srv/atlas", label: "atlas", peer: "build-box", host: "build-box" },
+  ];
+  const cwds = (query: string, current?: string) => chooserRows(projects, query, current).map((row) => row.cwd);
+  // One cmux row (its main checkout), the plain folder, then the other machine's folder.
+  expect(cwds("")).toEqual(["/Users/sample/Projects/cmux", "/Users/sample/Projects", "/srv/atlas"]);
+  // The current folder leads its repository's row.
+  expect(cwds("", "/Users/sample/wt/lanes/next-reds/cmux")[0]).toBe("/Users/sample/wt/lanes/next-reds/cmux");
+  // A search for the repository lists it once; one that names a lane finds that lane's worktree.
+  expect(cwds("cmux")).toEqual(["/Users/sample/Projects/cmux"]);
+  expect(cwds("next-reds")).toEqual(["/Users/sample/wt/lanes/next-reds/cmux"]);
+  expect(cwds("wt/lanes")).toEqual(["/Users/sample/wt/lanes/lane-adopt/cmux", "/Users/sample/wt/lanes/next-reds/cmux"]);
+  expect(cwds("build")).toEqual(["/srv/atlas"]);
+  // A linked worktree the host read keeps its repository, wherever it lives.
+  const read = [
+    { cwd: "/Users/sample/Projects/cmux", label: "cmux", repo: main },
+    {
+      cwd: "/Users/sample/scratch/fix-login",
+      label: "fix-login",
+      repo: { ...main, top: "/Users/sample/scratch/fix-login", branch: "fix-login" },
+    },
+  ];
+  expect(chooserRows(read, "").map((row) => row.cwd)).toEqual(["/Users/sample/Projects/cmux"]);
+  expect(chooserRows(read, "fix").map((row) => row.cwd)).toEqual(["/Users/sample/scratch/fix-login"]);
+});
+
+test("a lane's worktree under wt/lanes is named for its repository and its lane", () => {
+  expect(guessProjectRepo("/Users/sample/wt/lanes/next-reds/cmux")).toMatchObject({
+    name: "cmux",
+    branch: "next-reds",
+  });
 });
