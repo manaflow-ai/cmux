@@ -31,14 +31,15 @@ extension StateResourceClient {
         "cmux-next-" + (DaemonCommandScope.current?.nextMutationID() ?? UUID().uuidString.lowercased())
     }
 
-    /// Sends one state mutation and returns its `value`.
+    /// Sends one state mutation and returns its `value`. `timeout` replaces the request deadline.
     @discardableResult
     func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self, requiring capability: String? = nil) async throws -> R {
+                                                 as type: R.Type = JSONValue.self, timeout: Duration? = nil,
+                                                 requiring capability: String? = nil) async throws -> R {
         let key = Self.stateKey()
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self, requiring: capability).value
+        }, as: ResourceMutationResult<R>.self, timeout: timeout, requiring: capability).value
     }
 
     static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
@@ -162,13 +163,16 @@ extension StateResourceClient {
     /// `workspace.create`; `ephemeral` workspaces are closed by the daemon at
     /// its next start and leave no closed history. `focus` makes the new
     /// workspace the daemon's focused one, as the person's own creations
-    /// are; without it the daemon keeps its focused workspace.
+    /// are; without it the daemon keeps its focused workspace. With `terminal` the daemon starts
+    /// the workspace's terminal inside the create and answers once its host is up, so the create
+    /// has the terminal start deadline (`spawnTimeout`), as `new-tab` does.
     @discardableResult
     public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
         let supportsFocus = await connection.identity?.supports(DaemonCapability.workspaceCreateFocus.rawValue) == true
         let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
                                                                      focus: focus, daemonSupportsFocus: supportsFocus)
-        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+        let deadline = terminal ? connection.configuration.spawnTimeout : nil
+        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self, timeout: deadline)
     }
 
     /// The `workspace.create` params. `focus` is sent only to a daemon with
