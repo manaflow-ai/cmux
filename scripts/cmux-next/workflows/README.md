@@ -41,7 +41,9 @@ and never execute. Steps are not retried: an uncertain action must not be repeat
 `gallery.play` selects an existing entry and variant. Inputs and assertions remain
 in that entry's existing Playwright `play`. It requires `expect: {"play":"passed"}`
 and empty `args`. A screenshot-only variant cannot pass. The example uses
-`ui.combobox/keyboard`.
+`ui.combobox/keyboard`. A second example, `examples/gallery-toolbar.json`, runs
+`ui.toolbar/activate` and asserts the rendered outcome `Back pressed`. Fixture
+performance failures remain failures in these workflows; no budget is relaxed.
 
 ## Runtime context and evidence
 
