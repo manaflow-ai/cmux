@@ -781,8 +781,8 @@ impl StartCopy {
     pub(super) fn run(&self, ledger: &Path, push: &Push<'_>) -> Value {
         let started_at = now_millis();
         let mut answer = self.run_copy(ledger, push);
-        if answer["ok"] == json!(true) {
-            answer["source_trusted"] = json!(self.source_trusted());
+        if let Some(done) = answer.as_object_mut().filter(|a| a.get("ok") == Some(&json!(true))) {
+            done.insert("source_trusted".into(), json!(self.source_trusted()));
         }
         let (state, phase) = if answer.get("ok").and_then(Value::as_bool) == Some(true) {
             (
