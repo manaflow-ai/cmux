@@ -284,6 +284,9 @@ impl Session {
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
     }
+    pub async fn wait_queue_moved(&self) {
+        self.queue_moved.notified().await;
+    }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }

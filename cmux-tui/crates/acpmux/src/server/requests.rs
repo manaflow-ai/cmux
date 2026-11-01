@@ -1854,6 +1854,18 @@ async fn dispatch_request(
             hub.set_rules(&s, rules);
             Ok(hub.session_summary(&s))
         }
+        method::AGENT_SESSION_TURN_PREPARE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            while s.turn().is_some() {
+                s.wait_queue_moved().await;
+            }
+            Ok(json!({"session": s.id, "turn": prompt_id}))
+        }
         method::MUX_SET_TURN_CAP => {
             let s = hub.resolve(session_key(&params)?)?;
             if let Some(value) = params.get("turnCapMs") {
