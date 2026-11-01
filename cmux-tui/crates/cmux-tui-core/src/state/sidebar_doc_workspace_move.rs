@@ -46,7 +46,9 @@ pub(crate) fn move_ops(
         return Vec::new();
     };
     // An app section's items are its provider's: the reducer refuses a move there.
-    if doc.section(&item.section).is_none_or(|section| matches!(section.kind, SectionKind::App { .. }))
+    if doc
+        .section(&item.section)
+        .is_none_or(|section| matches!(section.kind, SectionKind::App { .. }))
     {
         return Vec::new();
     }

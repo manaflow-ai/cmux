@@ -148,13 +148,15 @@ fn a_move_reorders_a_nested_group_member() {
     .unwrap();
     let inner = item_of(&mux, &c).2.expect("c is in Inner");
     assert_ne!(inner, outer, "c is not in the nested group");
-    let ids = [a.as_str(), b.as_str(), c.as_str()];
+    // Made last at the bottom: it lists after the group, not before its members.
+    let d = empty_workspace(&mux, "d");
+    let ids = [a.as_str(), b.as_str(), c.as_str(), d.as_str()];
     assert_eq!(shown(&mux, &ids), ids, "the nested members list at their group's place");
 
     mutate(&mux, "workspace.move", json!({"workspace": c, "index": 0}), "c-top");
     assert_eq!(
         shown(&mux, &ids),
-        [a.as_str(), c.as_str(), b.as_str()],
+        [a.as_str(), c.as_str(), b.as_str(), d.as_str()],
         "c is not first in its nested group"
     );
     assert_eq!(item_of(&mux, &c).2, Some(inner), "the move took c out of its nested group");
