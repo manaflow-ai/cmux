@@ -175,7 +175,6 @@
   line-height: var(--ds-control-icon);
   letter-spacing: var(--text-control--letter-spacing);
   white-space: nowrap;
-  cursor: pointer;
 }
 .cv-held__approve {
   font-weight: 600;
@@ -247,7 +246,6 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text-dim);
-  cursor: pointer;
 }
 .cv-declined__line:hover {
   color: var(--cv-text-muted);
