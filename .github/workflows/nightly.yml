@@ -1124,7 +1124,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - &legacy-route-shared-2
+      - &select-xcode
         name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -1330,8 +1330,7 @@ jobs:
             echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
           } >> "$GITHUB_ENV"
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
@@ -4303,7 +4302,7 @@ jobs:
           fi
           CMUX_PARSE_ROOT="$PWD" "$checker" "$workflow"
 
-      - *legacy-route-shared-2
+      - *select-xcode
       - name: Download prepared app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -5127,8 +5126,7 @@ jobs:
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Download signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5261,7 +5259,7 @@ jobs:
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
       - *legacy-route-shared-5
-      - *legacy-route-shared-2
+      - *select-xcode
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5506,8 +5504,7 @@ jobs:
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         run: bash scripts/ci/init-submodule.sh ghostty-next
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -5750,7 +5747,7 @@ jobs:
       - name: Parse signing and notarize scripts with /bin/bash 3.2
         run: ./scripts/ci/check-bash32-parse.sh .github/workflows/nightly.yml
 
-      - *legacy-route-shared-2
+      - *select-xcode
       - *set-up-node
 
       - name: Install create-dmg
@@ -5823,8 +5820,7 @@ jobs:
       - *checkout-default
 
       - *legacy-route-shared-5
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Download the recovered variant
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -5943,8 +5939,7 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Check the states
         run: python3 scripts/cmux-next/visual-gate/capture_states.py --check scripts/cmux-next/visual-gate/states
@@ -6958,7 +6953,7 @@ jobs:
   # the legacy control. This picker holds only the routing App key, never release keys.
   pick-legacy-identity-runner:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner]
-    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    if: &legacy-identity-enabled "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     environment: ci-routing-agent
     continue-on-error: true
@@ -7021,15 +7016,14 @@ jobs:
     # re-sign and notarization must never consume the signing cap or delay the
     # primary appcast. A pending continuation still uses the published feed path.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, publish-nightly, pick-nightly-sign-runner, pick-legacy-identity-runner]
-    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    if: *legacy-identity-enabled
     # Only for the release App credentials (CMUX_RELEASE_APP_*), which live in this environment;
     # it runs only on nightly-next, the environment's one deployment branch.
     environment: release-next
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
-    # Consume only a fresh pick for this attempt; a failed-jobs retry does not reuse
-    # a fleet observation from an earlier attempt. Paid overflow retains its moving picker.
+    # Fresh fleet observation per attempt, then moving paid overflow.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.runs_on || needs.pick-legacy-identity-runner.outputs.attempt == github.run_attempt && needs.pick-legacy-identity-runner.outputs.overflow || needs.pick-legacy-identity-runner.outputs.alternate || github.run_attempt > 1 && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 65
     permissions:
@@ -7401,8 +7395,7 @@ jobs:
     steps:
       - *checkout-default
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode
 
       - name: Download the stapled cmux NIGHTLY DMG
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -7820,7 +7813,7 @@ jobs:
 
       - *wait-through-github-api-rate-l
 
-      - *legacy-route-shared-2
+      - *select-xcode
       - name: Download published variant
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
