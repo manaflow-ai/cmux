@@ -278,8 +278,10 @@ fn explains(original: &str) -> bool {
 
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
-/// thing). `original` is Claude's own text, kept at the end.
-pub fn explain(session_id: &str, original: &str) -> Option<String> {
+/// thing). `original` is Claude's own text, kept at the end. `cloud`: this
+/// machine is a cmux Cloud VM (`cloud_host.rs`), signed in from the Mac: the
+/// text says only that ([`compose_cloud`]), never a terminal's sign-in.
+pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> {
     if !explains(original) {
         return None;
     }
@@ -288,6 +290,9 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
         let agent = find(&agent_env);
+        if cloud {
+            return compose_cloud(&agent, original);
+        }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
         compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
@@ -311,6 +316,30 @@ fn rc_file(shell: Option<&str>) -> &'static str {
         Some("fish") => "~/.config/fish/config.fish",
         _ => "~/.zshrc",
     }
+}
+
+/// A Cloud machine's sign-in failure: what the agent had, and the one way to sign it in, the
+/// Mac's "Set up Claude Code credentials" on the failed turn (the turn card's button). No
+/// terminal, no shell file and no fallback route: the person is not on this machine (Leo,
+/// 2026-10-31: "STOP USING CODEROUTER").
+fn compose_cloud(agent: &Found, original: &str) -> String {
+    let mut out = String::from("Claude is not signed in here.");
+    if agent.signed_in() {
+        out.push_str(&format!(
+            " This Cloud machine had {}, and Claude did not accept it.",
+            list(&agent.sources)
+        ));
+    } else {
+        out.push_str(&format!(
+            " This Cloud machine has no Claude sign-in (Claude home {}).",
+            tilde(&agent.home)
+        ));
+    }
+    out.push_str(
+        " Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again.",
+    );
+    out.push_str(&format!(" (Claude said: {})", original.trim()));
+    out
 }
 
 fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str) -> String {
@@ -387,6 +416,32 @@ mod tests {
         assert!(!super::explains("HTTP 503: OAuth token has expired"));
         assert!(!super::explains("connection error: Not logged in"));
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
+
+    /// A Cloud machine's sign-in failure says how to sign it in from the Mac, and nothing about
+    /// a terminal, a shell file or the CodeRouter.
+    #[test]
+    fn a_cloud_machine_says_only_how_to_sign_it_in() {
+        let none = super::Found {
+            home: dirs::home_dir().unwrap_or_default().join(".claude"),
+            custom_home: false,
+            sources: vec![],
+            endpoint: None,
+            env_keys: vec![],
+        };
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login");
+        assert!(text.starts_with("Claude is not signed in here."), "{text}");
+        assert!(text.contains("no Claude sign-in (Claude home ~/.claude)"), "{text}");
+        assert!(text.contains("Set up Claude Code credentials"), "{text}");
+        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+        for word in ["terminal", "zshrc", "ANTHROPIC_API_KEY", "CodeRouter", "router", "fallback"] {
+            assert!(!text.contains(word), "{word}: {text}");
+        }
+        // Not explained twice.
+        assert!(!super::explains(&text));
+        let had = super::Found { sources: vec!["a Claude.ai login".into()], ..none };
+        let text = super::compose_cloud(&had, "API Error: 401 OAuth token has expired");
+        assert!(text.contains("had a Claude.ai login, and Claude did not accept it"), "{text}");
     }
 
     /// Only a revoked token is one: not an expired or missing sign-in, nor an outage.

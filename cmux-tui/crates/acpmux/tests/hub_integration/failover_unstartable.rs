@@ -212,3 +212,23 @@ async fn a_failover_whose_fallback_fails_to_start_moves_the_chat_back_with_its_c
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// On a Cloud machine no failover goes to the local CodeRouter, and the turn's error names none:
+/// the machine is signed in from the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
+#[tokio::test]
+async fn a_cloud_machine_never_falls_over_onto_the_coderouter_nor_names_it() {
+    let root = scratch("cloud");
+    let (hub, mut c) = setup(&root, None, Some("cmux")).await;
+    hub.config.write().await.cloud_host = true;
+    let id = new_chat(&mut c, "cloud", None).await;
+    let err = prompt(&mut c, &id, "hello").await.expect_err("the primary died on the prompt");
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["harness"], "primary", "{err}");
+    assert!(err.contains("Not logged in"), "{err}");
+    assert!(!err.contains("CodeRouter"), "{err}");
+    assert!(!err.contains("acpmux router serve"), "{err}");
+    assert!(!err.contains("fallback profile"), "{err}");
+    assert!(records(&hub, &id, "failover").is_empty(), "{:?}", records(&hub, &id, "failover"));
+    assert!(records(&hub, &id, "failover_skipped").is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+}

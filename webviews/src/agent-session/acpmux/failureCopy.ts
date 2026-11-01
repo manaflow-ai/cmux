@@ -173,8 +173,10 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
 /// never on a team machine's missing account, which CodeRouter itself refused.
+/// Never on a Cloud machine's chat either: it is signed in from the Mac (Set up credentials), and runs
+/// no CodeRouter (Leo, 2026-10-31: "STOP USING CODEROUTER").
 export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
-  if (route?.harness === "claude-cr") return false;
+  if (route?.harness === "claude-cr" || route?.hostKind === "cloud") return false;
   return kind === "invalid-key" || kind === "subscription-login" || kind === "auth" || kind === "rate-limited";
 }
 
