@@ -321,6 +321,12 @@
     "nightly-next-launch-smoke.yml#smoke": "apple-gui",
     "nightly-next-train.yml#build": "apple-app-build",
     "nightly.yml#build-nightly-app": "apple-app-build",
+    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks"},
+    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
+    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
+    "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
+    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
+    "nightly.yml#decide": {"class": "portable-checks"},
     "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
     "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks"},
@@ -427,11 +433,12 @@
   },
   "hosted_light_jobs": {
     "$comment": [
+      "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
       "Same-repository nightly jobs may use GitHub-hosted Ubuntu only during their declared bootstrap route.",
       "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
     ],
-    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap"},
-    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker"},
+    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
+    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
     "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks", "reason": "client reuse lookup"},
     "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks", "reason": "helper reuse lookup"},
     "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks", "reason": "recovery lookup"},
