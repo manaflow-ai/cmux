@@ -42,6 +42,9 @@ pub struct FsGate;
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
         frame_command(frame).is_some()
+            || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
+                !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
+            })
     }
 }
 

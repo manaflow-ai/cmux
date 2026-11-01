@@ -9,9 +9,10 @@
 //!
 //! Lock order is unchanged: workspace registry -> registry connection ->
 //! state. While it waits for the receipt the request thread holds the
-//! registry (topology writers stay serialized) and may hold state, but never
-//! the connection: the writer needs it, and the writer takes neither the
-//! registry nor state (`server-stats` `write_path.writer_registry_locks`).
+//! registry (topology writers stay serialized), but never state (its readers
+//! must not queue behind the disk) and never the connection (the writer
+//! needs it). The writer takes neither the registry nor state (`server-stats`
+//! `write_path.writer_registry_locks`).
 //!
 //! An indeterminate receipt (the writer admitted the batch, the result did
 //! not arrive in time) is kept on the connection with the state update the
@@ -217,18 +218,38 @@ impl RegistryConnection {
     /// It holds the `unsettled` mutex across the wait. Callers must hold the
     /// workspace registry (all do): the writer takes neither the registry
     /// nor this mutex, so the wait cannot form a cycle.
+    ///
+    /// A thread that holds the connection lock never waits here: the writer
+    /// needs the connection to commit. It only takes the answers that came.
+    /// [`crate::Mux::lock_state_pinned`] waits before it pins and settles
+    /// what arrived, but an answer can still arrive between that settle and
+    /// this call (the writer drops the connection, then sends its receipts).
+    /// The caller's state does not hold that commit yet, so a pinned caller
+    /// is refused instead of building on it; the next request settles it.
     pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
         let mut unsettled =
             self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let deadline = std::time::Instant::now() + UNSETTLED_DRAIN_WAIT;
+        let held = self.is_held_by_current_thread();
+        let wait = if held { std::time::Duration::ZERO } else { UNSETTLED_DRAIN_WAIT };
+        let deadline = std::time::Instant::now() + wait;
         for entry in unsettled.iter_mut().filter(|entry| entry.resolved.is_none()) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
-            entry.resolved = entry.pending.wait_take(left);
+            entry.resolved = if left.is_zero() {
+                entry.pending.try_take()
+            } else {
+                entry.pending.wait_take(left)
+            };
             anyhow::ensure!(
                 entry.resolved.is_some(),
-                "an earlier session journal registry commit is still indeterminate; retry"
+                "an earlier session journal registry commit is still unanswered; this request is retryable: retry now"
             );
         }
+        // A pinned caller's state was settled when it pinned: an answer that
+        // committed since is not in it.
+        anyhow::ensure!(
+            !(held && unsettled.iter().any(|entry| matches!(entry.resolved, Some(Ok(_))))),
+            "an earlier session journal registry commit landed after this request read state; this request is retryable: retry now"
+        );
         Ok(())
     }
 
@@ -266,18 +287,15 @@ impl WorkspaceRegistry {
         &mut self,
         intent: RegistryIntent,
     ) -> anyhow::Result<RegistryReceipt> {
-        self.commit_registry_intent_with(intent, || {}, None)
+        self.commit_registry_intent_with(intent, None)
     }
 
-    /// [`Self::commit_registry_intent`] for a caller that holds state on a
-    /// pinned connection. `release_pin` drops that pin once the intent goes
-    /// to the writer (the caller keeps state across the receipt wait; the
-    /// writer takes neither the registry nor state). `settle` is the state
-    /// update to apply if the receipt is indeterminate and arrives later.
+    /// [`Self::commit_registry_intent`] with `settle`, the state update to
+    /// apply if the receipt is indeterminate and arrives later. The caller
+    /// holds neither state nor the connection: it waits for the receipt.
     pub(crate) fn commit_registry_intent_with(
         &mut self,
         intent: RegistryIntent,
-        release_pin: impl FnOnce(),
         settle: Option<SettleState>,
     ) -> anyhow::Result<RegistryReceipt> {
         // Every prepare drains earlier indeterminate commits first (bounded),
@@ -287,13 +305,18 @@ impl WorkspaceRegistry {
         let Some(sink) = self.connection.accepting_sink().cloned() else {
             return self.commit_registry_intent_locally(&intent);
         };
-        release_pin();
         // A thread that still holds the connection (an outer pin or guard)
         // would block the writer it waits for: commit locally instead. The
         // request_effect_commits counter makes any such caller visible.
         if self.connection.is_held_by_current_thread() {
             return self.commit_registry_intent_locally(&intent);
         }
+        // No request waits for the disk while it holds the mux state lock:
+        // every state reader would queue behind this receipt.
+        debug_assert!(
+            !registry_connection::current_thread_holds_state(),
+            "a request waits for a journal writer receipt while it holds the mux state lock"
+        );
         match sink.send(intent) {
             EffectSend::Sent(Ok(receipt)) => Ok(receipt),
             EffectSend::Sent(Err(error)) => {

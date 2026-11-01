@@ -228,10 +228,30 @@ fn forget_oldest(subs: &mut HashMap<String, Sub>) -> Vec<(String, Failure)> {
         .collect()
 }
 
+/// The error as the prompt quotes it, at most [`MAX_ERROR_CHARS`].
+fn clip_error(error: &str) -> String {
+    error.chars().take(MAX_ERROR_CHARS).collect()
+}
+
+/// A queued resume as a queue list names it (`QueuedPromptSummary.subagentRetry`): from its
+/// `subagent_retry` provenance, else `None` (any other prompt, or one an edit made the person's).
+pub(super) fn listed(
+    provenance: Option<&Value>,
+) -> Option<crate::protocol::session::QueuedSubagentRetry> {
+    let p = provenance.filter(|p| is_retry(Some(p)))?;
+    let text =
+        |k: &str| p.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
+    Some(crate::protocol::session::QueuedSubagentRetry {
+        agent_id: text("agentId")?,
+        name: text("name"),
+        error: text("error"),
+    })
+}
+
 /// The prompt the parent's agent gets.
 fn retry_text(name: Option<&str>, agent_id: &str, error: &str) -> String {
     let name = name.map(|n| format!("\"{n}\" ")).unwrap_or_default();
-    let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
+    let error = clip_error(error);
     format!(
         "Your subagent {name}(agent id {agent_id}) failed on a transient upstream error \
          ({error}). Resume it with SendMessage to \"{agent_id}\": it picks up from its \
@@ -777,6 +797,13 @@ impl Hub {
         });
         opts.prompt_id = Some(wait.prompt_id.clone());
         opts.on_accepted = Some(on_accepted);
+        // What a queue list names it by (`listed`): the subagent and the error, beside its ids.
+        if let Some(provenance) = opts.provenance.as_mut().and_then(Value::as_object_mut) {
+            if let Some(name) = name {
+                provenance.insert("name".to_owned(), json!(name));
+            }
+            provenance.insert("error".to_owned(), json!(clip_error(&failure.error)));
+        }
         let text = retry_text(name, &failure.agent_id, &failure.error);
         let blocks = vec![json!({"type": "text", "text": text})];
         self.prompt_with(session, blocks, "acpmux", false, opts).await
@@ -965,6 +992,29 @@ mod tests {
         assert!(text.contains("only if that resume fails"), "{text}");
         let long = "x".repeat(1000);
         assert!(retry_text(None, "a", &long).len() < 700);
+    }
+
+    #[test]
+    fn a_queue_list_names_a_resume_by_its_provenance_and_nothing_else() {
+        let p = json!({"kind": PROVENANCE_KIND, "subagentId": "s/t2", "agentId": "a8e1", "attempt": 1,
+            "name": "Push \"relay\"", "error": "API Error: 503"});
+        let resume = listed(Some(&p)).expect("a resume");
+        assert_eq!(resume.agent_id, "a8e1");
+        assert_eq!(resume.name.as_deref(), Some("Push \"relay\""));
+        assert_eq!(resume.error.as_deref(), Some("API Error: 503"));
+        // An older record with no name or error still names the agent.
+        let bare =
+            json!({"kind": PROVENANCE_KIND, "subagentId": "s/t2", "agentId": "a8e1", "attempt": 1});
+        assert_eq!(listed_name(&bare), (Some("a8e1".to_owned()), None));
+        // The person's prompt (no provenance, or a teammate's) and an agent's message are none.
+        assert!(listed(None).is_none());
+        assert!(listed(Some(&json!({"kind": "person_message", "from": "u-2"}))).is_none());
+        assert!(listed(Some(&json!({"kind": "agent_message", "from": "acp:x"}))).is_none());
+    }
+
+    fn listed_name(p: &Value) -> (Option<String>, Option<String>) {
+        let l = listed(Some(p));
+        (l.as_ref().map(|l| l.agent_id.clone()), l.and_then(|l| l.name))
     }
 
     /// A retry prompt skipped after it went out never starts; others start, the same prompt

@@ -17,6 +17,8 @@
 // --windows  window sizes for window mode: 16x9 (default), all, or presets / <w>x<h>
 // --layouts  pane layouts for window mode: one (default), all, or one|two|agent-right
 // --widths   pane widths for component mode: normal (default), all, or narrow|normal|wide|<px>
+// --backgrounds  none (default: an opaque window), all, or none|light|dark|busy: the stage over a
+//            synthetic picture behind the window's glass (src/gallery/frame/background.ts)
 // --limit    at most N cases (after the order above)
 // --experiments  instead of the matrix above: for each entry with an experiment, one measured case
 //            per arm (`measure=1`: the script at 1x, frame timings in the results) and a frame strip
@@ -24,7 +26,7 @@
 import fs from "node:fs";
 import { parseArgs } from "node:util";
 import { readChromeMetrics, readShippedThemes } from "../../dev-server/galleryHost";
-import { LOCALES, PSEUDO_LOCALES, WIDTHS, widthPx, type WidthName } from "../../src/gallery/env";
+import { BACKGROUNDS, LOCALES, PSEUDO_LOCALES, WIDTHS, widthPx, type WidthName } from "../../src/gallery/env";
 import { stageHeight, type GalleryEntry } from "../../src/gallery/format";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark } from "../../src/gallery/theme/ghostty";
 import { entryPaneSize, PANE_LAYOUTS, WINDOW_PRESETS } from "../../src/gallery/window";
@@ -60,6 +62,7 @@ export type ManifestOptions = {
   frame?: "window" | "component";
   windows?: string;
   layouts?: string;
+  backgrounds?: string;
   limit?: number;
   experiments?: boolean;
   sourcePaths?: ReadonlyMap<string, string>;
@@ -108,6 +111,10 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
     frame === "window"
       ? windows.flatMap((window) => layouts.map((layout) => ({ window, layout })))
       : widths.map((width) => ({ width }));
+  const backgrounds = options.backgrounds === "all" ? [...BACKGROUNDS] : list(options.backgrounds ?? "none");
+  for (const name of backgrounds)
+    if (!(BACKGROUNDS as readonly string[]).includes(name))
+      throw new Error(`no gallery background ${JSON.stringify(name)}`);
   const cases: ManifestCase[] = [];
   for (const entry of entries.filter((candidate) => matches(candidate.id, options.entries ?? []))) {
     if (entry.host === "native") continue;
@@ -117,44 +124,63 @@ export function manifestCases(entries: GalleryEntry[], options: ManifestOptions 
     ))
       for (const locale of locales)
         for (const theme of themes)
-          for (const shape of shapes) {
-            const colorScheme = themeIsDark(byName.get(theme)!) ? "dark" : "light";
-            const base = {
-              entry: entry.id,
-              variant,
-              locale,
-              theme,
-              colorScheme,
-              ...(options.sourcePaths?.get(entry.id) ? { source: options.sourcePaths.get(entry.id)! } : {}),
-            };
-            if ("window" in shape) {
-              // The viewport is the surface's real pane size in that window (nothing native drawn).
-              const size = entryPaneSize(shape.window, shape.layout as never, "comfortable", readChromeMetrics());
-              const id = [entry.id, variant, locale, theme, shape.window, shape.layout]
-                .join("--")
-                .replace(/[^A-Za-z0-9._-]+/g, "_");
-              cases.push({
-                id,
-                path_or_url: "frame.html",
-                params: {
-                  ...base,
-                  frame: "window",
-                  window: shape.window,
-                  layout: shape.layout,
-                  width: size.width,
-                  height: size.height,
-                },
-              });
-            } else {
-              const px = widthPx(shape.width, presets);
-              const id = [entry.id, variant, locale, theme, `w${px}`].join("--").replace(/[^A-Za-z0-9._-]+/g, "_");
-              cases.push({
-                id,
-                path_or_url: "frame.html",
-                params: { ...base, frame: "component", width: px, height: stageHeight(entry, variant) },
-              });
+          for (const shape of shapes)
+            for (const background of backgrounds) {
+              const colorScheme = themeIsDark(byName.get(theme)!) ? "dark" : "light";
+              const base = {
+                entry: entry.id,
+                variant,
+                locale,
+                theme,
+                colorScheme,
+                ...(background !== "none" ? { background } : {}),
+                ...(options.sourcePaths?.get(entry.id) ? { source: options.sourcePaths.get(entry.id)! } : {}),
+              };
+              if ("window" in shape) {
+                // The viewport is the surface's real pane size in that window (nothing native drawn).
+                const size = entryPaneSize(shape.window, shape.layout as never, "comfortable", readChromeMetrics());
+                const id = [
+                  entry.id,
+                  variant,
+                  locale,
+                  theme,
+                  shape.window,
+                  shape.layout,
+                  ...(background !== "none" ? [`bg-${background}`] : []),
+                ]
+                  .join("--")
+                  .replace(/[^A-Za-z0-9._-]+/g, "_");
+                cases.push({
+                  id,
+                  path_or_url: "frame.html",
+                  params: {
+                    ...base,
+                    frame: "window",
+                    window: shape.window,
+                    layout: shape.layout,
+                    width: size.width,
+                    height: size.height,
+                  },
+                });
+              } else {
+                const px = widthPx(shape.width, presets);
+                const id = [
+                  entry.id,
+                  variant,
+                  locale,
+                  theme,
+                  `w${px}`,
+                  ...(background !== "none" ? [`bg-${background}`] : []),
+                ]
+                  .join("--")
+                  .replace(/[^A-Za-z0-9._-]+/g, "_");
+                cases.push({
+                  id,
+                  path_or_url: "frame.html",
+                  params: { ...base, frame: "component", width: px, height: stageHeight(entry, variant) },
+                });
+              }
             }
-          }
   }
   return options.limit ? cases.slice(0, options.limit) : cases;
 }
@@ -194,6 +220,7 @@ if (import.meta.main) {
       frame: { type: "string" },
       windows: { type: "string" },
       layouts: { type: "string" },
+      backgrounds: { type: "string" },
       limit: { type: "string" },
       experiments: { type: "boolean", default: false },
       out: { type: "string" },
@@ -212,6 +239,7 @@ if (import.meta.main) {
       frame: values.frame === "component" ? "component" : "window",
       windows: values.windows,
       layouts: values.layouts,
+      backgrounds: values.backgrounds,
       limit: values.limit ? Number(values.limit) : undefined,
       sourcePaths: new Map(loaded.map(({ entry, path }) => [entry.id, path])),
     },

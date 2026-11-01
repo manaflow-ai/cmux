@@ -44,7 +44,7 @@ function* documents(blocks: readonly MdBlock[]): Generator<Artifact> {
 }
 
 /// The documents the chat's finished replies drew as fences the panel can open, oldest first, each
-/// text once (the Inspector's Outputs lists them).
+/// text once (Session Info's Outputs lists them).
 export function chatDocuments(replies: readonly string[]): Artifact[] {
   const seen = new Set<string>();
   const found: Artifact[] = [];

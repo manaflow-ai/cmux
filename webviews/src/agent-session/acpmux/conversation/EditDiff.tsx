@@ -10,7 +10,7 @@ import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 
 /// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
 /// first script parses without Pierre (bd cx-z9kz0). The header shows at once; the page starts the
@@ -24,10 +24,9 @@ function useFindInFile(file: TurnFile) {
   const reveal = useContext(FindReveal);
   const text = useMemo(
     () =>
-      file.edits
-        .flatMap((edit) => edit.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text)))
-        .join("\n")
-        .toLocaleLowerCase(),
+      foldFind(
+        file.edits.flatMap((edit) => edit.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text))).join("\n"),
+      ),
     [file],
   );
   const hit = Boolean(
