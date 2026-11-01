@@ -386,6 +386,14 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        // A held prompt names its hold to the peer: a link guest's waits with `approval` left
+        // off here, which a peer that reads only `approval` would run unapproved.
+        if held
+            && let Some(author) =
+                p.pointer_mut("/_meta/acpmux/author").and_then(Value::as_object_mut)
+        {
+            author.insert("approval".into(), json!(crate::author::APPROVAL_OWNER));
+        }
         if m == method::SESSION_CANCEL {
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
@@ -592,7 +600,8 @@ async fn forward_inner(
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails; so does a held prompt or an
         // answer to one, on the link that listed `queueApproval`.
-        let on = if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
+        let on =
+            if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,

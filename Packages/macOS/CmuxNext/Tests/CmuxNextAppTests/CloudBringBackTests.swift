@@ -13,7 +13,7 @@ import Testing
 /// Bring Back Local (cmuxterm-hq#1874 slice 4) at the app boundary: a chat moved to a Cloud machine
 /// with `cmux cloud move` comes back with `cmux cloud bring-back`, both sent as the CLI sends them
 /// to the app's real action registry. This Mac and the machine are two real cmux-tui daemons, as
-/// in ``CloudMoveTests``; `cmux link seed push, link sync pull` and `cmux link agent move` are a stand-in
+/// in ``CloudMoveTests``; `cmux link seed push, link seed pull` and `cmux link agent move` are a stand-in
 /// `cmux` that records its arguments and answers as the case asks. The Rust suites cover those
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
@@ -27,7 +27,7 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = trip.calls()
             #expect(calls.count == 4, "\(calls)")
-            #expect(calls.dropFirst(2).first == ["link", "sync", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced])
+            #expect(calls.dropFirst(2).first == ["link", "seed", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced, "--or-copy"])
             // A running turn moves too, with what it wrote on the machine since the pull.
             #expect(calls.dropFirst(3).first == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
                                                  "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
@@ -206,7 +206,7 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = Array(trip.calls().dropFirst(before))
             #expect(calls.first == ["link", "machine", "update", "--socket", trip.vmSocket], "\(calls)")
-            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
         }
     }
@@ -506,7 +506,7 @@ struct CloudBringBackTests {
                 for target in "$@"; do :; done
                 mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
-            "link sync pull")
+            "link seed pull")
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated","missing":["fs-v1"],"machine_build":"0000old"}'; exit 1 ;;

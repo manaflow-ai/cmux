@@ -231,15 +231,18 @@ impl Hub {
             // Waiting for the owner, and approved at the revision it waits with.
             let (mut held, mut approved_waiting) = (Vec::new(), Vec::new());
             for q in waiting.into_records() {
-                if q.msg.get("awaitingOwner").and_then(Value::as_bool) != Some(true) {
+                // A link guest's record waits whatever it says (`author::awaits_owner`), as a
+                // restore here holds it; an older target reads only `awaitingOwner`.
+                if q.msg.get("awaitingOwner").and_then(Value::as_bool) != Some(true)
+                    && !crate::author::awaits_owner(q.msg.pointer("/_meta/provenance"))
+                {
                     continue;
                 }
                 let Some(id) = q.msg.get("promptId").and_then(Value::as_str) else { continue };
                 let is_approved = q.msg.get("turnId").and_then(Value::as_str).is_some_and(|turn| {
-                    q.msg
-                        .get("revision")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|revision| approved.get(turn) == Some(&revision))
+                    // A record from before revisions is revision 0, as a restore reads it.
+                    let revision = q.msg.get("revision").and_then(Value::as_u64);
+                    approved.get(turn) == Some(&revision.unwrap_or(0))
                 });
                 if is_approved { &mut approved_waiting } else { &mut held }.push(id.to_owned());
             }

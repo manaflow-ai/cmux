@@ -860,6 +860,8 @@ GALLERY_KEYS = ("fresh", "known", "slow")
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -893,6 +895,8 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
     return result
 
 
