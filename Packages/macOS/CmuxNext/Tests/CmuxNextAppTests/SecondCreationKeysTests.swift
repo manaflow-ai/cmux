@@ -599,4 +599,78 @@ struct SecondCreationKeysTests {
             #expect(inOrder, "the two runs held for the evicted terminal did not arrive as typed (61 62 0d 63 64): \(screen.suffix(300))")
         }
     }
+
+    /// Every creation replied while the new terminal's view did not have the keyboard yet (the window was its first
+    /// responder), so the reply's flush kept the hold. Then the terminal takes the keyboard: the line typed for it, and a
+    /// line typed after it, run there at once, never after the hold's bound (perf extraction item 4: on the perf branch a
+    /// hold kept every key for 2 s when no settle came after the terminal had the keyboard). The bound is set long, so a
+    /// line that waits for it shows as missing, not as late.
+    @Test func keysAfterTheReplyRunAtOnceWhenTheNewTerminalTakesTheKeyboard() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            coordinator.holdLimit = .seconds(60)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let surfaceView = try #require(p.services.cache.existingTerminal(p.first.tab)?.session.surfaceView)
+            p.window.makeFirstResponder(nil) // the new terminal's view does not have the keyboard yet
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            let heldBefore = try Self.type("echo r1x\(nonce)x$((6*7))\r", in: p)
+            try #require(heldBefore.allSatisfy { $0 }, "the test needs the line typed before the reply held: \(heldBefore)")
+            coordinator.resolve(creation, landed: true, in: p.window)
+            try await Task.sleep(for: .milliseconds(300)) // the reply's flush ran; the terminal could not take the keys
+            try #require(coordinator.isHolding(in: p.window), "the test needs the hold kept by the reply's flush: \(Self.describe(p.content, p.window, p.services))")
+
+            // The terminal takes the keyboard, and the person types the next line.
+            p.window.makeFirstResponder(surfaceView)
+            _ = try Self.type("echo r2x\(nonce)x$((6*7))\r", in: p)
+
+            // What the person sees: both lines ran in the new terminal, in order, long before the hold's bound.
+            let first = try await Self.ranWithin("r1x\(nonce)x42", on: p.first.surface, seconds: 3, in: p)
+            let second = try await Self.ranWithin("r2x\(nonce)x42", on: p.first.surface, seconds: 3, in: p)
+            let screen = await Self.screen(p.first.surface, in: p)
+            let other = await Self.screen(p.second.surface, in: p)
+            #expect(first, "the line typed before the reply did not run in the new terminal within 3 s: \(screen.suffix(300))")
+            #expect(second, "the line typed after the terminal took the keyboard did not run there within 3 s: \(screen.suffix(300))")
+            if let a = screen.range(of: "r1x\(nonce)x42"), let b = screen.range(of: "r2x\(nonce)x42") {
+                #expect(a.lowerBound < b.lowerBound, "the two lines ran out of order: \(screen.suffix(300))")
+            }
+            #expect(!other.contains("x\(nonce)x"), "a line typed for the new terminal ran in the other one: \(other.suffix(300))")
+        }
+    }
+
+    /// The focus landed on a creation that has not replied yet, and the person typed a line for it, then pressed Cmd-W on
+    /// it. The line never runs in the terminal that gets the focus after the close (perf extraction item 4: the close
+    /// branch read only the focus expectation, so with the focus already landed it force-ran the held keys into whatever
+    /// had the keyboard).
+    @Test func cmdWOnACreationTheFocusLandedOnNeverRunsItsKeysInAnotherTerminal() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            coordinator.holdLimit = .seconds(60)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            // The creation of the first terminal is still pending, and the focus already names its tab (no expectation).
+            _ = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            try #require(p.content.focus.state.expectation == nil && p.content.focus.state.resolved == .terminal(pane: p.first.pane.paneKey, tab: p.first.tab),
+                         "the test needs the focus landed on the creation's tab: \(p.content.focus.state.resolved)")
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            _ = try Self.type("echo c1x\(nonce)x$((6*7))\r", in: p)
+            _ = try Self.press("w", .command, keyCode: 13, in: p)
+
+            // The close runs; the focus goes to the other terminal. What the person sees there: none of the line.
+            try await PinnedPageTests.until({ !p.content.panes.values.contains { $0 === p.first.pane } || p.first.pane.pane.tabs.isEmpty },
+                                            within: .seconds(20), report: { "Cmd-W did not close the first terminal: \(Self.describe(p.content, p.window, p.services))" })
+            try await Task.sleep(for: .seconds(1)) // a held line run into the other terminal would show by now
+            let other = await Self.screen(p.second.surface, in: p)
+            #expect(!other.contains("c1x\(nonce)"), "the line typed for the closed terminal ran in the other one: \(other.suffix(300))")
+        }
+    }
+
+    /// Whether `marker` shows on `surface` within `seconds` (polls read-screen; a narrow pane wraps lines).
+    private static func ranWithin(_ marker: String, on surface: SurfaceID, seconds: Double, in p: Panes) async throws -> Bool {
+        let deadline = ContinuousClock.now + .milliseconds(Int(seconds * 1000))
+        repeat {
+            if await screen(surface, in: p).replacingOccurrences(of: "\n", with: "").contains(marker) { return true }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ContinuousClock.now < deadline
+        return false
+    }
 }
