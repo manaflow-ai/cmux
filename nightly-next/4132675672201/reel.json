@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4132675672201",
+  "notes": "notes/4132675672201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31117,
+      "title": "base red: compile, #31087's test Link class is fileprivate so the @Observable macro can name it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31070,
+      "title": "fix(icon-picker): a late image or URL pick is dropped when a newer session opened",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31126,
+      "title": "New Tab headline: name the machine and folder the chat really starts in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28617,
+      "title": "the permission-mode menu lists only the modes; grants are revoked in Session Info (carry #28580)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31097,
+      "title": "base red: panic ratchet, #30921's and #30923's index reads use checked forms",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30673,
+      "title": "Agent chat: a reply's html/svg fence draws as a sandboxed inline preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31103,
+      "title": "base red: crash ratchet, #30920's speech task carries its safety reason as a reviewed crash-allow",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31125,
+      "title": "New Tab headline names the machine too: \"What should we work on in cmux on studio-mini?\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30915,
+      "title": "fix(close): a workspace close ends on the daemon's reply, not the 2 s client deadline",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31114,
+      "title": "base red: SidebarCmdNumberTwiceTests compares the model with the layout the window draws (App Store hidden by default since #26138)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31104,
+      "title": "fix(bench): launch the bundle's CFBundleExecutable; close-flash launches through BenchApp",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31105,
+      "title": "Chief: say what changed build to build and what is worth trying (whats-new skill)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28773,
+      "title": "cmux NEXT: Session Info's Usage and the sidebar hover card show what each session spends (carry #27923)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
