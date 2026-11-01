@@ -33,6 +33,8 @@ pub(super) struct OpenWork {
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
+    /// The person's own prompt started that turn (`turn_started` `persons`, `inbox.rs`).
+    turn_persons: bool,
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
     carry_next: Option<(String, Value)>,
@@ -595,14 +597,29 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
-        self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        // The status after recovery, not before it: set before, `ready` was logged and shown
+        // between `host_adopted` and a turn the host still runs (an idle chat that was working).
+        // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
+        // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
+        // also have ended by now; a permission asked again), it stands. Else the status loaded from
+        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // something still asks the person, `ready` otherwise, read under the permissions lock
+        // that an answer takes.
+        if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
+            self.set_status(session, status);
+            drop(state);
+        }
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
@@ -866,6 +883,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    // The open turn is still the person's own on a new harness (`turn_started`).
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -896,6 +914,7 @@ impl Hub {
                         e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.carry_next = None;
                     work.next_raised = false;
                     work.heard_at = 0;
@@ -934,6 +953,7 @@ impl Hub {
                     work.turn = None;
                     work.turn_line = None;
                     work.turn_carried = false;
+                    work.turn_persons = false;
                     work.next_raised = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
@@ -1188,6 +1208,10 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
+                        // As logged (`turn_started` `persons`); an older record's takes notices.
+                        persons: work.turn_persons,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not

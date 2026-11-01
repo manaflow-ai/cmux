@@ -118,10 +118,15 @@ public struct CloudWorkspaceSetupWizard {
         case available
         case teamMachine
         case unsupportedCloudRoute
+        /// This build does not copy the Mac's login (the shipping app): the person signs in on the
+        /// machine, from its chat's sign-in.
+        case signInOnMachine
 
         /// Shared team machines never receive personal credentials through this flow.
-        public static func resolve(teamID: String?, supportsFileRoute: Bool) -> CredentialAvailability {
+        /// `passesLogin`: this build copies the Mac's login at all (DEV and dogfood).
+        public static func resolve(teamID: String?, supportsFileRoute: Bool, passesLogin: Bool = true) -> CredentialAvailability {
             guard teamID == nil else { return .teamMachine }
+            guard passesLogin else { return .signInOnMachine }
             return supportsFileRoute ? .available : .unsupportedCloudRoute
         }
     }
@@ -306,6 +311,8 @@ private enum CloudWorkspaceSetupWizardStrings {
             String(localized: "cloud.workspaceSetup.credentialsTeamUnavailable", defaultValue: "Personal provider credentials stay off shared team VMs because they share a home folder.", table: "Cloud", bundle: .module)
         case .unsupportedCloudRoute:
             String(localized: "cloud.workspaceSetup.credentialsRouteUnavailable", defaultValue: "Provider credential setup is unavailable with this Cloud connection.", table: "Cloud", bundle: .module)
+        case .signInOnMachine:
+            String(localized: "cloud.workspaceSetup.credentialsSignInOnMachine", defaultValue: "Sign in to Claude or Codex on the VM itself: its chat offers a one-click sign-in.", table: "Cloud", bundle: .module)
         }
     }
 

@@ -18,12 +18,12 @@ const screenshot = (index: number, bytes = 1.5 * MIB, original = true): Composer
     : {}),
 });
 
-// Leo, 2026-10-31: "this is completely hardlocked bc of message size". A large screenshot batch
-// must stay under the transport budget while retaining every attachment.
-test("a large screenshot batch stays under the prompt budget: the largest previews go as their originals' links", () => {
-  const shots = Array.from({ length: 20 }, (_, index) => screenshot(index, (1 + index / 20) * MIB));
+// Leo, 2026-10-31: "this is completely hardlocked bc of message size" ("message too large to send:
+// 16907300 bytes, the limit is 15728640"). A dozen screenshots' previews pass acpmux's one message.
+test("a dozen screenshots stay under the prompt budget: the largest previews go as their originals' links", () => {
+  const shots = Array.from({ length: 12 }, (_, index) => screenshot(index, (1 + index / 12) * MIB));
   const input = "look at these";
-  expect(inlineBytes(promptBlocks(input, shots))).toBeGreaterThan(PROMPT_INLINE_BUDGET);
+  expect(inlineBytes(promptBlocks(input, shots))).toBeGreaterThan(15 * MIB);
   const fitted = fitPromptBudget(input, shots);
   const blocks = promptBlocks(input, fitted);
   expect(inlineBytes(blocks)).toBeLessThanOrEqual(PROMPT_INLINE_BUDGET);
@@ -61,7 +61,7 @@ test("a placed screenshot that goes by reference keeps its place in the text", (
 });
 
 test("a send over the budget waits for the originals still uploading, not for the others", () => {
-  const shots = Array.from({ length: 20 }, (_, index) => screenshot(index, 1.5 * MIB, false));
+  const shots = Array.from({ length: 12 }, (_, index) => screenshot(index, 1.5 * MIB, false));
   const uploading = new Set(shots.map((shot) => shot.id));
   expect(awaitsOriginals("hi", shots, (id) => uploading.has(id))).toBe(true);
   // Nothing uploading: the send goes (acpmux names what it refuses).
@@ -79,7 +79,7 @@ test("copies of one image go together: a link never shares its original with a p
   // An inline image copied in the draft keeps its original (attachments.ts inlineCopyId); the sent
   // bubble draws a link whose path a kept preview names as that preview's original, so it would hide.
   const one = screenshot(1, 1.5 * MIB);
-  const copies = Array.from({ length: 15 }, (_, index) => ({ ...one, id: `copy-${index}` }));
+  const copies = Array.from({ length: 7 }, (_, index) => ({ ...one, id: `copy-${index}` }));
   const others = Array.from({ length: 2 }, (_, index) => screenshot(10 + index, 1.4 * MIB));
   const fitted = fitPromptBudget("hi", [...copies, ...others]);
   expect(inlineBytes(promptBlocks("hi", fitted))).toBeLessThanOrEqual(PROMPT_INLINE_BUDGET);

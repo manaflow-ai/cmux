@@ -16,7 +16,8 @@ export type CmuxCommand = SlashCommand & {
     | "fork"
     | "btw"
     | "side"
-    | "status";
+    | "status"
+    | "cd";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -30,6 +31,10 @@ const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set(["model", "fast"
 export function harnessTakesToo(command: CmuxCommand): boolean {
   return HARNESS_TOO.has(command.action);
 }
+
+/// A command's own sentence for a refusal that comes after its async work (`/cd` to a path the
+/// host says is no folder); the composer shows it in place of the generic one.
+export class CmuxCommandRefused extends Error {}
 
 /** A command handler may return a user-facing refusal while keeping the draft in the field. */
 export type CmuxCommandResult = boolean | void | string | typeof CMUX_PASS_THROUGH | Promise<unknown>;
@@ -107,6 +112,14 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "status",
   },
+  {
+    name: "cd",
+    description: "",
+    descriptionKey: "composer.slashCd",
+    hint: "<folder>",
+    source: "cmux",
+    action: "cd",
+  },
 ];
 
 /// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
@@ -160,13 +173,26 @@ export function commandArgs(text: string, command: SlashCommand): string | undef
 
 export type HarnessTarget = { id: string; name: string };
 
-/** Catalog entries that can receive a continuation from the currently shown harness. */
+/** Catalog entries that can receive a continuation from the currently shown harness. The daemon
+ *  refuses a target of the source's own family (`same_harness`, hub/handoff/ops.rs), so another
+ *  profile of that family (a router profile of Claude, say) is no target either. */
 export function continueTargets<T extends HarnessTarget>(
-  catalog: readonly (T & { pickable?: boolean; unavailable?: string })[],
+  catalog: readonly (T & { pickable?: boolean; unavailable?: string; family?: string })[],
   currentHarness: string | undefined,
+  sourceFamily?: string,
 ): T[] {
   if (!currentHarness) return [];
-  return catalog.filter((target) => target.id !== currentHarness && target.pickable !== false && !target.unavailable);
+  const familyOf = (entry: { id: string; family?: string }) => entry.family ?? entry.id;
+  // A running session keeps its family when its catalog profile is reloaded. Match the
+  // daemon's persisted-family fallback, rather than inferring from the mutable catalog.
+  const currentFamily = sourceFamily ?? currentHarness;
+  return catalog.filter(
+    (target) =>
+      target.id !== currentHarness &&
+      familyOf(target) !== currentFamily &&
+      target.pickable !== false &&
+      !target.unavailable,
+  );
 }
 
 /** Resolves the target typed after `/continue` by id or its visible catalog name. */
@@ -215,6 +241,10 @@ export function cmuxCommandRefusal(
     session: boolean;
     isSideSession: boolean;
     targets: readonly HarnessTarget[];
+    /// The chat's folder, which `/cd` reads a relative path against (undefined: none reported).
+    cwd?: string;
+    /// New Tab, whose own project chip picks its folder.
+    newTab?: boolean;
   },
 ): StringKey | undefined {
   switch (command.action) {
@@ -227,6 +257,9 @@ export function cmuxCommandRefusal(
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
+    case "cd":
+      if (state.newTab) return "composer.cmuxCdNewTab";
+      return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
     case "side":
       return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
     case "fork":
@@ -240,4 +273,25 @@ export function cmuxCommandRefusal(
       if (!args?.trim()) return "composer.cmuxBtwQuestion";
       return state.session && !state.isSideSession ? undefined : "composer.cmuxUnavailable";
   }
+}
+
+/// The folder `/cd <folder>` names: an absolute path as typed, or one relative to the chat's folder
+/// (`..`, `./src`, `src`), with `.` and `..` resolved and no trailing slash. Undefined when it
+/// cannot be read here: `~` (the host's home is not the pane's to spell) or a relative path with
+/// no chat folder to read it against.
+export function cdFolder(args: string | undefined, cwd: string | undefined): string | undefined {
+  let typed = args?.trim() ?? "";
+  // A path pasted in quotes, as a shell would take it.
+  if (typed.length >= 2 && (typed[0] === '"' || typed[0] === "'") && typed.at(-1) === typed[0])
+    typed = typed.slice(1, -1).trim();
+  if (!typed || typed.startsWith("~")) return undefined;
+  const base = typed.startsWith("/") ? "" : cwd;
+  if (base === undefined || (base && !base.startsWith("/"))) return undefined;
+  const parts: string[] = [];
+  for (const part of `${base}/${typed}`.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return `/${parts.join("/")}`;
 }

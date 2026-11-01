@@ -129,7 +129,7 @@ impl HostedReader {
         if let Some((offset, at_bottom)) = scroll_changed {
             pty.frame_requests.defer_scroll(offset, at_bottom);
         }
-        pty.request_frame(generation);
+        pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()
         {

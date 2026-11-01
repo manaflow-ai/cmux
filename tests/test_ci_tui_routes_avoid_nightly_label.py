@@ -26,6 +26,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 
@@ -36,7 +37,7 @@ PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
 DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
 LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
 PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
-LINUX_DAEMON_LABEL = "blacksmith-32vcpu-ubuntu-2404"
+LINUX_DAEMON_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones

@@ -21,14 +21,18 @@ import { isDeniedPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { useHoverCard } from "./useHoverCard";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
 export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
   const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
-  // Another machine's file: never asked about or opened here (chips/messageScope.ts).
-  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
+  // Another machine's file: never asked about or opened here (chips/messageScope.ts). A read-only
+  // reader's every path is on the owner's machine.
+  if (scope?.host !== undefined || readOnly)
+    return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
   return <HostPathChip path={path} label={label} written={written} />;
 }
 

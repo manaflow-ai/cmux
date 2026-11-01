@@ -15,6 +15,13 @@ import { callOutput, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 
+/** The text Find compares: case-folded, and as long as it was, so a match's offset in the folded text
+ * is its offset in what the page draws. `İ` (U+0130) lowercases to two code units (`i` and a
+ * combining dot), which moved every highlight after it one character; it folds to `i` instead.
+ * `toLowerCase` and not `toLocaleLowerCase`, whose result follows the host's locale (Lithuanian
+ * expands more letters, Turkish folds `I` to `ı`): a query matches the same text on every machine. */
+export const foldFind = (text: string) => text.replace(/\u0130/g, "i").toLowerCase();
+
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
 
@@ -93,7 +100,7 @@ const searchableActivityTextCache = new WeakMap<AcpmuxActivity, string>();
 function searchableActivityText(item: AcpmuxActivity): string {
   const cached = searchableActivityTextCache.get(item);
   if (cached !== undefined) return cached;
-  const text = activityText(item).toLocaleLowerCase();
+  const text = foldFind(activityText(item));
   searchableActivityTextCache.set(item, text);
   return text;
 }
@@ -113,7 +120,8 @@ const searchableTextCache = new WeakMap<AcpmuxRow, string | undefined>();
 
 function searchableText(row: AcpmuxRow): string | undefined {
   if (searchableTextCache.has(row)) return searchableTextCache.get(row);
-  const text = rowText(row)?.toLocaleLowerCase();
+  const raw = rowText(row);
+  const text = raw === undefined ? undefined : foldFind(raw);
   searchableTextCache.set(row, text);
   return text;
 }
@@ -124,7 +132,7 @@ export function findMatchesIncremental(
   query: string,
   previous?: FindMatchesCache,
 ): FindMatchesResult {
-  const needle = query.toLocaleLowerCase();
+  const needle = foldFind(query);
   if (!needle) {
     return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
   }
@@ -340,7 +348,7 @@ export function paintFindHighlights(
 ): Range | undefined {
   const highlights = registry();
   const Highlight = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
-  const needle = query.toLocaleLowerCase();
+  const needle = foldFind(query);
   if (!highlights || !Highlight || !needle) {
     clearFindHighlights();
     return undefined;
@@ -372,10 +380,7 @@ export function paintFindHighlights(
       const pair = presentation?.dataset.findPrimary ?? presentation?.dataset.findFallback;
       const kind = presentation?.hasAttribute("data-find-primary") ? "primary" : "fallback";
       const counts = pair === undefined ? undefined : alternatives.get(pair);
-      const text = nodes
-        .map((node) => node.textContent ?? "")
-        .join("")
-        .toLocaleLowerCase();
+      const text = foldFind(nodes.map((node) => node.textContent ?? "").join(""));
       for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
         const range = document.createRange();
         const [startNode, startAt] = nodeAt(nodes, at, false);

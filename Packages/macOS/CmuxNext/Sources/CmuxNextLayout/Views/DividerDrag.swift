@@ -34,6 +34,7 @@ struct DividerDrag {
             drag.pressAt = drag.axis == .horizontal ? raw.x : raw.y
             drag.lastRaw = drag.pressAt
             screen.activeDrag = drag
+            screen.columnWidths.drop() // a person's drag sets widths on purpose (R3b)
             model.setGestureActive(true)
         case let .moved(windowPoint, flags):
             guard screen.activeDrag != nil else { return }

@@ -3,8 +3,8 @@
 This is the analysis that the repository's "Remote CLI relay" rule asks for
 (`skills/cmux-socket-policy/references/remote-relay-authorization.md`). It
 covers every path by which a phone reaches this Mac through `cmux-mobile-host`. Each
-path goes through one link service: `daemon`, `chief`, `acpmux`, `file`,
-`upload`, or `echo`, and, when the app supervises hostd, only after the
+path goes through one link service: `daemon`, `chief`, `acpmux`, `cloud-directory`,
+`cloud-acpmux`, `file`, `upload`, or `echo`, and, when the app supervises hostd, only after the
 `auth` pairing service (below) accepted the phone.
 Any other service is refused with `unknown_service`.
 
@@ -101,6 +101,44 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
   the answer.
 - **Unowned objects.** The phone sees only the owner's acpmux sessions.
 - **Local state.** Transcripts belong to the owner.
+
+## `cloud-directory` and `cloud-acpmux`: authenticated Cloud chat
+
+`cloud-directory` asks the signed-in Mac app for a fresh snapshot of its
+authenticated owner CloudLinkSession objects. It returns only machine id, team
+id and display name. Socket paths, ownership markers and link tickets never
+reach the phone. Duplicate machine/team entries are omitted so a stale or
+conflicting link cannot be selected.
+
+`cloud-acpmux` accepts a machine id and team id from that directory and asks
+the app for another fresh snapshot. Hostd requires exactly one matching owner
+link and an absolute socket path supplied by the app. It performs the normal
+native client handshake on that machine's existing daemon carrier (the Cloud
+app server has already dialed it). Rust hostd maps the supported ACP calls to
+`list-workspaces` and typed `agent-session-attach/events/prompt/cancel/detach`
+commands. Surface ids come only from the daemon's stored agent tabs, never
+from phone arguments. Prompt ids are preserved, and pages/live records are
+forwarded without synthesizing transcript entries or sequence numbers. Native
+request ids are distinct from phone ids, with a bounded pending map and expiry;
+stream routing is indexed by surface rather than scanning the session list.
+
+Hostd first requires `identify` to advertise `cloud-mobile-chat-v1`; accepting
+`set-client-info` alone does not establish that an older VM enforces this policy.
+Before every prompt, including on an attached chat, the adapter reads a fresh
+session summary and refuses missing or unknown modes, non-asking modes, and an
+acpmux enforcement policy other than `ask`. Its preflight accepts Claude
+`default`/`plan` and Codex `ask` only. History remains readable in other modes.
+
+This preflight is not atomic VM authorization. Shipping requires the VM's
+mobile-capability implementation to enforce the authenticated owner, actual
+harness profile and asking-mode floor at dispatch, through the queue and for
+the active turn. The adapter cannot establish a Codex bridge profile from its
+mode name, or prevent a concurrent mode change by itself. No Mac approval
+signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
+commands are unsupported on this service. Hostd never opens a phone-supplied
+path, accepts an arbitrary service, or treats the carrier as a local-owner
+connection. Sign-out stops the supervised hostd and its channels; each new
+channel needs a fresh app snapshot.
 
 ## `file`: read-only previews
 

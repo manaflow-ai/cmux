@@ -97,11 +97,36 @@ pub(super) struct ProcessTable {
     /// The last log record the table holds.
     through: u64,
     processes: Vec<Process>,
+    /// Stable slots in `processes`: entries never move, even when an update replaces one.
+    by_id: std::collections::HashMap<String, usize>,
+    /// First process with a tool-call ID (the historical Vec::position behavior).
+    by_tool: std::collections::HashMap<String, usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
 }
 
+#[cfg(test)]
+#[path = "processes_index_tests.rs"]
+mod process_index_tests;
+
 impl ProcessTable {
+    /// All appends go here, including records replayed from a logged process update.
+    fn insert(&mut self, process: Process) -> usize {
+        let at = self.processes.len();
+        self.by_id.insert(process.id.clone(), at);
+        self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        self.processes.push(process);
+        at
+    }
+
+    fn find_tool(&self, tool: &str) -> Option<usize> {
+        self.by_tool.get(tool).copied()
+    }
+
+    fn find_id(&self, id: &str) -> Option<&Process> {
+        self.by_id.get(id).and_then(|&at| self.processes.get(at))
+    }
+
     /// Folds in the params of one `background_task_update` record, and the
     /// output file the update named (`take_output_file`); returns the
     /// process when it changed. A process ends once: a later end or
@@ -126,7 +151,7 @@ impl ProcessTable {
             _ if with_harness => ProcessState::Lost,
             _ => ProcessState::Killed,
         };
-        let found = self.processes.iter().position(|p| p.tool_call_id == tool);
+        let found = self.find_tool(tool);
         let i = match found {
             Some(i) => i,
             None => {
@@ -134,7 +159,7 @@ impl ProcessTable {
                     self.unused_id(format!("{}/{}", session.id, text("taskId").unwrap_or(tool)));
                 let meta = session.meta();
                 let subagent = params.pointer("/_meta/acpmux/subagent").and_then(Value::as_str);
-                self.processes.push(Process {
+                let process = Process {
                     id,
                     session_id: session.id.clone(),
                     subagent_session_id: subagent.map(str::to_owned),
@@ -154,8 +179,8 @@ impl ProcessTable {
                     output_bytes: None,
                     output_file: None,
                     logged: false,
-                });
-                self.processes.len() - 1
+                };
+                self.insert(process)
             }
         };
         // The output file may be named late (Claude's notification): it is
@@ -195,7 +220,7 @@ impl ProcessTable {
     /// `id`, or `id-2`, `id-3`, ... when a process already has it (a task id
     /// a later harness used again).
     fn unused_id(&self, id: String) -> String {
-        let taken = |id: &str| self.processes.iter().any(|p| p.id == id);
+        let taken = |id: &str| self.by_id.contains_key(id);
         if !taken(&id) {
             return id;
         }
@@ -209,12 +234,36 @@ impl ProcessTable {
         }
     }
 
-    /// A logged `process_update`: the record as it was decided wins.
+    /// A logged `process_update`: the record as it was decided wins. A rare
+    /// replacement with a changed tool ID keeps the *first* matching row in the index.
     fn upsert(&mut self, mut process: Process) {
         process.logged = true;
-        match self.processes.iter_mut().find(|p| p.id == process.id) {
-            Some(p) => *p = process,
-            None => self.processes.push(process),
+        if let Some(at) = self.by_id.get(&process.id).copied()
+            && let Some(slot) = self.processes.get_mut(at)
+        {
+            let new_tool = process.tool_call_id.clone();
+            let old_tool = std::mem::replace(slot, process).tool_call_id;
+            if old_tool == new_tool {
+                return;
+            }
+            if self.by_tool.get(&old_tool) == Some(&at) {
+                // A logged row can correct its tool-call ID. Repoint the old key to
+                // its next occurrence, if any; this exceptional correction may scan.
+                match self.processes.iter().position(|p| p.tool_call_id == old_tool) {
+                    Some(next) => {
+                        self.by_tool.insert(old_tool, next);
+                    }
+                    None => {
+                        self.by_tool.remove(&old_tool);
+                    }
+                }
+            }
+            self.by_tool
+                .entry(new_tool)
+                .and_modify(|first| *first = (*first).min(at))
+                .or_insert(at);
+        } else {
+            self.insert(process);
         }
     }
 
@@ -253,7 +302,7 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
     processes
         .into_iter()
         .filter_map(|mut process| {
-            process.output_bytes = process.output_file.as_deref().map(|path| length(path));
+            process.output_bytes = process.output_file.as_deref().map(&length);
             serde_json::to_value(process).ok()
         })
         .collect()
@@ -393,7 +442,7 @@ impl Hub {
                 // change is logged here, once. The log has no output file,
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
-                let i = table.processes.iter().position(|p| Some(p.tool_call_id.as_str()) == tool);
+                let i = tool.and_then(|tool| table.find_tool(tool));
                 let p = i.map(|i| &mut table.processes[i]);
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
@@ -477,8 +526,7 @@ impl Hub {
         let session = self.process_session(id)?;
         let (file, running) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id);
-            let p = p.ok_or_else(|| unknown_process(id))?;
+            let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
             }
@@ -521,7 +569,7 @@ impl Hub {
         }
         let (task, running, subagent) = {
             let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
+            let p = table.find_id(id).ok_or_else(unknown)?;
             (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
         if !running {
