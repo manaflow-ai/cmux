@@ -388,10 +388,9 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       const row = page.locator(".cv-thinking", { hasText: "Run make" });
       await row.first().waitFor();
       const named = await row.count();
-      // The call ends: between steps the live line times the turn from the prompt ("Thinking 5s"),
-      // moved onto this computer's clock.
+      // The call ends: the live line holds it until the next step and times the turn from the
+      // prompt ("Run make 5s"), moved onto this computer's clock, as it did while the call ran.
       send(3, "tool_call_update", { toolCallId: "t1", status: "completed" });
-      await row.first().waitFor({ state: "detached" });
       const time = page.locator(".cv-worked.is-below .cv-worked__time");
       await time.waitFor();
       const label = (await time.textContent()) ?? "";
