@@ -35,6 +35,14 @@ extension CmuxSidebarView {
     /// host's gate allows it. When false the change applies in one frame.
     static var animatesMovement: Bool { !reducesMotion && (movementGate?() ?? true) }
 
+    /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`, so calm mode, the speed
+    /// `off` and Home's motion switch also stop them); nil: only Reduce Motion decides. A Chief's
+    /// avatar loop (``SidebarAvatarMotion``) runs only while it allows.
+    public static var avatarLoopGate: (@MainActor () -> Bool)?
+
+    /// How a Chief's avatar moves (the host's Debug setting); a change applies on the next `show`.
+    public static var avatarMotionStyle = CmuxSidebarAvatarMotionStyle.float
+
     /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at
     /// once on the main thread (a test's pin change applies before it returns), else on the main
     /// queue's next turn.
@@ -48,18 +56,25 @@ extension CmuxSidebarView {
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.applyReduceMotion() } }
             }
         }
+        // An avatar's loop also stops while the app is inactive and while a window is covered or
+        // hidden, and starts again when it shows (SidebarAvatarMotion's stop conditions).
+        let center = NotificationCenter.default
         return [
             NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil, using: apply),
-            NotificationCenter.default.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
+            center.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil, using: apply),
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: nil, using: apply),
+            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: nil, using: apply),
         ]
     }
 
-    /// Stills (or restarts) every typing bubble in the list.
+    /// Stills (or restarts) every typing bubble and Chief avatar loop in the list.
     func applyReduceMotion() {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
             if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
+            if let row = layer as? SidebarRowLayer { SidebarAvatarMotion.refresh(row.avatar, window: window) }
             layers += layer.sublayers ?? []
         }
     }

@@ -20,12 +20,15 @@ final class HomeReduceMotion {
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
+        // A Chief's avatar in the list loops only while Home's loops run (calm mode, speed off, the switch).
+        CmuxSidebarView.avatarLoopGate = { Motion.home.animatesLoops }
         motion = Motion.changes.subscribe { change in
             switch change {
             case .reduceMotion: HomeReduceMotion.mirror()
             case .speed:
                 HomeReduceMotion.mirror()
                 NotificationCenter.default.post(name: MessagesLabHomeView.reduceMotionDidChange, object: nil)
+                NotificationCenter.default.post(name: CmuxSidebarView.reduceMotionDidChange, object: nil)
             // The vendored views read the system setting themselves.
             case .systemReduceMotion: break
             }
