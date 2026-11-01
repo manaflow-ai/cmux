@@ -855,8 +855,10 @@ final class MeasureCache: @unchecked Sendable {
     /// id and text (a host marking a message later, a local echo) is a new measurement.
     /// `scale`: the asking view's render scale (text balloon widths end on its device pixels; two views at two
     /// scales keep their own measurements).
-    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
-    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
+    /// cmux: `columnZoom`, the Chief chat's `Metrics.columnZoom` as the measurement began: a zoom step changes the
+    /// column at the same width and scale (https://github.com/manaflow-ai/cmux/issues/28978).
+    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat; var columnZoom: CGFloat = 1 }
+    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat; var columnZoom: CGFloat = 1 }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
     /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are kept
@@ -939,8 +941,9 @@ final class MeasureCache: @unchecked Sendable {
             return Value(size: s, text: tl, width: width, estimated: est)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
-        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
+        let columnZoom = Metrics.columnZoom
+        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale, columnZoom: columnZoom)
+        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale, columnZoom: columnZoom)
         let streaming = StreamBubble.isStream(m.id)
         lock.lock()
         if let v = streaming ? streamStore[k] : store[k] { hits += 1; lock.unlock(); return v }
@@ -971,6 +974,8 @@ final class MeasureCache: @unchecked Sendable {
         misses += 1
         lock.unlock()
         let v = MeasureCache.measure(m, part, width: width, scale: scale)
+        // cmux: a zoom step during an off-main measurement wrapped it at another column; it is not stored under this key.
+        guard Metrics.columnZoom == columnZoom else { return v }
         lock.lock()
         store.updateValue(v, forKey: k) // dictionary writes
         latest.updateValue(v, forKey: pk)
