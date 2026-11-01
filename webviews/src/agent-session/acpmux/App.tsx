@@ -5340,7 +5340,10 @@ function AcpmuxPane() {
       }),
   );
   useSyncExternalStore(sandbox.subscribe, sandbox.snapshot);
-  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
+  /// Claude workflows (the transcript card, Session Info's workflows, the side tab) are on by
+  /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
+  /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
+  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(true);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
@@ -8954,10 +8957,7 @@ function AcpmuxPane() {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
-        // The host's existing Advanced > Labs event is the only producer today. Keep workflow
-        // visibility as its own state so the summary never changes environment rendering rules;
-        // a future workflowLabs event can target applyWorkflowLabs directly.
-        setWorkflowLabsEnabled(on === true);
+        // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
