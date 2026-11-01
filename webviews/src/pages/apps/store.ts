@@ -5,7 +5,15 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
+import {
+  decodeFile,
+  fromDetail,
+  listCatalog,
+  listInstalled,
+  listUpdates,
+  type DecodedFile,
+  type WireDetail,
+} from "./wire";
 import {
   categories,
   filterApps,
@@ -26,6 +34,18 @@ import {
   type Grants,
   type InstalledApp,
   type LogLine,
+  REJECT_REASON,
+  RegistryOps,
+  SIGNED_OUT,
+  type RegistryListing,
+  type RegistryListingsResult,
+  type RegistryMe,
+  type RegistrySubmission,
+  type RegistrySubmissionsResult,
+  type ReviewDecision,
+  type ReviewFileResult,
+  type ReviewQueueResult,
+  type ReviewSubmission,
   type WireAsset,
   type WireLogs,
 } from "./types";
@@ -34,6 +54,32 @@ export type Connection = "connecting" | "connected" | "disconnected";
 
 export type CatalogStatus = "loading" | "ready" | "error";
 export type DetailStatus = "idle" | "loading" | "ready" | "not-found" | "error";
+
+/** A registry read: `unavailable` when this host has no registry ops, `signed-out` without Cloud. */
+export type RegistryStatus = "idle" | "loading" | "ready" | "error" | "signed-out" | "unavailable";
+
+/** The community registry as the page sees it (custom-panes-DESIGN.md 6.4); the Cloud owns it. */
+export interface RegistrySnapshot {
+  me?: RegistryMe;
+  listings: RegistryListing[];
+  listingsStatus: RegistryStatus;
+  listingsError?: string;
+  submissions: RegistrySubmission[];
+  submissionsStatus: RegistryStatus;
+  submissionsError?: string;
+  queue: ReviewSubmission[];
+  queueStatus: RegistryStatus;
+  queueError?: string;
+  /** The app a Get or a submit is in flight for, or the submission a decision is in flight for. */
+  busy?: string;
+  /** The installed local app whose Submit for Review form is open. */
+  submitFor?: string;
+  /** The review queue's selected submission and its open file. */
+  reviewSelection?: string;
+  reviewFile?: { id: string; path: string; status: "loading" | "ready" | "error"; file?: DecodedFile; error?: string };
+  /** A client-side refusal on the review form (reject without a reason). */
+  reviewFormError?: string;
+}
 
 export interface AppsSnapshot {
   tab: StoreTab;
@@ -69,7 +115,18 @@ export interface AppsSnapshot {
   detailError?: string;
   connection: Connection;
   error?: string;
+  registry: RegistrySnapshot;
 }
+
+/** The registry before its first read, and for a snapshot built without one. */
+export const NO_REGISTRY: RegistrySnapshot = {
+  listings: [],
+  listingsStatus: "idle",
+  submissions: [],
+  submissionsStatus: "idle",
+  queue: [],
+  queueStatus: "idle",
+};
 
 const LOG_LINES = 200;
 
@@ -122,6 +179,7 @@ export class AppsStore {
       logs: {},
       loading: client !== null,
       connection: client ? "connecting" : "disconnected",
+      registry: { ...NO_REGISTRY, listingsStatus: client ? "loading" : "idle" },
     };
   }
 
@@ -174,7 +232,7 @@ export class AppsStore {
         if (lifetime !== this.lifetime) return;
         this.set(failure(error));
       }
-      if (lifetime === this.lifetime) await this.reload();
+      if (lifetime === this.lifetime) await Promise.all([this.reload(), this.loadRegistry(lifetime)]);
     } finally {
       if (lifetime === this.lifetime) this.starting = false;
     }
@@ -182,11 +240,14 @@ export class AppsStore {
 
   /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
   private onConnection(connected: boolean): void {
+    const lifetime = this.lifetime;
     if (!connected) {
       this.set({ connection: "disconnected", loading: false });
     } else if (this.snapshot.connection === "disconnected") {
       this.set({ connection: "connecting" });
+      if (lifetime !== this.lifetime) return;
       void this.reload();
+      void this.loadRegistry(lifetime);
     }
   }
 
@@ -202,6 +263,9 @@ export class AppsStore {
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
+    // The host may finish an accepted mutation after this page leaves. Its old reply must not
+    // publish, and a later start must not inherit a busy flag that reply can no longer clear.
+    if (this.snapshot.registry.busy) this.setRegistry({ busy: undefined });
   }
 
   /** Re-reads the catalog, installed list, and update list owned by the supervisor. */
@@ -556,6 +620,214 @@ export class AppsStore {
     if (reread) await this.reload();
   }
 
+  // The community registry. It is the Cloud's, not the supervisor's, so its reads are separate
+  // from `reload` (a catalog change does not reread it) and one failing never hides the catalog.
+
+  /** Reads who the person is, the approved listings, their submissions and, for a reviewer, the queue. */
+  async loadRegistry(lifetime = this.lifetime): Promise<void> {
+    const client = this.client;
+    if (!client || lifetime !== this.lifetime) return;
+    const [me, listings] = await Promise.all([
+      client.call<RegistryMe>(RegistryOps.me, {}).then(
+        (value) => ({ value, error: undefined as unknown }),
+        (error: unknown) => ({ value: undefined, error }),
+      ),
+      this.readRegistryListings(client, lifetime).then(
+        (value) => ({ value, error: undefined as unknown }),
+        (error: unknown) => ({ value: undefined, error }),
+      ),
+    ]);
+    if (lifetime !== this.lifetime) return;
+    // A `me` that fails signed out is a signed-out person, not an error.
+    const who: RegistryMe | undefined = me.value ?? (isCode(me.error, SIGNED_OUT) ? { signedIn: false } : undefined);
+    const patch: Partial<RegistrySnapshot> = {
+      me: who,
+      listings: listings.value?.listings ?? [],
+      listingsStatus: listings.value ? "ready" : registryStatus(listings.error),
+      listingsError: listings.value ? undefined : message(listings.error),
+    };
+    if (!who?.signedIn) {
+      patch.submissions = [];
+      patch.submissionsStatus = who ? "signed-out" : registryStatus(me.error);
+    }
+    if (!who?.reviewer) {
+      patch.queue = [];
+      patch.queueStatus = "idle";
+    }
+    this.setRegistry(patch);
+    if (lifetime !== this.lifetime) return;
+    await Promise.all([
+      who?.signedIn ? this.loadSubmissions(lifetime) : undefined,
+      who?.reviewer ? this.loadQueue(lifetime) : undefined,
+    ]);
+  }
+
+  /** Follow the registry's cursor so search includes apps beyond its first page. */
+  private async readRegistryListings(client: PageClient, lifetime: number): Promise<RegistryListingsResult> {
+    const listings: RegistryListingsResult["listings"] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await client.call<RegistryListingsResult>(RegistryOps.listings, cursor ? { cursor } : {});
+      if (lifetime !== this.lifetime) return { listings };
+      listings.push(...page.listings);
+      if (!page.cursor || seen.has(page.cursor)) return { listings };
+      seen.add(page.cursor);
+      cursor = page.cursor;
+    }
+  }
+
+  private async loadSubmissions(lifetime = this.lifetime): Promise<void> {
+    if (!this.client || lifetime !== this.lifetime) return;
+    this.setRegistry({ submissionsStatus: "loading", submissionsError: undefined });
+    if (lifetime !== this.lifetime) return;
+    try {
+      const result = await this.client.call<RegistrySubmissionsResult>(RegistryOps.submissions, {});
+      if (lifetime !== this.lifetime) return;
+      this.setRegistry({ submissions: result.submissions, submissionsStatus: "ready" });
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.setRegistry({ submissionsStatus: registryStatus(error), submissionsError: message(error) });
+    }
+  }
+
+  private async loadQueue(lifetime = this.lifetime): Promise<void> {
+    if (!this.client || lifetime !== this.lifetime) return;
+    this.setRegistry({ queueStatus: "loading", queueError: undefined });
+    if (lifetime !== this.lifetime) return;
+    try {
+      const result = await this.client.call<ReviewQueueResult>(RegistryOps.reviewQueue, {});
+      if (lifetime !== this.lifetime) return;
+      const selection = this.snapshot.registry.reviewSelection;
+      const kept = result.submissions.some((item) => item.id === selection);
+      this.setRegistry({
+        queue: result.submissions,
+        queueStatus: "ready",
+        reviewSelection: kept ? selection : undefined,
+        reviewFile: kept ? this.snapshot.registry.reviewFile : undefined,
+      });
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.setRegistry({ queueStatus: registryStatus(error), queueError: message(error) });
+    }
+  }
+
+  /**
+   * Get: the host downloads the approved bundle and hands it to the daemon (`cmux.registry.get`),
+   * then the ordinary install shows the native scopes sheet. A declined sheet is not an error.
+   */
+  async getListing(app: string, version: string): Promise<void> {
+    if (!this.client || this.snapshot.registry.busy) return;
+    const lifetime = this.lifetime;
+    this.setRegistry({ busy: app });
+    if (lifetime !== this.lifetime) return;
+    try {
+      await this.client.call(RegistryOps.get, { app, version });
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.setRegistry({ busy: undefined });
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
+      return;
+    }
+    if (lifetime !== this.lifetime) return;
+    try {
+      await this.intent(AppsOps.install, { app, grant_optional: false }, { reread: false });
+    } finally {
+      if (lifetime === this.lifetime) this.setRegistry({ busy: undefined });
+    }
+    // The app is in the catalog now, whether or not the person allowed the install.
+    if (lifetime === this.lifetime) await this.reload();
+  }
+
+  /** Opens or closes the Submit for Review form of an installed local app. */
+  toggleSubmit(app: string): void {
+    this.setRegistry({ submitFor: this.snapshot.registry.submitFor === app ? undefined : app });
+  }
+
+  /** Submit for Review: the host shows its native confirmation first (publishing is outward-facing). */
+  async submit(app: string, publisher: string, notes: string): Promise<void> {
+    if (!this.client || this.snapshot.registry.busy) return;
+    const lifetime = this.lifetime;
+    const params: Record<string, unknown> = { app, publisher: publisher.trim() };
+    if (notes.trim()) params.notes = notes.trim();
+    this.setRegistry({ busy: app });
+    if (lifetime !== this.lifetime) return;
+    try {
+      await this.client.call(RegistryOps.submit, params);
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.setRegistry({ busy: undefined });
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
+      return;
+    }
+    if (lifetime !== this.lifetime) return;
+    this.setRegistry({ busy: undefined, submitFor: undefined });
+    if (lifetime !== this.lifetime) return;
+    if (this.snapshot.error) this.set({ error: undefined });
+    await this.loadSubmissions(lifetime);
+  }
+
+  /** Selects a pending submission in the review queue; its files load on demand. */
+  selectReview(id: string | undefined): void {
+    if (id === this.snapshot.registry.reviewSelection) return;
+    this.setRegistry({ reviewSelection: id, reviewFile: undefined, reviewFormError: undefined });
+  }
+
+  /** Reads one file of a pending submission (`cmux.registry.review.file`) to show it as text. */
+  async openReviewFile(id: string, path: string): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.lifetime;
+    this.setRegistry({ reviewFile: { id, path, status: "loading" } });
+    const current = () => {
+      const open = this.snapshot.registry.reviewFile;
+      return lifetime === this.lifetime && open?.id === id && open.path === path;
+    };
+    if (!current()) return;
+    try {
+      const result = await this.client.call<ReviewFileResult>(RegistryOps.reviewFile, { id, path });
+      if (current()) this.setRegistry({ reviewFile: { id, path, status: "ready", file: decodeFile(result.base64) } });
+    } catch (error) {
+      if (current()) this.setRegistry({ reviewFile: { id, path, status: "error", error: message(error) } });
+    }
+  }
+
+  /**
+   * Approve or Reject. A reject needs a reason of 8 to 500 characters, checked here and again by
+   * the Cloud. An approve shows the host's native sheet first; a declined sheet is a no-op.
+   */
+  async decide(id: string, decision: ReviewDecision, reason: string): Promise<boolean> {
+    if (!this.client || this.snapshot.registry.busy) return false;
+    const lifetime = this.lifetime;
+    const text = reason.trim();
+    if (decision === "reject" && !validRejectReason(text)) {
+      this.setRegistry({ reviewFormError: "store.registry.reasonLength" });
+      return false;
+    }
+    this.setRegistry({ busy: id, reviewFormError: undefined });
+    if (lifetime !== this.lifetime) return false;
+    try {
+      // The app and version name the host's sheet; the Cloud decides by id.
+      const row = this.snapshot.registry.queue.find((q) => q.id === id);
+      const named = row ? { app: row.app, version: row.version } : {};
+      await this.client.call(RegistryOps.reviewDecide, { id, decision, reason: text, ...named });
+    } catch (error) {
+      if (lifetime !== this.lifetime) return false;
+      this.setRegistry({ busy: undefined });
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
+      return false;
+    }
+    if (lifetime !== this.lifetime) return false;
+    this.setRegistry({ busy: undefined, reviewSelection: undefined, reviewFile: undefined });
+    if (lifetime !== this.lifetime) return false;
+    if (this.snapshot.error) this.set({ error: undefined });
+    await this.loadQueue(lifetime);
+    return lifetime === this.lifetime;
+  }
+
+  private setRegistry(patch: Partial<RegistrySnapshot>): void {
+    this.set({ registry: { ...this.snapshot.registry, ...patch } });
+  }
+
   private set(patch: Partial<AppsSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
@@ -584,6 +856,24 @@ function updateFromInstalled(app: InstalledApp): AppUpdate[] {
         },
       ]
     : [];
+}
+
+/** A reject reason the Cloud accepts: 8 to 500 characters after trimming. */
+export function validRejectReason(reason: string): boolean {
+  // The Cloud's own count (UTF-16 length of the trimmed reason), so the page and server agree.
+  const length = reason.trim().length;
+  return length >= REJECT_REASON.min && length <= REJECT_REASON.max;
+}
+
+function isCode(error: unknown, code: string): boolean {
+  return isPageError(error) && error.code === code;
+}
+
+/** An older host without the registry ops shows no registry at all, not an error. */
+function registryStatus(error: unknown): RegistryStatus {
+  if (isCode(error, SIGNED_OUT)) return "signed-out";
+  if (isCode(error, "cmux.protocol.unknown_op")) return "unavailable";
+  return "error";
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {

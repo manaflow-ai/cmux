@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 
 use notify::Watcher as _;
 use notify::event::{AccessKind, AccessMode, EventKind};
@@ -68,12 +68,14 @@ impl Supervisor {
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
-    /// right after the read.
+    /// right after the read. Holds `catalog_updates` across the read and the
+    /// apply, so a registry update never interleaves with a reload.
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        let update = self.catalog_updates.lock().unwrap_or_else(PoisonError::into_inner);
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
         let next = before.of(&self.config.sources, &catalog);
@@ -117,6 +119,7 @@ impl Supervisor {
             outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
+        drop(update);
         self.emit(outs);
         next
     }
@@ -294,9 +297,7 @@ fn watch(
     // The customization folder may not exist yet: its parent is watched for it.
     let mut watched_customize = false;
     let arm = |watcher: &mut notify::RecommendedWatcher, watched_customize: &mut bool| {
-        if let Some(local) = local.as_ref().filter(|dir| dir.is_dir()) {
-            let _ = watcher.watch(local, notify::RecursiveMode::Recursive);
-        }
+        watch_local(watcher, local.as_deref());
         if let Some(dir) = customize.as_ref() {
             if !*watched_customize && dir.is_dir() {
                 *watched_customize = watcher.watch(dir, notify::RecursiveMode::Recursive).is_ok();
@@ -374,6 +375,20 @@ fn next_burst(
     }
 }
 
+/// Arms the local development directory on the background watcher thread.
+fn watch_local(watcher: &mut notify::RecommendedWatcher, local: Option<&Path>) {
+    let Some(local) = local else { return };
+    // Fresh profiles have no local apps yet. Create their configured root here,
+    // off the request thread, so the first pane written after startup is seen.
+    if let Err(error) = std::fs::create_dir_all(local) {
+        eprintln!("cmux-tui: cannot create local apps directory {}: {error}", local.display());
+        return;
+    }
+    if let Err(error) = watcher.watch(local, notify::RecursiveMode::Recursive) {
+        eprintln!("cmux-tui: cannot watch local apps directory {}: {error}", local.display());
+    }
+}
+
 /// Whether `event` can mean a watched file changed. A read is no change:
 /// inotify reports every open, and the reload's own reads open the watched
 /// folders and files, so waking on them read again in a loop that never
@@ -394,12 +409,10 @@ fn is_change(event: &notify::Result<notify::Event>, relevant: &dyn Fn(&Path) -> 
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-    use std::sync::mpsc::channel;
+    use super::*;
+    use std::time::Duration;
 
-    use notify::event::{AccessKind, AccessMode, DataChange, Event, EventKind, Flag, ModifyKind};
-
-    use super::{fingerprint, next_burst};
+    use notify::event::{DataChange, Event, Flag, ModifyKind};
 
     const ROOT: &str = "/apps/customize";
 
@@ -465,5 +478,52 @@ mod tests {
         let after = fingerprint(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert_ne!(before, after, "the content changed");
+    }
+
+    struct TestRoot(PathBuf);
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_first_local_pane_created_after_startup_emits_a_reload_event() {
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let root = TestRoot(std::env::temp_dir().join(format!("cmux-local-watch-{nonce:x?}")));
+        let local = root.0.join("state/apps/local");
+        assert!(!local.exists());
+        let (tx, rx) = channel();
+        let mut watcher = notify::recommended_watcher(move |event| {
+            let _ = tx.send(event);
+        })
+        .unwrap();
+        watch_local(&mut watcher, Some(&local));
+        let app = local.join("board");
+        std::fs::create_dir_all(app.join("web")).unwrap();
+        std::fs::write(app.join("web/index.html"), "<!doctype html><p>Board</p>").unwrap();
+        let manifest = json!({
+            "manifestVersion": 2, "id": "local/board", "name": "Board", "version": "0.1.0",
+            "description": "A synthetic board", "engines": { "cmux": "^2.0" },
+            "runtime": { "web": { "root": "web/" } },
+            "implements": { "cmux.pane/1": { "web": "web/index.html", "title": "Board" } },
+            "scopes": {}, "files": ["web/"]
+        });
+        std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+        let roots = watch_roots([Some(&local), None]);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let event = rx
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .expect("the first pane write must wake the local catalog watcher")
+                .expect("file event");
+            if event.paths.iter().any(|path| roots.iter().any(|root| path.starts_with(root))) {
+                break;
+            }
+        }
+        let catalog = catalog::load(&catalog::Sources { local: Some(local), ..Default::default() });
+        assert!(catalog.packages.contains_key("local/board"), "{:?}", catalog.rejected);
     }
 }

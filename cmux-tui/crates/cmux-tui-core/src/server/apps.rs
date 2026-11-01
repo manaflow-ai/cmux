@@ -116,6 +116,19 @@ enum Command {
     /// A fixed invalidation from the current verified agent_cli provider.
     #[serde(rename = "apps-agent-inventory-changed")]
     AgentInventoryChanged { demand_sequence: u64 },
+    /// A web pane's `cmux.call` (apps/web_calls.rs); the hosting app only.
+    #[serde(rename = "apps-web-call")]
+    WebCall {
+        app: String,
+        op: String,
+        #[serde(default)]
+        args: Value,
+        #[serde(default)]
+        idempotency_key: Option<String>,
+    },
+    /// One console line of a web pane; the hosting app only.
+    #[serde(rename = "apps-web-log")]
+    WebLog { app: String, level: String, message: String },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -318,6 +331,20 @@ pub(super) fn try_handle(
             )),
         ));
     }
+    // Only the app that hosts web panes speaks for one (custom-panes-DESIGN.md
+    // section 3): an agent or a page connection cannot act as an app.
+    if matches!(request.command, Command::WebCall { .. } | Command::WebLog { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.web.forbidden",
+                "only the cmux app that hosts the pane sends its calls",
+            )),
+        ));
+    }
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
@@ -407,6 +434,20 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
+        Command::WebCall { app, op, args, idempotency_key } => {
+            let writer = writer.clone();
+            supervisor.web_call(
+                &app,
+                &op,
+                args,
+                idempotency_key,
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::WebLog { app, level, message } => supervisor.web_log(&app, &level, &message),
         Command::ProviderRegister { families, inventory_watch } => {
             if inventory_watch {
                 supervisor.register_inventory_provider(client, claim_for(mux, client), families)
@@ -508,6 +549,38 @@ mod tests {
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
         }
+    }
+
+    /// A web pane's calls and console lines (custom-panes-DESIGN.md section 3)
+    /// come only from the cmux app that hosts the pane: never a CLI, a
+    /// self-declared app, or the verified app while it is bound to an agent.
+    #[test]
+    fn web_pane_commands_need_the_hosting_app() {
+        let mux = Mux::new_for_test("apps-web-hosting-app", SurfaceOptions::default());
+        let call = json!({ "id": 3, "cmd": "apps-web-call", "app": "local/board", "op": "workspace.list", "args": {} });
+        let log = json!({ "id": 4, "cmd": "apps-web-log", "app": "local/board", "level": "error", "message": "x" });
+        const WEB_FORBIDDEN: Option<&str> = Some("apps.web.forbidden");
+        for (kind, agent) in [(Some("cli"), false), (Some("app"), false), (None, false)] {
+            let (client, out) = connection(&mux, kind, agent);
+            for request in [call.clone(), log.clone()] {
+                assert_eq!(
+                    error_code(&mux, client, &out, request).as_deref(),
+                    WEB_FORBIDDEN,
+                    "{kind:?}"
+                );
+            }
+        }
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        for request in [call, log.clone()] {
+            assert_eq!(error_code(&mux, agent_app, &agent_out, request).as_deref(), WEB_FORBIDDEN);
+        }
+        // The hosting app passes the gate (the line then reaches the
+        // supervisor, or apps.unavailable in a daemon without an app host).
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        let code = error_code(&mux, app, &app_out, log);
+        assert!(code.as_deref() != WEB_FORBIDDEN, "{code:?}");
     }
 
     /// `user_origin_allowed` (the `client-hello` field) matches the door:

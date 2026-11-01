@@ -33,6 +33,9 @@ public final class AppsClient {
     public private(set) var rejections: [String: String] = [:]
     public private(set) var hostStates: [String: (state: AppHostState, reason: String?)] = [:]
     public private(set) var logs: [String: [AppLogLine]] = [:]
+    /// Counts the times each app's files changed on disk (a local app saved, an App
+    /// Store bundle replaced); a web pane reloads when its app's count moves.
+    public private(set) var fileRevisions: [String: Int] = [:]
     /// An `apps-list` of the current connection landed: until then no app is
     /// known, and surfaces show why instead of "not installed".
     public private(set) var hasList = false
@@ -46,13 +49,19 @@ public final class AppsClient {
     @ObservationIgnored var nextMount = 1
     /// Mount, unmount and user events go out one after another, in order.
     @ObservationIgnored var tail: Task<Void, Never>?
+    /// Web pane console lines go out one after another, in order.
+    @ObservationIgnored var webLogTail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    /// File events awaiting the catalog snapshot that describes those files.
+    @ObservationIgnored private var changedFiles: Set<String> = []
     /// The availability epoch the client last connected for (one `connected()` per epoch).
     @ObservationIgnored private var connectedEpoch: Int?
     /// Apps whose log is followed (followed again after a reconnect).
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
     static let logLimit = 500
+    /// `apps-changed` transactions that mean the app's files changed.
+    static let fileTransactions: Set<String> = ["local-reload", "registry-put"]
 
     public init(transport: any AppsTransport) {
         self.transport = transport
@@ -158,7 +167,10 @@ public final class AppsClient {
                 connectedEpoch = nil
                 disconnected()
             }
-        case .changed:
+        case let .changed(_, app, transaction):
+            if let app, let transaction, Self.fileTransactions.contains(transaction) {
+                changedFiles.insert(app)
+            }
             refresh()
         case let .scene(mountID, ops, reset):
             guard let model = mounts[mountID]?.model else { return }
@@ -180,8 +192,20 @@ public final class AppsClient {
         listing?.cancel()
         listing = Task { [weak self, transport] in
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
-            self?.projection.applyList(reply.apps, revision: reply.revision, request: request)
-            self?.hasList = true
+            guard let self else { return }
+            guard projection.applyList(reply.apps, revision: reply.revision, request: request) else {
+                // A concurrent confirmed mutation made this list stale. Its file events
+                // still need an accepted snapshot before an open pane can reload.
+                if !changedFiles.isEmpty { refresh() }
+                return
+            }
+            hasList = true
+            // A replacement may move the entry or tighten its policy. Publish the file
+            // revision only after its manifest is in the mirror. Cancelled lists leave
+            // these notifications for the next successful snapshot.
+            let changed = changedFiles
+            changedFiles.removeAll()
+            for app in changed { fileRevisions[app, default: 0] += 1 }
         }
     }
 

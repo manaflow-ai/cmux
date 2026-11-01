@@ -205,7 +205,7 @@ impl Supervisor {
     }
 }
 
-fn mint_key() -> String {
+pub(super) fn mint_key() -> String {
     let mut bytes = [0u8; 12];
     let _ = getrandom::fill(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()

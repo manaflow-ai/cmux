@@ -19,6 +19,7 @@ import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts
 import { GROUP_PAGE_ANY, GROUP_PAGE_PATH, groupLinkPage } from "./group-link-page.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { handleCloudAbandonedClear } from "./cloud-admin.ts"
+import { APP_REGISTRY_PREFIX, handleAppRegistry } from "./app-registry-routes.ts"
 import { handleTeamVmAdmin } from "./team-vm-admin.ts"
 import { handleTeamVmExport } from "./team-vm-export-route.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
@@ -55,6 +56,7 @@ export { HandDO } from "./hand-do.ts"
 import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
+export { AppRegistryDO } from "./app-registry-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 export { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
@@ -305,6 +307,8 @@ export default {
     if (url.pathname === UPSTASH_WORKFLOW_PATH && request.method === "POST") return handleUpstashChiefJob(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
+    // The reviewed app registry (custom-panes-DESIGN.md 6): public approved reads, person submits, reviewer decisions.
+    if (url.pathname.startsWith(APP_REGISTRY_PREFIX)) return handleAppRegistry(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
     if (tvmExport) return handleTeamVmExport(request, env, tvmExport[1]!, tvmExport[2]!)

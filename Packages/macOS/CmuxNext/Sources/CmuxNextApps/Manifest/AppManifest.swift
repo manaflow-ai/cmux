@@ -41,6 +41,12 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var sections: [AppImplementation] { implementations.filter(\.isSection) }
     /// The app's own page (`cmux.pane/1` rendered from a scene export), if any.
     public var scenePane: AppImplementation? { implementations.first { $0.isPane && $0.hasScene } }
+    /// The app's own page as a web pane (`cmux.pane/1` with `web`), if any.
+    public var webPane: AppImplementation? { implementations.first { $0.isPane && $0.hasWeb } }
+    /// `runtime.web.root`: the package folder a web pane may load files from.
+    public var webRoot: String? { raw["runtime"]?["web"]?["root"]?.stringValue }
+    /// `runtime.web.csp`: a policy the host adds to its own (it can only narrow it).
+    public var webCSP: String? { raw["runtime"]?["web"]?["csp"]?.stringValue }
     /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
     /// deployed instance (docs/app-store-platonic-ideal.md 7).
     public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }
@@ -79,7 +85,7 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
             return implements.sorted { $0.key < $1.key }.map { interface, entry in
                 AppImplementation(interface: interface, title: AppLocalizedText(json: entry["title"]), symbol: entry["symbol"]?.stringValue,
                                   export: entry["export"]?.stringValue, native: entry["native"]?.stringValue,
-                                  options: entry["options"]?.objectValue ?? [:])
+                                  web: entry["web"]?.stringValue, options: entry["options"]?.objectValue ?? [:])
             }
         }
         let contributes = o["contributes"]?.objectValue ?? [:]

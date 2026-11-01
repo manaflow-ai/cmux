@@ -129,6 +129,7 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
             "chief-auth-escalation".to_owned(),
             "chief-cloud-machines".to_owned(),
             "cmux-adoption".to_owned(),
+            "cmux-custom-pane".to_owned(),
             "cmux-setup".to_owned(),
             "paid-plans".to_owned(),
         ]

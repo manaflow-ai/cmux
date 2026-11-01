@@ -477,9 +477,39 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
     helper_names = {name for key, (_, kind, name, _) in nodes.items()
                     if key in selected and kind == "func"}
+    # Empty member calls cannot invoke a factory whose every overload requires arguments.
+    # This excludes model.toggle() without guessing receiver types: an instance property may
+    # itself hold a metatype, so services.factory.points(2) must remain conservative.
+    def requires_arguments(tokens: list[str]) -> bool:
+        try:
+            start = tokens.index("(")
+        except ValueError:
+            return False
+        depth, signature = 0, []
+        for token in tokens[start:]:
+            depth += (token == "(") - (token == ")")
+            if depth == 0:
+                break
+            signature.append(token)
+        # Defaulted and variadic signatures stay conservative, as do unknown signatures.
+        return ":" in signature and "=" not in signature and "." not in signature
+
+    required = {name: all(requires_arguments(tokens) for _, kind, other, tokens in nodes.values()
+                          if kind == "func" and other == name)
+                for name in helper_names}
     for key, (_, _, _, tokens) in nodes.items():
-        if any(token in helper_names for token in tokens):
+        for i, token in enumerate(tokens):
+            if token not in helper_names:
+                continue
+            if (i and tokens[i - 1] == "." and tokens[i + 1:i + 3] == ["(", ")"]
+                    and required[token]):
+                after = tokens[i + 3:i + 6]
+                # An empty argument list can still pass a required trailing closure.
+                trailing_closure = after[:1] == ["{"] or after[1:] == [":", "{"]
+                if not trailing_closure:
+                    continue
             selected.add(key)
+            break
     pending = list(selected)
     while pending:
         key = pending.pop()

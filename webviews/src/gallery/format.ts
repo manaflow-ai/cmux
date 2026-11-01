@@ -13,6 +13,7 @@
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
+import type { MockRegistry } from "../pages/apps/mockProvider";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
 import type { ProviderRow } from "../pages/coderouter/types";
@@ -252,7 +253,8 @@ export type DiffPageVariant = VariantBase & {
 export type AppsPageVariant = VariantBase & {
   hash?: string;
   mode?: "normal" | "loading" | "error";
-  action?: "install";
+  /** `submit` opens a local app's Submit for Review form; `review-file` opens the first queued file. */
+  action?: "install" | "submit" | "review-file";
   error?: { code: string; message: string };
   /** One transient detail failure after the catalog has loaded, for recovery-state coverage. */
   detailError?: { code: string; message: string };
@@ -260,6 +262,8 @@ export type AppsPageVariant = VariantBase & {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
     grants: Record<string, Grants>;
+    /** The community registry (`cmux.registry.*`); absent, the host has no registry ops. */
+    registry?: MockRegistry;
   };
 };
 

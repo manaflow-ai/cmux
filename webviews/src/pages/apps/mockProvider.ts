@@ -12,8 +12,26 @@ import {
   type Grants,
   type InstalledApp,
   type LogLine,
+  RegistryOps,
+  SIGNED_OUT,
+  type RegistryListing,
+  type RegistryMe,
+  type RegistrySubmission,
+  type ReviewSubmission,
 } from "./types";
 import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
+
+/** The community registry the mock answers `cmux.registry.*` from; absent, those ops are unknown. */
+export interface MockRegistry {
+  me: RegistryMe;
+  listings: RegistryListing[];
+  submissions: RegistrySubmission[];
+  queue: ReviewSubmission[];
+  /** File contents by submission id, then path, as base64. */
+  files: Record<string, Record<string, string>>;
+  /** The catalog row `cmux.registry.get` adds for a listing (the daemon's reload in the app). */
+  bundles: Record<string, AppDetail>;
+}
 
 export interface MockCall {
   op: string;
@@ -33,6 +51,7 @@ export class MockAppsProvider implements PageClient {
   details: Record<string, AppDetail>;
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
+  registry?: MockRegistry;
   offline = false;
   /** Errors the next call of an op throws once (a timeout, a refusal). */
   private readonly failures = new Map<string, Error>();
@@ -44,10 +63,11 @@ export class MockAppsProvider implements PageClient {
   private readonly seqs = new Map<number, number>();
   private readonly handlers = new Map<string, PageHandler>();
 
-  constructor(data = sampleApps()) {
+  constructor(data: ReturnType<typeof sampleApps> & { registry?: MockRegistry } = sampleApps()) {
     this.details = data.details;
     this.installed = data.installed;
     this.grants = data.grants;
+    this.registry = data.registry;
   }
 
   async call<R>(op: string, rawParams: unknown): Promise<R> {
@@ -60,6 +80,7 @@ export class MockAppsProvider implements PageClient {
       throw failure;
     }
     const app = typeof params.app === "string" ? params.app : "";
+    if (op.startsWith("cmux.registry.")) return this.registryCall(op, params) as R;
     switch (op) {
       case AppsOps.catalogList:
         return {
@@ -222,6 +243,73 @@ export class MockAppsProvider implements PageClient {
       return () => void this.watchers.delete(sub);
     }
     throw pageError("cmux.protocol.unknown_op", stream);
+  }
+
+  /** `cmux.registry.*` as the Mac answers it; the native sheets answer yes here. */
+  private registryCall(op: string, params: Record<string, unknown>): unknown {
+    const registry = this.registry;
+    if (!registry) throw pageError("cmux.protocol.unknown_op", op);
+    const signedIn = () => {
+      if (!registry.me.signedIn) throw pageError(SIGNED_OUT, "Sign in to cmux Cloud.");
+    };
+    const reviewer = () => {
+      signedIn();
+      if (!registry.me.reviewer) throw pageError("cloud.not_found", "Not found.");
+    };
+    const id = typeof params.id === "string" ? params.id : "";
+    switch (op) {
+      case RegistryOps.me:
+        return registry.me;
+      case RegistryOps.listings:
+        return { listings: registry.listings };
+      case RegistryOps.submissions:
+        signedIn();
+        return { submissions: registry.submissions };
+      case RegistryOps.submit: {
+        signedIn();
+        const app = String(params.app ?? "");
+        const name = app.replace(/^local\//, "");
+        const submission: RegistrySubmission = {
+          id: `sub_${registry.submissions.length + 1}`,
+          app: `${String(params.publisher)}/${name}`,
+          version: this.installed[app]?.version ?? "0.1.0",
+          status: "pending",
+          submitted_at: "2026-01-02T10:00:00Z",
+        };
+        registry.submissions = [submission, ...registry.submissions];
+        return { submission };
+      }
+      case RegistryOps.reviewQueue:
+        reviewer();
+        return { submissions: registry.queue };
+      case RegistryOps.reviewFile: {
+        reviewer();
+        const path = String(params.path ?? "");
+        const base64 = registry.files[id]?.[path];
+        if (base64 === undefined) throw pageError("cloud.not_found", path);
+        return { path, base64 };
+      }
+      case RegistryOps.reviewDecide: {
+        reviewer();
+        const item = registry.queue.find((row) => row.id === id);
+        if (!item) throw pageError("cloud.not_found", id);
+        const reason = String(params.reason ?? "");
+        if (params.decision === "reject" && (reason.length < 8 || reason.length > 500))
+          throw pageError("cloud.invalid", "A reason needs 8 to 500 characters.");
+        registry.queue = registry.queue.filter((row) => row.id !== id);
+        return { submission: { ...item, status: params.decision === "approve" ? "approved" : "rejected", reason } };
+      }
+      case RegistryOps.get: {
+        const app = String(params.app ?? "");
+        const bundle = registry.bundles[app];
+        if (!bundle) throw pageError("cloud.not_found", app);
+        this.details[app] = structuredClone(bundle);
+        this.changed(app);
+        return { app, version: params.version };
+      }
+      default:
+        throw pageError("cmux.protocol.unknown_op", op);
+    }
   }
 
   /** The next call of `op` throws `error` once. */
@@ -431,4 +519,149 @@ export function sampleApps(): {
     },
   };
   return { details, installed, grants };
+}
+
+const encode = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+
+/** A public-safe sample registry: two approved listings, submissions in each state, one pending review. */
+export function sampleRegistry(
+  me: RegistryMe = { signedIn: true, user: "user_sample", reviewer: true, publishers: ["sample-studio"] },
+): MockRegistry {
+  const boardManifest = {
+    manifestVersion: 2,
+    id: "sample-studio/workspace-board",
+    name: "Workspace Board",
+    version: "0.2.0",
+    description: "Every workspace and its terminals; send a command to one.",
+    icon: { symbol: "square.grid.2x2" },
+    scopes: { "workspace:read": "List your workspaces.", "terminal:read": "List the terminals of each workspace." },
+    optionalScopes: { "terminal:execute": "Send a command you type to a terminal." },
+  };
+  const board: AppDetail = {
+    id: "sample-studio/workspace-board",
+    name: "Workspace Board",
+    description: "Every workspace and its terminals; send a command to one.",
+    publisher: "sample-studio",
+    publisher_verified: false,
+    tier: "unverified",
+    categories: ["productivity"],
+    latest_version: "0.2.0",
+    install_count: 0,
+    installed: false,
+    screenshots: [],
+    icon: { symbol: "square.grid.2x2" },
+    scopes: [
+      { scope: "workspace:read", reason: "List your workspaces.", risk: "standard", optional: false },
+      { scope: "terminal:read", reason: "List the terminals of each workspace.", risk: "standard", optional: false },
+      {
+        scope: "terminal:execute",
+        reason: "Send a command you type to a terminal.",
+        risk: "sensitive",
+        optional: true,
+      },
+    ],
+    versions: [{ version: "0.2.0", engines: "^2.0" }],
+  };
+  return {
+    me,
+    listings: [
+      {
+        app: board.id,
+        name: board.name,
+        description: board.description,
+        publisher: board.publisher,
+        version: "0.2.0",
+        sha256: "0".repeat(64),
+        size: 4096,
+        approved_at: "2026-01-01T12:00:00Z",
+        manifest: boardManifest,
+      },
+      {
+        app: "pixel-works/focus-timer",
+        name: "Focus Timer",
+        description: "A quiet timer pane for focused sessions.",
+        publisher: "pixel-works",
+        version: "1.0.0",
+        sha256: "1".repeat(64),
+        size: 2048,
+        approved_at: "2026-01-01T09:00:00Z",
+        manifest: { manifestVersion: 2, name: "Focus Timer", version: "1.0.0", scopes: {} },
+      },
+    ],
+    submissions: [
+      {
+        id: "sub_3",
+        app: "sample-studio/notes-pane",
+        version: "0.1.0",
+        status: "pending",
+        submitted_at: "2026-01-03T10:00:00Z",
+      },
+      {
+        id: "sub_2",
+        app: "sample-studio/workspace-board",
+        version: "0.2.0",
+        status: "approved",
+        submitted_at: "2026-01-01T08:00:00Z",
+        decided_at: "2026-01-01T12:00:00Z",
+      },
+      {
+        id: "sub_1",
+        app: "sample-studio/workspace-board",
+        version: "0.1.0",
+        status: "rejected",
+        reason: "The pane asks for terminal:execute but never explains it in the UI.",
+        submitted_at: "2025-12-30T08:00:00Z",
+        decided_at: "2025-12-31T08:00:00Z",
+      },
+    ],
+    queue: [
+      {
+        id: "sub_9",
+        app: "pixel-works/clock-pane",
+        version: "0.3.0",
+        submitted_at: "2026-01-04T15:30:00Z",
+        submitter: { user: "user_pixel", email: "dev@example.com" },
+        manifest: {
+          manifestVersion: 2,
+          id: "pixel-works/clock-pane",
+          name: "Clock Pane",
+          version: "0.3.0",
+          description: "A large clock for a spare pane.",
+          scopes: { "workspace:read": "Shows the clock beside the active workspace name." },
+        },
+        files: [
+          { path: "cmux-app.json", size: 310 },
+          { path: "web/index.html", size: 182 },
+          { path: "web/clock.js", size: 96 },
+          { path: "web/icon.png", size: 4 },
+        ],
+        notes: "First release; the clock follows the system time zone.",
+      },
+    ],
+    files: {
+      sub_9: {
+        "cmux-app.json": encode('{\n  "manifestVersion": 2,\n  "id": "pixel-works/clock-pane"\n}\n'),
+        "web/index.html": encode('<!doctype html>\n<title>Clock</title>\n<script src="clock.js"></script>\n'),
+        "web/clock.js": encode(
+          "setInterval(() => {\n  document.body.textContent = new Date().toLocaleTimeString();\n}, 1000);\n",
+        ),
+        "web/icon.png": btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0, 0)),
+      },
+    },
+    bundles: { [board.id]: board },
+  };
+}
+
+/** A local app being developed, installed from its folder (`local/<name>`). */
+export function sampleLocalApp(): InstalledApp {
+  return {
+    id: "local/notes-pane",
+    name: "Notes Pane",
+    version: "0.1.0",
+    enabled: true,
+    hidden: false,
+    sandboxed: true,
+    source: "local",
+    tier: "unverified",
+  };
 }

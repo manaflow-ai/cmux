@@ -240,6 +240,8 @@ Coordinator answers applied: default first-party apps come from a deployment lis
 | `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
 | `apps-run` | `{app, op, args, idempotency_key}` | runs a catalog op of the app (palette, CLI `cmux apps run`, MCP); waits for the result |
 | `apps-logs` | `{app, follow?}` | log lines; follow streams `apps-log` events |
+| `apps-web-call` | `{app, op, args, idempotency_key?}` | a web pane's `cmux.call`, decided like a host call; the hosting app connection only (custom-panes-DESIGN.md 3) |
+| `apps-web-log` | `{app, level, message}` | one console line of a web pane into the app's log ring; the hosting app connection only |
 | events | `apps-changed {revision}` (install mirror), `apps-host {app, state: running|stopped|crashed, reason?}` | |
 
 Every mutation carries an idempotency key and ends with `request-settled` like other daemon ops (OWNERSHIP-PRINCIPLES).
