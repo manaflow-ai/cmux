@@ -8,15 +8,21 @@ import Foundation
 /// The turn is a label on the same prompt: a gesture ticket bound to the prompt's own id (the
 /// Send's, a held prompt's, a seeded prompt's) is the same prompt's ticket under the label
 /// (``AgentPaneGesturePick``). It allows that prompt and nothing else.
-public nonisolated struct AgentPaneHandoffPrompt {
-    public nonisolated init() {}
-    public static let prefix = "handoff-"
+public nonisolated struct AgentPaneHandoffPrompt: Sendable, Equatable {
+    static let prefix = "handoff-"
 
-    /// The prompt's own id: `id` without a hand-off turn's `handoff-<turn>-`, else `id` as it is.
+    /// The id the prompt went with, with or without a hand-off turn's label.
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+
+    /// The prompt's own id: ``id`` without a hand-off turn's `handoff-<turn>-`, else ``id`` as it is.
     /// One label only: an id under two (`handoff-1-handoff-2-x`) is its own id as it is, so a ticket
     /// for `handoff-2-x` never allows it.
-    public static func ownID(_ id: String) -> String {
-        guard let own = stripped(id), stripped(own) == nil else { return id }
+    public var ownID: String {
+        guard let own = Self.stripped(id), Self.stripped(own) == nil else { return id }
         return own
     }
 

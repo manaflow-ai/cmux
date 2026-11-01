@@ -24,3 +24,20 @@ test("a loading spinner (a harness check) never takes the working dot", () => {
   expect(html).not.toContain("data-working");
   expect(html).not.toContain("cv-spinner__dot");
 });
+
+// Leo 2026-10-31: "what is this static symbol with a dot?" A working Spinner drew a still ring with
+// a dot in its centre wherever conversation.css's spinner rules did not apply: the svg carries both
+// the ring and the dot, and only a stylesheet hides the dot and turns the ring. The component now
+// brings that default itself, so it holds on any page that draws it.
+test("the spinner brings its own hidden dot and turning ring, not only conversation.css's", async () => {
+  const dir = import.meta.dir;
+  const source = await Bun.file(`${dir}/icons.tsx`).text();
+  expect(source).toMatch(/^import "\.\/spinner\.css";$/m);
+  const css = await Bun.file(`${dir}/spinner.css`).text();
+  expect(css).toMatch(/\.cv-spinner__dot \{\s*display: none;/);
+  expect(css).toMatch(/\.cv-spinner \{\s*animation: cmux-spin /);
+  // Moved, not copied: one owner for each rule.
+  const conversation = await Bun.file(`${dir}/conversation.css`).text();
+  expect(conversation).not.toMatch(/^\.cv-spinner__dot \{/m);
+  expect(conversation).not.toMatch(/\.cv-spinner \{\s*animation: cmux-spin /);
+});

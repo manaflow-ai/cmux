@@ -2,8 +2,10 @@
 // showed only "This chat is still open in another process" with Fork It and Open Anyway, over an
 // empty pane: acpmux refuses to resume it there (`adopt.live`). "there's frequently nothing wrong
 // with showing the same session but in two different places" (Leo, 2026-10-29). The pane now
-// watches it (View Only: its transcript, following that app) and offers the same choice over it;
-// a daemon or harness that cannot watch it still gets the choice alone.
+// watches it (View Only: its transcript, following that app) and asks nothing on open: "the fact
+// that it's asking me to fork while im inside an existing claude code chat is bad" (Leo,
+// 2026-10-30). The same choice shows over it only once a reply or Take Over is refused as live; a
+// daemon or harness that cannot watch it still gets the choice alone.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
@@ -134,19 +136,31 @@ async function open(
   return { client, asked, methods, killed, other: () => other, now: () => snapshot };
 }
 
-test("a chat another app runs opens View Only, with Fork It and Open Anyway over its transcript", async () => {
+test("a chat another app runs opens View Only and asks nothing until a take over is refused", async () => {
   const { client, asked, now } = await open(true);
   try {
-    await settle(() => now().sessionId === "watched-1" && Boolean(now().liveTakeOver));
+    await settle(() => now().sessionId === "watched-1" && now().summary?.watching === "claude");
+    await settle(() => false);
     expect(asked).toEqual([adopt, { ...adopt, watch: true }]);
     expect(now().sessionId).toBe("watched-1");
-    expect(now().summary?.watching).toBe("claude");
-    expect(now().liveTakeOver).toEqual({ canFork: true });
+    expect(now().liveTakeOver).toBeUndefined();
     expect(now().liveChat).toBeUndefined();
+    expect(client.adopted).toBe("watched-1");
+    // A reply (or Take Over) that acpmux refuses as live is when Fork It and Open Anyway show.
+    expect(await client.takeOver()).toBe(false);
+    await settle(() => Boolean(now().liveTakeOver));
+    expect(now().liveTakeOver).toEqual({ canFork: true });
   } finally {
     client.close?.();
   }
 });
+
+/// The watched chat open, then a take over refused as live: the choice over it.
+async function refused(client: { takeOver(): Promise<boolean> }, now: () => Snapshot) {
+  await settle(() => now().sessionId === "watched-1" && now().summary?.watching === "claude");
+  expect(await client.takeOver()).toBe(false);
+  await settle(() => Boolean(now().liveTakeOver));
+}
 
 test("a chat that cannot be watched still gets the choice", async () => {
   const { client, asked, now } = await open(false);
@@ -162,12 +176,13 @@ test("a chat that cannot be watched still gets the choice", async () => {
 test("Fork It over the watched chat starts the fork at once, as the choice alone did", async () => {
   const { client, asked, methods, now } = await open(true);
   try {
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     // The choice's buttons call the page's `chat.adoptLive`, which persists `adopted` as the tab's chat.
     await client.adoptLive("fork");
     await settle(() => now().sessionId === "fork-1");
     expect(asked.at(-1)).toEqual({ ...adopt, ifLive: "fork" });
-    expect(methods).not.toContain("_acpmux/watch_take_over");
+    // Only the refused take over that showed the choice: Fork It itself forks, it takes nothing over.
+    expect(methods.filter((method) => method === "_acpmux/watch_take_over")).toHaveLength(1);
     expect(now().sessionId).toBe("fork-1");
     expect(client.adopted).toBe("fork-1");
   } finally {
@@ -200,9 +215,7 @@ test("a watch that answers after the person moved to another chat leaves that ch
 test("a reloaded pane's watched chat refused as live still forks at once from its own id", async () => {
   const { client, asked, methods, now } = await open(true, { saved: true });
   try {
-    await settle(() => now().sessionId === "watched-1" && now().summary?.watching === "claude");
-    expect(await client.takeOver()).toBe(false);
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     await client.adoptLive("fork");
     await settle(() => now().sessionId === "fork-1");
     expect(asked.at(-1)).toEqual({ harness: "claude", agentSessionId, ifLive: "fork" });
@@ -216,7 +229,7 @@ test("a reloaded pane's watched chat refused as live still forks at once from it
 test("Open Anyway over the watched chat takes it over and keeps it as the tab's chat", async () => {
   const { client, methods, now } = await open(true);
   try {
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     const kept = persisted(client);
     await client.adoptLive("open");
     expect(methods.at(-1)).toBe("_acpmux/watch_take_over");
@@ -238,7 +251,7 @@ function persisted(client: { onAdopted?: (sessionId: string) => void }): string[
 test("Fork It keeps the fork as the tab's chat, also when it is retried after Trust", async () => {
   const { client, now } = await open(true);
   try {
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     const kept = persisted(client);
     await client.adoptLive("fork");
     await settle(() => now().sessionId === "fork-1");
@@ -254,7 +267,7 @@ for (const choice of ["fork", "open"] as const)
     const answerGate = new Promise<void>((resolve) => (release = resolve));
     const { client, other, now } = await open(true, { answerGate });
     try {
-      await settle(() => Boolean(now().liveTakeOver));
+      await refused(client, now);
       const kept = persisted(client);
       const chosen = client.adoptLive(choice);
       await settle(() => false);
@@ -274,7 +287,7 @@ test("an adopt is kept as the tab's only once the pane shows it", async () => {
   const attachGate = new Promise<void>((resolve) => (release = resolve));
   const { client, methods, other, now } = await open(true, { attachGate });
   try {
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     const kept = persisted(client);
     // The fork's attach is still out when the person moves on: the other chat is kept, not the fork.
     const forked = client.adoptLive("fork");
@@ -318,7 +331,7 @@ for (const watches of [true, false])
 test("a fork waiting on Trust is not retried after the person moved to another chat", async () => {
   const { client, asked, other, now } = await open(true, { trustOnce: true });
   try {
-    await settle(() => Boolean(now().liveTakeOver));
+    await refused(client, now);
     let again: (() => void) | undefined;
     client.onTrustRefused = (_refusal, retry) => (again = retry);
     const kept = persisted(client);

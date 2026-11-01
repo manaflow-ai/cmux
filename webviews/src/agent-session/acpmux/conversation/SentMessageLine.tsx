@@ -28,6 +28,7 @@ import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
+import { AgentTag } from "./AgentTag";
 import { SentActions } from "./MessageActions";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
@@ -169,17 +170,15 @@ export function SentMessageLine({
   // The recipient as every message row draws it: a chip, and a button when its chat is known.
   const name =
     chat && chats ? (
-      <button
-        type="button"
+      <AgentTag
+        name={target}
         className="cv-agentmsg__name cv-recipient cv-sent__target"
         title={t("subagents.open", { name: target })}
         onClick={(event) => {
           event.stopPropagation();
           (chats.openSender ?? chats.open)(chat);
         }}
-      >
-        {target}
-      </button>
+      />
     ) : (
       <span className="cv-agentmsg__name cv-recipient is-plain">{target}</span>
     );

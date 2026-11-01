@@ -86,6 +86,8 @@ public actor AgentSessionAttachClient {
     private struct Served: Sendable {
         /// `agent-session-start-v1`.
         var start = false
+        /// `agent-session-start-no-cwd-v1`.
+        var startNoCwd = false
         /// `agent-session-trust-v1`.
         var trust = false
         /// `agent-session-start-keyed-reason-v1`.
@@ -102,6 +104,8 @@ public actor AgentSessionAttachClient {
         var presence = false
         /// `agent-session-folders-v1`.
         var folders = false
+        /// `agent-session-settings-v1`.
+        var settings = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -166,7 +170,7 @@ public actor AgentSessionAttachClient {
     /// connection's own `identify` lists `agent-session-start-vm-kind-v1`. The start goes over
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
-    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
+    public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
@@ -195,10 +199,11 @@ public actor AgentSessionAttachClient {
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
-    static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
+    static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
-        var params: [String: any Sendable] = ["cwd": cwd]
+        var params: [String: any Sendable] = [:]
+        if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
         if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
@@ -335,6 +340,14 @@ public actor AgentSessionAttachClient {
         return (work, (object["folders"] as? [String] ?? []).filter(absolute))
     }
 
+    /// Whether this daemon accepts an omitted cwd on `agent-session-start`.
+    /// Older daemons require a folder and must keep the work-folder fallback.
+    public func supportsNoCwd() async throws -> Bool {
+        guard mode == .attach else { return false }
+        _ = try await liveTransport()
+        return served.startNoCwd
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -355,6 +368,35 @@ public actor AgentSessionAttachClient {
         _ = try await liveTransport()
         guard served.presence else { return }
         _ = try await call("agent-session-view", ["visible": visible])
+    }
+
+    /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
+    public static let settingsUnsupported = "agent_session.settings_unsupported"
+
+    /// `agent-session-set-model` (`agent-session-settings-v1`): the attached chat's model, as
+    /// acpmux's `session/set_model` on the tab's own session; acpmux's answer.
+    public func setModel(_ modelId: String) async throws -> Data {
+        try await setting("agent-session-set-model", ["model_id": modelId])
+    }
+
+    /// `agent-session-set-mode` (`agent-session-settings-v1`): acpmux's `session/set_mode`.
+    public func setMode(_ modeId: String) async throws -> Data {
+        try await setting("agent-session-set-mode", ["mode_id": modeId])
+    }
+
+    /// `agent-session-set-config` (`agent-session-settings-v1`): acpmux's
+    /// `session/set_config_option`, which answers the agent's whole `configOptions`.
+    public func setConfig(id configId: String, value: String) async throws -> Data {
+        try await setting("agent-session-set-config", ["config_id": configId, "value": value])
+    }
+
+    private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.settings else {
+            throw AgentSessionAttachError(code: Self.settingsUnsupported,
+                                          message: "update cmux on that machine to change this chat's model, mode or options from here")
+        }
+        return try await call(cmd, params)
     }
 
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
@@ -504,6 +546,7 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
             served = Served(start: identity.supports(DaemonCapability.agentSessionStart.rawValue),
+                            startNoCwd: identity.supports(DaemonCapability.agentSessionStartNoCwd.rawValue),
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
@@ -511,7 +554,8 @@ public actor AgentSessionAttachClient {
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
-                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue))
+                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
+                            settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
