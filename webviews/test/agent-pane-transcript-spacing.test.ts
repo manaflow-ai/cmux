@@ -198,7 +198,22 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
+      // The reply's last line's text box (its content area, the line less its half-leading), the
+      // footer's 24px line, and the next prompt's bubble: the line sits in the middle of that room.
+      const lastLineBottom = (node: Element) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lines = [...range.getClientRects()].filter((box) => box.height > 0);
+        return lines.at(-1)!.bottom;
+      };
+      const firstFooter = footers[0]!;
+      const firstFooterReply = reply("Not yet: the hosted test run");
+      const lastFooter = footers.at(-1)!;
       return {
+        footerRoomAbove: rect(firstFooter).top - lastLineBottom(firstFooterReply),
+        footerRoomBelow: rect(last).top - rect(firstFooter).bottom,
+        lastFooterRoomAbove: rect(lastFooter).top - lastLineBottom(lastReply),
+        lastFooterRoomBelow: rect(dock).top - rect(lastFooter).bottom,
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
@@ -233,6 +248,11 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // runway under every transcript.
     expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(12);
     expect(measured.lastFooterToComposer).toBeLessThanOrEqual(20);
+    // A footer's line is centred between the reply's last line and what follows it, the next prompt
+    // or the composer (Leo, 2026-10-31: "padding after == padding before that kinda thing all
+    // around"). Before: 7px over it and 16px under.
+    expect(Math.abs(measured.footerRoomAbove - measured.footerRoomBelow)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(measured.lastFooterRoomAbove - measured.lastFooterRoomBelow)).toBeLessThanOrEqual(1.5);
     await page.close();
   });
 });
