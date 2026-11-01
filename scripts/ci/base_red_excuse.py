@@ -49,38 +49,15 @@ _spec.loader.exec_module(_evidence)
 Refused, job_for, latest_checks = _evidence.Refused, _evidence.job_for, _evidence.latest_checks
 
 
-# gh 2.6x and later refuse `gh api` output holding terminal escape sequences (a job log's ANSI colours)
-# unless given ESCAPE_FLAG. A gh too old to know the flag (Ubuntu 24.04's 2.45) refuses the flag itself,
-# reads nothing, and says exactly UNKNOWN_ESCAPE_FLAG on its first stderr line; that gh also prints escape
-# sequences unasked, so that one answer, and no other, is asked again without the flag. Any other failure
-# (HTTP, auth, quota, timeout, a different unknown flag) still refuses: 2026-10-30, every job log read on
-# a gh 2.45 host failed after #28397 added the flag, so no red there could be compared with the base.
-ESCAPE_FLAG = "--allow-escape-sequences"
-UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
-REQUEST_FAILED = "GitHub evidence request failed: "  # main_fix_evidence.GitHub.run's prefix to gh's stderr
-
-
-def escape_flag_unknown(stderr: str) -> bool:
-    """True only when gh's STDERR is an old gh's refusal of ESCAPE_FLAG itself (its first line, exactly)."""
-    lines = (stderr or "").strip().splitlines()
-    return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
-
-
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
-        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked;
-        # a gh too old to know the flag is asked again without it (escape_flag_unknown).
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
-        try:
-            return self.run(["api", ESCAPE_FLAG, route])
-        except Refused as error:
-            said = str(error)
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
-                raise
+        # Keep the request portable across gh versions. ANSI bytes are normalized below in
+        # Python instead of relying on gh's optional --allow-escape-sequences flag.
         return self.run(["api", route])
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
@@ -200,10 +177,15 @@ def tested_sha(run: dict) -> str:
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # Summaries carry counts, and a test's own lines already name it.
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
+SUMMARY_FAILURE = re.compile(
+    r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
+    r"cannot|could not|failure|failed)\b"
+)
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
@@ -385,7 +367,7 @@ def lines_of(log: str) -> list[str]:
         # `gh run view --log` prefixes each line with job and step columns.
         # The job-log API does not; preserve tabs in raw command output.
         text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
-        found.append(STAMP.sub("", text).strip())
+        found.append(ANSI.sub("", STAMP.sub("", text)).strip())
     return found
 
 
@@ -401,7 +383,11 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     for n, text in enumerate(lines_of(log)):
         if n in skip:
             continue
-        if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
+        if ((ERROR.search(text)
+             or (not tests and ("default" in job.get("name", "").lower()
+                                or "snapshot" in job.get("name", "").lower())
+                 and SUMMARY_FAILURE.search(text)))
+                and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)):
             errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
 

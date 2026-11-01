@@ -95,7 +95,7 @@ class InProgressJobLogGitHub(FakeGitHub):
         if args[:2] == ["run", "view"]:
             raise excuse.Refused("logs will be available when it is complete")
         for job_id, text in self.logs.items():
-            if args == ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
+            if args == ["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
                 # Raw endpoint output has timestamps but no job/step prefix.
                 return "\n".join(line.split("\t", 2)[-1] for line in text.splitlines())
         raise AssertionError(args)
@@ -152,15 +152,14 @@ class JobLogEndpoint(unittest.TestCase):
         self.assertEqual(github.json(f"repos/{REPO}/actions/runs/10")["status"], "in_progress")
         self.assertEqual(
             github.log_requests,
-            [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
+            [["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
         )
 
     def test_job_logs_are_read_even_with_terminal_colours(self):
-        # gh 2.98 refuses `gh api` output holding escape sequences unless asked, and
-        # almost every job log has ANSI colours: without the flag nothing can be judged.
+        # ANSI colours are stripped by the Python parser, so the request uses gh's portable API form.
         github = InProgressJobLogGitHub()
         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
-        self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
+        self.assertTrue(all("--allow-escape-sequences" not in r for r in github.log_requests))
 
     def test_new_failure_in_finished_job_still_blocks(self):
         github = InProgressJobLogGitHub()
@@ -187,18 +186,53 @@ class JobLogEndpoint(unittest.TestCase):
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
 
 
-# A `gh` on PATH: it records its argv, and with FAKE_GH=old answers the escape flag the way gh 2.45 does
-# (exit 1, "unknown flag: --allow-escape-sequences" then its usage, nothing read); FAKE_GH=http fails every
-# call with an HTTP error; FAKE_GH=other-flag refuses some other flag. Otherwise it prints the log.
+class StepFailureOutput(unittest.TestCase):
+    """Checks with no test names still compare the failed step's diagnostic output."""
+
+    def test_a_step_without_test_names_compares_its_failure_summary(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        stale = ("schemas/defaults/cmux-next.json is stale: the settings export changed "
+                 f"(source stamp {'a' * 40} != {'b' * 40})")
+        github.logs = {
+            1: log(defaults, step, stale, "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, stale.replace("a" * 40, "c" * 40), "##[error]Process completed with exit code 1."),
+        }
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+        self.assertIn(defaults, text)
+        self.assertIn("settings export changed", text)
+
+    def test_a_different_step_summary_still_blocks(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, "schemas/defaults/cmux-next.json is missing its source stamp",
+                   "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, "schemas/defaults/cmux-next.json is stale: the settings export changed",
+                   "##[error]Process completed with exit code 1."),
+        }
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+# A `gh` on PATH: it records its argv; FAKE_GH=http and FAKE_GH=other-flag refuse every call.
+# Otherwise it prints a coloured log, which the Python parser strips.
 FAKE_GH = """#!/usr/bin/env python3
 import os, sys
 args = sys.argv[1:]
 with open(os.environ["FAKE_GH_CALLS"], "a") as calls:
     calls.write(" ".join(args) + "\\n")
 mode = os.environ.get("FAKE_GH", "")
-if mode == "old" and "--allow-escape-sequences" in args:
-    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage:  gh api <endpoint> [flags]\\n")
-    sys.exit(1)
 if mode == "http":
     sys.stderr.write("gh: Not Found (HTTP 404)\\n")
     sys.exit(1)
@@ -209,9 +243,7 @@ print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
 
-class OldGhWithoutEscapeFlag(unittest.TestCase):
-    """2026-10-30: #28397 asked every job log read for --allow-escape-sequences, which gh 2.45 refuses as an
-    unknown flag, so no log could be read on such a host and no red there could be compared with the base."""
+class PortableGhLog(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -233,14 +265,12 @@ class OldGhWithoutEscapeFlag(unittest.TestCase):
     def asked(self):
         return self.calls.read_text().splitlines()
 
-    def test_an_old_gh_is_asked_again_without_the_flag(self):
-        self.assertIn("red", self.read("old"))
+    def test_logs_use_the_portable_endpoint_and_strip_ansi_in_python(self):
+        raw = self.read("")
+        self.assertIn("\x1b[31mred", raw)
         route = f"repos/{REPO}/actions/jobs/7/logs"
-        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
-
-    def test_a_new_gh_is_asked_once_with_the_flag(self):
-        self.assertIn("\x1b[31mred", self.read(""))
-        self.assertEqual(self.asked(), [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"])
+        self.assertEqual(self.asked(), [f"api {route}"])
+        self.assertEqual(excuse.lines_of(raw), ["red log"])
 
     def test_any_other_failure_still_refuses_with_no_retry(self):
         for mode in ("http", "other-flag"):
@@ -249,14 +279,6 @@ class OldGhWithoutEscapeFlag(unittest.TestCase):
                 with self.assertRaises(excuse.Refused):
                     self.read(mode)
                 self.assertEqual(len(self.asked()), 1)
-
-    def test_only_the_flag_itself_on_the_first_line_counts(self):
-        self.assertTrue(excuse.escape_flag_unknown("unknown flag: --allow-escape-sequences\n\nUsage: gh api"))
-        for said in ("", "gh: Not Found (HTTP 404)", "unknown flag: --paginate-x",
-                     "HTTP 502\nunknown flag: --allow-escape-sequences",
-                     "unknown flag: --allow-escape-sequences-x"):
-            self.assertFalse(excuse.escape_flag_unknown(said), said)
-
 
 class Excusing(unittest.TestCase):
     def setUp(self):
