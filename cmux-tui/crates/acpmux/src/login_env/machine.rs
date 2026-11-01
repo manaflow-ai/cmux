@@ -17,6 +17,13 @@ pub(super) fn read() -> BTreeMap<String, String> {
     read_in(&home)
 }
 
+#[cfg(not(unix))]
+fn read_in(_home: &Path) -> BTreeMap<String, String> {
+    // No owner-only ACL check is implemented on this platform.
+    BTreeMap::new()
+}
+
+#[cfg(unix)]
 fn read_in(home: &Path) -> BTreeMap<String, String> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -35,7 +42,7 @@ fn read_in(home: &Path) -> BTreeMap<String, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
-        if meta.uid() != unsafe { libc::getuid() } || meta.mode() & 0o077 != 0 {
+        if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return BTreeMap::new();
         }
     }

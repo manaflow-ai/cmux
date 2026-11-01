@@ -60,7 +60,8 @@ fn run_marker() -> String {
         Sha256::digest(seed.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("{MARKER}{hex}")
 }
-const CACHE_VERSION: u32 = 2;
+// Older caches could contain machine declarations imported through a shell hook.
+const CACHE_VERSION: u32 = 3;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
