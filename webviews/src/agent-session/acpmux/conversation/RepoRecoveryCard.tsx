@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { postNative } from "../native";
 import type { AcpmuxActivity } from "../model";
 
@@ -25,6 +25,21 @@ function payload(text: string | undefined): Record<string, unknown> | undefined 
   return undefined;
 }
 
+function githubInstallUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "github.com" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function typedFailure(value: unknown): never | void {
+  if (value && typeof value === "object" && typeof (value as { code?: unknown }).code === "string")
+    throw new Error((value as { code: string }).code);
+}
+
 export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): RepoRecovery | undefined {
   if (tool.title !== "list_repos" && tool.title !== "add_repo" && !tool.title.endsWith(".list_repos") && !tool.title.endsWith(".add_repo"))
     return undefined;
@@ -32,20 +47,28 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
   const code = data?.code;
   if (code !== "repo.needs_github" && code !== "repo.no_access" && code !== "repo.ambiguous") return undefined;
   const retry = data?.retry;
+  const rawArgs = retry && typeof retry === "object" ? (retry as { args?: unknown }).args : undefined;
+  const args = rawArgs && typeof rawArgs === "object" ? rawArgs as Record<string, unknown> : undefined;
+  const safeArgs =
+    typeof args?.session === "string" && typeof args.repo === "string"
+      ? { session: args.session, repo: args.repo }
+      : undefined;
   return {
     code,
     org: typeof data?.org === "string" ? data.org : undefined,
-    installUrl: typeof data?.install_url === "string" ? data.install_url : undefined,
+    installUrl: githubInstallUrl(data?.install_url),
     choices: Array.isArray(data?.choices)
       ? data.choices.filter((choice): choice is Choice => Boolean(choice) && typeof choice.fullName === "string")
       : undefined,
     retry:
-      retry && typeof retry === "object" && typeof (retry as { action?: unknown }).action === "string" &&
-      (retry as { args?: unknown }).args && typeof (retry as { args: unknown }).args === "object"
+      (retry as { action?: unknown } | undefined)?.action === "cloud.repo.add" && safeArgs
         ? {
-            action: (retry as { action: string }).action,
-            args: (retry as { args: Record<string, unknown> }).args,
-            wait_action: typeof (retry as { wait_action?: unknown }).wait_action === "string" ? (retry as { wait_action: string }).wait_action : undefined,
+            action: "cloud.repo.add",
+            args: safeArgs,
+            wait_action:
+              (retry as { wait_action?: unknown }).wait_action === "cloud.repo.wait_github"
+                ? "cloud.repo.wait_github"
+                : undefined,
           }
         : undefined,
   };
@@ -54,25 +77,33 @@ export function repoRecoveryFor(tool: NonNullable<AcpmuxActivity["tool"]>): Repo
 export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
   const [state, setState] = useState<"idle" | "waiting" | "retrying" | "done" | "failed">("idle");
   const [choice, setChoice] = useState<string>();
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
   const session = recovery.retry?.args.session;
   const connect = () => {
     if (!recovery.installUrl) return;
     window.open(recovery.installUrl, "_blank", "noopener,noreferrer");
     if (typeof session !== "string" || !recovery.retry) return;
     setState("waiting");
-    void postNative<{ connected?: boolean }>("cloud.repo.wait_github", { session, timeout_ms: 120_000 })
+    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github", { session, timeout_ms: 60_000 })
       .then((reply) => {
-        if (!reply?.connected) throw new Error("not connected");
+        if (!mounted.current) return;
+        if (!reply?.connected) {
+          setState("idle");
+          return;
+        }
         setState("retrying");
-        return postNative(recovery.retry!.action, recovery.retry!.args);
+        return postNative(recovery.retry!.action, recovery.retry!.args).then((value) => typedFailure(value));
       })
-      .then(() => setState("done"), () => setState("failed"));
+      .then(() => mounted.current && setState("done"), () => mounted.current && setState("failed"));
   };
   const select = (repo: string) => {
     setChoice(repo);
     if (!recovery.retry) return;
     setState("retrying");
-    void postNative(recovery.retry.action, { ...recovery.retry.args, repo })
+    void postNative(recovery.retry.action, { ...recovery.retry.args, repo }).then((value) => typedFailure(value))
       .then(() => setState("done"), () => setState("failed"));
   };
 
@@ -93,7 +124,7 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
       <div className="cv-repo-recovery">
         <span>No access to {recovery.org ? `${recovery.org} repositories` : "this repository"}</span>
         {recovery.installUrl && <button type="button" onClick={connect}>Install on {recovery.org ?? "GitHub"}</button>}
-        <button type="button" onClick={() => window.open("https://github.com/settings/connections/applications", "_blank", "noopener,noreferrer")}>Request access</button>
+        <button type="button" onClick={() => window.open(`https://github.com/orgs/${encodeURIComponent(recovery.org ?? "")}`, "_blank", "noopener,noreferrer")}>Request access</button>
       </div>
     );
   if (recovery.code === "repo.ambiguous" && recovery.choices?.length)

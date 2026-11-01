@@ -55,6 +55,16 @@ function sourceLabel(source: CloudRepo["source"]): string {
   return source === "local" ? "Local" : source === "recent" ? "Recent" : source === "installation" ? "GitHub" : "";
 }
 
+function githubInstallUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "github.com" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function errorCode(error: unknown): string | undefined {
   if (error instanceof NativeError && error.code) return error.code;
   const code = (error as { code?: unknown } | null | undefined)?.code;
@@ -100,7 +110,7 @@ export function CloudRepositoryPicker({
         .then(({ reply, syncedInstallUrl }) => {
           if (id !== generation.current) return;
           setRepos(reposOf(reply));
-          setConnectUrl(reply?.connect?.install_url ?? syncedInstallUrl);
+          setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
         })
         .catch(() => {
           if (id === generation.current) setError("Couldn’t load repositories");
@@ -119,12 +129,14 @@ export function CloudRepositoryPicker({
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
       .then(() => request<AddReply>("cloud.repo.add", { session, repo: repo.fullName }))
       .then((reply) => {
-        if (reply?.state === "done" && reply.repo) {
+        if (reply?.state === "done" && !((reply as { code?: unknown }).code) && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
           onOpenChange(false);
           setQuery("");
         } else {
-          setError("Repository could not be attached");
+          const code = (reply as { code?: unknown }).code;
+          setConnectUrl(githubInstallUrl((reply as { install_url?: unknown }).install_url));
+          setError(typeof code === "string" ? code : "Repository could not be attached");
         }
       })
       .catch((reason: unknown) => {

@@ -1201,6 +1201,9 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-environment-row .acpmux-session-info-row__end {
   margin-left: auto;
 }
+.acpmux-session-info-row--button[data-open] {
+  background: var(--acpmux-session-info-row-hover);
+}
 .acpmux-cloud-repository-popover {
   min-width: 260px;
   max-width: min(360px, calc(100vw - 32px));
