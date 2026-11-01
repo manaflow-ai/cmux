@@ -349,6 +349,15 @@ final class ComputerUseUXCoordinator {
         let ownsLocalSurface = surfaceID.map {
             ownsSurface($0, event.workspaceId.flatMap(UUID.init(uuidString:)))
         } == true
+        if isComputerUseInvocation, hasValidSurface, ownsLocalSurface {
+            // The agent's cmux-cua proxy only waits briefly for the app-owned
+            // daemon. Start a helper that is down now instead of leaving it to
+            // background recovery, whose backoff can outlast the call. Every
+            // tool needs the daemon, check_permissions included, even when the
+            // menu/onboarding UX feature is hidden. Not awaited: hook events
+            // are handled in order.
+            runtimeService.requestHelperForToolInvocation()
+        }
         if isComputerUseInvocation,
            toolName != "check_permissions",
             hasValidSurface,
