@@ -25,7 +25,7 @@ import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxRow } from "../model";
-import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
+import { headerStatus, visibleChanges } from "../session-info/ChangesSection";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 
 const ROW_ICON = rowIconSize(12);
