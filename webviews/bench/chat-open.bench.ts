@@ -28,6 +28,9 @@ const { events, session } = papercutEvents({ turns: TURNS, running: false });
 let attachedAt = 0;
 let attachBytes = 0;
 let attachEvents = 0;
+/// When each protocol call first reached the stand-in in this load (epoch ms).
+let arrivals = new Map<string, number>();
+let socketOpenedAt = 0;
 /// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
 /// daemon answers an attach or an older-history read with.
 const newest = (limit: number, beforeSeq = Infinity) => {
@@ -126,8 +129,12 @@ try {
       return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
     },
     websocket: {
+      open() {
+        socketOpenedAt ||= Date.now();
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+        if (!arrivals.has(message.method)) arrivals.set(message.method, Date.now());
         if (message.id === undefined) return;
         const result = answer(message.method, (message as { params?: Record<string, unknown> }).params);
         if (message.method === "_acpmux/attach") attachedAt = Date.now();
@@ -172,6 +179,11 @@ try {
     longMs: number;
     shift: number;
     drift: number;
+    socket: number;
+    initialize: number;
+    watch: number;
+    dcl: number;
+    scriptKiB: number;
   };
   const open = async (): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -209,6 +221,8 @@ try {
       requestAnimationFrame(tick);
     }, LATEST);
     attachedAt = 0;
+    arrivals = new Map();
+    socketOpenedAt = 0;
     const started = Date.now();
     await page.goto(url);
     await page.waitForFunction(
@@ -221,10 +235,18 @@ try {
     );
     const got = await page.evaluate(() => {
       const state = (window as unknown as { __open: Record<string, number> }).__open;
-      return { ...state, origin: performance.timeOrigin };
+      const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+      const scripts = performance.getEntriesByType("resource").filter((r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js")) as PerformanceResourceTiming[];
+      return {
+        ...state,
+        origin: performance.timeOrigin,
+        dcl: nav.domContentLoadedEventEnd,
+        scriptKiB: scripts.reduce((sum, r) => sum + r.decodedBodySize, 0) / 1024,
+      };
     });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
+    const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
     return {
       attach,
@@ -235,6 +257,11 @@ try {
       longMs: got.longMs!,
       shift: got.shift!,
       drift: got.drift!,
+      socket: at(socketOpenedAt),
+      initialize: at(arrivals.get("initialize")),
+      watch: at(arrivals.get("_acpmux/watch")),
+      dcl: got.dcl!,
+      scriptKiB: got.scriptKiB!,
     };
   };
 
@@ -274,6 +301,18 @@ try {
   for (let round = 0; round < ROUNDS; round += 1) rounds.push(await open());
   const median = (pick: (r: Round) => number) => [...rounds.map(pick)].sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
   console.log(`chat-open: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`);
+  console.log(
+    "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
+  );
+  console.log(
+    [
+      median((r) => r.dcl).toFixed(0),
+      median((r) => r.socket).toFixed(0),
+      median((r) => r.initialize).toFixed(0),
+      median((r) => r.watch).toFixed(0),
+      median((r) => r.scriptKiB).toFixed(0),
+    ].join(" | "),
+  );
   console.log("attach ms | firstRow ms | latest ms | settled ms | long tasks | long ms | layout shift | scroll moves after latest");
   console.log(
     [
