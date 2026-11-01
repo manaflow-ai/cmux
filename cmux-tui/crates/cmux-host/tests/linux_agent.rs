@@ -93,6 +93,10 @@ impl Harness {
     }
 
     fn start(&self, log: &Path) -> Child {
+        self.start_with_args(log, &[])
+    }
+
+    fn start_with_args(&self, log: &Path, extra: &[&str]) -> Child {
         let out = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -101,6 +105,7 @@ impl Harness {
         let me = String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout).unwrap();
         Command::new(env!("CARGO_BIN_EXE_cmux-host"))
             .arg("run")
+            .args(extra)
             .arg("--root")
             .arg(&self.root)
             .args([
@@ -435,4 +440,61 @@ fn a_shared_writable_host_config_is_refused() {
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(out.contains("host.json refused") && out.contains("writable"), "{out}");
     terminate(&mut agent);
+}
+
+/// Native receiving cannot silently become a user-owned service. This invokes
+/// the actual production parser and startup path, before any metadata request.
+#[test]
+fn receiver_native_cli_refuses_unprivileged_activation() {
+    use std::os::unix::process::CommandExt as _;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-host"));
+    command.args(["run", "--native-receiver", "--no-announce"]);
+    // SAFETY: geteuid only reads the current effective uid.
+    if unsafe { libc::geteuid() } == 0 {
+        command.uid(65534).gid(65534);
+    }
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--native-receiver requires root"));
+}
+
+#[test]
+fn receiver_native_cli_rejects_roles_only_activation() {
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-host"))
+        .args(["run", "--roles-only", "--native-receiver"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// The image's actual host entrypoint must request Native authority. Calling
+/// Host::new_native in a fixture alone would miss a production activation bug.
+#[test]
+#[ignore = "requires hosted Linux root; scripts/ci/verify-link-root-boundary.py"]
+fn receiver_root_privileged_host_run_activates_native_bootstrap() {
+    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    // SAFETY: geteuid only reads the current effective uid.
+    assert_eq!(unsafe { libc::geteuid() }, 0);
+    for native in [false, true] {
+        let h = Harness::new();
+        let count = if native { 8 } else { 4 };
+        fs::write(&h.bin, format!(
+            "#!/bin/sh\nd=$(dirname \"$0\")/..\ndd bs=1 count={count} of=\"$d/bootstrap.bin\" 2>/dev/null\necho \"$$ $*\" >> \"$d/daemon.log\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n"
+        )).unwrap();
+        let log = h.root.parent().unwrap().join("actions.log");
+        let extra = if native { vec!["--native-receiver"] } else { Vec::new() };
+        let mut agent = AgentProc(h.start_with_args(&log, &extra));
+        let captured = h.daemon_log.with_file_name("bootstrap.bin");
+        wait_until("root startup capability", || {
+            fs::read(&captured).is_ok_and(|v| v.len() == count)
+        });
+        let bytes = fs::read(captured).unwrap();
+        if native {
+            assert_eq!(bytes, b"CMR\x01NVR2");
+        } else {
+            assert_eq!(bytes, b"CMR\x01");
+        }
+        terminate(&mut agent);
+    }
+    println!("ROOT_BOUNDARY_EXECUTED native_host_run_activation");
 }

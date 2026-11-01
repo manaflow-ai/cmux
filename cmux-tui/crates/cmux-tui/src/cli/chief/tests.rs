@@ -74,6 +74,24 @@ fn args_select_pipe_text_timeout_and_history() {
 }
 
 #[test]
+fn an_agents_prompt_names_its_sender_and_a_persons_none() {
+    use cmux_conversation::agent_sender::AgentSender;
+    let parsed = parse_args(&strings(&[
+        "-p", "hi", "--from", "lane-a", "--class", "question", "--thread", "t1",
+    ]))
+    .unwrap();
+    let want = AgentSender::new("lane-a", Some("question"), Some("t1"));
+    assert_eq!(parsed.sender(None), want);
+    // `--from` wins over the acpmux session this runs in.
+    assert_eq!(parsed.sender(Some("other")), want);
+    let plain = parse_args(&strings(&["-p", "hi"])).unwrap();
+    assert_eq!(plain.sender(Some("lane-b")), AgentSender::new("lane-b", None, None));
+    // The person at a terminal: no acpmux session, no sender.
+    assert_eq!(plain.sender(None), None);
+    assert_eq!(plain.sender(Some("")), None);
+}
+
+#[test]
 fn chief_conversation_is_the_oldest_with_agent_mux() {
     let conv = |id: &str, created: &str, chief: bool| {
         let mut participants =

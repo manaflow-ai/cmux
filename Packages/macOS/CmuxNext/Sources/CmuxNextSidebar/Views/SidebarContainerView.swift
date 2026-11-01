@@ -316,7 +316,10 @@ public final class SidebarContainerView: NSView {
         panel.alphaValue = 1
         syncHandleVisibility()
         syncRail()
+        // A layout callback can start a newer width animation; that one owns the motion flag.
+        let generation = animationGeneration
         superview?.layoutSubtreeIfNeeded()
+        guard generation == animationGeneration else { return }
         isWidthAnimating = false
     }
 
@@ -369,6 +372,8 @@ public final class SidebarContainerView: NSView {
             // Flush the final constraint layout before publishing settlement. Content and
             // terminal geometry must already be at the target when they hear the motion ended.
             self.superview?.layoutSubtreeIfNeeded()
+            // A layout callback that retargeted the sidebar started a newer leg: leave its motion flag set.
+            guard generation == self.animationGeneration else { return }
             self.widthCompletedGeneration = generation
             self.isWidthAnimating = false
             self.refreshHover()

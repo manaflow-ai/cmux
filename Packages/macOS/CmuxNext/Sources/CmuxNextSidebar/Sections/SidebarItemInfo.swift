@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 public import CmuxNextDesign
 public import CmuxNextIcons
 public import Foundation
@@ -29,6 +30,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var caption: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
+    /// A stable per-session fallback color when the harness has no registered mark.
+    public var agentColor: GroupColor?
     /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
     public var emoji: String?
     /// A workspace's favicon (its page's or the user's stored image), drawn untinted before `emoji`.
@@ -39,7 +42,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
     /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
+    /// Lawrence msg 19392). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
@@ -78,6 +82,19 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
         self.badge = badge
         self.isActive = isActive
         self.isMissing = isMissing
+    }
+
+    /// The fallback mark color for an agent/session id. `GroupColor.unset` uses a stable hash, so
+    /// the same session does not change color between launches or machines.
+    public static func stableAgentColor(for id: String) -> GroupColor {
+        GroupColor.unset(id: id)
+    }
+
+    /// The `brand` for a session's harness id (`codex`, `claude-sr`, `acp:gemini`): its catalog brand
+    /// (`codex` draws the OpenAI mark), nil when the catalog has no mark for it. A raw harness id is not
+    /// a brand id, so passing it straight to `brand` drew the generic glyph for Codex (Leo 2026-10-29).
+    public static func agentBrand(forHarness harness: String?) -> String? {
+        AgentBrandCatalog.brand(for: harness)?.rawValue
     }
 }
 

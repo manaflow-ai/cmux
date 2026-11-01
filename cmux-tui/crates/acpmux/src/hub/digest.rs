@@ -302,6 +302,11 @@ impl Hub {
         let made =
             session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
         if let Some(made) = made {
+            // Its messages wait no more: they are in this turn (`queue_admission.rs`).
+            {
+                let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                made.release(session, &queue);
+            }
             let taken = std::mem::take(&mut *made.taken.lock().unwrap_or_else(|e| e.into_inner()));
             *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
         }
@@ -310,6 +315,7 @@ impl Hub {
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
         if head.agent.is_none()
+            || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
             || super::inbox::review_box(session)
@@ -331,6 +337,7 @@ impl Hub {
                     continue;
                 }
                 let joins = q.run.agent.is_some()
+                    && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !crate::prompt_uploads::any(&q.run.blocks)
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
@@ -400,6 +407,9 @@ impl Hub {
         // Once: a message that fails every turn it is in must not hold the queue again and again.
         taken.retain(|q| !q.requeued);
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
+            // None go back: what an inbox digest charged for them goes (`queue_admission.rs`).
+            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            digest.release(session, &queue);
             return;
         }
         // A person's Stop holds every other agent's message (`cancel.rs`): these come back held
@@ -415,6 +425,9 @@ impl Hub {
                 queue.insert(i, q);
                 session.queued.fetch_add(1, Ordering::SeqCst);
             }
+            // Back in the queue, they count there: the charge goes in the same critical section,
+            // so a new prompt sees them in one place or the other (`queue_admission.rs`).
+            digest.release(session, &queue);
             queue.iter().map(|q| q.prompt_id.clone()).collect()
         };
         let mut position = session.queued() - taken.len() as u64;
@@ -487,11 +500,41 @@ pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
 pub(super) struct DigestTurn {
     pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
     taken: StdMutex<Vec<QueuedPrompt>>,
+    /// What it charges `Session::digest_bytes` for the messages it took (`queue_admission.rs`).
+    charged: std::sync::atomic::AtomicU64,
+}
+
+impl DigestTurn {
+    /// Charges the session's queue for `taken`, which leave it for this digest. `_queue` is the
+    /// queue's guard: the charge is made in the critical section that takes them out.
+    pub(super) fn charge(
+        &self,
+        session: &Session,
+        _queue: &[QueuedPrompt],
+        taken: &[QueuedPrompt],
+    ) {
+        let bytes = taken.iter().map(|q| super::queue_admission::run_bytes(&q.run)).sum::<u64>();
+        self.charged.fetch_add(bytes, Ordering::SeqCst);
+        session.digest_bytes.fetch_add(bytes, Ordering::SeqCst);
+    }
+
+    /// Releases its charge, once: its turn took the messages over, or they went back in the
+    /// queue in this same critical section. `_queue` is the queue's guard.
+    pub(super) fn release(&self, session: &Session, _queue: &[QueuedPrompt]) {
+        let bytes = self.charged.swap(0, Ordering::SeqCst);
+        let _ = session.digest_bytes.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
+            Some(held.saturating_sub(bytes))
+        });
+    }
 }
 
 impl Default for DigestTurn {
     fn default() -> Self {
-        Self { answer: tokio::sync::watch::channel(None).0, taken: StdMutex::new(Vec::new()) }
+        Self {
+            answer: tokio::sync::watch::channel(None).0,
+            taken: StdMutex::new(Vec::new()),
+            charged: std::sync::atomic::AtomicU64::new(0),
+        }
     }
 }
 
@@ -512,6 +555,7 @@ mod tests {
 
     fn run(text: &str, agent: Option<&str>, provenance: Option<Value>) -> Arc<PromptRun> {
         Arc::new(PromptRun {
+            size: Default::default(),
             blocks: vec![json!({"type": "text", "text": text})],
             display_parts: None,
             control: Control::default(),
@@ -615,6 +659,7 @@ mod tests {
         let display =
             json!([{"kind": "file", "blockIndex": 1, "name": "notes.txt", "source": source}]);
         let run = PromptRun {
+            size: Default::default(),
             blocks: vec![
                 json!({"type": "text", "text": "see the notes"}),
                 json!({"type": "resource_link", "name": "notes.txt", "uri": "file:///tmp/notes.txt"}),
@@ -660,5 +705,74 @@ mod tests {
             .expect("the requeued message is queued again");
         assert_eq!(back.run.display_parts.as_ref(), Some(&display));
         assert_eq!(back.run.display_parts.as_ref().unwrap()[0]["source"], source);
+    }
+
+    fn waiting(id: &str, text: &str) -> QueuedPrompt {
+        QueuedPrompt {
+            prompt_id: id.into(),
+            turn_id: format!("t-{id}"),
+            client: "test".into(),
+            preview: text.into(),
+            queued_at: 7,
+            withdraw: Arc::new(tokio::sync::Notify::new()),
+            run: run(text, Some("lane-a"), None),
+            restored: false,
+            resume: false,
+            steer: false,
+            held: false,
+            sent_now: false,
+            joined: Arc::new(StdMutex::new(None)),
+            requeued: false,
+            retries: 0,
+        }
+    }
+
+    /// What an inbox digest took is charged to the chat's queue until it goes back in, and the
+    /// charge goes in the critical section that puts it back, once, however often it is released
+    /// (manaflow-ai/cmux#28768 review: no interval where the bytes are in neither place).
+    #[tokio::test]
+    async fn a_digest_charge_moves_with_its_messages_and_is_released_once() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Arc::new(Hub::new(config, store));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "digest-charge", "name": "charge",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        let taken = vec![waiting("p1", "first"), waiting("p2", "second message")];
+        let bytes: u64 =
+            taken.iter().map(|q| super::super::queue_admission::run_bytes(&q.run)).sum();
+        assert!(bytes > 0);
+        let digest = DigestTurn::default();
+        {
+            let queue = session.queue.lock().unwrap();
+            digest.charge(&session, &queue, &taken);
+        }
+        *digest.taken.lock().unwrap() = taken;
+        assert_eq!(session.digest_bytes.load(Ordering::SeqCst), bytes);
+
+        // A failed turn puts them back: the queue holds them, the charge is gone.
+        hub.requeue_joined(&session, &digest, false);
+        assert_eq!(session.queue.lock().unwrap().len(), 2);
+        assert_eq!(session.digest_bytes.load(Ordering::SeqCst), 0);
+
+        // Released again (the digest's task ends after): nothing more comes off.
+        let other = DigestTurn::default();
+        {
+            let queue = session.queue.lock().unwrap();
+            other.charge(&session, &queue, &[waiting("p3", "third")]);
+            digest.release(&session, &queue);
+        }
+        assert!(session.digest_bytes.load(Ordering::SeqCst) > 0);
+        {
+            let queue = session.queue.lock().unwrap();
+            other.release(&session, &queue);
+            other.release(&session, &queue);
+        }
+        assert_eq!(session.digest_bytes.load(Ordering::SeqCst), 0);
     }
 }

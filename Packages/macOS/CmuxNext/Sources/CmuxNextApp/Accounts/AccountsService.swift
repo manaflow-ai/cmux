@@ -48,8 +48,8 @@ final class AccountsService: AccountsServices {
         fixtureHome = capture?.home ?? environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
-        keys = capture?.keys() ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
-        labels = AccountLabelerStore(provider: capture?.labelSalt ?? KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
+        keys = capture?.keys() ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID), loginKeychain: services.loginKeychain)
+        labels = AccountLabelerStore(provider: capture?.labelSalt ?? KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID), loginKeychain: services.loginKeychain))
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
