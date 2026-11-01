@@ -2,7 +2,7 @@ import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useComposerListBox } from "./backdropLayer";
 import { useT } from "./i18n";
-import type { SlashCommand, SlashMatch } from "./slashCommands";
+import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 export function SlashMenu({
   matches,
@@ -74,7 +74,7 @@ export function SlashMenu({
           }}
         >
           <span className="acpmux-slash-name">
-            /<Highlighted name={match.command.name} ranges={match.ranges} />
+            /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
           {match.command.source && match.command.source !== "agent" && (
