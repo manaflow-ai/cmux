@@ -343,7 +343,7 @@ impl Hub {
             msg.set("revision", json!(revision));
         }
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
-        let images = super::prompt_images::keep(&run.blocks);
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }

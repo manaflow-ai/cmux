@@ -60,6 +60,15 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
 }
 
+/// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
+/// without one.
+fn with_wait(mut reply: Value, waited: Value) -> Value {
+    if !waited.is_null() {
+        reply.set("wait", waited);
+    }
+    reply
+}
+
 /// The create's name, as `session/new` and `session/fork` read it.
 fn create_name(params: &Value) -> Option<String> {
     mux_meta(params)
@@ -302,14 +311,33 @@ async fn dispatch_brief(
         ))
         .with_data(json!({"reason": "dispatch.peer_host"})));
     }
+    // A retry of a brief already taken answers as before, whatever the placement rules now say
+    // of a new lane on the host it names (`auto` finding no host, or `role_refusal`).
+    let replay = || -> Option<Result<Value, RpcError>> {
+        let existing = hub.briefs.existing(&id, idempotency)?;
+        Some(brief_for(hub, conn, existing).map(|existing| {
+            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true})
+        }))
+    };
     let host = if forwarded || from_peer || selected == "local" {
         None
     } else if selected == "auto" {
-        auto_host(hub, &brief).await.map_err(|why| {
-            RpcError::not_found(format!("{why}; use --host HOST or connect a peer"))
-        })?
+        match auto_host(hub, &brief).await {
+            Ok(host) => host,
+            Err(why) => {
+                if let Some(replayed) = replay() {
+                    return replayed;
+                }
+                return Err(RpcError::not_found(format!(
+                    "{why}; use --host HOST or connect a peer"
+                )));
+            }
+        }
     } else {
         if let Some(why) = super::place::role_refusal(&selected, super::place::brief_work(&brief)) {
+            if let Some(replayed) = replay() {
+                return replayed;
+            }
             return Err(RpcError::invalid_params(format!(
                 "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
             )));
@@ -467,6 +495,15 @@ async fn dispatch_brief(
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );
+    }
+    // A new lane that starts here is checked here too, whoever sent it (`place::here_refusal`);
+    // a replay of a brief already taken (above) starts nothing and answers as before.
+    if let Some(why) = super::place::here_refusal(super::place::brief_work(&brief)) {
+        hub.briefs.release(&id);
+        return Err(RpcError::invalid_params(format!(
+            "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+        ))
+        .with_data(json!({"reason": "dispatch.host_refused"})));
     }
     let created =
         match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
@@ -781,7 +818,9 @@ async fn dispatch_request(
     }
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
-        method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
+        // Boxed: dispatch_brief's future is large, and inline it widens every request's future
+        // (a debug test thread's stack overflowed on an unrelated request).
+        method::MUX_DISPATCH => Box::pin(dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
@@ -860,7 +899,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, crate::watch_delta::FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1638,6 +1677,8 @@ async fn dispatch_request(
             // deny-all is a lockdown: every chat without a policy of its own follows it.
             if policy == PermissionPolicy::DenyAll {
                 hub.follow_default_policy().await;
+            } else if policy == PermissionPolicy::ApproveAll {
+                hub.approve_pending_default_tools().await;
             }
             Ok(json!({"policy":policy.to_string()}))
         }
@@ -1695,8 +1736,8 @@ async fn dispatch_request(
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
         crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
-            hub.add_peer_from(&params).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.add_peer_from(&params).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
         // the unix socket only (`remote_guard.rs`).
@@ -1715,11 +1756,12 @@ async fn dispatch_request(
                 hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
-            if wait {
-                let _ =
-                    tokio::time::timeout(crate::hub::PEER_SETTLE_BUDGET, settled.changed()).await;
-            }
-            Ok(json!({"lease": name, "peers": hub.peers()}))
+            let waited = if wait {
+                hub.wait_for_peer(&name, &mut settled, crate::hub::PEER_SETTLE_BUDGET).await
+            } else {
+                Value::Null
+            };
+            Ok(with_wait(json!({"lease": name, "peers": hub.peers()}), waited))
         }
         "_acpmux/peer_reconnect" => {
             let name = str_param(&params, "name")
@@ -1727,8 +1769,8 @@ async fn dispatch_request(
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
             // A link that is open stays up unless the caller forces it (`host reconnect`).
             let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
-            hub.reconnect_peer_with(name, wait, force).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.reconnect_peer_with(name, wait, force).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         "_acpmux/peer_remove" => {
             let name = str_param(&params, "name")
@@ -1833,7 +1875,7 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             Ok(super::session_files::describe(hub, &s))
         }
-        method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_WAIT => wait::wait(hub, &params, conn.caller()).await,
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await
         }
@@ -1845,7 +1887,9 @@ async fn dispatch_request(
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-            Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
+            let turns = hub.history(&s, limit);
+            hub.lane_report_history_read(conn.caller(), &s.id, &turns);
+            Ok(json!({"sessionId": s.id, "turns": turns}))
         }
         m if composer::handles(m) => composer::handle(hub, conn, m, &params).await,
         method::MUX_TAG => {
@@ -2052,12 +2096,15 @@ async fn dispatch_request(
             };
             // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
             let opener = turn_opener::turn_opener(hub, &s.id, &page);
+            hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
-            Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener}),
-            )
+            let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener});
+            // The page and its opener each keep a record of up to 14 MiB: together they could
+            // pass one message, and the chat then never opened (`hub::fit_reply`).
+            crate::hub::fit_reply(&mut reply);
+            Ok(reply)
         }
         method::MUX_DETACH => {
             view::detach(hub, conn, &*hub.resolve(session_key(&params)?)?);
@@ -2090,7 +2137,9 @@ async fn dispatch_request(
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
-        method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
+        method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            events::handle(hub, m, &params, conn.caller())
+        }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_MAIL_SEND

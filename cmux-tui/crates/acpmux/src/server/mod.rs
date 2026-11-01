@@ -402,6 +402,12 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
+        self.send_replying(msg, None);
+    }
+
+    /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
+    /// it (`wire_size.rs`).
+    fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
@@ -427,7 +433,7 @@ impl Conn {
         let msg = masked.as_ref().unwrap_or(base);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
-        match msg.bounded_line() {
+        match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
                 enqueue_outbound(
                     &self.out,
@@ -439,23 +445,28 @@ impl Conn {
                     &self.outbound_pending_controls,
                 );
             }
-            Err(bytes) => {
-                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
-                enqueue_outbound(
-                    &self.out,
-                    Message::notification(
-                        "_acpmux/lagged",
-                        json!({"dropped": 1, "reason": "message_too_large"}),
-                    )
-                    .to_line(),
-                    false,
-                    &self.outbound_dropped,
-                    &self.outbound_gap_pending,
-                    &self.outbound_lock,
-                    &self.outbound_pending_controls,
-                );
-            }
+            Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
+    }
+
+    /// A notification of `bytes`, larger than a frame, was left out (`bounded_line` counted it
+    /// and warned of it, at most once a minute per method): the client is told it lagged and
+    /// reads again from its last record.
+    fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
+        tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
+        enqueue_outbound(
+            &self.out,
+            Message::notification(
+                "_acpmux/lagged",
+                json!({"dropped": 1, "reason": "message_too_large"}),
+            )
+            .to_line(),
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
     /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
@@ -465,9 +476,19 @@ impl Conn {
     /// One larger than a frame goes as its error, as in [`Self::send`].
     /// None if it was not sent; else whether it went whole into an open queue (not as its
     /// too-large error, nor into a queue whose reader is gone).
-    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> Option<bool> {
+    /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
+    /// the reply once it goes, never a list left for a newer one.
+    fn send_serialized(
+        &self,
+        id: &Value,
+        method: Option<&str>,
+        result: &str,
+        seen: u64,
+        anyway: bool,
+    ) -> Option<bool> {
         let mut line = list_reply::reply_line(id, result);
-        let whole = line.len() <= crate::rpc::MAX_MESSAGE_BYTES;
+        let bytes = line.len();
+        let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
         if !whole {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
@@ -480,6 +501,8 @@ impl Conn {
         if stale && !anyway {
             return None;
         }
+        let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
+        crate::wire_size::observe(what, bytes);
         match self.out.try_send(line) {
             Ok(()) if stale => self.enqueue_control_locked(lag()),
             Ok(()) => {}
@@ -752,12 +775,25 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
 /// How long to wait after a failed `accept`. A connection that died in the queue is gone, so the
 /// next accept can run at once; anything else (EMFILE, ENFILE, ENOBUFS) leaves the connection
 /// queued, and an immediate retry would spin a core and flood the log until descriptors free up.
-fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
+pub(crate) fn accept_retry_delay(error: &std::io::Error) -> std::time::Duration {
     use std::io::ErrorKind::{ConnectionAborted, ConnectionReset, Interrupted};
     match error.kind() {
         ConnectionAborted | ConnectionReset | Interrupted => std::time::Duration::ZERO,
         _ => std::time::Duration::from_millis(100),
     }
+}
+
+/// Whether a failed `accept` means the listener itself is gone (closed, never listening or not a
+/// socket), so a retry can never succeed. Any other failure is about one connection or a passing
+/// shortage, and the loop pauses ([`accept_retry_delay`]) and accepts again.
+/// Its callers are the Linux sandbox proxy and the tailnet ingress.
+#[cfg_attr(not(any(target_os = "linux", feature = "tailnet")), allow(dead_code))]
+pub(crate) fn accept_ends_listener(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(libc::EBADF | libc::EINVAL | libc::ENOTSOCK)) {
+        return true;
+    }
+    error.kind() == std::io::ErrorKind::UnexpectedEof
 }
 
 #[cfg(unix)]
@@ -1565,20 +1601,21 @@ async fn serve_connection_from(
                 tokio::spawn(async move {
                     let _slot = slot;
                     let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
-                    let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
-                        conn.send(&match result {
+                        let reply = match result {
                             Ok(v) => Message::ok(id, v),
                             Err(mut e) => {
                                 // What kind of failure, and what to do (`recovery.rs`).
                                 crate::recovery::annotate(&mut e, None);
                                 Message::err(id, e)
                             }
-                        });
+                        };
+                        conn.send_replying(&reply, Some(&m));
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -1870,7 +1907,7 @@ mod agent_messages;
 mod app_reply;
 mod client_request;
 mod clock_text;
-pub(crate) use clock_text::iso;
+pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
@@ -2093,8 +2130,16 @@ mod request_admission_tests {
 mod acp_list_tests;
 
 #[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
+
+#[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
+
+#[cfg(test)]
+#[path = "watch_delta_link_tests.rs"]
+mod watch_delta_link_tests;
 
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]
@@ -2105,7 +2150,7 @@ mod key_route_tests;
 
 #[cfg(test)]
 mod accept_retry_tests {
-    use super::accept_retry_delay;
+    use super::{accept_ends_listener, accept_retry_delay};
     use std::io::{Error, ErrorKind};
     use std::time::Duration;
 
@@ -2124,6 +2169,23 @@ mod accept_retry_tests {
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionAborted)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::ConnectionReset)), Duration::ZERO);
         assert_eq!(accept_retry_delay(&Error::from(ErrorKind::Interrupted)), Duration::ZERO);
+    }
+
+    #[test]
+    fn only_a_listener_that_is_gone_ends_the_accept_loop() {
+        // A closed tailnet listener reports end of stream; a closed fd reports EBADF.
+        assert!(accept_ends_listener(&Error::from(ErrorKind::UnexpectedEof)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EBADF)));
+        #[cfg(unix)]
+        assert!(accept_ends_listener(&Error::from_raw_os_error(libc::EINVAL)));
+        // Descriptor exhaustion, a dropped connection or one record that lost its fd pass.
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::EMFILE)));
+        #[cfg(unix)]
+        assert!(!accept_ends_listener(&Error::from_raw_os_error(libc::ENFILE)));
+        assert!(!accept_ends_listener(&Error::from(ErrorKind::ConnectionAborted)));
+        assert!(!accept_ends_listener(&Error::other("accept failed")));
     }
 }
 

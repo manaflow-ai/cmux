@@ -5,7 +5,7 @@
 //! and runs it (`resume_queues`), so queued prompts survive a crash, an update
 //! relaunch, a quit and a reboot.
 
-use super::subsession_runs::{TurnGuard, WaitMark};
+use super::subsession_runs::{ClaimedTurn, TurnGuard, WaitMark};
 use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
@@ -149,6 +149,10 @@ pub(super) struct Slot<'a> {
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
     /// `PromptOptions::no_queue`.
     pub(super) no_queue: bool,
+    /// An automatic continuation (`PromptOptions::after_turn`, `auto_resume.rs`): it never
+    /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
+    /// queue; it waits for the lock, and `check_cut` decides after.
+    pub(super) after_turn: bool,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -278,24 +282,37 @@ impl Hub {
                     // A Stop since the read above keeps them: the release checks under the lock.
                     self.release_held_agent_messages(session, 0);
                 }
-                // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do not
-                // hold up a new one. A prompt that waits for the owner (its provenance's
-                // `approval`, `author.rs`) always queues.
-                let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                // Whether it waits, and its place in the count, are one step under `admit`: two
+                // prompts that come together never both find the chat free, so the second
+                // queues and is accepted at once instead of waiting unanswered for the lock
+                // (fuzz row g, g1). Nothing is awaited under it.
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
-                let waiting = stop_held
-                    || session.turn().is_some()
-                    || session.queued() > held
-                    || awaiting_owner;
-                // It never queues: busy when the queue's own test says it would wait. The turn
-                // lock is tried below, and the queue read again under it.
-                if p.no_queue && waiting {
-                    return Err(Err(super::auto_resume::retry_turn::busy()));
-                }
-                let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+                let waiting = {
+                    let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+                    // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do
+                    // not hold up a new one. A prompt that waits for the owner (its provenance's
+                    // `approval`, `author.rs`) always queues.
+                    let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                    // A prompt that took the turn lock and has not shown its turn yet
+                    // (`start_turn` runs after awaits) is a turn too. The count is read before
+                    // the claim: a prompt counts in `queued` until it holds the claim.
+                    let waiting = stop_held
+                        || session.queued() > held
+                        || (session.turn_claimed() && !p.after_turn)
+                        || session.turn().is_some()
+                        || awaiting_owner;
+                    // It never queues: busy when the queue's own test says it would wait. The
+                    // turn lock is tried below, and the queue read again under it.
+                    if p.no_queue && waiting {
+                        return Err(Err(super::auto_resume::retry_turn::busy()));
+                    }
+                    session.queued.fetch_add(1, Ordering::SeqCst);
+                    waiting
+                };
                 let withdraw = if waiting {
-                    let waits = self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
-                    let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position});
+                    let (waits, position) =
+                        self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
+                    let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position});
                     if awaiting_owner {
                         accepted.set("awaitingOwner", json!(true));
                     }
@@ -319,7 +336,7 @@ impl Hub {
                     // behind it.
                     let guard = session.turn_lock.try_lock().ok();
                     match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
-                        Some(guard) => guard,
+                        Some(guard) => ClaimedTurn::new(session, guard),
                         None => {
                             session.queued.fetch_sub(1, Ordering::SeqCst);
                             return Err(Err(super::auto_resume::retry_turn::busy()));
@@ -329,20 +346,21 @@ impl Hub {
                     let guard = session.turn_lock.lock().await;
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
-                    // place (`queue_approve.rs`). This one queues behind it.
+                    // place (`queue_approve.rs`). This one queues behind it, never claiming the
+                    // turn.
                     if queue_waits(session) {
                         drop(guard);
-                        // Its `queued` reservation is still counted: its place is the count.
-                        let position = session.queued();
-                        let waits =
-                            self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
+                        // Its `queued` reservation is still counted.
+                        let (waits, position) =
+                            self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
                         accept(
-                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                         );
                         break 'run (waits, None);
                     }
-                    guard
+                    ClaimedTurn::new(session, guard)
                 };
+                // Claimed before it leaves the count: a prompt that comes between sees one.
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // Its close may have begun while it waited for the turn.
                 if refuses_closing(&p) && closing(session) {
@@ -357,11 +375,11 @@ impl Hub {
                 // prompt waited for the lock, not that turn, and queues behind it.
                 if session.turn().is_some() {
                     drop(guard);
-                    let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                    let waits =
-                        self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
+                    session.queued.fetch_add(1, Ordering::SeqCst);
+                    let (waits, position) =
+                        self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
                     accept(
-                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                     );
                     (waits, None)
                 } else {
@@ -399,11 +417,11 @@ impl Hub {
                                 return Err(Err(super::auto_resume::retry_turn::busy()));
                             }
                             let mark = self.mark_waiting_for_slot(&parent, session);
-                            let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                            let waits =
-                        self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
+                            session.queued.fetch_add(1, Ordering::SeqCst);
+                            let (waits, position) =
+                                self.enqueue(session, &p, &turn_id).map_err(Answer::Err)?;
                             accept(
-                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
+                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "waitsForSlot": true}),
                             );
                             (waits, Some(mark))
                         }
@@ -557,15 +575,16 @@ impl Hub {
 
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
-    /// agent message's turn (then `joined` is set, `digest.rs`). A refusal releases the caller's
-    /// `queued` reservation without inserting or recording the prompt.
+    /// agent message's turn (then `joined` is set, `digest.rs`). Also returns its place in the
+    /// queue (1: next), as an inbox digest names its own (`inbox_digest.rs`): where it went in,
+    /// not the count, which a prompt about to start its turn is still in. A refusal releases the
+    /// caller's `queued` reservation without inserting or recording the prompt.
     fn enqueue(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
-        position: u64,
         turn_id: &str,
-    ) -> Result<Waits, RpcError> {
+    ) -> Result<(Waits, u64), RpcError> {
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
         let declined = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -573,7 +592,7 @@ impl Hub {
         // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
         // run it (`restore_queues`). Made, and its images kept, before the queue's lock: a large
         // image is written without holding up the queue.
-        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
             queued.set("fromAgent", json!(agent));
         }
@@ -590,7 +609,7 @@ impl Hub {
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
-        let images = super::prompt_images::keep(p.blocks);
+        let images = super::prompt_images::keep_sourced(p.blocks, p.display_parts);
         if !images.is_empty() {
             queued.set("images", Value::Array(images));
         }
@@ -637,6 +656,9 @@ impl Hub {
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());
+        let position = at as u64 + 1;
+        // Its place is known once it has one: the `queued` record names it.
+        queued.set("position", json!(position));
         let mut message_opts = PromptOptions::default();
         super::message_events::restore_message_options(&mut message_opts, p.provenance);
         queue.insert(
@@ -713,7 +735,7 @@ impl Hub {
         // (`queue_approve.rs`, `queue_edit.rs`): none of them can be logged before its `queued`
         // record, which a restart would read as a prompt no answer reached (review of #26747).
         drop(queue);
-        Ok((withdraw, joined, declined))
+        Ok(((withdraw, joined, declined), position))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -766,7 +788,13 @@ impl Hub {
             if head && !held && !moving && session.turn().is_none() {
                 if !self.shutting_down() {
                     match self.take_run_slot(session, provenance.as_ref()) {
-                        Ok(slot) => return Wait::Turn(TurnGuard::new(guard, slot)),
+                        // Claimed before `take_queued` takes it out of the count.
+                        Ok(slot) => {
+                            return Wait::Turn(TurnGuard::new(
+                                ClaimedTurn::new(session, guard),
+                                slot,
+                            ));
+                        }
                         // Its parent's run slots are all taken: it waits for one to free (or a
                         // limit to change), or to be withdrawn.
                         Err(parent) => {

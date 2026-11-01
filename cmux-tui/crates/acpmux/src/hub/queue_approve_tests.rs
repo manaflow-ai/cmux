@@ -115,9 +115,10 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         full_access_device: None,
         replaced: &replaced,
         no_queue: false,
+        after_turn: false,
     };
-    let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-    let _ = hub.enqueue(session, &slot, position, id);
+    session.queued.fetch_add(1, Ordering::SeqCst);
+    let _ = hub.enqueue(session, &slot, id);
 }
 
 #[tokio::test]

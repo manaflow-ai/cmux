@@ -70,7 +70,7 @@ export function MobileCard() {
           </div>
         </>
       )}
-      {state.allowed && (
+      {(state.allowed || state.phones.length > 0) && (
         <>
           <h3 className="group-title">{state.phones_title}</h3>
           <div className="rows" data-mobile-phones="">
