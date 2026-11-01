@@ -1,6 +1,25 @@
 public import CmuxNextDaemon
 import Foundation
 
+private extension JSONValue {
+    var objectValue: [String: JSONValue]? { if case .object(let value) = self { return value }; return nil }
+    var arrayValue: [JSONValue]? { if case .array(let value) = self { return value }; return nil }
+    var intValue: Int? {
+        guard case .number(let value) = self, value.rounded() == value, abs(value) < 1e15 else { return nil }
+        return Int(value)
+    }
+    var foundationObject: Any {
+        switch self {
+        case .null: NSNull()
+        case .bool(let value): value
+        case .number(let value): value
+        case .string(let value): value
+        case .array(let values): values.map(\.foundationObject)
+        case .object(let values): values.mapValues(\.foundationObject)
+        }
+    }
+}
+
 /// The Cloud repository actions are daemon-owned. The page host only validates the action shape
 /// and forwards it to the pane's authenticated acpmux socket; it never handles repository data.
 public nonisolated struct AgentPaneCloudRepositoryRequest: Equatable, Sendable {
