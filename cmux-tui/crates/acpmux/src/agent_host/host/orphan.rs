@@ -63,7 +63,7 @@ fn orphan_step(
 /// Whether a next daemon needs `entry` in its log: all but stderr lines, the harness's raw lines
 /// kept beside their translation (`Tap` `in`), and its exit, which a daemon that finds no host
 /// learns anyway (it loads the chat idle).
-fn needs_a_daemon(entry: &Entry) -> bool {
+pub(super) fn needs_a_daemon(entry: &Entry) -> bool {
     !matches!(entry, Entry::Err { .. } | Entry::Exit { .. } | Entry::Tap { dir: TapDir::In, .. })
 }
 
@@ -176,7 +176,7 @@ impl State {
         Pending {
             requests: self.orphan.open.len(),
             unwritten: self.orphan.unwritten,
-            unlogged: self.entries.iter().filter(|(_, e, _)| needs_a_daemon(e)).count(),
+            unlogged: self.entries.iter().filter(|e| e.needed).count(),
             translator,
             connections: 0,
         }
@@ -207,7 +207,7 @@ impl State {
             if self.exit_h.is_none() {
                 return self.orphan.end_by.is_some_and(|by| now >= by);
             }
-            let unlogged = self.entries.iter().any(|(_, e, _)| needs_a_daemon(e));
+            let unlogged = self.entries.iter().any(|e| e.needed);
             if self.pending_conns.is_empty() && !unlogged {
                 return true;
             }

@@ -138,7 +138,12 @@ export type QuickModel = {
   effort?: string;
   /** Only levels advertised for this model; [] means no reasoning control. */
   efforts?: readonly string[];
+  /** The catalog's recommended level, which the row's effort column names before a pick. */
+  defaultEffort?: string;
   fast?: boolean;
+  /// The model honors Fast mode (its catalog entry says so): on a tab other than the chat's own,
+  /// the menu's Fast mode row lands it with Fast on.
+  canFast?: boolean;
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
   provider?: string;
@@ -165,7 +170,54 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
+  /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
+  /// and each is a route of it (its transport, login or launch setup) the Account row chooses
+  /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
+  /// SEPARATE HARNESSES" / "THE FUCKING APP SERVER THE FUCKING SR" / "WHERE IS THE FUCKING
+  /// ACCOUNTS"). Absent: the entry is its own family.
+  group?: string;
 };
+
+/// The tab a rail entry sits under: its model family (its `group`, else the brand its mark draws:
+/// Claude Code, claude-sr2 and a work login are all Claude; Codex and its app server are OpenAI),
+/// or itself when it has neither.
+const groupKey = (family: Pick<QuickFamily, "id" | "group" | "starred" | "mark">) =>
+  family.starred ? family.id : (family.group ?? agentBrand(family.mark ?? family.id) ?? family.id);
+
+/// One tab of the symbols row: a model family and its routes (transports, logins, launch setups),
+/// never a tab per route.
+export type QuickTab = { key: string; name: string; routes: QuickFamily[] };
+
+/// The rail's tabs: one per model family, in the order its first route comes. A family's name is
+/// its first route's without a launch setup's "(suffix)".
+export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
+  const tabs = new Map<string, QuickTab>();
+  for (const family of list) {
+    const key = groupKey(family);
+    const tab = tabs.get(key);
+    if (tab) tab.routes.push(family);
+    else tabs.set(key, { key, name: family.name, routes: [family] });
+  }
+  for (const tab of tabs.values())
+    if (tab.routes.length > 1) {
+      const lead = tab.routes.find((route) => !route.launch) ?? tab.routes[0]!;
+      tab.name = lead.name.replace(/\s*\([^)]*\)\s*$/, "") || lead.name;
+    }
+  return [...tabs.values()];
+}
+
+/// The route a family's tab opens on: the chat's own when it runs this family, else the first
+/// that lists models, else the first.
+function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
+  const listsModels = (route: QuickFamily) =>
+    !route.launch && !route.note && [...route.models, ...route.more].some((model) => !model.disabled);
+  return (
+    tab.routes.find((route) => route.id === running) ??
+    tab.routes.find(listsModels) ??
+    tab.routes.find((route) => !route.launch && !route.note) ??
+    tab.routes[0]!
+  );
+}
 
 export type QuickFamilies = {
   list: QuickFamily[];
@@ -192,15 +244,31 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// since every starred model also sits under its own harness.
 export type QuickSearchGroup = { id: string; name: string; rows: QuickModel[] };
 
-export function searchGroups(found: readonly QuickModel[], rail: readonly QuickFamily[]): QuickSearchGroup[] {
-  const groups = new Map<string, QuickSearchGroup>();
-  for (const family of rail) if (!family.starred) groups.set(family.id, { id: family.id, name: family.name, rows: [] });
+export function searchGroups(
+  found: readonly QuickModel[],
+  rail: readonly QuickFamily[],
+  running?: string,
+): QuickSearchGroup[] {
+  // A model family's routes share one heading, the tab's: a model several routes run is listed
+  // once, from the route its tab opens on, so search shows no transport as a harness either.
+  const tabs = familyTabs(rail.filter((family) => !family.starred));
+  const tabOf = new Map(tabs.flatMap((tab) => tab.routes.map((route) => [route.id, tab] as const)));
+  const groups = new Map<string, QuickSearchGroup & { lead?: string; seen: Map<string, number> }>();
+  for (const tab of tabs)
+    groups.set(tab.key, { id: tab.key, name: tab.name, rows: [], lead: leadRoute(tab, running).id, seen: new Map() });
   for (const row of found) {
-    let group = groups.get(row.family);
-    if (!group) groups.set(row.family, (group = { id: row.family, name: row.harness ?? row.family, rows: [] }));
-    group.rows.push(row);
+    const key = tabOf.get(row.family)?.key ?? row.family;
+    let group = groups.get(key);
+    if (!group) groups.set(key, (group = { id: key, name: row.harness ?? row.family, rows: [], seen: new Map() }));
+    const at = group.seen.get(row.id);
+    if (at === undefined) {
+      group.seen.set(row.id, group.rows.length);
+      group.rows.push(row);
+    } else if (row.family === group.lead && group.rows[at]!.family !== group.lead) group.rows[at] = row;
   }
-  return [...groups.values()].filter((group) => group.rows.length > 0);
+  return [...groups.values()]
+    .filter((group) => group.rows.length > 0)
+    .map(({ id, name, rows }) => ({ id, name, rows }));
 }
 
 /// The rows of a group that another row of it would read the same as (name and detail): they also
@@ -280,6 +348,11 @@ export function QuickModelMenu({
   // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
   // model menu does, not a submenu: the rail tab it was opened on.
   const [moreFor, setMoreFor] = useState<string | undefined>();
+  // Fast mode for a tab other than the chat's (Leo 2026-10-31: "WHY THE FUCK IS THERE NO FUCKING
+  // FAST MODE FOR FUCKIGN CODEX"): nothing runs there yet, so the row holds the choice and a model
+  // picked from that tab lands with it. Off each time the menu opens; the chat's own tab keeps the
+  // session's option. It holds the family tab it was turned on for: only that tab's picks take it.
+  const [heldFast, setHeldFast] = useState<string | undefined>();
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -291,6 +364,7 @@ export function QuickModelMenu({
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
       setMoreFor(undefined);
+      setHeldFast(undefined);
       setScrolled(false);
     }
   }
@@ -356,6 +430,15 @@ export function QuickModelMenu({
   }, [query, open, families, search, showField, tab, moreFor]);
   const onChatTab = !families || tab === families.current;
   const forkTab = !query && shown?.fork ? shown : undefined;
+  // Another tab whose models honor Fast mode draws the same Fast mode row the chat's tab does.
+  const tabFast =
+    !query &&
+    !onChatTab &&
+    !forkTab &&
+    !shown?.launch &&
+    !!shown &&
+    !shown.starred &&
+    [...shown.models, ...shown.more].some((model) => model.canFast && !model.disabled);
   const inlineMore = newTab && families !== undefined;
   // The symbols layout names a harness's other models Legacy models with their count, as the
   // reference picker does (Leo 2026-10-30, "like this, but symbols at the top").
@@ -375,7 +458,8 @@ export function QuickModelMenu({
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groupLook = menu.searchGroups ?? "harness";
   const groups = useMemo(
-    () => (found && families && groupLook === "harness" ? searchGroups(found, families.list) : undefined),
+    () =>
+      found && families && groupLook === "harness" ? searchGroups(found, families.list, families.current) : undefined,
     [found, families, groupLook],
   );
   const rows: QuickModel[] = groups
@@ -386,8 +470,12 @@ export function QuickModelMenu({
   const railTabs = useMemo(() => {
     if (!families || !groups?.length) return families?.list ?? [];
     const matched = new Set(groups.map((group) => group.id));
-    return families.list.filter((family) => matched.has(family.id));
+    return families.list.filter((family) => matched.has(groupKey(family)));
   }, [families, groups]);
+  // One tab per model family; its routes are an Account choice, never tabs of their own.
+  const tabs = useMemo(() => familyTabs(railTabs), [railTabs]);
+  const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
+  const routes = shownTab && !shownTab.routes[0]?.starred ? shownTab.routes : [];
   // Rows whose name and detail read the same within one harness also show their model id.
   const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
   const providerLook = menu.providers ?? "row";
@@ -408,9 +496,22 @@ export function QuickModelMenu({
       <span className="acpmux-menu-label">{offer.provider}</span>
     </MenuRadioItem>
   );
-  const pickRow = (row: QuickModel) => {
-    if (row.disabled) return;
+  const pickRow = (picked: QuickModel) => {
+    if (picked.disabled) return;
     onOpenChange(false);
+    // Another tab's model lands with the Fast mode its tab's row holds.
+    const row =
+      heldFast !== undefined &&
+      !query &&
+      families &&
+      // Held per family tab: switching its route in the Account row keeps it.
+      shownTab?.key === heldFast &&
+      shownTab.routes.some((route) => route.id === picked.family) &&
+      picked.family !== families.current &&
+      picked.canFast &&
+      !picked.fast
+        ? { ...picked, fast: true }
+        : picked;
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
@@ -433,7 +534,7 @@ export function QuickModelMenu({
       : model.efforts !== undefined
         ? reasoningChoices(
             model.efforts.map((value) => ({ value })),
-            { efforts: model.efforts },
+            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
             t,
           )
         : [];
@@ -450,8 +551,8 @@ export function QuickModelMenu({
     const choices = effortChoices(model);
     const stars = families?.stars;
     // A row's star, beside its effort column: a plain button, not a menu item, so it is no stop for
-    // Up and Down and a click on it never picks the model. From the keyboard, ⌘D stars the
-    // highlighted row (keyDown).
+    // Up and Down and a click on it never picks the model. It has no key: ⌘D is Split Right, and the
+    // open menu never takes an app shortcut it does not show on a row.
     const starred = stars?.has(model) ?? false;
     const star = stars ? (
       <button
@@ -459,9 +560,8 @@ export function QuickModelMenu({
         className="acpmux-quick-star"
         tabIndex={-1}
         aria-pressed={starred}
-        aria-keyshortcuts="Meta+D"
         aria-label={`${t(starred ? "picker.unstar" : "picker.star")}: ${model.name}`}
-        title={`${t(starred ? "picker.unstar" : "picker.star")}  ⌘D`}
+        title={t(starred ? "picker.unstar" : "picker.star")}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -497,7 +597,13 @@ export function QuickModelMenu({
       pickRow({ ...model, effort: value });
     };
     const look = menu.effortLook ?? "list";
-    const shown = running ? choices.find((choice) => choice.id === effort?.current) : undefined;
+    // A row that does not run names the level a pick lands (the model's recommended one), as the
+    // running row names its own, on every tab: a blank column until pointed at hid that each model
+    // has an effort choice at all (https://github.com/manaflow-ai/cmux/issues/29915).
+    const shown = running
+      ? choices.find((choice) => choice.id === effort?.current)
+      : choices.find((choice) => choice.recommended);
+    const held = !running && !!shown;
     // The row stays one line: the model, then its effort item at the trailing edge (the running
     // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
     // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
@@ -508,6 +614,7 @@ export function QuickModelMenu({
         key={valueOf(model)}
         data-effort-look={look}
         data-running={running ? "" : undefined}
+        data-held={held ? "" : undefined}
       >
         {name}
         <Submenu
@@ -607,21 +714,55 @@ export function QuickModelMenu({
       }}
     />
   );
+  // The Account row: the family's routes when it has several, and the running route's accounts.
+  const chatRouteAccounts = onChatTab && !!account;
+  const accountShown = routes.length > 1 || chatRouteAccounts;
+  const routeName = routes.length > 1 ? shown?.name : undefined;
+  const accountLabel =
+    [routeName, chatRouteAccounts ? accountValue : undefined].filter(Boolean).join(" · ") || undefined;
+  const familyRoutes =
+    routes.length > 1 ? (
+      <MenuRadioGroup
+        value={tab ?? ""}
+        onValueChange={(id) => {
+          const route = routes.find((candidate) => candidate.id === id);
+          if (!route) return;
+          // A route with no models of its own starts its harness, as its tab did.
+          if (route.launch && !route.note) {
+            if (families?.forkReady === false) return;
+            onOpenChange(false);
+            families?.onLaunch?.(route.id);
+            return;
+          }
+          setTab(route.id);
+          toTop();
+        }}
+      >
+        {routes.map((route) => (
+          <MenuRadioItem
+            key={route.id}
+            value={route.id}
+            closeOnClick={false}
+            disabled={route.launch && families?.forkReady === false}
+            className="acpmux-quick-item acpmux-quick-route"
+          >
+            <span className="acpmux-quick-label">
+              <span className="acpmux-menu-label">{route.name}</span>
+              {route.note && <span className="acpmux-quick-value">{route.note}</span>}
+            </span>
+          </MenuRadioItem>
+        ))}
+      </MenuRadioGroup>
+    ) : null;
+  const chatAccounts = chatRouteAccounts ? (
+    <>
+      {familyRoutes && <MenuSeparator />}
+      {routeRows}
+    </>
+  ) : null;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
-    // ⌘D stars or unstars the highlighted model row, as its star button does.
-    if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "d" && families?.stars) {
-      const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
-      const star = highlighted
-        ?.closest(".acpmux-quick-model-effort")
-        ?.querySelector<HTMLButtonElement>(".acpmux-quick-star");
-      if (star) {
-        event.preventDefault();
-        star.click();
-      }
-      return;
-    }
     if (
       (event.metaKey && !commandDigit) ||
       event.ctrlKey ||
@@ -636,22 +777,22 @@ export function QuickModelMenu({
     // Left and Right move along the rail (its tabs are not rows, so Up and Down stay in the list).
     // In the search field they move along the rail only while it is empty (fieldKeyDown).
     if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-      const tabs = families.list.filter((family) => !family.launch || families.forkReady !== false);
+      const stops = tabs.filter(
+        (entry) => !entry.routes.every((route) => route.launch) || families.forkReady !== false,
+      );
       const add = rail.current?.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add");
       const fromAdd = event.target === add;
-      const count = tabs.length + (add ? 1 : 0);
+      const count = stops.length + (add ? 1 : 0);
       if (!count) return;
-      const at = fromAdd ? tabs.length : tabs.findIndex((family) => family.id === tab);
+      const at = fromAdd ? stops.length : stops.findIndex((entry) => entry === shownTab);
       const index = (at + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
       event.preventDefault();
-      if (index === tabs.length) add?.focus();
+      if (index === stops.length) add?.focus();
       else {
-        setTab(tabs[index]!.id);
+        setTab(leadRoute(stops[index]!, families.current).id);
         if (fromAdd) {
           const button =
-            rail.current?.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")[
-              families.list.indexOf(tabs[index]!)
-            ];
+            rail.current?.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")[tabs.indexOf(stops[index]!)];
           (field.current ?? button)?.focus();
         }
         toTop();
@@ -961,7 +1102,7 @@ export function QuickModelMenu({
           </MenuRadioGroup>
         </Submenu>
       )}
-      {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
+      {!query && (!forkTab || accountShown) && (!inlineMore || accountShown) && <MenuSeparator />}
       {!query && !ownModel && !inlineMore && families && (shown?.more.length ?? 0) > 0 && (
         <Submenu
           align="start"
@@ -1022,28 +1163,33 @@ export function QuickModelMenu({
         </>
       )}
       {!query &&
-        onChatTab &&
-        account &&
+        accountShown &&
         (menu.routeLayout === "inline" ? (
-          <MenuGroup label={t("picker.account")}>{routeRows}</MenuGroup>
+          <MenuGroup label={t("picker.account")}>
+            {familyRoutes}
+            {chatAccounts}
+          </MenuGroup>
         ) : (
           // The composer's account switcher (Leo, 2026-10-29: "Why the fuck did you remove the
-          // fucking account switcher?"); #27151 had renamed it Provider.
+          // fucking account switcher?"; 2026-10-31: "WHERE IS THE FUCKING ACCOUNTS"); #27151 had
+          // renamed it Provider. It lists the family's routes (the transports, logins and launch
+          // setups that run its models), then the running route's own accounts.
           <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
+            className="acpmux-quick-item acpmux-quick-sub acpmux-quick-account"
             popupClassName="acpmux-quick-menu acpmux-quick-submenu"
-            label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
+            label={<QuickRowLabel label={t("picker.account")} value={accountLabel} />}
           >
-            {routeRows}
+            {familyRoutes}
+            {chatAccounts}
           </Submenu>
         ))}
-      {!query && onChatTab && fast && (
+      {((!query && onChatTab && fast) || tabFast) && (
         <>
           <MenuSeparator />
           <MenuCheckboxItem
             className="acpmux-quick-item acpmux-quick-fast"
-            checked={fast.checked}
-            onCheckedChange={(on) => fast.onChange(on)}
+            checked={tabFast ? heldFast !== undefined && heldFast === shownTab?.key : !!fast?.checked}
+            onCheckedChange={(on) => (tabFast ? setHeldFast(on ? shownTab?.key : undefined) : fast?.onChange(on))}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
             <span className="acpmux-quick-fast-toggle" aria-hidden="true">
@@ -1113,49 +1259,53 @@ export function QuickModelMenu({
           <div className="acpmux-quick-layout">
             {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
             <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
-              {railTabs.map((family) => (
-                <button
-                  key={family.id}
-                  type="button"
-                  aria-label={family.name}
-                  // While a search shows, no tab is the list's: the matches are every harness's.
-                  aria-pressed={!query && family.id === tab}
-                  disabled={family.launch && families.forkReady === false}
-                  // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                  // name's initial), never a machine or session initial; its accessible name and
-                  // title identify the harness.
-                  title={family.note ? `${family.name} · ${family.note}` : family.name}
-                  className="acpmux-quick-rail-tab"
-                  // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
-                  tabIndex={-1}
-                  onClick={() => {
-                    if (family.launch && !family.note) {
-                      onOpenChange(false);
-                      families.onLaunch?.(family.id);
-                      return;
-                    }
-                    setTab(family.id);
-                    setQuery("");
-                    toTop();
-                  }}
-                >
-                  {family.starred ? (
-                    <StarIcon />
-                  ) : symbolOf(family) ? (
-                    <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
-                  ) : placement === "symbols" ? (
-                    <span className="acpmux-quick-rail-initial" aria-hidden="true">
-                      {initialOf(family.name)}
-                    </span>
-                  ) : null}
-                  {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
+              {tabs.map((entry) => {
+                const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
+                const name = entry.name;
+                return (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    aria-label={name}
+                    // While a search shows, no tab is the list's: the matches are every harness's.
+                    aria-pressed={!query && entry === shownTab}
+                    disabled={entry.routes.every((route) => route.launch) && families.forkReady === false}
+                    // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
+                    // name's initial), never a machine or session initial; its accessible name and
+                    // title identify the harness.
+                    title={family.note ? `${name} · ${family.note}` : name}
+                    className="acpmux-quick-rail-tab"
+                    // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
+                    tabIndex={-1}
+                    onClick={() => {
+                      if (entry.routes.length === 1 && family.launch && !family.note) {
+                        onOpenChange(false);
+                        families.onLaunch?.(family.id);
+                        return;
+                      }
+                      setTab(family.id);
+                      setQuery("");
+                      toTop();
+                    }}
+                  >
+                    {family.starred ? (
+                      <StarIcon />
+                    ) : symbolOf(family) ? (
+                      <AgentMark agent={family.mark} size={16} tint={placement === "symbols"} />
+                    ) : placement === "symbols" ? (
+                      <span className="acpmux-quick-rail-initial" aria-hidden="true">
+                        {initialOf(name)}
+                      </span>
+                    ) : null}
+                    {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
                       FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
                       THAT'S THE POINT"): the name is the tab's accessible name and its tooltip. */}
-                  <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
-                    {family.name}
-                  </span>
-                </button>
-              ))}
+                    <span className={`acpmux-quick-harness-name${placement === "symbols" ? " sr-only" : ""}`}>
+                      {name}
+                    </span>
+                  </button>
+                );
+              })}
               {families.onAddHarness && (
                 <button
                   type="button"

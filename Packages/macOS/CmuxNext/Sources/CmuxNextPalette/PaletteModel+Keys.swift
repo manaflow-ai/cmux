@@ -81,6 +81,13 @@ extension PaletteModel {
         return true
     }
 
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() {
+        guard pendingClose else { return }
+        pendingClose = false
+        handle(.closeItem)
+    }
+
     /// Cmd-W. With the selected row's close command: runs it, keeps the
     /// palette open, re-reads the page's providers (the row leaves once
     /// the owner's visible state drops it; nothing is hidden here) and
@@ -88,9 +95,6 @@ extension PaletteModel {
     /// page that owns the key (`PalettePageSpec.ownsCloseKey`) consumes it
     /// also without such a row. While a search is in flight it waits for
     /// that search, like Return.
-    /// Runs the Cmd-W that waited on a search, now that it delivered.
-    func closeIfPending() { if pendingClose { pendingClose = false; handle(.closeItem) } }
-
     func handleCloseItem() -> Bool {
         let owns = currentPageOwnsCloseKey
         guard owns || selectedItem?.closeCommand != nil else { return false }

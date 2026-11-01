@@ -361,6 +361,7 @@
         "CmuxNextBridge",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextLayout",
         "CmuxNextSidebar"
       ],
       "packages": []
@@ -470,6 +471,7 @@
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
+        "cmux-tui/crates/acpmux/tests/fake_agent.py",
         "plans/cmux-next/",
         "schemas/agent-pane/wake-state.json",
         "schemas/keybindings/keybinding-vectors.json",
@@ -551,6 +553,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -728,6 +731,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -880,7 +884,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
       ],
       "packages": [
         "CmuxSentryTelemetry"
@@ -919,6 +924,7 @@
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
+        "CmuxNextFiles",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
@@ -1000,6 +1006,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDevicesTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDevices",
         "CmuxNextWakeups"
       ],
@@ -1379,6 +1386,9 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextMobile",
         "CmuxNextMobileHost",
         "CmuxNextPages",
         "CmuxNextSettings",
@@ -1391,6 +1401,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextMobile",
         "CmuxNextTestSupport"
@@ -1437,6 +1448,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
+        "CmuxNextFiles",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -1674,6 +1686,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
         "CmuxNextWakeups"
@@ -1788,6 +1801,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextDesignTokens",
         "CmuxNextSidebar"
       ],
       "packages": []

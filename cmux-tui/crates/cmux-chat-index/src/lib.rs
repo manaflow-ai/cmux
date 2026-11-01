@@ -19,6 +19,8 @@ mod text;
 pub mod time;
 pub mod transcript;
 
+#[doc(hidden)]
+pub use adapters::forget_codex_reads;
 pub use adapters::{PathRole, classify_path, find_opencode_session};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};

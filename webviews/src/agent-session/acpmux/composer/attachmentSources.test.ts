@@ -10,7 +10,7 @@ import {
 import { inlinePrompt, normalizePromptContentPart, restoreInline, stripFileDisplay } from "../inlinePrompt";
 import { queuedAttachments } from "../conversation/queuedMessages";
 import { mergeQueue } from "../direct";
-import { attachSources } from "./attachmentSources";
+import { attachSources, SOURCES_DEADLINE_MS } from "./attachmentSources";
 
 const chrome = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
 
@@ -34,11 +34,18 @@ test("a source is only one the host could have made", () => {
 test("each file gets the host's answer, and none from a host that does not know", async () => {
   const files = [new File(["a"], "a.png"), new File(["b"], "notes.txt")];
   const asked: unknown[] = [];
-  const answer = await attachSources("paste", files, async (method, params) => {
-    asked.push([method, params]);
-    return { sources: [chrome, null] };
-  });
-  expect(asked).toEqual([["chat.attach.source", { kind: "paste", names: ["a.png", "notes.txt"] }]]);
+  const answer = await attachSources(
+    "paste",
+    files,
+    async (method, params) => {
+      asked.push([method, params]);
+      return { sources: [chrome, null] };
+    },
+    1_793_000_000_000,
+  );
+  expect(asked).toEqual([
+    ["chat.attach.source", { kind: "paste", names: ["a.png", "notes.txt"], gestureAt: 1_793_000_000_000 }],
+  ]);
   expect(answer).toEqual([chrome, undefined]);
   // An older host refuses the method; a malformed answer is none.
   expect(await attachSources("drop", files, () => Promise.reject(new Error("unsupported")))).toEqual([
@@ -47,6 +54,16 @@ test("each file gets the host's answer, and none from a host that does not know"
   ]);
   expect(await attachSources("drop", files, async () => ({ sources: [chrome] }))).toEqual([undefined, undefined]);
   expect(await attachSources("drop", [], async () => ({ sources: [] }))).toEqual([]);
+});
+
+test("a late answer, for a gesture the page already gave up on, is dropped", async () => {
+  const files = [new File(["a"], "shot.png")];
+  let answer!: (value: unknown) => void;
+  const asked = attachSources("paste", files, () => new Promise((resolve) => (answer = resolve)), 1);
+  // The host answers after the deadline: the chip already went without a source, and the answer
+  // (which a newer gesture's record could have made) is not used.
+  setTimeout(() => answer({ sources: [chrome] }), SOURCES_DEADLINE_MS + 50);
+  expect(await asked).toEqual([undefined]);
 });
 
 test("a file the page made keeps the source it was given", () => {

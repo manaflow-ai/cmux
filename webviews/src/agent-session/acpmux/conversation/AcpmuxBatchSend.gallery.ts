@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample commands, session names and messages), not shipped UI.
 // Several messages from one call, each its own sent-message row (acpmuxSends.ts `acpmuxSendBatch`,
-// acpmuxMcpSends.ts, SentMessageLine.tsx) under the group line a run of messages draws
-// (MessageGroupRow.tsx). Leo 2026-10-30: "these should be properly rendered too/acpmux batch send
-// tools given to you rendered consistently with other stuff". The shapes: a coordinator's shell
+// acpmuxMcpSends.ts, SentMessageLine.tsx), never summed up under one line (Leo 2026-10-31: "this
+// +11 is really bad you guys should just render them all separately"). Leo 2026-10-30: "these
+// should be properly rendered too/acpmux batch send tools given to you rendered consistently with
+// other stuff". The shapes: a coordinator's shell
 // function batch (`s(){ acpmux send … "$1" "$(cat "$2")"; }; s a a.md; s b b.md`), a `for` loop, a
 // `&&` chain, and the acpmux MCP send's `messages` (#28671). Names and messages are made up.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -85,23 +86,17 @@ const turn = (calls: ReturnType<typeof tool>[], working = false) =>
     { title: "coord", ...(working && { isWorking: true }) },
   );
 
-/// Opens the finished turn, then every group of messages, so each message's own row shows.
-const openGroups: Play = async (ctx) => {
+/// Opens the finished turn, so each message's own row shows.
+const openTurn: Play = async (ctx) => {
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
-    // The "off" look draws no group line, only the rows.
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-msggroup__line, .cv-sent"));
-  }
-  for (let at = 0; at < 8; at++) {
-    if (!ctx.document.querySelector('.cv-msggroup__line[aria-expanded="false"]')) break;
-    await ctx.click({ selector: '.cv-msggroup__line[aria-expanded="false"]' });
     await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
   }
 };
 
-/// Opens the groups, then the first message's Raw: the whole shell function stays one click away.
+/// Opens the turn, then the first message's Raw: the whole shell function stays one click away.
 const openRaw: Play = async (ctx) => {
-  await openGroups(ctx);
+  await openTurn(ctx);
   await ctx.click({ selector: ".cv-sent" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle"));
   await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
@@ -118,9 +113,9 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/acpmuxSends.ts", "agent-session/acpmux/conversation/acpmuxMcpSends.ts"],
   variants: {
     batches: {
-      note: 'Default (card): a shell function batch, a for loop, a && chain and an MCP messages batch, each a "Messaged N agents" group over one sent-message row per recipient; a file-sourced message names its file; one message acpmux refused reads "Couldn\'t send".',
+      note: 'Default: a shell function batch, a for loop, a && chain and an MCP messages batch, one sent-message row per recipient, each on its own; a file-sourced message names its file; one message acpmux refused reads "Couldn\'t send".',
       snapshot: turn(ALL),
-      play: openGroups,
+      play: openTurn,
     },
     "batch-raw": {
       note: "The function batch's first message opened: Raw keeps the whole shell command, the function and both calls.",
@@ -128,27 +123,9 @@ export default agentPaneEntry({
       play: openRaw,
     },
     "batch-sending": {
-      note: "A loop batch in flight: each message's row has the working spinner and the group line reads Messaging.",
+      note: "A loop batch in flight: each message is its own row and reads Sending to, with no spinner on the row.",
       theme: { codexToolRuns: false },
       snapshot: turn([RUNNING], true),
-    },
-    "look-guide": {
-      note: "Gallery version (theme messageGroupLook guide): the rows on the edit group's tree guide.",
-      theme: { messageGroupLook: "guide" },
-      snapshot: turn(ALL),
-      play: openGroups,
-    },
-    "look-list": {
-      note: "Gallery version (theme messageGroupLook list): hairlines, no ring.",
-      theme: { messageGroupLook: "list" },
-      snapshot: turn(ALL),
-      play: openGroups,
-    },
-    "look-flat": {
-      note: "Gallery version (theme messageGroupLook off): no group line, each message its own row.",
-      theme: { messageGroupLook: "off" },
-      snapshot: turn(ALL),
-      play: openGroups,
     },
   },
 });

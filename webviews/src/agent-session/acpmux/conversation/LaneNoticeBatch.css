@@ -5,7 +5,6 @@
   color: var(--cv-text);
 }
 .cv-lane-batch__toggle {
-  all: unset;
   display: flex;
   box-sizing: border-box;
   align-items: center;

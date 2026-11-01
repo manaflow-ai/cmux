@@ -493,13 +493,16 @@ impl ListGuard {
         let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
         // Sending even a shared list copies it into the reply line.
         let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
-        let wait = pace.wait(now, window * (CONN_BURST - 1));
-        let more = replies.wait(now + wait, window);
+        let wait = pace.wait(now, window * (CONN_BURST - 1), window);
+        // Reprice at the real clock before probing a hypothetical admission time.
+        // A rejected request must not advance shared debt to `now + wait`.
+        replies.reprice(now, window / REPLIES);
+        let more = replies.wait(now + wait, window, window / REPLIES);
         if wait + more > MAX_WAIT {
             return Err(wait + more);
         }
-        pace.spend(now + wait, window.mul_f64(share));
-        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
+        pace.spend(now + wait, window.mul_f64(share), window);
+        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES, window / REPLIES);
         tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
             wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
         Ok(wait + more)
@@ -517,7 +520,10 @@ impl ListGuard {
         {
             return last.clone();
         }
-        let wait = state.pace.wait(Instant::now(), self.window() * (BURST - 1));
+        let window = self.window();
+        // A fresh snapshot waits at most one current window, even if an earlier
+        // reservation used a much more expensive build. Lock/build time is separate.
+        let wait = state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window);
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
         }
@@ -530,7 +536,7 @@ impl ListGuard {
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
             builder_wait_us = wait.as_micros(), "list_snapshot_build");
-        state.pace.spend(started, window);
+        state.pace.spend(started, window, window);
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
@@ -575,14 +581,39 @@ fn key(hub: &Hub) -> Key {
 #[derive(Default)]
 pub(crate) struct Pacer {
     ahead_to: Option<Instant>,
+    /// Debt is measured in lists, so a new build cost rescales its time value.
+    period: Duration,
 }
 
 impl Pacer {
-    fn wait(&self, now: Instant, burst: Duration) -> Duration {
+    fn wait(&mut self, now: Instant, burst: Duration, period: Duration) -> Duration {
+        self.reprice(now, period);
         self.ahead_to.map_or(Duration::ZERO, |to| to.saturating_duration_since(now + burst))
     }
 
-    fn spend(&mut self, at: Instant, cost: Duration) {
+    fn reprice(&mut self, now: Instant, period: Duration) {
+        if self.period != period {
+            // A busy host can briefly take seconds to build a list. Keeping that build's
+            // absolute-time debt after the next cheap build made a 15 s window impose
+            // nearly a minute of sleep: the burst allowance had already shrunk. Preserve
+            // the number of lists owed in both directions. Discounting falls but not
+            // charging rises would forgive debt on every oscillation, removing pacing.
+            // Previously returned reservation sleeps are not rescheduled.
+            self.ahead_to = self.ahead_to.map(|to| {
+                let remaining = to.saturating_duration_since(now);
+                let scaled = if self.period.is_zero() {
+                    Duration::ZERO
+                } else {
+                    remaining.mul_f64(period.as_secs_f64() / self.period.as_secs_f64())
+                };
+                now + scaled
+            });
+            self.period = period;
+        }
+    }
+
+    fn spend(&mut self, at: Instant, cost: Duration, period: Duration) {
+        self.reprice(at, period);
         self.ahead_to = Some(self.ahead_to.map_or(at, |to| to.max(at)) + cost);
     }
 }
@@ -763,6 +794,34 @@ mod tests {
         held
     }
 
+    /// A respawn's mark and its end each change a row (`respawnPending`): no list shows the
+    /// row as it was (review 2 of the profile respawn).
+    #[tokio::test]
+    async fn a_profile_respawn_mark_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        let seq = session.state_seq.load(Ordering::SeqCst);
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "the mark rebuilds");
+        assert!(session.state_seq.load(Ordering::SeqCst) > seq, "watchers see the mark");
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "marked again: no change");
+        hub.settle_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        let held = hold(&hub, minute).await;
+        hub.settle_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
+    }
+
     #[tokio::test]
     async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
@@ -806,3 +865,7 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
     }
 }
+
+#[cfg(test)]
+#[path = "list_scale_tests.rs"]
+mod scale_tests;

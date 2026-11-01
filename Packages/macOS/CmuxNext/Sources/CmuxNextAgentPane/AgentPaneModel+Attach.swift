@@ -28,31 +28,26 @@ extension AgentPaneModel {
         return AgentPaneReply.success(["items": links])
     }
 
-    /// A macOS recording preview may disappear as soon as its drag ends. Its descriptor was
-    /// pinned during the native drop; save those bytes through the same local upload owner that
-    /// already owns permissions, session deletion and expiry. The one-shot native record is the
-    /// authority here, so retaining it does not spend an unrelated composer gesture credit.
+    /// A macOS screenshot or recording preview may disappear as soon as its drag ends. Its
+    /// descriptor was pinned during the native drop; its bytes are kept in this chat's Chat Uploads
+    /// folder (``ChatUploadFolders``, the layout the App's local upload owner writes, so its session
+    /// deletion and expiry cover it) as an APFS clone, or a chunked copy, of any size. The one-shot
+    /// native record is the authority here, so keeping it does not spend a composer gesture credit.
     private func retainedDropURLs(_ items: [AgentPaneDroppedPaths.Item], generation: UUID) async -> [URL]? {
         guard generation == droppedPaths.generation else { return nil }
         let recordings = items.enumerated().filter { $0.element.needsSnapshot }
         var urls = items.map(\.url)
         guard !recordings.isEmpty else { return urls }
-        guard let uploader = onUpload?() else { return nil }
-        var uploads: [AgentPaneUpload] = []
-        for (_, item) in recordings {
-            guard let snapshot = item.snapshot, let upload = await snapshot.upload(),
-                  generation == droppedPaths.generation else { return nil }
-            uploads.append(upload)
-        }
-        guard generation == droppedPaths.generation, onLocalPaths?() == true else { return nil }
-        let reply = await uploader(uploads)
-        guard generation == droppedPaths.generation, onLocalPaths?() == true, reply["ok"] as? Bool == true,
-              let value = reply["value"] as? [String: Any], let saved = value["uploads"] as? [[String: Any]],
-              saved.count == recordings.count else { return nil }
-        for ((index, _), file) in zip(recordings, saved) {
-            guard let path = file["path"] as? String, path.hasPrefix("/"),
-                  (path as NSString).lastPathComponent == items[index].url.lastPathComponent else { return nil }
-            urls[index] = URL(fileURLWithPath: path)
+        guard let folders = chatUploadFolders else { return nil }
+        let upload = folders.freshUpload(session: sessionId)
+        for (at, (index, item)) in recordings.enumerated() {
+            guard let snapshot = item.snapshot,
+                  let saved = await snapshot.save(into: upload.appending(path: String(at), directoryHint: .isDirectory)),
+                  generation == droppedPaths.generation, onLocalPaths?() == true else {
+                await Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: upload) }.value
+                return nil
+            }
+            urls[index] = saved
         }
         droppedPaths.retain(recordings.map { urls[$0.offset].path })
         return urls

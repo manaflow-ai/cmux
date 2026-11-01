@@ -731,6 +731,16 @@ pub struct SessionsResult {
     /// done. Absent without `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<Option<String>>,
+    /// A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
+    /// changed since, and the rest of the known rows stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<bool>,
+    /// With `delta`: the known sessions no longer listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<String>>,
+    /// With `delta`: how many listed rows were left out as unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<u64>,
 }
 
 /// A purged session: only its id is left.

@@ -13,7 +13,7 @@ export const railEdgeReserve = (side: RailSide, chatMinimap: boolean, textInset:
   side === "right" && chatMinimap && textInset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE ? MINIMAP_WIDTH + MINIMAP_EDGE : 0;
 
 /// The pane edge owns x; the actual remaining text gutter only controls compression and occlusion.
-/// Reuses VirtualTranscript's resize measurements and the Inspector's layout event. No observer or
+/// Reuses VirtualTranscript's resize measurements and Session Info's layout event. No observer or
 /// frame loop, and no DOM work on a streamed token. The scoped listener is removed on unmount.
 /// `reserve` is the px at the rail's edge before its own inset (railEdgeReserve); the placement's
 /// `gutter` and overlap are measured from there.
@@ -38,7 +38,7 @@ export function useRailPlacement(
       const style = node.ownerDocument.defaultView?.getComputedStyle(node);
       const token = (name: string, fallback: number) =>
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
-      // Session Info never moves the chat's column (inspector/ChatInspector.tsx), so its inset is the
+      // Session Info never moves the chat's column (session-info/SessionInfo.tsx), so its inset is the
       // column's own.
       const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset;
       const reserve = railEdgeReserve(side, chatMinimap, inset);

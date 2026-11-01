@@ -115,7 +115,7 @@ final class AgentTabStore {
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
-    var unsentDrafts = AgentUnsentDrafts(file: nil)
+    var unsentDrafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles())
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
@@ -159,6 +159,9 @@ final class AgentTabStore {
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
     var remoteMachineFolders: (@MainActor (String) async -> [String])?
+    /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
+    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -247,6 +250,8 @@ final class AgentTabStore {
     /// Session `session` on chat tab `chat`'s right as a link opens (``LinkOpener``, `layout.linkPlacement`):
     /// a tab in the pane there, else a new split, focused; false when nothing opened.
     var openRight: (@MainActor (_ chat: String, _ session: String) -> Bool)?
+    /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
+    var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
     /// Cloud destinations exposed to a started chat's title menu. The page receives only the
     /// current live list; it never invents or persists machine ids.
@@ -431,6 +436,10 @@ final class AgentTabStore {
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
+            }
+            model.onShareMachineWithMe = { [weak self] in
+                guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
+                return await shareMachineWithMe(resolveRemote(key))
             }
         }
         guard let view = makeView(model) else {

@@ -26,7 +26,7 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
@@ -44,7 +44,8 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the calls.
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -89,7 +90,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         <div {...fold.bodyProps}>
           <div className="cv-tool-group" id={detailsId}>
             {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} />
+              <McpCallRow key={item.tool!.id || index} item={item} grouped />
             ))}
           </div>
         </div>
@@ -98,10 +99,11 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   );
 }
 
-function McpCallRow({ item }: { item: AcpmuxActivity }) {
+function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useState(false);
+  // Closed, or open in the Verbose transcript view.
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -137,7 +139,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          {running && !grouped ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
@@ -154,7 +156,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div {...fold.bodyProps}>
-          {exec ? (
+          {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : (
             <McpCallDetails
@@ -162,6 +164,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
               call={call}
               raw={raw}
               output={tool.output}
+              tool={tool}
               strip={stripsEnvelopeImages(tool)}
               reveal={reveal}
             />
@@ -204,6 +207,7 @@ export function McpCallDetails({
   call,
   raw,
   output,
+  tool,
   strip,
   reveal,
   requestFindAlternatives = {},
@@ -212,6 +216,8 @@ export function McpCallDetails({
   call: McpCall;
   raw: string;
   output?: string;
+  /// The original call distinguishes a hook refusal from output that merely quotes one.
+  tool?: NonNullable<AcpmuxActivity["tool"]>;
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
@@ -220,7 +226,10 @@ export function McpCallDetails({
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
+  const blocked = failure?.kind === "hook";
+  const shownOutput = blocked ? failure.output : output;
+  const response = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
@@ -237,12 +246,12 @@ export function McpCallDetails({
           </pre>
         </div>
       )}
-      {response && (
+      {(response || blocked) && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head" data-find-skip>
-            {t("tools.mcp.response")}
+            {blocked ? t("tools.blockedByHook") : t("tools.mcp.response")}
           </div>
-          <ToolOutput result={response} reveal={reveal} />
+          {response && <ToolOutput result={response} reveal={reveal} />}
         </div>
       )}
     </div>
@@ -377,6 +386,7 @@ export function CmuxExecDetails({
             call={call}
             raw={raw}
             output={tool.output}
+            tool={tool}
             strip={stripsEnvelopeImages(tool)}
             reveal={reveal}
           />

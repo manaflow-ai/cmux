@@ -170,7 +170,13 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "secretRef": arguments["secretRef"], "env": arguments["env"], "argv": arguments["argv"],
             }),
         ),
-        other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
+        other => {
+            let name = other.unwrap_or_default();
+            return error_result(crate::mcp_hint::unknown_tool(
+                name,
+                crate::mcp_hint::names(&tools()),
+            ));
+        }
     };
     request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {

@@ -307,6 +307,24 @@
   border-radius: var(--acpmux-attach-radius, 8px);
   user-select: none;
 }
+/* Inside a selection (Select All, a drag across it) the chip wears the selection's tint, as the text
+   around it does: the browser's highlight passes over a non-text atom (composer/inlineNode.ts). The
+   strip's chips wear it too while the whole draft is selected (ComposerBox, composerAttachments.css). */
+.acpmux-md-inline-selected {
+  position: relative;
+}
+.acpmux-md-inline-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(
+    in srgb,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)) 55%,
+    transparent
+  );
+  pointer-events: none;
+}
 .acpmux-md-inline-chip {
   position: relative;
   display: inline-flex;
@@ -325,7 +343,8 @@
 }
 /* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
    its place in the text, so the inline view shows it there again and the prompt goes the same. */
-.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline,
+.nt-composer[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
   display: none;
 }
 /* A file placed in the text: its name on the chip, as the strip's link chip has it. */
@@ -342,7 +361,7 @@
 }
 .acpmux-md-inline-chip[data-state="loading"],
 .acpmux-md-inline-chip[data-state="failed"] {
-  width: 64px;
+  width: 72px;
 }
 /* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
    a video's poster is as tall as two control rows so it sits in a line of text; an image that could
@@ -358,13 +377,19 @@
   overflow: visible;
   color: var(--agent-text);
 }
-.acpmux-md-inline-retry {
+/* A huge paste's name: a click puts its text back in the prompt. */
+.acpmux-md-inline-retry:not(.acpmux-attachment-retry) {
   padding: 0 8px;
   border: 0;
   background: none;
   color: var(--agent-text);
   font-size: inherit;
   text-decoration: underline;
+}
+/* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
+.acpmux-md-inline-chip[data-state="failed"] {
+  gap: 4px;
+  padding-right: 16px;
 }
 .acpmux-md-inline-remove {
   position: absolute;

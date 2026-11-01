@@ -15,7 +15,7 @@ const INSPECTOR = /inspe[ck]t|インスペクタ|检查器|檢查器|인스펙�
 
 /// The panel's string keys in each catalog.
 const CATALOGS: [file: string, keys: RegExp][] = [
-  ["webviews/src/agent-session/acpmux/Localizable.xcstrings", /^chatInspector\./],
+  ["webviews/src/agent-session/acpmux/Localizable.xcstrings", /^sessionInfo\./],
   [
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
     /^settings\.(agentPane\.display\.inspector|choice\.agentChatInspector)/,
@@ -52,7 +52,7 @@ describe("Session Info is never called Inspector", () => {
         /settings\.agentPane\.display\.inspector(?:\.help)?",\s*"([^"]*)"/g,
       ],
       [
-        "webviews/src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx",
+        "webviews/src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx",
         /id: "agent-pane\.chat-inspector",\s*title: "([^"]*)"/,
       ],
       ["release-notes/next/highlights/agent-chat-environment-line.md", /([^\n]*)/g],

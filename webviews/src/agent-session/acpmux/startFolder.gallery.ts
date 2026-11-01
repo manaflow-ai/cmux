@@ -10,7 +10,7 @@ const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a
 
 const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
 
-/// A new chat in a project folder: New Worktree is a control beside the folder (cx-lyqio.2, hq#2569 #9).
+/// A new chat in a project folder: New Worktree is an action in its folder menu (cx-lyqio.2).
 // A new chat (no session yet: the summary's empty id matches the snapshot's), so it offers New Worktree.
 const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
   sessionId: "",
@@ -18,7 +18,9 @@ const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar",
 });
 
 const newWorktree: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "New Worktree" });
+  await ctx.click({ selector: '[aria-label="Folder"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
+  await ctx.click({ role: "option", name: "New Worktree" });
 };
 
 // The home folder's row in the folder menu. Rows show the repository or folder name since #22724,
@@ -81,7 +83,7 @@ export default agentPaneEntry({
       },
     },
     "new-worktree": {
-      note: "Play: New Worktree beside a new chat's folder; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
+      note: "Play: New Worktree from a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
       ready: { newSession: true },
       native: {
         "git.worktree.create": {

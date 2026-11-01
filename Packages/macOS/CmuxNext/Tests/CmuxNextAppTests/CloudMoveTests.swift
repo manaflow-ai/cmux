@@ -33,7 +33,9 @@ struct CloudMoveTests {
             let synced = move.workRoot.appendingPathComponent(moved.folderName).path
             #expect(moved.calls.first == ["link", "sync", "push", "--socket", move.vmSocket, move.project.path, synced])
             #expect(moved.calls.dropFirst().first == ["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--vm-kind", "none"],
+                                                     "--to-socket", move.vmSocket, "--cwd", synced, "--interrupt",
+                                                     "--sync", "push", "--sync-socket", move.vmSocket, "--sync-local", move.project.path,
+                                                     "--sync-remote", synced, "--vm-kind", "none"],
                     "no link said this caller owns the machine: the pump says so, and the machine refuses")
             #expect(moved.calls.count == 2)
             // The machine shows the chat: bound to the moved session through that machine's store.
@@ -47,6 +49,19 @@ struct CloudMoveTests {
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
+    /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
+    /// snapshot shows that sequence, never at its deadline. A move whose window-record save (a focus move) joined
+    /// its run waited out the whole minute on aws-m4pro-8, where that save opened inside the run.
+    @Test func aCLIRunThatSendsADaemonCommandAnswersOnceTheSnapshotShowsIt() async throws {
+        try await Self.withMove("moves") { move in
+            let started = ContinuousClock.now
+            let error = await move.cli("tab rename", args: ["name": .string("Renamed Chat")])
+            let took = ContinuousClock.now - started
+            #expect(error == nil, "cmux tab rename: \(error.map { "\($0.code) \($0.message)" } ?? "")")
+            #expect(took < .seconds(10), "the run answered after \(took), not once its rename showed")
         }
     }
 
@@ -420,6 +435,12 @@ struct CloudMoveTests {
                         "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
         }
 
+        /// `cmux <action>` on the chat tab, as the CLI sends it; its error when it stopped.
+        func cli(_ action: String, args: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+            await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "target": .string("tab:" + tabID), "args": .object(args)])
+        }
+
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
         /// as the caller (`CMUX_AGENT_SESSION`) and no target. Its error when it was refused.
         func runAsAgent(_ action: String = "cloud move") async -> ControlError? {
@@ -457,14 +478,7 @@ struct CloudMoveTests {
         }
 
         private static func send(_ services: AppServices, _ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+            await CloudCLIActionRun(services: services)(params)
         }
 
         /// The stand-in CLI's calls so far, each as its arguments; not `link access` (a moved chat's

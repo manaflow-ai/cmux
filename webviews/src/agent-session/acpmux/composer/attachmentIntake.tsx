@@ -22,15 +22,16 @@ import {
   type LinkItem,
   type SourceKind,
 } from "../attachments";
-import type { UploadResult } from "../cloudUploads";
+import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, Retry, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
@@ -75,7 +76,7 @@ export type AttachmentIntakeOptions = {
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
   /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
-  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -147,6 +148,8 @@ export type PendingAttachment = {
   /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
   /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
   uploading?: boolean;
+  /// How much of it reached the session's machine, 0 to 1, while it streams: its tile shows it.
+  progress?: number;
   /// Made by the host for its chat (attachLater, a file on that chat's machine): it stays with that
   /// chat, never carried to another with the prompt. A send waits for it even once it failed, until
   /// its Retry makes it or its × takes it out, so a prompt never goes without the recording it was
@@ -224,6 +227,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  const cancellationListeners = useRef(new Set<() => void>());
   /// Files of chips cancelled while still loading (their node deleted from the prompt), by id: an
   /// undo that brings the node back reads its file again under the same id (`revive`).
   const parked = useRef(new Map<string, PendingSource>());
@@ -261,6 +265,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const places = useRef(new Map<string, number>());
   const gestures = useRef(0);
   const scope = options.scope;
+  useLayoutEffect(() => {
+    for (const changed of cancellationListeners.current) changed();
+  }, [attachments, scope]);
   const lastScope = useRef(scope);
   // Before paint: a carried placeholder never leaves the strip for a frame.
   useLayoutEffect(() => {
@@ -284,8 +291,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// strip and in the text, and its node there draws what the read makes.
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
     if (given.length === 0) return;
+    // When the page took the gesture: the host answers its source only from a record made before
+    // it (composer/attachmentSources.ts).
+    const gestureAt = Date.now();
     const files = again === undefined ? given : given.slice(0, 1);
-    const dropped: DroppedKind | undefined = kind === "choose" ? undefined : kind;
+    // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
+    // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
+    const dropped: DroppedKind | undefined = kind;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
@@ -342,6 +354,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       void attachSources(
         kind!,
         asked.map(({ file }) => file),
+        undefined,
+        gestureAt,
       ).then((sources) => {
         const late = new Map<string, AttachmentSource>();
         sources.forEach((source, at) => {
@@ -403,7 +417,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
-      setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, failed } : chip)));
+      setPending((chips) =>
+        chips.map((chip) => (chip.id === id ? { ...chip, failed, uploading: false, progress: undefined } : chip)),
+      );
     };
     try {
       // A file still being made (a huge paste's text, made a slice per task) is awaited here, after
@@ -422,18 +438,28 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
           // would go nowhere.
-          cancelled: (index) => {
-            const chip = made[index];
-            if (!chip) return !owns(index);
-            return chipRemoved({
-              chip,
-              stagedHere: staged.has(chip),
-              everDrawn: everStaged.current.has(chip),
-              pastedIn: batch.scope,
-              showing: live.current.options.scope,
-              strip: stagedNow.current,
-            });
-          },
+          cancelled: Object.assign(
+            (index: number) => {
+              const chip = made[index];
+              if (!chip) return !owns(index);
+              return chipRemoved({
+                chip,
+                stagedHere: staged.has(chip),
+                everDrawn: everStaged.current.has(chip),
+                pastedIn: batch.scope,
+                showing: live.current.options.scope,
+                strip: stagedNow.current,
+              });
+            },
+            {
+              subscribe: (_index: number, changed: () => void) => {
+                cancellationListeners.current.add(changed);
+                return () => {
+                  cancellationListeners.current.delete(changed);
+                };
+              },
+            },
+          ),
         },
         {
           ready,
@@ -444,6 +470,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
             if (!owns(index)) return;
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
+          },
+          // Whole percents only: a multi-GB file sends thousands of chunks.
+          progress: (index, done) => {
+            if (!owns(index)) return;
+            const id = shown[index]!.id;
+            const progress = Math.floor(Math.min(1, Math.max(0, done)) * 100) / 100;
+            setPending((chips) =>
+              chips.some((chip) => chip.id === id && chip.progress !== progress)
+                ? chips.map((chip) => (chip.id === id ? { ...chip, progress } : chip))
+                : chips,
+            );
           },
           original: (index, path, name) => {
             const id = made[index];
@@ -544,6 +581,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     making.current.delete(id);
     sources.current.delete(id);
+    for (const changed of cancellationListeners.current) changed();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
@@ -616,7 +654,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (live.current.options.locked?.()) return;
+      if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -796,8 +834,11 @@ export function AttachmentStrip({
   onRetry,
   onReorder,
   originalFailures,
+  selected = false,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// The prompt's whole draft is selected (Select All): the chips are in it, and show so.
+  selected?: boolean;
   /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): its chip
   /// shows Retry (`onRetry`) while its preview still sends.
   originalFailures?: Readonly<Record<string, string>>;
@@ -860,6 +901,7 @@ export function AttachmentStrip({
     <fieldset
       ref={stripRef}
       className="acpmux-attachments"
+      data-selected={selected ? "" : undefined}
       data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
       aria-describedby={onReorder && attachments.length > 1 ? hint : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}
@@ -927,29 +969,94 @@ function PendingChip({
     </button>
   );
   const kind = chip.image ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  // One that could not be attached keeps its shape: what it is (its kind's glyph, a file's name),
+  // one small retry button, and its ×; why is in its tooltip (Leo, 2026-10-31: "video attachments
+  // (big attachments?) still sucks", over a strip of empty tiles with only an underlined Retry).
   if (chip.failed)
     return (
-      <div className={`acpmux-attachment ${kind} acpmux-attachment-failed`} aria-label={name}>
-        <span
-          className="acpmux-attachment-failed-text"
-          /* tooltip-allow: the note is cut to the tile; the tooltip has all of it */ title={chip.failed}
-        >
-          {chip.failed}
-        </span>
-        {onRetry && (
-          <button type="button" className="acpmux-attachment-retry" onClick={() => onRetry(chip.id)}>
-            {t(ATTACHMENT_LABELS.retryAttachment)}
-          </button>
+      <div
+        className={`acpmux-attachment ${kind} acpmux-attachment-failed`}
+        aria-label={name}
+        /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
+      >
+        {chip.image ? (
+          <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+        ) : (
+          <>
+            <FileDoc size={14} className="acpmux-attachment-failed-icon" />
+            <span className="acpmux-attachment-failed-name">{chip.name}</span>
+          </>
         )}
+        {onRetry && <RetryButton reason={chip.failed} onRetry={() => onRetry(chip.id)} />}
         {remove}
       </div>
     );
   return (
     <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
-      <Spinner loading size={16} className="acpmux-attachment-spinner" />
+      {chip.progress === undefined ? (
+        <Spinner loading size={16} className="acpmux-attachment-spinner" />
+      ) : (
+        <UploadProgress value={chip.progress} name={name} />
+      )}
       {!chip.image && <span>{chip.name}</span>}
       {remove}
     </div>
+  );
+}
+
+/// A failed attachment's one retry control: a small round button with the retry glyph, the same in
+/// the strip and in the text; its tooltip says why it failed.
+export function RetryButton({
+  label,
+  reason,
+  onRetry,
+  className = "acpmux-attachment-retry",
+}: {
+  /// What it does, for assistive technology (its tile is named for the file); "Retry" by default.
+  label?: string;
+  reason?: string;
+  onRetry(): void;
+  className?: string;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={label ?? t(ATTACHMENT_LABELS.retryAttachment)}
+      /* tooltip-allow: the button is a glyph; the tooltip says what failed and why */
+      title={reason ? `${t(ATTACHMENT_LABELS.retryAttachment)}: ${reason}` : t(ATTACHMENT_LABELS.retryAttachment)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onRetry();
+      }}
+    >
+      <Retry size={12} />
+    </button>
+  );
+}
+
+/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile.
+export function UploadProgress({ value, name, size = 16 }: { value: number; name: string; size?: number }) {
+  const percent = Math.round(value * 100);
+  const radius = 6;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <>
+      <progress className="visually-hidden" aria-label={name} max={100} value={percent} />
+      <svg className="acpmux-attachment-progress" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+        <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
+        <circle
+          className="acpmux-attachment-progress-arc"
+          cx="8"
+          cy="8"
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - value)}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+    </>
   );
 }
 
@@ -1069,16 +1176,12 @@ export function AttachmentChip({
           img
         )}
         {originalFailed && onRetry && (
-          <button
-            type="button"
+          <RetryButton
             className="acpmux-attachment-original-retry"
-            aria-label={t(ATTACHMENT_LABELS.retryOriginal, { name })}
-            /* tooltip-allow: the badge says only Retry; the tooltip says what failed and why */
-            title={t(ATTACHMENT_LABELS.originalFailed, { name, reason: originalFailed })}
-            onClick={() => onRetry(attachment.id)}
-          >
-            {t(ATTACHMENT_LABELS.retryAttachment)}
-          </button>
+            label={t(ATTACHMENT_LABELS.retryOriginal, { name })}
+            reason={t(ATTACHMENT_LABELS.originalFailed, { name, reason: originalFailed })}
+            onRetry={() => onRetry(attachment.id)}
+          />
         )}
         {remove}
       </div>,
@@ -1170,9 +1273,7 @@ export function BrokenImageChip({ remove, onRetry }: { remove: React.ReactNode; 
     <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
       <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
       <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
-      <button type="button" className="acpmux-attachment-retry" onClick={onRetry}>
-        {t(ATTACHMENT_LABELS.retryAttachment)}
-      </button>
+      <RetryButton onRetry={onRetry} />
       {remove}
     </div>
   );

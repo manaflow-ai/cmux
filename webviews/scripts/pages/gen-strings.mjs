@@ -279,10 +279,6 @@ export const PAGES = {
                 "message.notDeliveredNoAgent",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
-                // A run of messages' summary line (MessageGroupRow.tsx), which Channels draws too.
-                "messages.group.sending",
-                "messages.group.sentTo",
-                "messages.group.sent",
               ].includes(key),
           ),
       },
@@ -300,7 +296,7 @@ export const PAGES = {
             (key) =>
               /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
               [
-                "chatInspector.changes.failingOnBase",
+                "sessionInfo.changes.failingOnBase",
                 "header.prConflicts",
                 "header.prNoChecks",
                 "image.open",

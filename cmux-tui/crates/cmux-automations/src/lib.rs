@@ -10,7 +10,8 @@
 //! (`automation + trigger + scheduled_at`), so a due time is one run however
 //! often it is seen.
 //!
-//! No I/O happens outside [`Store`] and [`exec`]; schedule math takes the
+//! No I/O happens outside [`Store`] and [`exec`] (and their platform
+//! seam, `sys`); schedule math takes the
 //! time as a parameter, so tests never wait.
 
 // The crash ratchet: no production panics in this crate.
@@ -33,6 +34,7 @@ pub mod exec;
 mod run;
 mod runner;
 mod store;
+mod sys;
 mod trigger;
 
 pub use automation::{Automation, AutomationSpec, Body, new_automation_id};

@@ -17,7 +17,13 @@ enum ChiefScreenShareStrings {
 
     static var needsPermission: String {
         String(localized: "chiefScreenShare.refusal.permission",
-               defaultValue: "Allow cmux in System Settings > Privacy & Security > Screen & System Audio Recording, then share again.",
+               defaultValue: "Allow cmux Computer Use in System Settings > Privacy & Security > Screen & System Audio Recording. Sharing starts by itself.",
+               bundle: .module)
+    }
+
+    static var helperNotRunning: String {
+        String(localized: "chiefScreenShare.refusal.helperNotRunning",
+               defaultValue: "Screen sharing with Chief starts when the cmux Computer Use helper runs. Turn on Computer Use in Settings if it is off.",
                bundle: .module)
     }
 

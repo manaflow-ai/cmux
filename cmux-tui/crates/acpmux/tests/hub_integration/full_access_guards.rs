@@ -110,6 +110,146 @@ async fn full_access_approves_a_harness_guard_once_and_logs_it() {
 }
 
 #[tokio::test]
+async fn switching_to_full_access_resolves_a_tool_already_waiting() {
+    for through_option in [false, true] {
+        let (hub, mut c) = if through_option {
+            hub_with(&[("FAKE_MODE_OPTION", "1"), ("FAKE_NO_MODES", "1")]).await
+        } else {
+            claude_hub().await
+        };
+        let id = if through_option {
+            let s = c
+                .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+                .await
+                .unwrap();
+            let id = s["sessionId"].as_str().unwrap().to_owned();
+            c.request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": id, "configId": "mode", "value": "normal"}),
+            )
+            .await
+            .unwrap();
+            id
+        } else {
+            chat_in(&mut c, "default").await
+        };
+        let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+        let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+        let mut changer = connect(&hub).await;
+        let mode = if through_option { "full-access" } else { "bypassPermissions" };
+        if through_option {
+            changer
+                .request(
+                    method::SESSION_SET_CONFIG_OPTION,
+                    json!({"sessionId": id, "configId": "mode", "value": mode}),
+                )
+                .await
+                .unwrap();
+        } else {
+            changer
+                .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": mode}))
+                .await
+                .unwrap();
+        }
+        assert!(c.response(rid).await.0.is_ok());
+        let session = hub.resolve(&id).unwrap();
+        assert!(session.pending_permissions().is_empty());
+        assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+        let records = autos(&hub, &id);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["permissionId"], pending["permissionId"]);
+        assert_eq!(records[0]["fullAccess"], mode);
+        assert!(
+            hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "permission_decision"
+                && e.msg["permissionId"] == pending["permissionId"])
+        );
+    }
+}
+
+#[tokio::test]
+async fn approve_all_resolves_a_tool_already_waiting_without_a_mode_change() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "default").await;
+    let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+    c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+    let mut changer = connect(&hub).await;
+    changer
+        .request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "approve-all"}))
+        .await
+        .unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    let session = hub.resolve(&id).unwrap();
+    assert!(session.pending_permissions().is_empty());
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &id)[0]["policy"], "approve-all");
+}
+
+#[tokio::test]
+async fn default_approve_all_resolves_only_inherited_pending_tools() {
+    let (hub, mut c) = claude_hub().await;
+    let dir = tempfile::tempdir().unwrap();
+    hub.config.write().await.path = Some(dir.path().join("config.json"));
+    let inherited = chat_in(&mut c, "default").await;
+    let own = chat_in(&mut c, "default").await;
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": own, "policy": "ask"})).await.unwrap();
+    let inherited_turn = c.send(method::SESSION_PROMPT, guard(&inherited)).await;
+    c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == inherited).await;
+    let own_turn = c.send(method::SESSION_PROMPT, guard(&own)).await;
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == own).await;
+    let mut changer = connect(&hub).await;
+    changer.request("_acpmux/set_default_policy", json!({"policy": "approve-all"})).await.unwrap();
+    assert!(c.response(inherited_turn).await.0.is_ok());
+    let session = hub.resolve(&inherited).unwrap();
+    assert!(session.pending_permissions().is_empty());
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &inherited)[0]["policy"], "approve-all");
+    assert_eq!(hub.resolve(&own).unwrap().pending_permissions().len(), 1);
+    assert!(autos(&hub, &own).is_empty());
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": own, "permissionId": pending["permissionId"]}),
+    )
+    .await
+    .unwrap();
+    assert!(c.response(own_turn).await.0.is_ok());
+}
+
+#[tokio::test]
+async fn switching_to_full_access_keeps_interactive_and_explicit_asks_pending() {
+    for (prompt_text, rules) in [
+        ("question: Which one?", json!(null)),
+        ("meta-question: Go on?", json!(null)),
+        ("ask-always: deploy", json!(null)),
+        ("guard: rm", json!({"ask": ["rm"]})),
+    ] {
+        let (hub, mut c) = claude_hub().await;
+        let id = chat_in(&mut c, "default").await;
+        if !rules.is_null() {
+            c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": rules}))
+                .await
+                .unwrap();
+        }
+        let rid = c.send(method::SESSION_PROMPT, prompt(&id, prompt_text, None)).await;
+        let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+        c.request(
+            method::SESSION_SET_MODE,
+            json!({"sessionId": id, "modeId": "bypassPermissions"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hub.resolve(&id).unwrap().pending_permissions().len(), 1);
+        assert!(autos(&hub, &id).is_empty());
+        c.request(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": id, "permissionId": pending["permissionId"]}),
+        )
+        .await
+        .unwrap();
+        assert!(c.response(rid).await.0.is_ok());
+    }
+}
+
+#[tokio::test]
 async fn asking_modes_still_ask_for_the_same_guard() {
     let (hub, mut c) = claude_hub().await;
     for mode in ["default", "acceptEdits"] {

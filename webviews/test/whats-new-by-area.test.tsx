@@ -17,7 +17,7 @@ let dom: JSDOM;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", {
-    url: "cmux-page://cmux.changelog/#/?from=1.0.0-nightly.3940000000001&to=1.0.0-nightly.3940000000003",
+    url: "cmux-page://cmux.changelog/#/?design=ledger&from=1.0.0-nightly.3940000000001&to=1.0.0-nightly.3940000000003",
   });
   Object.assign(scope, {
     window: dom.window,

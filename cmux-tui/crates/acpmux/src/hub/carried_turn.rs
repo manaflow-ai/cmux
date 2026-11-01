@@ -314,6 +314,7 @@ impl Hub {
         continues: &Continues,
     ) -> u64 {
         self.clear_deferred_unread(session);
+        self.end_foreground_subagents(session);
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;
@@ -416,6 +417,10 @@ impl Hub {
                         turn_id,
                         control: turn.control,
                         trust_gate: c.trust_gate,
+                        not_before: super::auto_resume::reset_hint::error_reset_at(
+                            e.data.as_ref(),
+                            super::now_ms(),
+                        ),
                         error: super::turn_errors::continuation_error(
                             agent_error.as_deref(),
                             &e.message,

@@ -35,7 +35,11 @@ const call = (id: string, status: string) => ({
   text: "",
   tool: { id, title: id, kind: "execute", status, command: id },
 });
-type Call = { kind: string; text: string; tool: { id: string; title: string; kind: string; status: string } };
+type Call = {
+  kind: string;
+  text: string;
+  tool: { id: string; title: string; kind: string; status: string };
+};
 
 const liveTurn = (calls: Call[]) =>
   turnView(
@@ -53,8 +57,9 @@ const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={statu
 // The line draws nothing before its words: no working mark, no activity dots, and its first child
 // is the label itself.
 const stillMarkup = (html: string) =>
-  /^<div[^>]*><(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(html) &&
-  !/cv-working-mark|cv-activity__dots/.test(html);
+  /^<div[^>]*>(?:<span class="cv-shimmer__row">)?<(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(
+    html,
+  ) && !/cv-working-mark|cv-activity__dots/.test(html);
 const text = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -166,6 +171,22 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
   expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
+test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
+  const html = renderToStaticMarkup(
+    <Thinking
+      since={at}
+      doing="Read the Freestyle lanes note; check dispatcher"
+      doingAt={at}
+      now={() => at + 50_000}
+    />,
+  );
+  expect(html).toContain('class="cv-shimmer__row"');
+  expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
+  const css = await Bun.file(new URL("../src/pages/shared/desktop.css", import.meta.url)).text();
+  expect(css).toContain("--cmux-shimmer-period: 2.8s");
+  expect(css).toMatch(/@keyframes cmux-shimmer-band[\s\S]*?45%[\s\S]*?100%/);
+});
+
 test("the start status before the turn does not shimmer", () => {
   const html = renderToStaticMarkup(<Thinking status="Starting Claude Code…" />);
   expect(html).not.toContain("is-shimmer");
@@ -183,9 +204,15 @@ test("live activity lines share the page's one second and rest while the page is
   const scope = globalThis as Record<string, unknown>;
   const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT", "setInterval"];
   const saved = keys.map((key) => [key, scope[key]] as const);
-  const dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
+  const dom = new JSDOM("<!doctype html><main id=root></main>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   let visibility = "visible";
-  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
+  Object.defineProperty(dom.window.document, "visibilityState", {
+    configurable: true,
+    get: () => visibility,
+  });
   let intervals = 0;
   const realInterval = globalThis.setInterval;
   Object.assign(scope, {

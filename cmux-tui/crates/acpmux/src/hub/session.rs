@@ -37,6 +37,9 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
+    /// `session.json` in version order (fuzz row g finding g2).
+    pub(super) meta_writer: super::meta_save::MetaWriter,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
@@ -110,6 +113,12 @@ pub struct Session {
     /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
     /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
     pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
+    /// What the messages waiting inbox digests took out of the queue hold, charged against
+    /// `queueMaxBytes` until each digest's turn takes them over or they go back in
+    /// (`queue_admission.rs`). Changed and read only under the `queue` lock, in the same critical
+    /// section that moves the messages, so a new prompt always sees them in one place or the
+    /// other (`DigestTurn::charge`, `DigestTurn::release`).
+    pub(super) digest_bytes: AtomicU64,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -154,6 +163,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -161,6 +174,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -233,6 +250,9 @@ pub struct Session {
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
+    /// Counts status changes (`Hub::write_status`): a step that may or may not set the status
+    /// reads it before and after, as an adoption does around its recovery (`hosts.rs`).
+    pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -309,6 +329,8 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
+    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
@@ -321,6 +343,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.
@@ -357,6 +385,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap())
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
@@ -385,6 +418,9 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap().pending.is_empty()
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status

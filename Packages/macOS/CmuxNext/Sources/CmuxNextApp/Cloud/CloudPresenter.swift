@@ -152,7 +152,8 @@ enum CloudPresenter {
                 try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
-                                       confirmed: true, refresh: true)
+                                       confirmed: true, refresh: true,
+                                       callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
             }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
                   let (currentTab, _) = services.locateTab(chat, onMachine: request.machineID),
@@ -172,6 +173,25 @@ enum CloudPresenter {
             CloudPresenter.failure(error, in: window)
             return false
         }
+    }
+
+    static let firstLoginIdentifier = "cmux.dialog.cloud.firstLogin"
+
+    /// The one confirm before a `cloud.startChat` chat's first harness login (``CloudStartChat/passHarnessLogin(_:machine:)``):
+    /// asked only when cmux holds no login for this account yet. False when cancelled or with no window.
+    @MainActor static func confirmFirstLogin(provider: CloudCredentialTransfer.Provider, machine: String, services: AppServices) async -> Bool {
+        guard provider == .claude, let window = services.windows.active?.window else { return false }
+        let teamName = services.cloud.auth.teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName }
+            ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
+        let spec = CmuxDialogSpec(
+            title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), "Claude", machine),
+            lines: [String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module), teamName),
+                    String(localized: "cloud.credentialRecovery.laterMachines", defaultValue: "Cloud machines you own later get this login with no prompt.", table: "CloudCredentialRecovery", bundle: .module)],
+            buttons: [.cancel(String(localized: "cloud.credentialRecovery.cancel", defaultValue: "Cancel", table: "CloudCredentialRecovery", bundle: .module)),
+                      CmuxDialogButton(id: "setUp", title: String(localized: "cloud.credentialRecovery.setUp", defaultValue: "Set Up", table: "CloudCredentialRecovery", bundle: .module), role: .default)],
+            identifier: firstLoginIdentifier)
+        let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+        return answer.button == "setUp" && !answer.isDismissal
     }
 
     static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)

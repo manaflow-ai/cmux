@@ -201,4 +201,17 @@ import Testing
         #expect(copy.keywords.contains("conversation"))
         #expect(copy.keywords.contains("markdown"))
     }
+
+    @Test func sessionFileCopiesAreReachableFromThePalette() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let ids: [ActionID] = ["agentChat.copySessionFilePaths", "agentChat.copyTranscriptFile", "agentChat.copyHarnessConfigFile",
+                               "agentChat.copyHarnessSettingsFile", "agentChat.copyAcpmuxSessionFile"]
+        for id in ids {
+            let action = try #require(byID[id])
+            #expect(action.surfaces.contains(.palette))
+            #expect(action.requires.contains(.agentPaneFocused))
+        }
+        #expect(byID["agentChat.copyHarnessConfigFile"]?.keywords.contains("claude.json") == true)
+        #expect(byID["agentChat.copyTranscriptFile"]?.keywords.contains("jsonl") == true)
+    }
 }

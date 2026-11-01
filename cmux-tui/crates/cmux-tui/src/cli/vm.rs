@@ -1,17 +1,27 @@
-//! `cmux vm new|ls|get|pause|resume|rm|exec|run|token …`: the cmux VM API
-//! (vm.cmux.dev) from the cmux-next CLI. It adds no second client: each verb
-//! runs the `cmux-vm` CLI crate (workers/cmux-vm/cli) in this process, which
-//! owns the API key, base URL, team and typed refusals (exit 12 is a 402, 16 a
-//! quota). It used to spawn a `cmux-vm` binary that no bundle shipped
-//! ("cmux-vm not found in PATH"); in process, `cmux vm` works wherever `cmux`
-//! does. `--json` is passed through. Opening a VM as a workspace is an app
-//! action (`cmux cloud new-workspace`), not a CLI verb.
+//! `cmux machine new|show|pause|resume|rm|exec|run|key|access …` (and its
+//! old name, `cmux vm …`): the cmux VM API (vm.cmux.dev) from the cmux-next
+//! CLI. It adds no second client: each verb runs the `cmux-vm` CLI crate
+//! (workers/cmux-vm/cli) in this process, which owns the API key, base URL,
+//! team and typed refusals (exit 12 is a 402, 16 a quota). It used to spawn a
+//! `cmux-vm` binary that no bundle shipped ("cmux-vm not found in PATH"); in
+//! process, it works wherever `cmux` does. `--json` is passed through. Opening
+//! a VM as a workspace is an app action (`cmux cloud new-workspace`), not a
+//! CLI verb.
 //!
-//! `cmux vm token create` with no credential of its own (no `CMUX_VM_API_KEY`,
+//! `cmux machine` is the one noun for a computer (cmuxterm-hq docs/naming.md).
+//! Its other verbs stay where they were: `machine list|ls` and
+//! `machine SELECTOR show|session …` are the machine catalog (command/machine.rs),
+//! `machine add|revoke|rotate` joined machines (machine_join.rs) and
+//! `machine doctor` machine_doctor.rs. So `cmux machine` routes here only when
+//! its first word is one of [`MACHINE_VERBS`]: a verb word wins over a machine
+//! name only for that set. `cmux vm` is a hidden alias of `cmux machine` for
+//! every verb; only `vm ls|list` keeps listing the VM API's VMs, as it always did.
+//!
+//! `cmux machine key new` with no credential of its own (no `CMUX_VM_API_KEY`,
 //! no config file) asks the cmux app (`vm.agent_key.create`, the socket's usual
 //! same-process rule) to mint a VM-only agent key with the signed-in session,
 //! and stores it in the login Keychain without printing it. From then on any
-//! process of this user, in or outside cmux, can run `cmux vm run`.
+//! process of this user, in or outside cmux, can run `cmux machine run`.
 
 #[cfg(test)]
 mod tests;
@@ -25,72 +35,172 @@ use super::{GlobalArgs, OutputMode, UsageError};
 /// How long the app may take to mint a key (it calls vm.cmux.dev).
 const MINT_TIMEOUT: Duration = Duration::from_secs(25);
 
-/// `Some(args after "vm")` when `command_args` start with `vm`.
-#[cfg(test)]
-pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
-    let (first, rest) = command_args.split_first()?;
-    (first == "vm").then_some(rest)
+/// Which word named the command: `machine`, or its old name `vm`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Scope {
+    Machine,
+    Vm,
 }
 
-const VM_VERBS: &str = "run, new, ls, get, pause, resume, start, stop, rm, exec, fork, snapshot, client-session, token, creation";
+impl Scope {
+    fn of(word: &str) -> Option<Self> {
+        match word {
+            "machine" => Some(Self::Machine),
+            "vm" => Some(Self::Vm),
+            _ => None,
+        }
+    }
 
-const VM_HELP: &str = "usage: cmux vm <verb> [options]
+    /// Whether this module owns `<scope> <first> …`. `vm` owns every word
+    /// (an unknown one is its usage error); `machine` only [`MACHINE_VERBS`].
+    fn owns(self, first: Option<&str>) -> bool {
+        match self {
+            Self::Vm => true,
+            Self::Machine => first.is_some_and(|word| MACHINE_VERBS.contains(&word)),
+        }
+    }
+}
 
-VERBS
-  run       Run a command on a fresh VM, deleted when it ends (--sync, --pull, --keep)
-  new       Create a VM (alias: create)
-  ls        List VMs (alias: list)
-  get       Show a VM
-  pause     Pause a VM
-  resume    Resume a VM
-  start     Start a VM
-  stop      Stop a VM
-  rm        Delete a VM (alias: delete)
-  exec      Run a command in a VM
-  fork      Fork a VM
-  snapshot  Manage snapshots (create, get, list, delete)
-  client-session  Manage scoped client sessions (create, list, revoke)
-  token     A VM-only agent token for any process (create, status, revoke)
-  creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+/// The words after `machine` that are this module's verbs, not a machine
+/// selector. The old spellings (`create`, `get`, `delete`, `token`,
+/// `client-session`) are hidden aliases.
+pub(super) const MACHINE_VERBS: &[&str] = &[
+    "run",
+    "new",
+    "create",
+    "show",
+    "get",
+    "pause",
+    "resume",
+    "start",
+    "stop",
+    "rm",
+    "delete",
+    "exec",
+    "fork",
+    "snapshot",
+    "creation",
+    "access",
+    "client-session",
+    "key",
+    "token",
+];
 
-Use `cmux cloud resize-machine` for Cloud machine resizing.
-Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
-";
+/// The `machine` verbs other modules own; `vm VERB` is `machine VERB` for these.
+const OTHER_MACHINE_VERBS: [&str; 4] = ["add", "revoke", "rotate", "doctor"];
+
+/// `Some((scope, args after it))` when `command_args` are this module's.
+#[cfg(test)]
+pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
+    let (first, rest) = command_args.split_first()?;
+    let scope = Scope::of(first)?;
+    scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
+}
+
+const VERBS: &str =
+    "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation";
+
+/// `cmux machine`'s usage for these verbs; the full `cmux machine --help`
+/// adds the catalog and joined-machine verbs (cli.rs).
+fn help() -> String {
+    format!(
+        "usage: cmux machine <verb> [options]\n\n{}\nUse `cmux machine --help` for every machine verb, and `cmux machine <verb> --help` for one verb's options.",
+        super::surface::MACHINE_VM_HELP.trim_end()
+    )
+}
 
 fn usage(message: impl AsRef<str>) -> UsageError {
-    UsageError::new(format!("{}\n\n{}", message.as_ref(), VM_HELP.trim_end()))
+    UsageError::new(format!("{}\n\n{}", message.as_ref(), help()))
 }
 
-/// The `cmux-vm` argument list for `cmux vm <rest>`.
+/// `tail` with its nested verb (the first word that is not one of cmux-vm's
+/// global options or their values, before any `--`) in its new spelling
+/// mapped to the cmux-vm one (`new` is `create`, `ls` is `list`).
+fn sub_verb(tail: &[String], map: &[(&str, &str)]) -> Vec<String> {
+    let mut words = tail.to_vec();
+    let mut at = 0;
+    while let Some(word) = words.get(at) {
+        if word == "--" {
+            break;
+        }
+        if word == "--json" || is_assigned_global(word) {
+            at = at.saturating_add(1);
+            continue;
+        }
+        if CMUX_VM_VALUE_GLOBALS.contains(&word.as_str()) {
+            at = at.saturating_add(2);
+            continue;
+        }
+        let to = map.iter().find(|(from, _)| *from == word.as_str()).map(|(_, to)| *to);
+        if let (Some(to), Some(slot)) = (to, words.get_mut(at)) {
+            *slot = to.to_owned();
+        }
+        break;
+    }
+    words
+}
+
+/// The `cmux-vm` argument list for `cmux machine <rest>` (or `cmux vm <rest>`).
 pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, UsageError> {
+    const NEW_LS: &[(&str, &str)] = &[("new", "create"), ("ls", "list")];
+    const SNAPSHOT: &[(&str, &str)] =
+        &[("new", "create"), ("show", "get"), ("ls", "list"), ("rm", "delete")];
     let Some((verb, tail)) = rest.split_first() else {
-        return Err(usage(format!("cmux vm needs a verb: {VM_VERBS}")));
+        return Err(usage(format!("cmux machine needs a verb: {VERBS}")));
     };
-    let mapped = match verb.as_str() {
-        "-h" | "--help" | "help" => return Err(UsageError::new(VM_HELP.trim_end())),
+    let (mapped, tail) = match verb.as_str() {
+        "-h" | "--help" | "help" => return Err(UsageError::new(help())),
         "-V" | "--version" => return Ok(vec!["--version".to_owned()]),
-        "new" | "create" => "create",
-        "ls" | "list" => "list",
-        "rm" | "delete" => "delete",
-        "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot"
-        | "client-session" | "run" | "token" | "creation" => verb.as_str(),
+        "new" | "create" => ("create", tail.to_vec()),
+        "ls" | "list" => ("list", tail.to_vec()),
+        "rm" | "delete" => ("delete", tail.to_vec()),
+        "show" | "get" => ("get", tail.to_vec()),
+        "access" | "client-session" => ("client-session", sub_verb(tail, NEW_LS)),
+        "key" | "token" => ("token", sub_verb(tail, NEW_LS)),
+        "snapshot" => ("snapshot", sub_verb(tail, SNAPSHOT)),
+        "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
+            (verb.as_str(), tail.to_vec())
+        }
         "resize" => {
-            return Err(usage("`cmux vm resize` moved to `cmux cloud resize-machine`"));
+            return Err(usage("`cmux machine resize` is `cmux cloud resize-machine`"));
         }
         "workspace" => {
             return Err(usage(
-                "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",
+                "a machine opens as a workspace through the app: run `cmux cloud new-workspace`",
             ));
         }
-        other => return Err(usage(format!("unknown vm verb \"{other}\"; verbs: {VM_VERBS}"))),
+        other => return Err(usage(format!("unknown machine verb \"{other}\"; verbs: {VERBS}"))),
     };
     let mut plan = Vec::new();
     if output == OutputMode::Json {
         plan.push("--json".to_owned());
     }
     plan.push(mapped.to_owned());
-    plan.extend(tail.iter().cloned());
+    plan.extend(tail);
     Ok(plan)
+}
+
+/// `cmux machine access new|exec --target machine:VM_ID …`: the cmux API's
+/// access to one of `cmux cloud`'s machines (cloud_client_session.rs, the
+/// `cmux cloud client-session create|exec` it always was), as that module's
+/// words (`create …` or `exec …`). `access exec` is only that; `access new`
+/// is when it names `--target` (the VM API's `access new` takes a `vm_…` id).
+pub(super) fn cloud_access(rest: &[String]) -> Option<Vec<String>> {
+    let [noun, verb, tail @ ..] = rest else { return None };
+    if noun != "access" {
+        return None;
+    }
+    let targeted = || {
+        tail.iter()
+            .take_while(|word| *word != "--")
+            .any(|word| word == "--target" || word.starts_with("--target="))
+    };
+    let verb = match verb.as_str() {
+        "exec" => "exec",
+        "new" | "create" if targeted() => "create",
+        _ => return None,
+    };
+    Some(std::iter::once(verb.to_owned()).chain(tail.iter().cloned()).collect())
 }
 
 /// [`plan`] with the global options `cmux-vm` needs back. `parse_globals` takes a
@@ -103,7 +213,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
 fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>, UsageError> {
     let mut plan = plan(rest, global.output)?;
     if let Some(key) = global.idempotency_key.as_deref() {
-        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        let words = verb_words(&plan);
         if matches!(
             words.as_slice(),
             ["create" | "fork", ..]
@@ -118,12 +228,45 @@ fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>
     Ok(plan)
 }
 
-/// The global options before `vm` and the words after it, verbatim. The
-/// words after `vm` are cmux-vm's own (its flags, `--`, the guest command):
-/// the global scanner reads an unknown `--flag` as taking a value, so
-/// `vm run --sync -- echo --json` would lose the `--` and hand `--json` to
-/// cmux. `None` when the command is not `vm`.
-pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, &[String])> {
+/// `cmux-vm`'s global options that take a value (`--team T`, `--base-url URL`,
+/// `--config PATH`; `global = true` in workers/cmux-vm/cli/crates/cmux-vm/src/lib.rs).
+const CMUX_VM_VALUE_GLOBALS: [&str; 3] = ["--team", "--base-url", "--config"];
+
+/// The words of `plan` before any `--`, without `cmux-vm`'s global options and
+/// their values, which it accepts between nested verbs: `creation --team T get`
+/// reads as `creation get`, so the key reaches it (#29709).
+fn verb_words(plan: &[String]) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut plan = plan.iter().map(String::as_str).take_while(|word| *word != "--");
+    while let Some(word) = plan.next() {
+        if word == "--json" {
+            continue;
+        }
+        if CMUX_VM_VALUE_GLOBALS.contains(&word) {
+            plan.next();
+            continue;
+        }
+        if !is_assigned_global(word) {
+            words.push(word);
+        }
+    }
+    words
+}
+
+/// `--team=T`, `--base-url=URL` or `--config=PATH`.
+fn is_assigned_global(word: &str) -> bool {
+    CMUX_VM_VALUE_GLOBALS
+        .iter()
+        .any(|global| word.strip_prefix(global).is_some_and(|after| after.starts_with('=')))
+}
+
+/// The global options before `machine` (or `vm`), which of the two it was,
+/// and the words after it, verbatim. The words after it are cmux-vm's own
+/// (its flags, `--`, the guest command): the global scanner reads an unknown
+/// `--flag` as taking a value, so `machine run --sync -- echo --json` would
+/// lose the `--` and hand `--json` to cmux. `None` when the command is
+/// neither (whether `machine`'s verb is this module's is [`prepared`]'s call).
+pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, Scope, &[String])> {
     // `through` ends at each word in turn; `split_at` never exceeds the length.
     for end in 1..=args.len() {
         let (through, after) = args.split_at(end);
@@ -133,20 +276,45 @@ pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, &[String])> {
         if word == "--" {
             return None;
         }
-        if word != "vm" {
+        let Some(scope) = Scope::of(word) else {
             continue;
-        }
+        };
         let Ok((global, command)) = super::parse_globals(through) else {
             return None;
         };
         if command.len() == 1 {
-            return Some((global, after));
+            return Some((global, scope, after));
         }
         if !command.is_empty() {
             return None;
         }
     }
     None
+}
+
+/// `vm add|revoke|rotate|doctor …` as `machine …`: `vm` is the old name of
+/// `machine` for those verbs too, which other modules own. A `--json` or
+/// `--idempotency-key K` typed between `vm` and the verb moves before
+/// `machine`, where those modules read it. `None` otherwise.
+pub(super) fn machine_alias(args: &[String]) -> Option<Vec<String>> {
+    let (_, scope, after) = split_raw(args)?;
+    let (rest, json) = without_json(after);
+    let (rest, key) = without_idempotency_key(rest);
+    let verb = rest.first()?;
+    if scope != Scope::Vm || !OTHER_MACHINE_VERBS.contains(&verb.as_str()) {
+        return None;
+    }
+    let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
+    let mut rewritten = before.to_vec();
+    if json {
+        rewritten.push("--json".to_owned());
+    }
+    if let Some(key) = key {
+        rewritten.extend(["--idempotency-key".to_owned(), key]);
+    }
+    rewritten.push("machine".to_owned());
+    rewritten.extend(rest);
+    Some(rewritten)
 }
 
 /// The words after `vm` without the `--json` flags before any `--`, and
@@ -196,32 +364,44 @@ fn without_idempotency_key(words: Vec<String>) -> (Vec<String>, Option<String>) 
     (kept, key)
 }
 
-/// The global options and the words after `vm` for a `cmux vm …` command line,
-/// with `--json` and `--idempotency-key` typed after `vm` moved into the globals.
-fn prepared(args: &[String]) -> Option<(GlobalArgs, Vec<String>)> {
-    let (mut global, raw) = split_raw(args)?;
-    // `--json` anywhere after `vm` (before `--`) sets the output mode, like
-    // `--json` before it; `plan` then hands it to cmux-vm first.
+/// The global options, the scope word and the words after it for a
+/// `cmux machine VERB …` (VERB one of [`MACHINE_VERBS`]) or `cmux vm …` command
+/// line, with `--json` and `--idempotency-key` typed after the scope moved into
+/// the globals.
+fn prepared(args: &[String]) -> Option<(GlobalArgs, Scope, Vec<String>)> {
+    let (mut global, scope, raw) = split_raw(args)?;
+    // `--json` anywhere after the scope (before `--`) sets the output mode,
+    // like `--json` before it; `plan` then hands it to cmux-vm first.
     let (rest, json) = without_json(raw);
+    let (rest, key) = without_idempotency_key(rest);
+    if !scope.owns(rest.first().map(String::as_str)) {
+        return None;
+    }
     if json {
         global.output = OutputMode::Json;
     }
-    let (rest, key) = without_idempotency_key(rest);
     if key.is_some() {
         global.idempotency_key = key;
     }
-    Some((global, rest))
+    Some((global, scope, rest))
 }
 
-/// `cmux vm …`. `None` for any other command.
+/// `cmux machine VERB …` for this module's verbs, and `cmux vm …`. `None` for
+/// any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, rest) = prepared(args)?;
+    let (global, scope, rest) = prepared(args)?;
     let rest = rest.as_slice();
     if rest.len() == 1
         && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
     {
-        println!("{VM_HELP}");
+        if scope == Scope::Vm {
+            println!("`cmux vm` is the old name of `cmux machine`; both work.\n");
+        }
+        println!("{}", help());
         return Some(0);
+    }
+    if let Some(words) = cloud_access(rest) {
+        return Some(super::cloud_client_session::run_words(&global, &words));
     }
     let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
@@ -238,11 +418,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if is_token_create(&plan) && !has_own_credential(&env) {
         return Some(mint_through_app(&global, &plan));
     }
-    Some(run_in_process(plan, &env))
+    Some(run_in_process(plan, scope, &env))
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
-fn run_in_process(plan: Vec<String>, env: &dyn Fn(&str) -> Option<String>) -> i32 {
+fn run_in_process(plan: Vec<String>, scope: Scope, env: &dyn Fn(&str) -> Option<String>) -> i32 {
     let runtime = match client_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
@@ -250,7 +430,11 @@ fn run_in_process(plan: Vec<String>, env: &dyn Fn(&str) -> Option<String>) -> i3
             return 1;
         }
     };
-    let args = std::iter::once("cmux vm".to_owned()).chain(plan);
+    let name = match scope {
+        Scope::Machine => "cmux machine",
+        Scope::Vm => "cmux vm",
+    };
+    let args = std::iter::once(name.to_owned()).chain(plan);
     runtime.block_on(cmux_vm::run(
         args,
         env,
@@ -347,7 +531,7 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
             }
             other => {
                 return Err(UsageError::new(format!(
-                    "unknown token create option {other} (cmux's own options, like --app-socket, go before `vm`)"
+                    "unknown key new option {other} (cmux's own options, like --app-socket, go before `machine`)"
                 )));
             }
         }
@@ -380,7 +564,7 @@ pub(super) fn mint_exit(code: &str, status: Option<u64>) -> i32 {
     }
 }
 
-/// `cmux vm token create` through the app: it mints with the signed-in
+/// `cmux machine key new` (`cmux vm token create`) through the app: it mints with the signed-in
 /// session; the key goes straight to the store and is never printed.
 fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
     let fail = |code: &str, message: &str, exit: i32| {
@@ -401,7 +585,7 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
         Err(_) => {
             return fail(
                 "app.unreachable",
-                "cmux vm token create needs the cmux app (signed in) when no CMUX_VM_API_KEY is set; run it in a cmux terminal",
+                "cmux machine key new needs the cmux app (signed in) when no CMUX_VM_API_KEY is set; run it in a cmux terminal",
                 3,
             );
         }
@@ -426,7 +610,7 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
             if code == "method_not_found" {
                 return fail(
                     &code,
-                    "this cmux app has no vm.agent_key.create; set CMUX_VM_API_KEY, or run `cmux vm token create --config ISSUER.json`",
+                    "this cmux app has no vm.agent_key.create; set CMUX_VM_API_KEY, or run `cmux machine key new --config ISSUER.json`",
                     exit,
                 );
             }

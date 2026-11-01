@@ -91,22 +91,23 @@ filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests:
 test-group = 'fork-count-alone'
 threads-required = 'num-test-threads'
 
-# Every platform: a passing fork-count test keeps its output, so the step log
-# shows its FORK-COUNT line (both counts and how they were taken), the bash
-# version it ran, its FORK-COUNT-SKIP lines (Linux: a shell that is not
-# installed), and on macOS the pinned-shell build line.
+# Every platform: a passing fork-count or prompt-redraw test keeps its
+# output, so the step log shows its FORK-COUNT line (both counts and how they
+# were taken), the bash version it ran, its FORK-COUNT-SKIP and
+# PROMPT-REDRAW-SKIP lines (Linux: a shell that is not installed; a skip
+# never reads as a pass), and on macOS the pinned-shell build line.
 [[profile.default.overrides]]
-filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::/)'
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::(fork_count|prompt_redraw)_tests::/)'
 success-output = "final"
 
 # macOS: the first bash and fish runs on a host also get the pinned shells
 # (scripts/ci/pinned-shell.sh downloads and compiles bash 5.3, and unpacks
-# fish; cached after that) before they count. That time is not measured
-# yet: pinned-shell.sh prints it ("ready in N s"); set this margin from the
-# first fleet runs. A hang still fails.
+# fish; cached after that) before they count or redraw. That time is not
+# measured yet: pinned-shell.sh prints it ("ready in N s"); set this margin
+# from the first fleet runs. A hang still fails.
 [[profile.default.overrides]]
 platform = 'cfg(target_os = "macos")'
-filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::fork_count_tests::fork_count_(bash|fish)_/)'
+filter = 'binary_id(cmux-tui-core) & test(/^shell_integration::(fork_count_tests::fork_count|prompt_redraw_tests::prompt_redraw)_(bash|fish)_/)'
 slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 
 # The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
@@ -114,3 +115,12 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# Fuzz row g (the acpmux crash fuzz, tests/fuzz_crash_durable.rs) prints its FUZZ-G lines on
+# stdout; a fleet step shows them only when a passing test's output is kept. One test fuzzes
+# three seeds for up to 70 s each and shrinks a failure for up to 90 s more. It does nothing
+# outside a fleet step keyed fuzz-g.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::fuzz_crash_durable)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }

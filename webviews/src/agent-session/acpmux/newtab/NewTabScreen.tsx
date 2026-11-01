@@ -3,7 +3,6 @@ import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -21,7 +20,15 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
-import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
+import {
+  inlineTokenIds,
+  placeInline,
+  withoutInlineTokens,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "../attachments";
+import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
@@ -29,14 +36,14 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "../composer/attachmentIntake";
-import { reordered } from "../composer/stripReorder";
+import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
+import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -80,7 +87,8 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
-import { composerPlusSearchExtensions } from "../composerPlusRegistry";
+import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
+import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -90,6 +98,8 @@ import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
+import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
+import { useInlineAttachments } from "../composer/inlineAttachments";
 import { ComposerFoot } from "../ComposerFoot";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
@@ -191,12 +201,19 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
 /// prompt would start in.
-export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string; onAddAgent?(): void }>;
+export type NewTabChips = React.ComponentType<{
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+}>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -225,6 +242,11 @@ type Props = NewTabScreenActions & {
   /// folder; no target for a saved environment, no project or a shell command). The pane warms
   /// that agent while the person types (newChatPrewarm.ts).
   onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
+  /// A project on this Mac was picked on the page (its folder chip, a widget card, Choose Folder, a
+  /// new worktree): the click that picked it. The page hands it to the host on that click, so Cloud
+  /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
+  /// Return that sends keeps its own gesture for the start.
+  onProjectPicked?(cwd: string): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -282,11 +304,6 @@ function homeOrAbove(cwd: string | undefined): boolean {
   return !cwd || /^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd);
 }
 
-/// Whether the engine sizes `field` to its draft itself (screen.css `field-sizing: content`).
-function sizesItself(field: HTMLTextAreaElement): boolean {
-  return field.ownerDocument.defaultView?.CSS?.supports?.("field-sizing", "content") ?? false;
-}
-
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
@@ -319,12 +336,17 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  const [text, setText] = useState(location ?? "");
+  const [carried] = useState(() => props.takeDraft?.());
+  // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
+  // a carried composer draft is already serialized Markdown, including attachment tokens.
+  const untouchedText = useRef((location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"));
+  const [text, setText] = useState(carried?.text || untouchedText.current);
+  const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
   // index: new tabs or pages from the host can reorder the rows under a highlight.
   const [selected, setSelected] = useState<string | undefined>(undefined);
@@ -383,7 +405,28 @@ export function NewTabScreen(props: Props) {
   }, [pending]);
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
-  const field = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<MarkdownFieldHandle | null>(null);
+  const shellEntryDraft = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const command = shellEntryDraft.current;
+    if (command === undefined) return;
+    shellEntryDraft.current = undefined;
+    // A lone ! enters shell mode with the same empty controlled value. The editor has already
+    // inserted !, so its value effect does not run. Remove the prefix after that edit completes,
+    // only on this transition; normal typing keeps its selection and undo history.
+    if (field.current?.value() !== command) field.current?.reset(command);
+  }, [shell]);
+  const [fieldReady, setFieldReady] = useState(false);
+  const fieldElement = () => field.current?.element() ?? null;
+  const fieldText = useCallback(
+    () =>
+      field.current?.text() ?? {
+        value: text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      },
+    [text],
+  );
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -391,11 +434,14 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     if (!input || props.cloudStarting) return false;
     input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    input.setCaret(input.plainText().length);
     return true;
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  const inlinePlace = useRef<
+    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+  >(undefined);
   const {
     attachments,
     setAttachments,
@@ -405,19 +451,32 @@ export function NewTabScreen(props: Props) {
     videoReading,
     cancel,
     retry,
+    revive,
     attachError,
     drop,
     dropLanded,
     attach,
   } = useAttachmentIntake({
+    place: (chips) => inlinePlace.current?.(chips),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    dropZone: () => field.current?.closest(".acpmux-main") ?? null,
+    dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
-    pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
+    pasteTarget: (target) => (!shell && fieldElement()?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
+  const pastedChips = usePastedChips(
+    attachmentsRef,
+    setAttachments,
+    field,
+    (file) => void attach([file], true, "paste"),
+  );
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
@@ -437,11 +496,20 @@ export function NewTabScreen(props: Props) {
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
+    text !== untouchedText.current || Boolean(carried?.text && text.trim())
+      ? "newtab.draft"
+      : attachments.length || reading.length
+        ? "newtab.attachments"
+        : null,
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
-  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
+  leaving.current = {
+    text,
+    attachments,
+    typed: Boolean(carried?.text) || text !== untouchedText.current,
+    onLeaveDraft: props.onLeaveDraft,
+  };
   useEffect(
     () => () => {
       const draft = leaving.current;
@@ -453,10 +521,10 @@ export function NewTabScreen(props: Props) {
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
-    const element = field.current;
+    const element = fieldElement();
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
-  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
+  const dropLandingTarget = useCallback(() => fieldElement()?.parentElement ?? null, []);
   const submitNow = useRef(() => {});
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
@@ -464,7 +532,6 @@ export function NewTabScreen(props: Props) {
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
-  const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -560,6 +627,22 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    const inText = placeInline(prompt, attachments, {
+      dropped: (id) => reading.some((chip) => chip.id === id),
+    });
+    // As in chat, slash commands lead with their words and carry files after the command.
+    const words = withoutInlineTokens(
+      inText.text,
+      (id) => attachments.some((chip) => chip.id === id) || reading.some((chip) => chip.id === id),
+    ).trim();
+    const slash = /^\/(\S+)/.exec(words)?.[1];
+    const isCommand =
+      slash !== undefined &&
+      (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    const sent = isCommand
+      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      : inText;
+    const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
     // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
     // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
@@ -567,38 +650,36 @@ export function NewTabScreen(props: Props) {
     if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "cloud" && props.onCloud) {
-      // No project picked: a Cloud start copies a folder, and without one the host would take the
-      // tab's inherited folder, which the person just said not to work in. Nothing goes.
-      if (none) {
-        setSandboxRefusal(t("composer.offloadNotRun", { action: t("composer.cloud") }));
-        return false;
-      }
+      // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
+      // chat opens in the machine's own folder (cloudRun.ts cloudStartFolder, `home`), never the
+      // tab's inherited folder the person just said not to work in.
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
-      const started = props.onCloud(agent, prompt, envFolder, model, attachments);
+      const started = props.onCloud(agent, sent.text, envFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
-      const started = props.onSandbox(agent, prompt, attachments);
+      const started = props.onSandbox(agent, sent.text, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
-    if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
     if (machine)
       return requestChat(
         agent,
-        prompt,
+        sent.text,
         machine.folder,
         model,
         undefined,
-        attachments.length ? attachments : undefined,
+        sentAttachments.length ? sentAttachments : undefined,
         {
           peer: machine.peer,
         },
       );
-    if (attachments.length > 0) return requestChat(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? requestChat(agent, prompt, cwd, model, true) : requestChat(agent, prompt, cwd, model);
+    if (sentAttachments.length > 0)
+      return requestChat(agent, sent.text, cwd, model, none || undefined, sentAttachments);
+    return none ? requestChat(agent, sent.text, cwd, model, true) : requestChat(agent, sent.text, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -608,6 +689,29 @@ export function NewTabScreen(props: Props) {
     [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
+  const inline = useInlineAttachments({
+    field,
+    text,
+    attachments,
+    attachmentsRef,
+    setAttachments,
+    pending: reading,
+    cancel,
+    retry,
+    revive,
+    originalFailures,
+    codex: harness === "codex",
+    expand: (id) => {
+      pastedChips.expand(id);
+      field.current?.removeInline(id);
+    },
+    // Shell mode's command takes no attachment: a drop (whose intake never asks pasteTarget) waits in
+    // the strip for the next prompt, as the chat composer's shell field keeps it, and goes into the
+    // text once shell mode ends (inlineAttachments.tsx `placing`).
+    placing: () => attachmentView !== "strip" && !shell,
+  });
+  pastedChips.opens.current = inline.expand;
+  inlinePlace.current = (chips) => inline.place(chips, "paste");
   const parentSignIn = useSignIn();
   // Auth must follow the same target precedence as askChat: a saved environment wins over a
   // previously picked machine, so an old machine verdict cannot block this environment's prompt.
@@ -636,13 +740,14 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
-  const commandQuery = slashQuery(text, text.length);
+  const commandQuery = slashQuery(text, field.current?.caret() ?? text.length);
   const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
   const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
-    setText(applyCommand(text, text.length, command).text);
+    const next = applyCommand(text, field.current?.caret() ?? text.length, command).text;
+    setText(next);
     setCommandActive(0);
     requestAnimationFrame(() => field.current?.focus());
   };
@@ -662,6 +767,11 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  /// The field's value is Markdown, which escapes typed punctuation (`http\:`, `\*`, `\[`) so it
+  /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
+  /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
+  /// One parse per change of the value, not per render.
+  const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -673,16 +783,20 @@ export function NewTabScreen(props: Props) {
   const suggested = useMemo(
     () =>
       touched && !shell && commandQuery === undefined
-        ? screenRows(text, {
+        ? screenRows(typed, {
             omnibar,
             home,
             create: creates,
             ...(ask ? { ask } : {}),
-            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            createNames: {
+              terminal: nt("create.terminal"),
+              browser: nt("create.browser"),
+              chat: nt("create.chat"),
+            },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [touched, shell, typed, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // The strip's labels are measured again when their words change (another language): a new ref.
@@ -705,7 +819,7 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
-  const { plainFooter, spellChecking } = useComposerSettings();
+  const { plainFooter, spellChecking, attachmentView } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
   // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
@@ -822,81 +936,40 @@ export function NewTabScreen(props: Props) {
     else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
   }, []);
 
-  // The field is as tall as its draft, up to its cap (screen.css max-height), then it scrolls. The
-  // CSS sizes it (`field-sizing: content`), in the same layout as the pane's: a resize rewraps and
-  // refits it with no script, no forced layout and no frame late (Leo 2026-10-20, "the new tab area
-  // resizing calculation is slow and wack"; new-tab-live-resize). Only an engine without
-  // field-sizing fits it here, when the draft changes and when the pane's width changes. Its scroll
-  // offset is kept, except that a caret at the draft's end (typing, a paste, dictation) is scrolled
-  // into view: the engine revealed it before this fit changed the field's height. WebKit sizes the
-  // field itself but leaves a draft past the cap scrolled where it was, so a draft that changes with
-  // the caret at its end scrolls to it there too (on the draft only, never on a resize).
-  const fitField = useCallback(() => {
-    const node = field.current;
-    if (!node) return;
-    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
-    if (sizesItself(node)) {
-      if (typingAtEnd && node.scrollHeight > node.clientHeight) node.scrollTop = node.scrollHeight;
-      return;
-    }
-    const top = node.scrollTop;
-    node.style.height = "0px";
-    node.style.height = `${node.scrollHeight}px`;
-    node.scrollTop = typingAtEnd ? node.scrollHeight : top;
-  }, []);
-  useLayoutEffect(fitField, [fitField, text, shell, template]);
-  useLayoutEffect(() => {
-    const caret = inlineCaret.current;
-    if (caret === undefined) return;
-    inlineCaret.current = undefined;
-    field.current?.focus();
-    field.current?.setSelectionRange(caret, caret);
-  }, [text]);
-  useEffect(() => {
-    const node = field.current;
-    const view = node?.ownerDocument.defaultView;
-    if (!node || !view?.ResizeObserver || sizesItself(node)) return undefined;
-    let width = node.clientWidth;
-    const observer = new view.ResizeObserver(() => {
-      if (node.clientWidth === width) return;
-      width = node.clientWidth;
-      fitField();
-    });
-    observer.observe(node);
-    // The web font can land after the first fit and rewrap the draft.
-    void node.ownerDocument.fonts?.ready.then(fitField);
-    return () => observer.disconnect();
-  }, [fitField]);
-
+  // MarkdownField owns the contenteditable's sizing and scroll position. The wrapper follows the
+  // New Tab field geometry through the `.nt-field` class; no textarea measurement is needed.
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
   // update or a click into the field never moves its caret or restarts its blink.
   useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
-      field.current?.select();
+      // AllSelection in an empty document selects the root, outside its typing paragraph:
+      // attachment insertion then has no inline parent and menus see a noncollapsed selection.
+      if (field.current?.plainText().trim()) field.current.selectAll();
+      else field.current?.setCaret(0);
     };
-    if (focusOnShow) focus();
-    if (inputToken && inputReadyReported.current !== inputToken) {
+    if (fieldReady && focusOnShow) focus();
+    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
       onInputReady.current?.(inputToken);
     }
-    const view = field.current?.ownerDocument.defaultView;
+    const view = fieldElement()?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
     // background: the field takes it, as the chat composer does (composerFocus.ts), keeping its
     // caret and the page's scroll. A field, menu or button that has focus keeps it.
     const reclaim = () => {
-      const active = field.current?.ownerDocument.activeElement;
-      if (!active || active === field.current?.ownerDocument.body) field.current?.focus({ preventScroll: true });
+      const active = fieldElement()?.ownerDocument.activeElement;
+      if (!active || active === fieldElement()?.ownerDocument.body) field.current?.focus();
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
     return () => {
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
     };
-  }, [inputToken, focusOnShow]);
+  }, [inputToken, focusOnShow, fieldReady]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {
@@ -924,6 +997,7 @@ export function NewTabScreen(props: Props) {
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
     if (entry) {
+      shellEntryDraft.current = entry.command;
       setShell(true);
       setText(entry.command);
       props.onPromptTyped?.("");
@@ -939,18 +1013,18 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
-    const prompt = text.trim();
+    const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
     // with the address bar's word, and the page keeps the text.
-    if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
+    if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
-    const opensTop = !rows.length || (current < 0 && isAddress(text.trim(), home));
+    const opensTop = !rows.length || (current < 0 && isAddress(typed.trim(), home));
     const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
@@ -998,7 +1072,7 @@ export function NewTabScreen(props: Props) {
       return;
     }
     if (created.current) return;
-    const prompt = shell ? "" : text.trim();
+    const prompt = shell ? "" : typed.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
     created.current = true;
     const asked = askChat(
@@ -1015,7 +1089,7 @@ export function NewTabScreen(props: Props) {
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
     if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
     created.current = true;
-    const prompt = shell ? "" : text.trim();
+    const prompt = shell ? "" : typed.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -1026,66 +1100,56 @@ export function NewTabScreen(props: Props) {
   const send = () => {
     touch();
     if (!shell) return submit();
-    const command = text.trim();
+    const command = typed.trim();
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
   sendRef.current = send;
-  const editRef = useRef(edit);
   /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
   const cloudStartingRef = useRef(false);
   cloudStartingRef.current = props.cloudStarting === true;
-  editRef.current = edit;
   const { dictationField } = props;
   useLayoutEffect(() => {
     if (!dictationField) return undefined;
     dictationField.current = {
       focus: () => field.current?.focus(),
-      focused: () => document.activeElement === field.current,
-      element: () => field.current,
-      text: () => {
-        const input = field.current;
-        const value = input?.value ?? "";
-        return {
-          value,
-          selectionStart: input?.selectionStart ?? value.length,
-          selectionEnd: input?.selectionEnd ?? value.length,
-        };
-      },
-      // Dictation splices its words in as typing would, committed at once: its next update reads
-      // the field back, and auto-send sends what it holds.
+      focused: () => field.current?.focused() ?? false,
+      element: () => field.current?.element() ?? null,
+      text: () => fieldText(),
       writeText: (value, selectionStart, selectionEnd) => {
         if (cloudStartingRef.current) return;
-        flushSync(() => editRef.current(value));
-        field.current?.setSelectionRange(selectionStart, selectionEnd);
+        field.current?.writeText(value, selectionStart, selectionEnd);
       },
       submit: () => sendRef.current(),
     };
     return () => {
       dictationField.current = null;
     };
-  }, [dictationField]);
+  }, [dictationField, fieldText]);
   // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
   // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
   // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
   const typeAnywhere = useRef<(event: KeyboardEvent) => void>(() => undefined);
   typeAnywhere.current = (event) => {
     const input = field.current;
+    const editor = fieldElement();
     // A Cloud start is out: the box takes nothing until it ends (`cloudStarting`).
     if (props.cloudStarting) return;
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
     const element = target && typeof target.closest === "function" ? target : undefined;
-    if (target === input || (element && ownsKeys(element))) return;
+    if (target === editor || (element && ownsKeys(element))) return;
     // Space on a focused button presses it.
     if (event.key === " " && element?.closest('button, a, summary, [role="button"]')) return;
     event.preventDefault();
     input.focus();
     // A location the page put in the field, still selected, is replaced as a typed key would.
-    const whole = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    const state = fieldText();
+    const whole = state.value !== "" && state.selectionStart === 0 && state.selectionEnd === state.value.length;
     wholeSelection.current = whole;
-    edit(whole ? event.key : input.value + event.key);
+    if (whole) input.writeText(event.key, 1, 1);
+    else input.insertTyped(event.key);
   };
   const screen = useCallback((node: HTMLDivElement | null) => {
     const document = node?.ownerDocument;
@@ -1097,23 +1161,26 @@ export function NewTabScreen(props: Props) {
   }, []);
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
-    if (!input || event.button !== 0 || event.target === input) return;
+    if (!input || event.button !== 0 || fieldElement()?.contains(event.target as Node)) return;
     // The mic and Send at the row's end (Claude Code's split) keep their own press.
     if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
-    if (input.ownerDocument.activeElement === input) return;
+    if (input.focused()) return;
     input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    input.setCaret(input.plainText().length);
   };
   const placeholder = nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
-  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const keyDown = (event: KeyboardEvent) => {
     touch();
-    if (composing.current || event.nativeEvent.isComposing) return;
-    const input = event.currentTarget;
+    if (composing.current || event.isComposing || event.keyCode === 229) return;
+    if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+    const input = field.current;
+    const state = fieldText();
+    if (!input) return;
     if (commandsOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1136,32 +1203,36 @@ export function NewTabScreen(props: Props) {
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
-        const command = text.trim();
+        const command = typed.trim();
         if (command) props.onShell(command);
-      } else if (event.key === "Escape" || (event.key === "Backspace" && input.selectionEnd === 0)) {
+      } else if (event.key === "Escape" || (event.key === "Backspace" && state.selectionEnd === 0)) {
         // Leaves shell mode; what was typed stays in the field.
         event.preventDefault();
         setShell(false);
       }
       return;
     }
-    const backspaced = backspacedAttachment(event, input.selectionStart === 0 && input.selectionEnd === 0, attachments);
+    const placed = new Set(input.inlineIds());
+    const backspaced = backspacedAttachment(
+      event,
+      input.atStart(),
+      attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
+    );
     if (backspaced) {
       event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+      inline.remove(backspaced.id);
       return;
     }
     wholeSelection.current =
-      input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+      state.value !== "" && state.selectionStart === 0 && state.selectionEnd === state.value.length;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     const completion =
-      plain && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
-        ? inlineCompletion(text, rows)
+      plain && state.selectionStart === state.value.length && state.selectionEnd === state.value.length
+        ? inlineCompletion(typed, rows)
         : undefined;
     if ((event.key === "ArrowRight" || event.key === "End") && completion) {
       event.preventDefault();
-      inlineCaret.current = completion.length;
-      edit(completion);
+      input.writeText(completion, completion.length, completion.length);
       return;
     }
     // ← and → on a row the arrows picked go back to the text, and the caret moves there at once (the
@@ -1182,7 +1253,7 @@ export function NewTabScreen(props: Props) {
     // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
     // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
     // list they always step the rows.
-    const step = current < 0 && movesCaretInPrompt(event, input) ? undefined : listStep(event);
+    const step = current < 0 && movesCaretInPrompt(event, state) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -1199,7 +1270,7 @@ export function NewTabScreen(props: Props) {
       // The first Escape closes the suggestions, the next leaves the field; the text stays.
       event.preventDefault();
       if (rows.length) setDismissed(text);
-      else input.blur();
+      else fieldElement()?.querySelector<HTMLElement>(".ProseMirror")?.blur();
     }
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
@@ -1226,6 +1297,7 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
+    if (cwd) props.onProjectPicked?.(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
@@ -1254,10 +1326,18 @@ export function NewTabScreen(props: Props) {
   // worktree of its folder (the host makes it first; its refusal shows above the card and the
   // prompt stays in the field).
   const worktreePending = useRef(false);
-  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
-    const extra = attachments.length > 0 ? attachments : undefined;
+  function askInEnvironment(
+    picked: SavedEnvironment,
+    agent: string,
+    prompt: string,
+    model?: string,
+    sentAttachments?: ComposerAttachment[],
+  ) {
+    const extra = sentAttachments?.length ? sentAttachments : undefined;
     if (picked.kind === "ssh")
-      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {
+        peer: picked.host,
+      });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
       return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
@@ -1363,37 +1443,21 @@ export function NewTabScreen(props: Props) {
           void attach(files, true, "choose");
         }}
       />
-      <Picker
-        label={t("composer.add")}
-        tooltip={t("composer.addTooltip")}
-        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
-        button={<PlusIcon />}
-        align="start"
-        returnFocus={false}
-        sections={[
-          {
-            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
-            onPick: (id) => {
-              if (id === "attach") chooser.current?.click();
-            },
-          },
-          // Search chats and Search pages, as the chat composer's + (the page has no folder to
-          // search files in, so it offers no Search files).
-          ...(onPlusCommand
-            ? [
-                {
-                  title: t("sidebar.searchPlaceholder"),
-                  choices: plusSearchRows.map((row) => ({
-                    id: row.id,
-                    name: row.name,
-                    description: row.description,
-                    icon: <Icon name={row.icon} size={18} />,
-                  })),
-                  onPick: runPlusSearch,
-                },
-              ]
-            : []),
-        ]}
+      {/* The chat composer's + (ComposerPlusMenu): Attach files or images, then Search chats and
+          Search pages. The page has no folder to search files in, no capture host, no @ and no
+          slash list behind +, so it offers those rows of the registry only. */}
+      <ComposerPlusMenu
+        className={`acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        entries={composerPlusRegistry({
+          translate: t,
+          canCapture: false,
+          ...(onPlusCommand ? { extensions: plusSearchRows } : {}),
+        }).filter((entry) => entry.id === "add.files" || (entry.section === "files" && entry.id !== "files.search"))}
+        onCommand={(id) => {
+          if (id === "composer.attachFiles") chooser.current?.click();
+        }}
+        onExtension={runPlusSearch}
+        onSlash={() => {}}
       />
     </>
   );
@@ -1584,13 +1648,19 @@ export function NewTabScreen(props: Props) {
   // The composer: in the stage layout at the foot of the page, else at its top.
   // A model pick puts the keyboard back in the field (promptFocus.ts).
   const focusField = () => field.current?.focus();
+  const placed = new Set(field.current?.inlineIds() ?? inlineTokenIds(text));
   const composerCard = (
     <PromptFocus value={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+      <div
+        ref={setComposer}
+        className="nt-composer"
+        data-composer-look={look === "codex" ? "codex" : undefined}
+        data-attachment-view={attachmentView}
+      >
         {authBlocksSend(targetAuth) ? (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
@@ -1649,9 +1719,18 @@ export function NewTabScreen(props: Props) {
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-          <div className="nt-input" onMouseDown={focusFromRow}>
+          <div
+            className="nt-input"
+            data-split={split || undefined}
+            onMouseDown={(event) => {
+              if (fieldElement()?.contains(event.target as Node)) setDismissed(undefined);
+              focusFromRow(event);
+            }}
+          >
             {split && attachmentPicker}
-            <div className="nt-field-slot">
+            {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
+              none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
+            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
               {(shell || sections.prompt) && (
                 <span
                   className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
@@ -1660,38 +1739,63 @@ export function NewTabScreen(props: Props) {
                   {shell ? "!" : ">"}
                 </span>
               )}
-              {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
-              draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
-              still sends; every line break is one the draft brought in (a paste). */}
-              <textarea
+              {/* The shared editor keeps attachments at their place in the text. A long draft
+              wraps and grows to its cap, then scrolls; Return still sends. */}
+              <MarkdownField
                 ref={field}
                 className="nt-field"
-                {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-                rows={1}
-                data-focus-ring="none"
-                aria-label={shell ? t("composer.shell") : placeholder}
+                value={text}
                 placeholder={
                   shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder
                 }
-                data-dictation-listening={dictating && !shell ? "" : undefined}
-                value={text}
-                aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
-                aria-activedescendant={
-                  commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
-                }
-                spellCheck={spellChecking && !shell}
-                autoCapitalize="off"
-                autoCorrect="off"
-                onChange={(event) => edit(event.target.value)}
-                onKeyDown={keyDown}
-                onMouseDown={() => setDismissed(undefined)}
-                onCompositionStart={() => {
-                  composing.current = true;
+                multiline
+                literal={shell}
+                plainInput
+                onReady={() => {
+                  inline.ready();
+                  setFieldReady(true);
                 }}
-                onCompositionEnd={() => {
-                  composing.current = false;
+                onBeforeInput={(data, state) =>
+                  !shell && state.paste && !state.composing ? pastedChips.take(data) : false
+                }
+                onChange={(value) => {
+                  // The editor canonicalizes escaping while mounting; that is still the untouched
+                  // location, not a typed draft or a reason to show suggestions or hold a web swap.
+                  if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {
+                    untouchedText.current = value;
+                    setText(value);
+                    return;
+                  }
+                  inline.edited(value);
+                  edit(value);
+                }}
+                onKeyDown={keyDown}
+                onCompositionChange={(value) => {
+                  composing.current = value;
+                }}
+                onSubmit={() => submit()}
+                onFirstInput={touch}
+                onInlineViews={!shell ? inline.onInlineViews : undefined}
+                isInlineAttachment={!shell ? inline.known : undefined}
+                attributes={{
+                  [WEB_SWAP_KEPT_TEXT]: "",
+                  "data-focus-ring": "none",
+                  "aria-label": shell ? t("composer.shell") : placeholder,
+                  "data-dictation-listening": dictating && !shell ? "" : undefined,
+                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
+                  "aria-activedescendant": commandsOpen
+                    ? `acpmux-slash-${commandIndex}`
+                    : rows[current]
+                      ? `nt-row-${current}`
+                      : undefined,
+                  spellcheck: spellChecking && !shell ? "true" : "false",
+                  autocapitalize: "off",
+                  autocorrect: "off",
                 }}
               />
+              {/* The attachments placed in the text draw inside the field at their place, as Messages
+                shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
+              {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
@@ -1705,21 +1809,24 @@ export function NewTabScreen(props: Props) {
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
           <AttachmentStrip
-            attachments={attachments}
-            pending={reading}
+            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
+            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
             {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={harness === "codex"}
+            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
+            // here), so the inline view brings back none and the prompt sends none.
             onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
+              inline.remove(id);
               field.current?.focus();
             }}
             onCancel={(id) => {
-              cancel(id);
+              inline.cancel(id);
               field.current?.focus();
             }}
             onRetry={retry}
+            onExpand={inline.expand}
             originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+            onReorder={inline.reorder}
           />
           {command.input}
           {!pill && !split && pickers}
@@ -1819,7 +1926,11 @@ export function NewTabScreen(props: Props) {
         onEditWidgets
           ? [
               editing.editing
-                ? { id: "edit.done", label: nt("edit.done"), onSelect: () => editing.setEditing(false) }
+                ? {
+                    id: "edit.done",
+                    label: nt("edit.done"),
+                    onSelect: () => editing.setEditing(false),
+                  }
                 : { id: "edit", label: nt("edit.menu"), onSelect: () => editing.setEditing(true) },
             ]
           : []
@@ -1993,7 +2104,7 @@ export function NewTabScreen(props: Props) {
                         tabIndex={-1}
                         aria-selected={index === current}
                         aria-label={rowTitle(nt, row)}
-                        // tooltip-allow: a narrow pane ellipsizes all three labels (French: "Nouv…"); the tooltip names the action
+                        // tooltip-allow: a strip too narrow for its labels goes icon-only (createStripFit.ts data-icons-only); the tooltip names each action
                         title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
@@ -2049,7 +2160,7 @@ function stageRuns(order: readonly MovableWidget[]): (readonly MovableWidget[])[
 /// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field
 /// that is not a list until rows show); anything else undefined. A modified arrow (Shift, Cmd,
 /// Option) moves or extends the caret, as in a browser's address bar (cx-ag5.8).
-function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
+function listStep(event: KeyboardEvent): 1 | -1 | undefined {
   const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
   if (event.key === "ArrowDown") return plain ? 1 : undefined;
   if (event.key === "ArrowUp") return plain ? -1 : undefined;
@@ -2061,7 +2172,10 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
 
 /// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
 /// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
-function movesCaretInPrompt(event: React.KeyboardEvent, field: HTMLTextAreaElement): boolean {
+function movesCaretInPrompt(
+  event: KeyboardEvent,
+  field: { value: string; selectionStart: number; selectionEnd: number },
+): boolean {
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
   if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
   if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");

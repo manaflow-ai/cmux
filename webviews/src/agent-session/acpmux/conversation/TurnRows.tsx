@@ -3,10 +3,9 @@
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { copyText } from "./clipboard";
+import type { AcpmuxRow } from "../model";
+import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
-import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -16,12 +15,12 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { awaitsPermission, groupId, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun } from "./toolRunSummary";
+import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
@@ -43,6 +42,9 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+
+/// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
+export { runStretches, type RunStretch } from "./toolGroups";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -135,16 +137,6 @@ function groupNode(
           messageAt={group.item.tool!.startedAt ?? rowAt}
         />
       );
-    case "messages":
-      return (
-        <MessageGroupRow
-          key={group.items[0]!.tool!.id || index}
-          members={group.members}
-          disclosureKey={messageGroupKey(group.items, rowId, index)}
-        >
-          {group.members.map((member, at) => groupNode(member, at, rowId, rowAt, false))}
-        </MessageGroupRow>
-      );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
@@ -197,37 +189,6 @@ export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]):
   return stretches.length === 1 && stretches[0]!.fold;
 }
 
-/// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
-/// messaged or waited on) stays in sight, its own stretch, and the work between cards folds under
-/// its own summary line ("Edited a file, read 6 files, ran 4 commands") once it holds two calls in
-/// more than one entry, so one card never leaves the whole run spread out as a list
-/// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
-/// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
-export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
-
-export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
-  const stretches: RunStretch[] = [];
-  let current: RunStretch | undefined;
-  const close = () => {
-    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
-    current = undefined;
-  };
-  groups.forEach((group, at) => {
-    const items = "items" in group ? group.items : [group.item];
-    if (row.foldRun === true && staysInSight(group)) {
-      close();
-      stretches.push({ from: at, groups: [group], items, fold: false });
-      return;
-    }
-    if (!current) stretches.push((current = { from: at, groups: [], items: [], fold: false }));
-    current.groups.push(group);
-    current.items.push(...items);
-  });
-  close();
-  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
-  return stretches;
-}
-
 /// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
 /// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
 /// a call that finished joins it to a group (Codex review of #24075).
@@ -239,25 +200,6 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
     thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
     return before;
   });
-}
-
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
-/// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
-/// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
-/// collapsing i mean"); the turn's edited-files card lists them once it ends.
-function staysInSight(group: ToolGroup): boolean {
-  if (
-    group.type === "message" ||
-    group.type === "messages" ||
-    group.type === "send" ||
-    group.type === "subsession" ||
-    group.type === "subsessionGroup" ||
-    group.type === "dispatch"
-  )
-    return true;
-  // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
-  // stays in sight all the same.
-  return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
@@ -327,6 +269,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
+  // a turn of tool calls alone draws no Copy and no Read aloud.
+  const turnCopy = row.turnCopy;
+  const copy = useMemo(() => (turnCopy ? turnCopyText(t, turnCopy) : text), [t, turnCopy, text]);
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
@@ -438,7 +384,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           <span className="cv-turn-action-group">
-            {text && <MessageCopy text={text} />}
+            {copy && <MessageCopy text={copy} />}
             {failedRetry && (
               <button
                 type="button"
@@ -679,8 +625,8 @@ function TurnFailure({
                 type="button"
                 className="cv-turn-auth-action"
                 onClick={() =>
-                  void copyText(message).then(
-                    () => setCopied(true),
+                  void copyTextResult(message).then(
+                    (accepted) => setCopied(accepted),
                     () => setCopied(false),
                   )
                 }

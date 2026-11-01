@@ -28,6 +28,8 @@ import nightly_sign_runner as picker  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 26, 9, 30, tzinfo=dt.timezone.utc)
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+LINUX4, LINUX16, LINUX32 = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                             "blacksmith-32vcpu-ubuntu-2404")
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
 
 # The jobs that sign, notarize, verify a signed build or publish it, and the job whose
@@ -61,6 +63,10 @@ def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
     generated = (NOW - dt.timedelta(minutes=age_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"generated_at": generated,
             "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait} for label, wait in waits.items()}}
+
+
+def linux_snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
+    return snapshot({**{label: 0 for label in picker.LINUX_LABELS}, **waits}, age_minutes)
 
 
 class Pick(unittest.TestCase):
@@ -122,6 +128,7 @@ class Pick(unittest.TestCase):
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({SMALL: 3}), now=NOW), 0)
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=verified\n")
 
+
     def test_a_pick_made_on_a_rerun_is_its_own_alternate(self) -> None:
         # A full re-run runs the picker again; its fresh pick must win over the other size.
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +152,40 @@ class Pick(unittest.TestCase):
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
             # 12 vCPU is stalled, so a re-run keeps 6 vCPU rather than moving onto it.
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
+
+
+class LinuxPick(unittest.TestCase):
+    """Release-pool signer jobs stay on the trusted Blacksmith Linux set."""
+
+    def test_linux_picker_rotates_a_stalled_size(self) -> None:
+        snap = linux_snapshot({LINUX4: 4, LINUX16: 2}, age_minutes=0)
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_counts_snapshot_age_toward_stall(self) -> None:
+        # A queue that was two minutes old in a fourteen-minute-old snapshot
+        # has long passed the three-minute overflow threshold.
+        snap = linux_snapshot({LINUX4: 2}, age_minutes=14)
+        self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_does_not_claim_a_mac_only_snapshot_is_verified(self) -> None:
+        label, alternate, _, verified = picker.linux_place(LINUX4, snapshot({}), NOW, 1)
+        self.assertEqual((label, alternate, verified), (LINUX4, LINUX16, False))
+
+    def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:
+        for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-26.6"):
+            label, alternate, _, _ = picker.linux_place(variable, None, NOW, 1)
+            self.assertIn(label, picker.LINUX_LABELS)
+            self.assertIn(alternate, picker.LINUX_LABELS)
+
+    def test_linux_mode_writes_bounded_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"PLATFORM": "linux", "CANDIDATE": LINUX32, "SNAPSHOT_TOKEN": "t",
+                   "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
+            self.assertEqual(picker.main(env, read=lambda t, r: linux_snapshot({LINUX32: 90}), now=NOW), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertIn(values["runner"], picker.LINUX_LABELS)
+            self.assertIn(values["alternate"], picker.LINUX_LABELS)
 
 
 class Unverified(unittest.TestCase):
@@ -453,13 +494,63 @@ class OwnedVerify(unittest.TestCase):
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.ref_name == 'nightly-next' && github.run_attempt == 2 "
+                              "&& needs.pick-nightly-sign-runner.outputs.attempt == 1 "
+                              "&& vars.CI_PR_POOL_OWNED == '1' && "
+                              "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
                               "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
-                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
+                              "|| github.ref_name == 'nightly-next'", xcode)
+                self.assertIn("&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+
+    def test_failed_job_reruns_rejoin_the_fleet_pool_instead_of_an_old_pick(self) -> None:
+        # Run 41253243235 attempt 2 kept attempt 1's picker and queued the DMG
+        # image on the Blacksmith alternate after its build and notarization passed.
+        from test_ci_fork_runner_routing import parse_expression
+        from test_nightly_trusted_routing import evaluate
+
+        base = {
+            "github.repository_owner": "manaflow-ai", "github.ref_name": "nightly-next",
+            "github.run_attempt": "2", "vars.CI_PR_POOL_OWNED": "1",
+            "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+            self.OWNED: "glaeda-runner-old-single-host",
+            "needs.pick-nightly-sign-runner.outputs.alternate": LARGE,
+            "needs.pick-nightly-sign-runner.outputs.runner": SMALL,
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6",
+            "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
+            "vars.CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-fleet.app",
+            "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
+        }
+        cases = (
+            ({}, "glaeda-nightly-std-xcode-26.6", "fleet"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "fleet"),
+            ({"github.run_attempt": "3"}, LARGE, "overflow"),
+            ({"github.run_attempt": "4"}, LARGE, "overflow"),
+            ({"vars.CI_PR_POOL_OWNED": "0"}, LARGE, "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, LARGE, "overflow"),
+            ({"github.ref_name": "main"}, LARGE, "overflow"),
+            ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
+            ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
+            ({"github.run_attempt": "1", self.OWNED: ""}, SMALL, "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, LARGE, "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
+             "glaeda-side-light-xcode-26.6", "fleet"),
+        )
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image"):
+            job = WORKFLOW["jobs"][name]
+            for changes, runner, xcode in cases:
+                with self.subTest(job=name, changes=changes):
+                    context = {**base, **changes}
+                    def resolve(source):
+                        return evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")), context)
+                    self.assertEqual(resolve(job["runs-on"]), runner)
+                    if context["github.repository_owner"] == "manaflow-ai":
+                        self.assertEqual(resolve(job["env"]["CMUX_CI_XCODE_APP"]),
+                                         f"/Applications/Xcode-{xcode}.app")
 
     def test_the_legacy_verify_reads_the_owned_pick_then_its_own_labels(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -550,7 +641,8 @@ class SnapshotReadToken(unittest.TestCase):
     # build-nightly-app reads it in one step after the build, to place the light jobs that follow it on an
     # idle mini (runner list read only; cmux-next-guards.yml's portable-placement reads it the same way on
     # pull requests, outside the environment).
-    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
+    # decide places early controls through the same read-only routing App.
+    KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
                   "build-nightly-app"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:

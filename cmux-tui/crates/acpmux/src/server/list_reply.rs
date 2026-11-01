@@ -159,6 +159,13 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     conn.watch_all.store(on, Ordering::SeqCst);
     if conn.origin == super::Origin::Peer && whole(params) {
         let raw = conn.raw_text;
+        // What the link holds of this list already: it reads only what changed
+        // (`watch_delta.rs`).
+        let known = match params.get("known") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(known)) => Some(known),
+            Some(_) => return Err(RpcError::invalid_params("known must be an object")),
+        };
         return reply(hub, conn, None, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
@@ -166,10 +173,14 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
                 (false, true) => "own",
                 (false, false) => "own masked",
             };
-            Ok(list.made(name, |_| {
+            let own = list.made(name, |_| {
                 let own = Snapshot::own_whole(hub, tools);
                 if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
-            }))
+            });
+            Ok(match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
+                Some(delta) => Arc::new(delta),
+                None => own,
+            })
         })
         .await;
     }

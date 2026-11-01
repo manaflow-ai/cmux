@@ -8,6 +8,7 @@ import { DATE } from "./conversation/turns";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow } from "./model";
 import { errorMessage } from "./transportErrors";
+import { peerLinkFailure, peerLinkLine } from "./hostLine";
 
 /// The causes the failure card names in its own words, with their own way out.
 export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "too-large" | "other";
@@ -75,10 +76,15 @@ export function failedSendText(
   }
   // A refusal for want of a gesture names that (the generic refusal's text is about a pick):
   // posted input is never the person's (cx-ocdz), and the Retry click is.
+  // A chat's machine that is not reachable is said in plain words, never as acpmux's own text (a
+  // `peer_unreachable:` code, its link state and a command to run; hostLine.ts).
+  const peer = peerLinkFailure(error);
   const reason =
     text(fields?.code) === "transport.gesture_required"
       ? translate("prompt.gestureReason")
-      : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
+      : peer
+        ? peerLinkLine(peer, translate)
+        : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
   return translate(retried ? "prompt.stillNotSent" : "prompt.notSent", {
     reason: reason || translate("transport.refused"),
   });

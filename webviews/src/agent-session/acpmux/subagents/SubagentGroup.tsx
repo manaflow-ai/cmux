@@ -21,8 +21,8 @@ export const SubagentHarnessContext = createContext<string | undefined>(undefine
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
 
-/// Shows a subagent in a pane of its own right of the chat, or in this pane when none opens
-/// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
+/// Shows a subagent in a pane of its own right of the chat while the summary card's switch is on,
+/// else in this pane (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
 /// in place.
 export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
 
@@ -146,7 +146,9 @@ export function SubagentGroupHeader({
 
 /// One subagent in an open group: its avatar, name (in the agent's color,
 /// agentTones.ts), state or current action with its workflow's agent counts (subagentProgress.ts, no tokens or tool uses), and time. `edge` rounds the list's first and last
-/// rows. A click opens its own view; a running one has a stop button beside it.
+/// rows. A click opens its own view; a running one has a stop button beside it. Its kind (Explore,
+/// general-purpose) is no subtitle beside the name (Leo, 2026-10-31: "a lot of these subtitles are
+/// bad"): the line's tooltip keeps it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -167,19 +169,22 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">
-          {agent.name}
-          {agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) && (
-            <span className="cv-subagent__kind">{agent.kind}</span>
-          )}
-        </span>
+        <span className="cv-subagent__name">{agent.name}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
     </>
   );
+  const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;
   const line = !open ? (
-    <div id={row.id} className="cv-subagent" data-edge={row.status} data-agent-tone={tones?.get(agent.id)}>
+    <div
+      id={row.id}
+      className="cv-subagent"
+      data-edge={row.status}
+      data-agent-tone={tones?.get(agent.id)}
+      // tooltip-allow: its kind, which the line no longer shows
+      title={kind}
+    >
       {content}
     </div>
   ) : (
@@ -190,6 +195,8 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
       aria-label={t("subagents.open", { name: agent.name })}
+      // tooltip-allow: its kind, which the line no longer shows
+      title={kind}
       onClick={() => open(agent.id)}
     >
       {content}

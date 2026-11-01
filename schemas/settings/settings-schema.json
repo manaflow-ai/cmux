@@ -34,6 +34,8 @@
               "tabs.barPosition",
               "browser.toolbarPosition",
               "tabs.barOrder",
+              "appearance.metrics.tabFontSize",
+              "appearance.metrics.tabStripHeight",
               "tabs.overflow",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN"
@@ -560,6 +562,7 @@
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
+              "workspaceColors.indicatorStyle",
               "sidebar.minimalMode",
               "sidebar.side"
             ],
@@ -1121,8 +1124,10 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.transcriptView",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings",
+              "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
               "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
@@ -1592,6 +1597,17 @@
             "title" : {
               "key" : "settings.group.machineColors",
               "text" : "Machine Colors"
+            }
+          },
+          {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
             }
           }
         ],
@@ -4990,6 +5006,304 @@
       "title" : {
         "key" : "settings.tabs.toolbarButtons",
         "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        18,
+        14
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.tabs.tabFontSize.default",
+        "text" : "Interface size"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabFontSize.help",
+        "text" : "Text size of tab titles. Unset, tabs follow the interface size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabFontSize",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "font",
+        "text",
+        "size",
+        "title",
+        "bigger",
+        "smaller",
+        "readable",
+        "tabFontSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabFontSize"
+      ],
+      "range" : {
+        "max" : 18,
+        "min" : 10,
+        "placeholder" : 12,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        2,
+        26,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.tabFontSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.tabFontSize",
+        "text" : "Tab Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        22,
+        44,
+        33
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabStripHeight.help",
+        "text" : "Height of a pane's tab bar. Its tabs grow and shrink with it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabStripHeight",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "bar",
+        "strip",
+        "height",
+        "size",
+        "taller",
+        "tabStripHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabStripHeight"
+      ],
+      "range" : {
+        "max" : 44,
+        "min" : 22,
+        "placeholder" : 28,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        0,
+        66,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.tabStripHeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.tabStripHeight",
+        "text" : "Tab Bar Height"
       },
       "validation" : "portable"
     },
@@ -11364,6 +11678,292 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.newWorkspacesInCloud.help",
+        "text" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.newWorkspacesInCloud",
+      "keywords" : [
+        "cloud",
+        "vm",
+        "remote",
+        "machine",
+        "new workspace",
+        "cmd-n",
+        "agent",
+        "local",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "newWorkspacesInCloud"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.newWorkspacesInCloud"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.newWorkspacesInCloud",
+        "text" : "Run New Workspaces in Cloud"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "inherit",
+        "empty"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cloudFolderInherit",
+            "text" : "Current Folder"
+          },
+          "value" : "inherit"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cloudFolderEmpty",
+            "text" : "Empty Folder"
+          },
+          "value" : "empty"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "inherit",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.newWorkspaceFolder.help",
+        "text" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.newWorkspaceFolder",
+      "keywords" : [
+        "cloud",
+        "vm",
+        "folder",
+        "sync",
+        "copy",
+        "inherit",
+        "empty",
+        "snapshot",
+        "working directory"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "newWorkspaceFolder"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.newWorkspaceFolder"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.newWorkspaceFolder",
+        "text" : "New Cloud Workspaces Start In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -11636,7 +12236,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 50,
+      "default" : 1000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
@@ -11777,7 +12377,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 16,
+      "default" : 1000,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
@@ -40659,6 +41259,175 @@
     },
     {
       "accepts" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.transcriptViewNormal",
+            "text" : "Normal"
+          },
+          "value" : "normal"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.transcriptViewThinking",
+            "text" : "Thinking"
+          },
+          "value" : "thinking"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.transcriptViewVerbose",
+            "text" : "Verbose"
+          },
+          "value" : "verbose"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "normal",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.transcriptView.help",
+        "text" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.transcriptView",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "transcript",
+        "view",
+        "verbose",
+        "thinking",
+        "thoughts",
+        "reasoning",
+        "tool output",
+        "expand",
+        "collapse",
+        "fold",
+        "details"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "transcriptView"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.transcriptView"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.transcriptView",
+        "text" : "Transcript View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "left",
         "right"
       ],
@@ -51308,6 +52077,173 @@
     },
     {
       "accepts" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorDot",
+            "text" : "Dot"
+          },
+          "value" : "dot"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorLeftRail",
+            "text" : "Left Rail"
+          },
+          "value" : "leftRail"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.workspaceColorFill",
+            "text" : "Fill Row"
+          },
+          "value" : "fill"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "dot",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaceColors.indicatorStyle.help",
+        "text" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaceColors.indicatorStyle",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "color",
+        "colour",
+        "tint",
+        "fill",
+        "row",
+        "background",
+        "rail",
+        "bar",
+        "dot",
+        "highlight",
+        "indicator",
+        "review",
+        "ready"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaceColors",
+        "indicatorStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaceColors.indicatorStyle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceColors.indicatorStyle",
+        "text" : "Workspace Color Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -53641,7 +54577,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 400,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -87666,7 +88602,8 @@
     {
       "accepts" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -87684,6 +88621,13 @@
             "text" : "Strip"
           },
           "value" : "strip"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatAttachmentBoth",
+            "text" : "Inline and Strip"
+          },
+          "value" : "both"
         }
       ],
       "consumers" : [
@@ -87709,6 +88653,7 @@
         "file",
         "inline",
         "strip",
+        "both",
         "composer",
         "messages"
       ],
@@ -88082,6 +89027,157 @@
       "title" : {
         "key" : "settings.agentPane.showMachineLoadWarnings",
         "text" : "Show Machine Load Warnings"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "local",
+        "cloud"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newChatsInLocal",
+            "text" : "This Mac"
+          },
+          "value" : "local"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newChatsInCloud",
+            "text" : "Cloud"
+          },
+          "value" : "cloud"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "local",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.newChatsIn.help",
+        "text" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.newChatsIn",
+      "keywords" : [
+        "cloud",
+        "new chat",
+        "start",
+        "machine",
+        "vm",
+        "remote",
+        "this mac",
+        "local",
+        "run"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "newChatsIn"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.newChatsIn"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.newChatsIn",
+        "text" : "Start New Chats In"
       },
       "validation" : "portable"
     },

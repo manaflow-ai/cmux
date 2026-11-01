@@ -286,7 +286,7 @@ public final class CloudClassicPageOps {
             throw Refusal(code: "cmux.cloud.unsupported", message: "cloud.plan.get")
         }
         return Plan(plan_id: limits.planId ?? "",
-                    limits: .init(max_active: cap, max_saved: 0, memory_options_mb: (limits.memoryOptionsMb ?? []).sorted(),
+                    limits: .init(max_active: cap, max_saved: 0, memory_options_mb: limits.memoryOptionsMb,
                                   locked_memory_options_mb: (limits.lockedMemoryOptionsMb ?? []).sorted()),
                     usage: .init(active: limits.activeVmCount, saved: 0))
     }
