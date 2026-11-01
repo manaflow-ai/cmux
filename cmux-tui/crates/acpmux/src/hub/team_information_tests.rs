@@ -89,6 +89,13 @@ async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
     let (accepted, accepted_queued, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
     assert!(replay);
     assert_eq!((accepted, accepted_queued), (first, false));
+    let (abandoned, _, _) = session.prepare_turn("p2", Some(1)).await.unwrap();
+    assert!(session.abandon_prepared("p2"));
+    let (retry, _, replay) = session.prepare_turn("p2", Some(1)).await.unwrap();
+    assert_eq!(retry, abandoned);
+    assert!(!replay);
+    let (next, _, _) = session.prepare_turn("p3", Some(1)).await.unwrap();
+    assert_ne!(next, abandoned);
 }
 
 #[tokio::test]

@@ -326,7 +326,10 @@ impl Session {
                     return Ok((done.turn_id, done.queued, true));
                 }
                 if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
-                    if pending.front().is_some_and(|p| p.prompt_id == prompt_id)
+                    if existing.abandoned {
+                        return Ok((existing.turn_id.clone(), existing.queued, false));
+                    }
+                    if pending.iter().find(|p| !p.abandoned).is_some_and(|p| p.prompt_id == prompt_id)
                         && self.turn().is_none()
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
@@ -344,7 +347,11 @@ impl Session {
                         queued,
                         abandoned: false,
                     });
-                    let first = pending.front().expect("prepared reservation").clone();
+                    let first = pending
+                        .iter()
+                        .find(|p| !p.abandoned)
+                        .expect("prepared reservation")
+                        .clone();
                     if first.prompt_id == prompt_id
                         && self.turn().is_none()
                         && self.queue().iter().all(|q| q.held)
