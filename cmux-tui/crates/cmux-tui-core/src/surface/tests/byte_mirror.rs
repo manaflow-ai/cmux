@@ -313,9 +313,13 @@ fn percentiles(samples: &mut [Duration]) -> String {
 }
 
 /// Bench (cmux-ad H10): resize bursts over a terminal with 10k lines of
-/// scrollback and one byte mirror attached. Run with `cargo test -p
-/// cmux-tui-core --lib -- --ignored --nocapture
-/// resize_burst_terminal_lock_hold_bench`.
+/// scrollback and one byte mirror attached. Off unless
+/// CMUX_RESIZE_BURST_BENCH=1: each line goes to stderr and is appended to
+/// .build/artifacts/resize-burst-bench.txt (nextest hides a passing test's
+/// output; a fleet step returns the file with --artifact). Fleet:
+/// `cmux-ci run --class isolated --os macos --script scripts/ci/cmux-tui-rust-check.sh
+/// --arg test --arg resize_burst_terminal_lock_hold_bench
+/// --env CMUX_RESIZE_BURST_BENCH=1 --artifact .build/artifacts/resize-burst-bench.txt`.
 ///
 /// - burst: 24 steps back to back, then the mirror takes its frames (a view
 ///   that is busy, or whose connection is full, during the burst).
@@ -328,8 +332,24 @@ fn percentiles(samples: &mut [Duration]) -> String {
 /// takes (it holds the terminal lock throughout; in the drag it may first
 /// wait for the lock while the view builds a replay).
 #[test]
-#[ignore = "bench: prints lock hold times, asserts nothing"]
 fn resize_burst_terminal_lock_hold_bench() {
+    if std::env::var("CMUX_RESIZE_BURST_BENCH").as_deref() != Ok("1") {
+        return;
+    }
+    let artifacts =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts");
+    std::fs::create_dir_all(&artifacts).unwrap();
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(artifacts.join("resize-burst-bench.txt"))
+        .unwrap();
+    let profile = if cfg!(debug_assertions) { "dev-profile" } else { "release" };
+    let mut report = |line: String| {
+        let line = format!("RESIZE-BURST-BENCH {profile} {line}");
+        eprintln!("{line}");
+        std::io::Write::write_all(&mut out, format!("{line}\n").as_bytes()).unwrap();
+    };
     const BURSTS: u16 = 5;
     const STEP_INTERVAL: Duration = Duration::from_millis(8);
     let mux = Mux::new_for_test("mirror-resize-burst-bench", SurfaceOptions::default());
@@ -352,15 +372,15 @@ fn resize_burst_terminal_lock_hold_bench() {
         takes.push(started.elapsed());
     }
     let builds = pty.vt_replay_builds.load(Ordering::Acquire);
-    eprintln!(
-        "resize burst bench [burst]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps: replay \
+    report(format!(
+        "[burst]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps: replay \
          builds {builds} ({:.1} per burst); resize step {}; mirror take after the burst {}; \
          mirror diverged: {}",
         builds as f64 / f64::from(BURSTS),
         percentiles(&mut steps),
         percentiles(&mut takes),
         mirror.divergence(&surface).is_some(),
-    );
+    ));
     let mut builds = (0..10)
         .map(|_| {
             let mut term = pty.term.lock().unwrap();
@@ -369,7 +389,7 @@ fn resize_burst_terminal_lock_hold_bench() {
             started.elapsed()
         })
         .collect::<Vec<_>>();
-    eprintln!("resize burst bench [build]: one replay build {}", percentiles(&mut builds));
+    report(format!("[build]: one replay build {}", percentiles(&mut builds)));
 
     let surface = deep_history_surface(&mux, 2);
     let pty = surface.as_pty().unwrap();
@@ -410,13 +430,13 @@ fn resize_burst_terminal_lock_hold_bench() {
     done.store(true, Ordering::Release);
     let (last_grid, disconnected) = view.join().unwrap();
     let builds = pty.vt_replay_builds.load(Ordering::Acquire);
-    eprintln!(
-        "resize burst bench [drag]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps every \
+    report(format!(
+        "[drag]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps every \
          {STEP_INTERVAL:?}: replay builds {builds} ({:.1} per burst); resize step {}; mirror's \
          last grid {last_grid:?} (final {final_grid:?}), disconnected {disconnected}",
         builds as f64 / f64::from(BURSTS),
         percentiles(&mut steps),
-    );
+    ));
 }
 
 fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
