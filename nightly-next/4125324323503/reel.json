@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "build": "4125324323503",
+  "notes": "notes/4125324323503.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29714,
+      "title": "Agent chat: clean hook-blocked MCP details and remove unused copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29765,
+      "title": "Enable cmux NEXT cross-channel updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29755,
+      "title": "arch: pay #28407's app_lines +264 exception with a move of pure Cloud values to CmuxNextDaemonService, and delete the exception",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29570,
+      "title": "fix(agent-pane): a held Changes row opens its own turn's diff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29582,
+      "title": "carry of #29046: cloud.startChat's pick, pin, keys and copy in cmux-tui, with #28111's account rules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29761,
+      "title": "fix(next): keep Session Info still during transcript scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29772,
+      "title": "Cloud: promote devbox image 202610312232-902ddaca5f-4e69528cbfcb",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29768,
+      "title": "ci(nightly-next): prioritize trusted app builder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29779,
+      "title": "ci(fast-gates): a dispatch reads over GraphQL when the REST budget is spent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29664,
+      "title": "cmux NEXT model picker: Fast mode and the effort column on every tab, Codex included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29283,
+      "title": "Cloud: Share Machine… and Share with Me for team machine chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29668,
+      "title": "fix(transcript): preserve visible rows while older history loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29724,
+      "title": "base red: package-test CmuxNext signal fixes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29686,
+      "title": "Keep transcript bottom pinned while tool folds open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28905,
+      "title": "cmux NEXT composer: text one gap after +, one left column, and +/mic/Send centered with equal insets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28683,
+      "title": "PR status popover: a check row lights only where a click opens it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25705,
+      "title": "cmux next: workspace color as a dot, left rail or full-row fill (Fixes #25653)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29276,
+      "title": "agent pane: one subagent row anatomy (one glyph, no type subtitle, quiet done)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29773,
+      "title": "cmux NEXT: Sandboxed CLI help and Cloud notes no longer say Labs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29699,
+      "title": "Transcript: click anywhere on an edits card's header to expand or collapse it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29747,
+      "title": "ci: a label CI does not read no longer starts a full CI run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29632,
+      "title": "Agent chat: the prompt rail lays out every turn from the first frame (acpmux prompt index)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
