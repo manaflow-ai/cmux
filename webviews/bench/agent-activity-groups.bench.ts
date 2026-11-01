@@ -25,7 +25,7 @@ const session = (index: number): ActivitySession => ({
   targetApps: ["Safari"],
   status: index % 3 ? "active" : "idle",
   startedAt: 0,
-  lastActionAt: index * 7919 % 10007,
+  lastActionAt: (index * 7919) % 10007,
   acts: 0,
   observes: 0,
   errors: 0,
