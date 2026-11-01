@@ -353,6 +353,17 @@ class NextApp:
         self.control = hid_input.Control("", os.path.join(app, "Contents/Resources/bin/cmux"), None)
 
     def launch(self):
+        # FC-1 scratch: the reload's own log into the job log (split-spring.sh, an allowlisted script, does not print
+        # it; never lands).
+        reload_log = f"/tmp/cmux-reload-{opts.tag}.log"
+        try:
+            with open(reload_log, errors="replace") as f:
+                lines = f.read().splitlines()
+            note(f"FC1 reload log {reload_log}: {len(lines)} lines, last 120 follow")
+            for line in lines[-120:]:
+                note(f"reload-log: {line[:400]}")
+        except OSError as error:
+            note(f"FC1 reload log: {error}")
         self.bench.launch(timeout=180)
         self.control.socket_path = self.bench.socket
         self.control.config = os.path.join(self.bench.scratch, "cmux.json")
