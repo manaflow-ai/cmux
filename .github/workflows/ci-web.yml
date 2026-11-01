@@ -457,7 +457,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.

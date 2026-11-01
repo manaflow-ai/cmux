@@ -196,6 +196,8 @@ mod home;
 mod icon_assets;
 mod launch_snapshot;
 pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
+#[cfg(unix)]
+mod native_owner;
 mod new_screen;
 mod personal;
 mod raw_tab;
@@ -2736,6 +2738,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod incognito_orphans;
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,

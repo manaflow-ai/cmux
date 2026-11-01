@@ -774,10 +774,13 @@ test("sending, undoing the clear, and resending never sends a sent attachment's 
 // prompt there.
 test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
   let uploads = 0;
-  // The host refuses the first upload and takes the retry.
+  // The host refuses the first upload outright (so its tile shows Retry at once, with no try again
+  // on its own) and takes the Retry.
   const upload = async (files: File[]) => {
     uploads += 1;
-    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+    return uploads === 1
+      ? { error: "The disk is full.", final: true }
+      : { paths: files.map((file) => `/tmp/${file.name}`) };
   };
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
@@ -891,11 +894,11 @@ test.each([
   }
 });
 
-// Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
-// text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
-// Retry and × in the strip, never hidden as "placed" with no node to draw it.
-test("a failed attachment left out of a send stays reachable with Retry and its x", async () => {
-  const upload = async () => ({ error: "The upload failed." });
+// Review of #26545 at 81dbee21: a failed upload stays reachable with Retry and ×. Since #30572 a send
+// never goes without a file the person added (Leo, 2026-11-01: "i had to retry to get it to load???"):
+// it waits while the failed tile shows, and goes once the × takes it away.
+test("a send with a failed attachment waits until its x takes it away", async () => {
+  const upload = async () => ({ error: "The disk is full.", final: true });
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
   const composer = await openComposer(sent, { upload });
   await act(async () => composer.current!.restore("look", []));
@@ -912,15 +915,21 @@ test("a failed attachment left out of a send stays reachable with Retry and its 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  await until(() => Boolean(field().querySelector('[data-state="failed"]')), "the failed tile in the text");
+  const failed = () => field().querySelector('[data-state="failed"]');
+  await until(() => Boolean(failed()), "the failed tile in the text");
   await act(async () => composer.current!.send());
-  expect(sent).toHaveLength(1);
+  await settleTurns();
+  expect(sent).toHaveLength(0);
+  // Still reachable: its Retry and its ×.
+  expect(failed()!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
+  const remove = field().querySelector<HTMLElement>("[data-inline-attachment] .acpmux-md-inline-remove");
+  expect(remove).not.toBeNull();
+  await act(async () => {
+    remove!.click();
+  });
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.text).toContain("look");
   expect(sent[0]!.attachments).toEqual([]);
-  await until(() => !field().querySelector("[data-inline-attachment]"), "the cleared prompt");
-  const strip = () => document.querySelector(".acpmux-attachments");
-  await until(() => Boolean(strip()?.querySelector(".acpmux-attachment-retry")), "the failed chip in the strip");
-  expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
-  expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 });
 
 // Review of #26667 (Astra), finding 1: the composer read the draft's tokens from its markdown, where
@@ -1028,31 +1037,19 @@ async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
   return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
 }
 
-test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
-  // The host takes the prompt a moment later; the person types on meanwhile.
-  let take: (() => void) | undefined;
+// Before #30572 a prompt sent while its file uploaded went without it (Leo, 2026-11-01: the agent
+// answered "Nothing came through"); the send now waits for the upload and goes once, with the file.
+test("a prompt sent while its file still uploads waits for it, then goes once with it", async () => {
   const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const upload = await withUploadingFile((text, attachments) => {
+  const upload = await withUploadingFile(async (text, attachments) => {
     sent.push({ text, attachments: attachments ?? [] });
-    return new Promise<void>((resolve) => {
-      take = resolve;
-    });
   });
   await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(1);
-  expect(sent[0]!.attachments).toEqual([]);
-  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => markdownField().insertTyped(" next"));
-  await act(async () => take!());
   await settleTurns();
+  expect(sent).toHaveLength(0);
   await upload.finish(["/tmp/notes.bin"]);
-  await until(
-    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
-    "the uploaded file, kept for the next prompt",
-  );
-  await act(async () => upload.composer.current!.send());
-  expect(sent).toHaveLength(2);
-  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+  await until(() => sent.length === 1, "the held send");
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
 });
 
 test("a file still uploading whose node the person deletes is cancelled", async () => {

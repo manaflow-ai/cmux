@@ -1,10 +1,17 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
 use super::{Hub, PromptOutcome, Session};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
+
+/// Settles a restored prompt's outcome once: the first settled answer stays (a decline before its
+/// restored task claimed it, `queue_approve.rs`, is never replaced by that task's `withdrawn`).
+pub(super) fn settle_once(outcome: &PromptOutcome, answer: Result<Value, crate::rpc::RpcError>) {
+    outcome.send_if_modified(|settled| settled.is_none() && settled.replace(answer).is_none());
+}
 
 /// An adopted turn owns its prompt id until its real answer arrives. A resend then joins
 /// this pending outcome instead of interpreting the open journal turn as interrupted.
@@ -90,8 +97,9 @@ impl Hub {
             {
                 let provenance = crate::prompt_provenance::recorded(&rec.msg);
                 let trusted = provenance.as_ref().is_some_and(|p| {
-                    p["kind"] == "trigger" && p["deliveryId"] == delivery
-                        && p["session"] == session.id
+                    p.get("kind").and_then(Value::as_str) == Some("trigger")
+                        && p.get("deliveryId").and_then(Value::as_str) == Some(delivery)
+                        && p.get("session").and_then(Value::as_str) == Some(session.id.as_str())
                         && crate::prompt_provenance::of(
                             &json!({"_meta": {"acpmux": {"provenance": p}}}),
                             crate::prompt_provenance::Sender::Trigger,
@@ -142,7 +150,7 @@ impl Hub {
                     }
                     return true;
                 }
-                if exact && field("promptId") == Some(delivery) && rec.msg["trigger"] == true
+                if exact && field("promptId") == Some(delivery) && rec.msg.get("trigger").and_then(Value::as_bool) == Some(true)
                     && result.is_none()
                 {
                     active = true;
@@ -223,44 +231,44 @@ impl Hub {
         }
         let mut out = json!({"delivery": delivery, "state": state});
         if let Some(id) = turn_id {
-            out["turnId"] = json!(id);
+            out.set("turnId", json!(id));
         }
         if let Some(hash) = prompt_hash {
-            out["promptHash"] = json!(hash);
+            out.set("promptHash", json!(hash));
         }
         if let Some(result) = result {
-            out["result"] = result;
+            out.set("result", result);
         }
         if !permissions.is_empty() {
-            out["pendingPermissions"] = json!(permissions.len());
+            out.set("pendingPermissions", json!(permissions.len()));
         }
         if !reply.is_empty() {
-            out["reply"] = json!(reply);
+            out.set("reply", json!(reply));
         }
         out
     }
 
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
-    /// else `interrupted` (the daemon stopped during the turn).
-    pub(super) fn logged_prompt(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+    /// else `interrupted` (the daemon stopped during the turn). A durable decline remains
+    /// an error after restart or eviction from the bounded in-memory outcome ledger.
+    pub(super) fn logged_prompt(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<Result<Value, crate::rpc::RpcError>> {
         // Another agent's message the inbox took (`inbox.rs`): answered from its records.
         if let Some(inbox) = self.logged_inbox(session, prompt_id) {
-            return Some(inbox);
+            return Some(Ok(inbox));
         }
-        let last = session.meta().last_turn;
-        if let Some(last) =
-            last.filter(|l| l.get("promptId").and_then(Value::as_str) == Some(prompt_id))
-        {
-            return Some(json!({
-                "stopReason": last.get("stopReason").cloned().unwrap_or(Value::Null),
-                "_meta": {"acpmux": {"promptId": prompt_id, "turnId": last.get("turnId"), "status": last.get("status"), "duplicate": true}},
-            }));
-        }
+        // The last completed turn may predate a later queued/declined incarnation reusing
+        // this client id. Reconstruct the latest incarnation from its ordered durable records.
         let mut turn_id: Option<String> = None;
         let mut stopped_turns = HashSet::new();
         let mut started = false;
         let mut ended: Option<Value> = None;
+        // The owner declined it (`queue_approve.rs`): its resend is told so, after a restart too.
+        let mut declined = false;
         // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
         // digest's only once the digest's turn starts: one that never did gave it back.
         let mut digest: Option<String> = None;
@@ -292,6 +300,7 @@ impl Hub {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                     started = false;
                     ended = None;
+                    declined = false;
                     // Out of an inbox digest that failed too (`inbox_digest.rs`).
                     digest = None;
                 }
@@ -307,6 +316,18 @@ impl Hub {
                     // therefore has no turn_started of its own. Its user_message is
                     // the durable execution record for duplicate suppression.
                     started |= rec.msg.get("steer") == Some(&Value::Bool(true));
+                }
+                // A new incarnation under its client-chosen id, once the last one ran or left the
+                // queue (a daemon whose ledger forgot it took the id as new): its records are this
+                // prompt's now, so a decline of the new one is the answer (`queue_approve.rs`).
+                ("queued", Some(_))
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    started = false;
+                    ended = None;
+                    declined = false;
+                    digest = None;
                 }
                 ("turn_started", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
@@ -329,14 +350,16 @@ impl Hub {
                     // so an eventual result can provide the final outcome.
                     ended = Some(json!({"stopReason": "cancelled", "status": "cancelled"}));
                 }
-                ("queue_removed", Some(id))
+                ("queue_declined" | "queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
                     // Withdrawal is a terminal outcome even when the prompt never
-                    // reached turn_started. A resend must return cancellation.
+                    // reached turn_started. A resend must return cancellation, or the decline.
+                    // Read on: a later incarnation may reuse its id (above).
+                    declined |= rec.kind == "queue_declined"
+                        || rec.msg.get("reason").and_then(Value::as_str) == Some("declined");
                     started = true;
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
-                    return false;
                 }
                 // It went in with an earlier agent message's turn (`digest.rs`): that turn's.
                 ("dequeued", Some(id))
@@ -398,6 +421,9 @@ impl Hub {
             true
         });
         let turn_id = turn_id?;
+        if declined {
+            return Some(Err(super::queue::declined_error(prompt_id, &turn_id)));
+        }
         // A user_message is written before turn_started. A crash in that interval leaves a
         // prompt that has not run and must remain eligible for recovery/resend.
         if !started && ended.is_none() {
@@ -407,10 +433,10 @@ impl Hub {
             .as_ref()
             .and_then(|e| e.get("status").cloned())
             .unwrap_or_else(|| json!("interrupted"));
-        Some(json!({
+        Some(Ok(json!({
             "stopReason": ended.as_ref().and_then(|e| e.get("stopReason").cloned()).unwrap_or(Value::Null),
             "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "status": status, "duplicate": true}},
-        }))
+        })))
     }
 }
 
@@ -580,7 +606,7 @@ mod tests {
                 _ => {}
             }
             assert!(session.prompts.lock().unwrap().is_empty());
-            let logged = hub.logged_prompt(&session, "p");
+            let logged = hub.logged_prompt(&session, "p").map(|l| l.unwrap());
             assert_eq!(
                 logged
                     .as_ref()
@@ -631,7 +657,7 @@ mod tests {
         ] {
             hub.append(&session, "mux", kind, msg);
         }
-        let logged = hub.logged_prompt(&session, "p").unwrap();
+        let logged = hub.logged_prompt(&session, "p").unwrap().unwrap();
         assert_eq!(logged["_meta"]["acpmux"]["status"], "completed", "{logged}");
         assert_eq!(logged["_meta"]["acpmux"]["turnId"], "back", "{logged}");
         assert_eq!(logged["stopReason"], "end_turn", "{logged}");

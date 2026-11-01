@@ -642,7 +642,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         performWithTheme {
-            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            // The app's Reduce Transparency state (the system setting unless Debug or a test pins it),
+            // as the window, pane and terminal backdrops read it.
+            WebTheme(themeTokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                      surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
         }
     }

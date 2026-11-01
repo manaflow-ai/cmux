@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
@@ -122,10 +123,12 @@ struct AgentPaneHandOff {
 
     func sandbox(task: String, agent: String?, key: String) async -> [String: Any] {
         guard let run = model.onSandboxRun else { return AgentPaneModel.unsupported("sandbox.run") }
+        // Read as the send is issued, before `held` waits on the send line: the tab may close by then (#31109).
+        let incognito = model.sendIsIncognito?() ?? true
         return await held("sandbox.run") { replacements in
             await model.sandboxRuns.run(task: task, key: key) {
                 defer { replacements.endSandbox() }
-                return await run(task, agent, key)
+                return await run(task, agent, key, incognito)
             }
         }
     }
@@ -204,16 +207,33 @@ struct AgentPaneHandOff {
 }
 
 extension AgentPaneCloudStart {
+    /// The clone row's fields for a seed's or copy's progress line (webviews `cloudStartProgress.ts`):
+    /// `progress` (`received_bytes`, `bytes_total`, `objects`, `total_objects`, `files_done`,
+    /// `files_total`), and `fallback` and `install_url` when a seed copied instead.
+    nonisolated static func fields(_ progress: SeedProgress) -> [String: JSONValue] {
+        let numbers: [(String, Int?)] = [("received_bytes", progress.bytesDone), ("bytes_total", progress.bytesTotal),
+                                         ("objects", progress.objects), ("total_objects", progress.objectsTotal),
+                                         ("files_done", progress.filesDone), ("files_total", progress.filesTotal)]
+        var fields: [String: JSONValue] = [:]
+        let counts = numbers.compactMap { key, value in value.map { (key, JSONValue.number(Double($0))) } }
+        if !counts.isEmpty { fields["progress"] = .object(Dictionary(uniqueKeysWithValues: counts)) }
+        if let code = progress.fallbackCode { fields["fallback"] = .string(code) }
+        if let url = progress.installURL { fields["install_url"] = .string(url) }
+        return fields
+    }
+}
+
+extension AgentPaneCloudStart {
     /// How this start goes, for the card under the message (webviews `cloudStartProgress.ts`): the
     /// step it is on (`machine`, `folder`, `opening`), the folder it copies, and the machine and its
     /// size once known, keyed by the page's send so a card for another start ignores it.
     @MainActor public func progress(_ step: String, folder: String? = nil, machine: String? = nil, size: String? = nil,
-                                    cloneState: String? = nil, clonePhase: String? = nil, cloneReceivedBytes: Int? = nil,
-                                    cloneObjects: Int? = nil, cloneTotalObjects: Int? = nil, setupStatus: String? = nil,
-                                    setupLogTail: String? = nil,
-                                    machineStartedAt: Double? = nil, machineFinishedAt: Double? = nil,
-                                    harnessStartedAt: Double? = nil, harnessFinishedAt: Double? = nil,
-                                    to view: AgentPaneView) {
+                                    cloneState: String? = nil, clonePhase: String? = nil,
+                                    cloneStartedAt: Double? = nil, cloneFinishedAt: Double? = nil,
+                                    environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
+                                    setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
+                                    setupError: String? = nil, setupHasScript: Bool? = nil,
+                                    cloneProgress: SeedProgress? = nil, to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
@@ -221,23 +241,19 @@ extension AgentPaneCloudStart {
         var cloneFields: [String: JSONValue] = [:]
         if let cloneState { cloneFields["state"] = .string(cloneState) }
         if let clonePhase { cloneFields["phase"] = .string(clonePhase) }
-        var cloneProgress: [String: JSONValue] = [:]
-        if let cloneReceivedBytes { cloneProgress["received_bytes"] = .number(Double(cloneReceivedBytes)) }
-        if let cloneObjects { cloneProgress["objects"] = .number(Double(cloneObjects)) }
-        if let cloneTotalObjects { cloneProgress["total_objects"] = .number(Double(cloneTotalObjects)) }
-        if !cloneProgress.isEmpty { cloneFields["progress"] = .object(cloneProgress) }
+        if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
+        if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
+        if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
+        if let environmentId { value["environmentId"] = .string(environmentId) }
         var setupFields: [String: JSONValue] = [:]
+        if let setupState { setupFields["state"] = .string(setupState) }
         if let setupStatus { setupFields["status"] = .string(setupStatus) }
-        if let setupLogTail { setupFields["log_tail"] = .string(setupLogTail) }
+        if let setupStartedAt { setupFields["startedAt"] = .number(setupStartedAt) }
+        if let setupFinishedAt { setupFields["finishedAt"] = .number(setupFinishedAt) }
+        if let setupError { setupFields["error"] = .string(setupError) }
+        if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
         if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
-        if let machineStartedAt { value["machineStartedAt"] = .number(machineStartedAt) }
-        if let machineFinishedAt { value["machineFinishedAt"] = .number(machineFinishedAt) }
-        if let harnessStartedAt { value["harnessStartedAt"] = .number(harnessStartedAt) }
-        if let harnessFinishedAt { value["harnessFinishedAt"] = .number(harnessFinishedAt) }
-        // The harness timing comes from the host's start response. Swift only forwards it;
-        // do not stamp Date() here because the page owns elapsed-time rendering.
-        if step == "opening" { value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

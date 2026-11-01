@@ -77,7 +77,7 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     /// The sidebar list has the keyboard with two or more rows selected: Cmd-W closes them
     /// (Chrome's Cmd-W on several selected tabs).
     public static let sidebarMultiSelection = "sidebar.multiSelection"
-    /// Workspaces as tabs is on (`sidebar.workspacesAsTabs`, a Debug tunable): Cmd-Shift-[ / ]
+    /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabsOn`): Cmd-Shift-[ / ]
     /// step workspaces instead of a pane's tabs (`KeyBindingDefaults.workspacesAsTabs`).
     public static let workspacesAsTabs = "sidebar.workspacesAsTabs"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
