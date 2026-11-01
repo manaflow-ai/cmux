@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
+  shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
+  of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
+  Every archived workspace, and every group that is archived or whose workspaces are all archived (with its
+  subgroups), leaves its list for one "Archive (N)" row at the very bottom, closed by default (`SidebarDoneFoldID.archive`,
+  drawn by the fold row view, chevron, click and VoiceOver press as the other folds). Opened, it lists the whole groups
+  and loose archived workspaces in document order, then archived members of groups that stay, dimmed, laid out by
+  `SidebarLayout.make` over the archived copy without its headers and fold rows (`SidebarLayout+ArchiveSection`).
+  Pinned keeps its rows. The active workspace keeps its place; a filter, the session tree and Group by Status list
+  every row in place; a drag keeps the archive closed and a drag of an archived row (or an external drop) lays the
+  list out as before. `SidebarLayoutOptions.archiveSection` (on) off brings back the per-list rows (`foldsArchived`).
+  N counts archived workspaces. Right-click on the row shows the sidebar background menu. Regression:
+  `SidebarArchiveSectionTests`; `SidebarArchivedFoldTests` now covers the per-list rows with the section off.
 - 2026-11-01: hiding and showing the sidebar no longer snaps when the slide lands (#29894, carry of #28894; commit
   27992af55ed). Leo, verbatim: "also the toggle of opening and closing the left sidebar it's just too wonky it snaps and
   jitters after it overshoots and needs to correct itself". The sidebar edge already eased out with no overshoot; the
