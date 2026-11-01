@@ -249,6 +249,24 @@ class CodeModeCancellationTests(unittest.TestCase):
     def test_session_closed_kills_running_script(self):
         self.owner_event_kills_script("status", {"status": "closed"})
 
+    def test_bundled_mcp_loads_shared_supervisor(self):
+        resources = self.directory / "App/Contents/Resources"
+        code_mode = resources / "code-mode"
+        sdk_mode = code_mode / "sdk/code-mode"
+        sdk_mode.mkdir(parents=True)
+        shutil.copyfile(MCP, code_mode / "mcp.mjs")
+        for name in ("supervise.mjs", "owner-lifecycle.mjs"):
+            shutil.copyfile(MCP.parent / name, sdk_mode / name)
+        shutil.copyfile(ROOT / "cmux-tui/spec/resource-operations-v2.json",
+                        code_mode / "resource-operations-v2.json")
+        self.start([shutil.which("bun"), str(code_mode / "mcp.mjs")])
+        request = {"jsonrpc": "2.0", "id": "tools", "method": "tools/list"}
+        stdout, stderr = self.process.communicate(json.dumps(request).encode() + b"\n", timeout=8)
+        self.assertEqual(self.process.returncode, 0, stderr.decode())
+        tools = json.loads(stdout)["result"]["tools"]
+        execute = next(tool for tool in tools if tool["name"] == "cmux_exec")
+        self.assertEqual(execute["inputSchema"]["properties"]["timeout_ms"]["default"], 30000)
+
     def test_successful_script_exits_and_cleans_up(self):
         script = self.directory / "success.ts"
         script.write_text('console.log("DONE");')
