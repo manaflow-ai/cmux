@@ -7,6 +7,7 @@
 use crate::client::Client;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -201,7 +202,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             if let Some(query) =
                 args.get("query").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
             {
-                req["query"] = json!(query);
+                req.set("query", json!(query));
             }
             match run_cli(REPO_LIST_ACTION, req).await {
                 Ok(result) => ok(result),
@@ -218,7 +219,7 @@ pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value
             if let Some(reference) =
                 args.get("ref").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
             {
-                req["ref"] = json!(reference);
+                req.set("ref", json!(reference));
             }
             match run_cli(REPO_ADD_ACTION, req).await {
                 Ok(mut result) => {
@@ -249,10 +250,12 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
     }
     let mut args = json!({"session": session, "repo": repo});
     if let Some(reference) = reference.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
-        args["ref"] = json!(reference);
+        args.set("ref", json!(reference));
     }
-    error["retry"] =
-        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION});
+    error.set(
+        "retry",
+        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION}),
+    );
 }
 
 #[cfg(test)]

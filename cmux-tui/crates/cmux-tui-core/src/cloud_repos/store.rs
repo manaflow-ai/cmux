@@ -2,6 +2,7 @@
 //! versioned projection store. CAS avoids dropping a concurrent chat's repo.
 use super::{Failure, Repo};
 use crate::{Actor, Mux, WorkspaceMutation};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::{Component, Path};
@@ -17,6 +18,14 @@ fn failure() -> Failure {
 fn load(mux: &Mux) -> Result<(Value, u64), Failure> {
     match mux.get_frontend_projection(FRONTEND, "session", SUBJECT).map_err(|_| failure())? {
         Some(stored) if stored.schema_version == 1 => {
+            let doc = &stored.projection;
+            if !doc["local"].is_array()
+                || !doc["recent"].is_array()
+                || !doc["chats"].is_object()
+                || !doc["jobs"].is_object()
+            {
+                return Err(failure());
+            }
             Ok((stored.projection, stored.projection_revision))
         }
         Some(_) => Err(Failure::new(
@@ -113,11 +122,11 @@ pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
         ));
     }
     change(mux, |doc| {
-        doc["local"] = json!(repos);
+        doc.set("local", json!(repos));
         let existing = doc["recent"].as_array().cloned().unwrap_or_default();
-        doc["recent"] = json!(merge_recent(existing, recent.iter().map(|r| json!(r))));
+        doc.set("recent", json!(merge_recent(existing, recent.iter().map(|r| json!(r)))));
         if let Some(url) = install_url {
-            doc["install_url"] = json!(url);
+            doc.set("install_url", json!(url));
         }
     })?;
     Ok(json!({"synced":repos.len()}))
@@ -169,7 +178,7 @@ fn merge_recent(existing: Vec<Value>, incoming: impl IntoIterator<Item = Value>)
             if !seen.insert(name.to_ascii_lowercase()) {
                 return None;
             }
-            repo["source"] = json!("recent");
+            repo.set("source", json!("recent"));
             Some(repo)
         })
         .take(1000)
@@ -186,7 +195,7 @@ pub(super) fn record(mux: &Mux, session: &str, repo: &Value) -> Result<(), Failu
                 .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
         });
         attached.push(repo.clone());
-        doc["chats"][session] = json!(attached);
+        doc.set_path(&["chats", session], json!(attached));
         let mut recent = doc["recent"].as_array().cloned().unwrap_or_default();
         recent.retain(|r| {
             !r["fullName"]
@@ -196,7 +205,7 @@ pub(super) fn record(mux: &Mux, session: &str, repo: &Value) -> Result<(), Failu
         });
         recent.insert(0, json!({"fullName":repo["repo"],"private":true,"source":"recent"}));
         recent.truncate(1000);
-        doc["recent"] = json!(recent);
+        doc.set("recent", json!(recent));
     })
 }
 
@@ -210,7 +219,7 @@ pub(super) fn set_job(
     name: &str,
     job: Option<&Value>,
 ) -> Result<(), Failure> {
-    change(mux, |doc| doc["jobs"][session][name] = json!(job))
+    change(mux, |doc| doc.set_path(&["jobs", session, name], json!(job)))
 }
 
 pub(super) fn install_url(mux: &Mux) -> Result<Option<String>, Failure> {

@@ -89,7 +89,8 @@ fn catalog(paths: &[&str], mut read: impl FnMut(&str) -> RemoteRead) -> Value {
         // newline, records by NUL; a newline inside a value is not a URL.
         for record in data.split(|byte| *byte == 0) {
             let Some(newline) = record.iter().position(|byte| *byte == b'\n') else { continue };
-            let Ok(remote) = std::str::from_utf8(&record[newline + 1..]) else { continue };
+            let Some(value) = record.get(newline + 1..) else { continue };
+            let Ok(remote) = std::str::from_utf8(value) else { continue };
             let Some(name) = github_name(remote) else { continue };
             if seen.insert(name.to_ascii_lowercase()) {
                 // A remote does not reveal visibility. Treat it as private

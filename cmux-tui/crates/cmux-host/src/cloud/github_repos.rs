@@ -1,6 +1,7 @@
 //! Read-only GitHub discovery for a Cloud machine. The agent owns the bearer,
 //! environment and team; its unprivileged caller supplies only search/cursor.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::github::{refusal, valid_repo};
@@ -114,9 +115,11 @@ fn failure_with_install(
         && let Some(url) =
             body.get("url").and_then(Value::as_str).filter(|url| url.starts_with("https://"))
     {
-        reply["error"]["install_url"] = json!(url);
-        reply["error"]["message"] =
-            json!("Install GitHub for this organization or request access, then retry.");
+        reply.set_path(&["error", "install_url"], json!(url));
+        reply.set_path(
+            &["error", "message"],
+            json!("Install GitHub for this organization or request access, then retry."),
+        );
     }
     reply
 }
@@ -197,7 +200,7 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             match body.get("cursor") {
                 None | Some(Value::Null) => {}
                 Some(Value::String(cursor)) if !cursor.is_empty() => {
-                    reply["next_cursor"] = json!(cursor)
+                    reply.set("next_cursor", json!(cursor));
                 }
                 _ => {
                     return refusal(

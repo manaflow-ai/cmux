@@ -1,3 +1,4 @@
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -132,7 +133,7 @@ pub(crate) fn list(backend: &impl Backend, query: Option<&str>) -> Result<Value,
     let catalog = backend.connector(query)?;
     let mut result = json!({"repos":merge(sources.into_iter().chain(catalog.repos), query)});
     if let Some(url) = catalog.install_url {
-        result["connect"] = json!({"install_url":url});
+        result.set("connect", json!({"install_url":url}));
     }
     Ok(result)
 }
@@ -181,8 +182,8 @@ fn resolve(backend: &impl Backend, input: &str) -> Result<String, Failure> {
 }
 
 fn choose(matches: Vec<Repo>) -> Result<String, Failure> {
-    if matches.len() == 1 {
-        return Ok(matches[0].full_name.clone());
+    if let [only] = matches.as_slice() {
+        return Ok(only.full_name.clone());
     }
     Err(Failure(
         json!({"code":"repo.ambiguous", "message":"Choose one of these repositories to attach it.", "choices":matches}),
@@ -224,7 +225,7 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
         }
         let attached = backend.clone_repo(session, &repo, reference).map_err(|mut failure| {
             if failure.0["code"] == "repo.no_access" {
-                failure.0["org"] = json!(repo.split('/').next().unwrap_or_default());
+                failure.0.set("org", json!(repo.split('/').next().unwrap_or_default()));
             }
             failure
         })?;
@@ -234,12 +235,12 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
     result.map_err(|mut failure: Failure| {
         if failure.0["code"] == "repo.needs_github" {
             let mut retry_args = json!({"session":session,"repo":input});
-            if let Some(reference) = reference { retry_args["ref"] = json!(reference); }
-            failure.0["retry"] = json!({"action":"cloud.repo.add", "args":retry_args, "wait_action":"cloud.repo.wait_github"});
+            if let Some(reference) = reference { retry_args.set("ref", json!(reference)); }
+            failure.0.set("retry", json!({"action":"cloud.repo.add", "args":retry_args, "wait_action":"cloud.repo.wait_github"}));
         }
         if failure.0["code"] == "repo.no_access" {
             if let Ok(name) = normalize(input) {
-                if let Some((org, _)) = name.split_once('/') { failure.0["org"] = json!(org); }
+                if let Some((org, _)) = name.split_once('/') { failure.0.set("org", json!(org)); }
             }
         }
         failure
@@ -261,7 +262,7 @@ pub(crate) fn seed_failure(value: &Value) -> Failure {
         );
         for key in ["org", "install_url"] {
             if let Some(v) = value.get(key) {
-                result.0[key] = v.clone();
+                result.0.set(key, v.clone());
             }
         }
         return result;

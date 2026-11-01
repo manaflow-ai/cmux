@@ -2,6 +2,7 @@
 //! clone process, credentials or second seed implementation lives here.
 use super::{Backend, Catalog, Failure, Repo, add, list, store};
 use crate::Mux;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -53,14 +54,14 @@ impl<'a> Runtime<'a> {
 
     fn seed(&self, cmd: &str, fields: Value, repo: &str) -> Result<Value, Failure> {
         let mut request = fields;
-        request["id"] = json!("cloud-repo");
-        request["cmd"] = json!(cmd);
+        request.set("id", json!("cloud-repo"));
+        request.set("cmd", json!(cmd));
         let answer = socket_request(&self.seed_socket, &request)?;
         if answer["ok"] == false {
             let mut error = answer.clone();
             for key in ["install_url", "org"] {
                 if let Some(value) = answer["error_details"].get(key) {
-                    error[key] = value.clone();
+                    error.set(key, value.clone());
                 }
             }
             return Err(self.seed_failure(&error, repo)?);
@@ -87,10 +88,10 @@ impl<'a> Runtime<'a> {
                     "Install GitHub access for this organization, or request access from its owner, then retry Add repository.",
                 );
                 if let Some((org, _)) = repo.split_once('/') {
-                    failure.0["org"] = json!(org);
+                    failure.0.set("org", json!(org));
                 }
                 if let Some(url) = url {
-                    failure.0["install_url"] = json!(url);
+                    failure.0.set("install_url", json!(url));
                 }
             }
         }
@@ -129,10 +130,10 @@ impl Backend for Runtime<'_> {
             }
             let mut ask = json!({});
             if let Some(q) = query {
-                ask["query"] = json!(q);
+                ask.set("query", json!(q));
             }
             if let Some(c) = &cursor {
-                ask["cursor"] = json!(c);
+                ask.set("cursor", json!(c));
             }
             let answer = socket_request(&self.agent_socket, &json!({"github_repos":ask}))?;
             if answer["ok"] != true {
@@ -152,7 +153,7 @@ impl Backend for Runtime<'_> {
                         .map(str::to_owned)
                         .or(store::install_url(self.mux)?)
                     {
-                        failure.0["install_url"] = json!(url);
+                        failure.0.set("install_url", json!(url));
                     }
                 }
                 return Err(failure);
@@ -237,7 +238,7 @@ impl Backend for Runtime<'_> {
             let mut params =
                 json!({"folder":folder,"url":format!("https://github.com/{repo}.git"),"repo":repo});
             if let Some(reference) = reference {
-                params["ref"] = json!(reference);
+                params.set("ref", json!(reference));
             }
             let started = self.seed("git.seed.start", params, repo)?;
             let job = started["job"].as_str().ok_or_else(transport_error)?.to_owned();
@@ -298,11 +299,14 @@ pub(crate) fn handle(mux: &Mux, cmd: &str, args: &Value) -> Value {
             let mut result = super::local::local_catalog(mux).map_err(|_| {
                 Failure::new("seed.bad_request", "Refresh the Mac's project list and retry.")
             })?;
-            result["recent"] = json!(
-                store::sources(mux)?
-                    .into_iter()
-                    .filter(|r| r.source == "recent")
-                    .collect::<Vec<_>>()
+            result.set(
+                "recent",
+                json!(
+                    store::sources(mux)?
+                        .into_iter()
+                        .filter(|r| r.source == "recent")
+                        .collect::<Vec<_>>()
+                ),
             );
             return Ok(result);
         }
