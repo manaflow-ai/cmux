@@ -162,7 +162,8 @@ const siblings: CoveredCandidates = (surface) => surface.parentElement?.children
 
 export type SeeThroughOptions = {
   /** The value of data-glass-under on what this surface covers, so a stylesheet can switch off
-   * one surface's filters (the Summary card's, while CSS hides the card). */
+   * one surface's filters. A surface CSS hides with `visibility` must: its holes stay (summary.css
+   * does it for the Summary card under Find, review and inspect). */
   owner?: string;
   /** Elements that must not take a filter (one would re-anchor their fixed menus: the composer).
    * While the surface overlaps one, it keeps its underlay, which hides what is under it there. */
@@ -224,8 +225,10 @@ export function attachSeeThroughBlur(
       opacity: Number.parseFloat(style.opacity),
     };
     if (!Number.isFinite(look.opacity)) look.opacity = 1;
-    // A surface hidden by CSS (visibility: hidden while Find is open) covers nothing.
-    const shown = style.visibility === "visible" && look.opacity > 0 && rect.width > 0 && rect.height > 0;
+    // A faded-out or empty surface covers nothing. One CSS hides with visibility (the Summary card
+    // under Find) keeps its holes, so they are right the moment it shows again with no event to see
+    // it; the same CSS switches its blocks' filters off meanwhile (owner, summary.css).
+    const shown = look.opacity > 0 && rect.width > 0 && rect.height > 0;
     const under: { target: HTMLElement; box: DOMRect; hole: BlurHole; key: string }[] = [];
     for (const child of candidates(surface)) {
       if (child === surface || child.contains(surface) || !(child instanceof view.HTMLElement)) continue;
@@ -239,8 +242,10 @@ export function attachSeeThroughBlur(
     }
     let unblurrable = false;
     if (shown && keepUnderlayOver)
-      for (const element of keepUnderlayOver(surface))
+      for (const element of keepUnderlayOver(surface)) {
+        watch(element, false);
         if (overlaps(rect, element.getBoundingClientRect())) unblurrable = true;
+      }
     surface.toggleAttribute(OVER_ATTRIBUTE, !unblurrable);
     const keep = new Set(under.map((entry) => entry.target));
     for (const target of covered.keys()) if (!keep.has(target)) release(target);

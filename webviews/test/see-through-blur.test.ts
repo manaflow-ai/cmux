@@ -108,7 +108,6 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
          height: ${POPOVER.height}px; border-radius: 12px; --glass-surface: transparent;
          --glass-backdrop: blur(24px); --glass-rim-shadow: 0 0 transparent; --glass-elevation: 0 0 transparent;
          backdrop-filter: none !important }
-       .stage:has(> .find) > .popover { visibility: hidden }
      </style></head><body><div class="stage">
        <div class="chat"><div class="bars"></div></div>
        <aside class="popover ui-glass ui-glass-floats" id="popover"></aside>
@@ -145,7 +144,10 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         detach?: () => void;
       };
       const popover = document.getElementById("popover")!;
-      target.detach = target.attachSeeThroughBlur(popover, (e) => e.parentElement!.children, {
+      // The dock is never a candidate (as the composer is not): only keepUnderlayOver sees it.
+      const candidates = (e: HTMLElement) =>
+        Array.from(e.parentElement!.children).filter((child) => !child.classList.contains("dock"));
+      target.detach = target.attachSeeThroughBlur(popover, candidates, {
         owner,
         keepUnderlayOver: dock ? () => document.querySelectorAll(".dock") : undefined,
       });
@@ -230,36 +232,6 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
   });
 
-  describe("see-through blur follows what hides or moves the surface", () => {
-    let browser: Browser;
-    beforeAll(async () => {
-      browser = await chromium.launch({ headless: true });
-    });
-    afterAll(async () => browser?.close());
-
-    test("a surface hidden by a :has() rule covers nothing, and comes back when the rule lets go", async () => {
-      const page = await open(browser);
-      await attach(page);
-      const blurred = await barContrast(page, MIDDLE, ...INSIDE);
-      const under = () => page.evaluate(() => document.querySelector(".chat")!.hasAttribute("data-glass-under"));
-      expect(await under()).toBe(true);
-      // A Find bar comes into the stage: the popover hides, with no resize anywhere.
-      await page.evaluate(() => {
-        const find = document.createElement("div");
-        find.className = "find";
-        document.querySelector(".stage")!.append(find);
-      });
-      await settle(page);
-      expect(await under()).toBe(false);
-      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeGreaterThan(40);
-      await page.evaluate(() => document.querySelector(".find")!.remove());
-      await settle(page);
-      expect(await under()).toBe(true);
-      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(blurred + 2);
-      await page.close();
-    });
-  });
-
   describe("see-through blur around the chat's own rules", () => {
     let browser: Browser;
     beforeAll(async () => {
@@ -267,7 +239,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     });
     afterAll(async () => browser?.close());
 
-    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside", async () => {
+    test("the Summary's blocks lose their filter under summary.css's hide rule, even for a Find bar deep inside, and get it back", async () => {
       const page = await open(browser);
       await page.evaluate(() => document.querySelector(".stage")!.classList.add("acpmux-stage"));
       await attach(page, { owner: "summary" });
@@ -283,6 +255,10 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         document.querySelector(".bars")!.append(find);
       });
       expect(await filter()).toBe("none");
+      // Find closes: the blur is back at once, with no event the follow loop would see.
+      await page.evaluate(() => document.querySelector(".acpmux-find")!.remove());
+      expect(await filter()).toContain("url(");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
       await page.close();
     });
 
@@ -304,8 +280,6 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
       await page.evaluate(() => {
         (document.querySelector(".dock") as HTMLElement).style.height = "60px";
       });
-      await settle(page);
-      await page.evaluate(() => window.dispatchEvent(new Event("resize")));
       await settle(page);
       expect(await underlay()).toBe("70%");
       await page.close();
