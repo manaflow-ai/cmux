@@ -4,6 +4,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -1084,6 +1085,34 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
     { isWorking: true },
   );
 
+/// A running turn whose first run did one kind of work, two web fetches, between two messages: its
+/// collapsed line keeps that kind's glyph, the globe.
+const oneKindRunChat = () =>
+  chat(
+    [
+      user("Check what the two retry guides say, then run the tests.", 3),
+      assistant("I'll read both guides first.", 2.9),
+      activity(
+        [
+          tool("Fetch https://example.com/retries", "fetch", "completed"),
+          tool("Fetch https://example.com/backoff", "fetch", "completed"),
+        ],
+        2.8,
+      ),
+      assistant("Both guides cap retries at three with jittered backoff. Next I run the tests.", 2.5),
+      activity(
+        [
+          tool("bun test src/net", "execute", "in_progress", {
+            command: "bun test src/net",
+            startedAt: minutesAgo(0.2),
+          }),
+        ],
+        0.3,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
 /// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
 const mcpTool = (name: string, args: unknown, output: string) =>
@@ -1194,6 +1223,33 @@ function renderTool(page: string, update?: string) {
 
 /// Short thoughts that draw no row once done (thoughts.ts isQuietThought).
 const quietThoughts = (count: number) => Array.from({ length: count }, () => thought("ok"));
+
+/// A person's turn, then two turns the agent ran on its own (backgroundTurns.ts): a quiet one, one
+/// muted line that opens to its rows, and one with something to say, whose rows draw as they came.
+const backgroundTurnRows = [
+  user("Run the migration tests in the background and tell me if anything breaks", 9),
+  assistant("Started the migration tests in the background.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-quiet"),
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+  }),
+  activity(
+    [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
+    6.9,
+    { inBackground: "gallery-bg-quiet" },
+  ),
+  assistant("Nothing new for you yet.", 6.8, { inBackground: "gallery-bg-quiet" }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-loud"),
+    background: { id: "gallery-bg-loud", trigger: "task_notification", running: false, quiet: false },
+  }),
+  assistant(
+    "The migration tests finished: 2 of 14 failed in `orders_backfill`. Want me to look at the failures?",
+    4.9,
+    { inBackground: "gallery-bg-loud" },
+  ),
+];
 
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
 /// task's notification, a system reminder alone (no row) and another agent's message.
@@ -1338,6 +1394,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#MultiTool",
     "agent-session/acpmux/PermissionCard.tsx",
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
@@ -2102,8 +2159,12 @@ export default agentPaneEntry({
       ),
     },
     "collapsed-run": {
-      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the glyph of its main kind (the pencil when it edited). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
+      note: 'A run of mixed work between two messages collapses to one quiet line naming its work in the order it came, "Edited 2 files, read 2 files, ran 2 commands", under the several-tools glyph (four rings joined by a diagonal). The run the agent works in now keeps its call in flight out, on the live line (Leo 2026-10-22: "this is pretty good ui: … the collapsing i mean").',
       snapshot: collapsedRunChat(),
+    },
+    "collapsed-run-one-kind": {
+      note: "A collapsed run of one kind of work (two web fetches) keeps that kind's glyph, the globe.",
+      snapshot: oneKindRunChat(),
     },
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
@@ -2475,7 +2536,13 @@ export default agentPaneEntry({
       note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
       height: 1100,
       snapshot: chat(
-        [user("Stop the watcher, check the issues and run the tests.", 1), activity(ENVELOPE_TOOLS, 0.8)],
+        // The reply under the calls keeps every call a row: with nothing after it, the live line
+        // would hold the last finished call instead.
+        [
+          user("Stop the watcher, check the issues and run the tests.", 1),
+          activity(ENVELOPE_TOOLS, 0.8),
+          assistant("The watcher is stopped and the tests pass.", 0.5),
+        ],
         { isWorking: true },
       ),
       play: async (ctx) => {
@@ -3475,6 +3542,21 @@ export default agentPaneEntry({
         shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
       ),
       play: showLessAtEnd,
+    },
+    "background-turns": {
+      note: "A person's turn, then a turn the agent ran on its own after a background task finished with nothing new to tell: one muted line, Background task finished, closed. Then one that has something to say (a failure and a question), drawn as its rows came. No Worked for or footer for either. Play: open the quiet line.",
+      snapshot: chat(backgroundTurnRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the quiet line intentionally reveals its rows below the clicked line.",
+        },
+      },
+      play: async (ctx) => {
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
+        await ctx.click(line);
+        await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
     },
     "fold-no-blank-collapsed": {
       note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",

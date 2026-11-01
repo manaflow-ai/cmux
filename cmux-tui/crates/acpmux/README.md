@@ -1217,11 +1217,21 @@ NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROP
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
-default empty), or (for local launches only, never a remote-origin one) it is a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
-(`cmux cloud deliver-secrets`; its value is never cached). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
+(`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
+private, owned `~/.config/cmux/machine.env` declarations directly: only literal
+`export NAME='value'` entries (including quoted newlines and escaped single quotes), with no shell
+execution. Process-loader and cmux bootstrap names are refused. These declarations override the
+login/daemon values, while explicit profile, preset and session env still win. Values are read again
+for each local launch, so replacement and deletion rotate/revoke them. Only names declared during this
+daemon's lifetime are remembered, so a revoked value it inherited is also removed from local children.
+A value revoked before this daemon first reads the file cannot be identified as machine-owned. Values never enter the login
+cache, nested-session restoration, remote-origin launches or `${env:VAR}` references. A missing,
+non-private, linked, oversized or malformed file contributes no declarations. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
 `ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
-same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
-then the login shell's.
+same allow-list. Precedence: profile, preset and session env, then current machine.env declarations,
+then the daemon's own environment, then the login shell's. Machine file edits trigger a login-shell
+refresh before a local spawn; a failed refresh refuses that spawn to avoid stale delivered secrets.
 `<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
 files: non-secret values and the names of secret ones (their values stay in memory), so a start
 with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
@@ -1455,7 +1465,9 @@ Extensions:
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
+| `_acpmux/queue_approve {promptId, turnId, revision}`, `_acpmux/queue_decline {promptId}` | The owner's answer to a person's prompt that waits for them (`_meta.acpmux.author.approval: "owner"`, a link guest's): approve runs it in its place in the queue (never as a steer), for the queued `turnId` and `revision` the owner saw, else `queue.stale`; once approved it runs under the stricter rules of its sender and its approver (an approval from the Web runs it as a Web prompt, checked again at dispatch); decline drops it, and its `session/prompt` answers `queue.declined`. A request with an author gets `queue.owner_only`; an answer to a prompt that no longer waits gets `queue.not_found` with `decided`. The log records `queue_approved` (with the `control` and `trustGate` it runs under) or `queue_declined`. Capability `queue-approval-v1` ([hub/queue_approve.rs](src/hub/queue_approve.rs)). |
 | `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
+| `_acpmux/queue_get {promptId}` | The owner reads a queued prompt whole before answering it: `{promptId, turnId, revision, text, prompt, inlineParts, author, provenance, awaitingOwner}`, `prompt` the full blocks as it would run now. Owner only (`queue.owner_only`); `queue.not_found` with `decided` once it left the queue. Capability `queue-get-v1`, feature `queueGet`, which a peer must list to be forwarded it. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |

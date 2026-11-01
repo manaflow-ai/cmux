@@ -10,7 +10,7 @@
 //! 2. its first line is a valid peer stamp (`cmux_link::stamp`), read before
 //!    anything else and only here, never on the local socket. A stamp with
 //!    `check: link_token` (the host accepted a control-plane link token for
-//!    this stream) records the install's good check before the stream binds,
+//!    this stream) records its signed `check_issued_at_ms` before the stream binds,
 //!    but only when the daemon started with a real token verifier
 //!    ([`cmux_link::token::StampChecks`], from the daemon's own config). Under
 //!    the default (`DenyAllTokens`) a stamp with any `check` is malformed:
@@ -18,7 +18,7 @@
 //! 3. every later line passes the [`RemoteGate`] before anything parses or
 //!    dispatches it. The default gate, [`DenyAllGate`], refuses everything
 //!    with `error_code: remote_denied`; [`super::FsGate`] admits only the
-//!    seven `fs-v1` ops, and lane 10's conversation gate will add its own
+//!    seven `fs-v1` ops and the two `git-seed-v1` ops, and lane 10's conversation gate will add its own
 //!    explicit allowlist.
 //!
 //! A remote client is registered as [`ClientTransport::Remote`], so checks
@@ -47,6 +47,12 @@ pub(super) const REMOTE_DENIED: &str = "remote_denied";
 pub trait RemoteGate: Send + Sync + 'static {
     /// True to dispatch `frame` (one JSON line, unparsed) for `peer`.
     fn admit(&self, peer: &RemotePeer, frame: &str) -> bool;
+
+    /// Extra commands explicitly enabled for a signed Native owner. The
+    /// default remains deny, including DenyAllGate and custom entry policies.
+    fn admit_native_owner(&self, _frame: &str) -> bool {
+        false
+    }
 }
 
 /// The default gate: every frame is refused.
@@ -223,15 +229,17 @@ fn serve_remote_connection(
         return;
     };
     // The link accepted a control-plane link token for this stream: the
-    // install's good check, recorded before the stream binds. Only a daemon
+    // install's good check at the signed issue time, before the stream binds. Only a daemon
     // that started with a real verifier records it; otherwise any `check` is
     // malformed (on Linux any same-user process passes the caller check and
     // can write one). A poisoned relay lock records nothing and closes the
     // stream (fail closed).
     let refused = match check {
         None => false,
-        Some(cmux_link::stamp::StampCheck::LinkToken) => {
-            !config.record_checks || mux.record_remote_check(&peer.install).is_err()
+        Some(cmux_link::stamp::StampCheck::LinkToken { issued_at_ms })
+        | Some(cmux_link::stamp::StampCheck::NativeLinkToken { issued_at_ms, .. }) => {
+            !config.record_checks
+                || !matches!(mux.record_remote_check_at(&peer.install, issued_at_ms), Ok(true))
         }
     };
     if refused {
@@ -244,7 +252,11 @@ fn serve_remote_connection(
     let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
-    let admission = RemoteAdmission { peer, gate };
+    let native_vm_kind = match check {
+        Some(cmux_link::stamp::StampCheck::NativeLinkToken { vm_kind, .. }) => Some(vm_kind),
+        _ => None,
+    };
+    let admission = RemoteAdmission { peer, gate, native_vm_kind };
     serve_line_connection(
         mux,
         stream,
@@ -293,16 +305,28 @@ fn read_stamp(stream: &UnixStream) -> Option<cmux_link::stamp::Stamp> {
 
 struct RemoteAdmission {
     peer: RemotePeer,
+    native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     gate: Arc<dyn RemoteGate>,
 }
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
-        mux.bind_remote_peer(client, &self.peer).is_ok()
+        if mux.bind_remote_peer(client, &self.peer).is_err() {
+            return false;
+        }
+        // No peer-controlled frame has run yet. This field is never set by
+        // set-client-info or any other request and dies with the connection.
+        let Ok(mut state) = mux.control_clients.state.lock() else { return false };
+        let Some(record) = state.clients.get_mut(&client) else { return false };
+        record.native_vm_kind = self.native_vm_kind;
+        true
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {
-        if self.gate.admit(&self.peer, line) {
+        if self.gate.admit(&self.peer, line)
+            || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Owner))
+                && self.gate.admit_native_owner(line))
+        {
             return None;
         }
         Some(denied(line))

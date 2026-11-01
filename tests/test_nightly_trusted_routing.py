@@ -8,6 +8,8 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import yaml
 
@@ -16,7 +18,7 @@ from test_ci_fork_runner_routing import parse_expression
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
-DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
+DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
 TAIL_CONTROL_JOBS = (
@@ -252,7 +254,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(helper(**changes), 'blacksmith-6vcpu-macos-26')
         self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
-        self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
+        self.assertNotIn('macos-15', nightly_expand(WORKFLOW_FILE.read_text()))
 
     def test_next_build_and_prepare_never_name_a_hosted_mac_past_the_fork_branch(self):
         for name in ('build-nightly-app',):
@@ -356,7 +358,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 }
                 self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                                 "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
@@ -369,6 +371,40 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps[gate_index + 1:]))
                 needs = job["needs"]
                 self.assertIn("pick-nightly-sign-runner", needs)
+
+    def test_publication_controls_reject_unavailable_dedicated_m4pro(self):
+        # Publication cannot use the dedicated label: those minis have no
+        # exclusive-claim capacity. Keep the trusted owned-pool and Linux fallback.
+        jobs = DOC["jobs"]
+        dedicated = {
+            "github.repository_owner": "manaflow-ai",
+            "github.repository": "manaflow-ai/cmux",
+            "github.ref": "refs/heads/nightly-next",
+            "github.event_name": "push",
+            "github.run_attempt": 1,
+            "vars.CI_NIGHTLY_ONLY_RUNNER": "glaeda-nightly-only-m4pro",
+            "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+            "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
+        }
+        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+            source = jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            expr = parse_expression(source)
+            with self.subTest(job=name):
+                self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, dedicated), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertNotEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                   "github.repository_owner": "someone"}),
+                                    "glaeda-nightly-only-m4pro")
+                self.assertEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
+                                                 "github.repository_owner": "someone"}), "ubuntu-24.04")
+                for changes in ({"github.run_attempt": 2},
+                                {"github.event_name": "schedule"},
+                                {"github.ref": "refs/heads/main"},
+                                {"vars.CI_NIGHTLY_ONLY_RUNNER": ""}):
+                    with self.subTest(changes=changes):
+                        self.assertNotEqual(evaluate(expr, {**dedicated, **changes}),
+                                            "glaeda-nightly-only-m4pro")
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
@@ -393,6 +429,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
+                                      {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"}
+                                      if name == "legacy-identity-target" else
                                       (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 
@@ -573,12 +611,12 @@ class LightJobsOnAFreeMini(unittest.TestCase):
     """The nightly's light jobs take a mini idle when build-nightly-app finished, else Blacksmith.
 
     Leo, 2026-10-31: "i mean the linux things cant our minis just run them" and "we just need the
-    nightlies bro". build-nightly-remote-daemon (pure Go cross-compile) and await-nightly-tree-marker
-    (bash, curl, python3) have no environment and no secret; build-nightly-app's last step places them
-    (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only those two jobs read its outputs, and no job
+    nightlies bro". await-nightly-tree-marker (bash, curl, python3) and the preparation jobs
+    have no environment and no secret; build-nightly-app's last step places them
+    (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only those three jobs read its outputs, and no job
     that holds a signing or publishing environment ever does."""
 
-    LIGHT = ('build-nightly-remote-daemon', 'await-nightly-tree-marker')
+    LIGHT = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker')
     MINI = 'glaeda-side-std-xcode-26.6'
 
     def runs_on(self, job, **changes):
@@ -597,19 +635,26 @@ class LightJobsOnAFreeMini(unittest.TestCase):
                 # Placed only the other job: this one keeps the runner set's Blacksmith member.
                 other = next(name for name in self.LIGHT if name != job)
                 self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': f' {other} '}),
-                                 'blacksmith-32vcpu-ubuntu-2404')
+                                 ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant' else 'blacksmith-32vcpu-ubuntu-2404'))
 
     def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
         for job in self.LIGHT:
             for changes, expected in (
-                    ({'needs.build-nightly-app.outputs.light_mini_jobs': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
-                    ({'needs.build-nightly-app.outputs.light_attempt': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'needs.build-nightly-app.outputs.light_mini_jobs': ''}, None),
+                    ({'needs.build-nightly-app.outputs.light_attempt': ''}, None),
                     # A re-run of failed jobs keeps attempt 1's outputs: the mini may be busy by now.
-                    ({'github.run_attempt': 2}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'github.run_attempt': 2}, None),
                     ({'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404', 'github.run_attempt': 2},
-                     'blacksmith-16vcpu-ubuntu-2404'),
+                     None),
                     ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
                 with self.subTest(job=job, changes=changes):
+                    if expected is None:
+                        if changes.get('vars.LINUX_RUNNER') == 'blacksmith-16vcpu-ubuntu-2404':
+                            expected = ('blacksmith-32vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
+                                        else 'blacksmith-16vcpu-ubuntu-2404')
+                        else:
+                            expected = ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
+                                        else 'blacksmith-32vcpu-ubuntu-2404')
                     self.assertEqual(self.runs_on(job, **changes), expected)
 
     def test_light_jobs_hold_no_environment_and_no_secret(self):
@@ -625,6 +670,8 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light')
         self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
         self.assertEqual(step['env']['NIGHTLY'], '1')
+        self.assertEqual(step['env']['NIGHTLY_WAIT_FOR_FLEET'], '1')
+        self.assertEqual(step['timeout-minutes'], 5)
         # No fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
         self.assertEqual(step['env']['FLEET_LINUX'], '')
         self.assertTrue(step['continue-on-error'])
@@ -642,6 +689,62 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
 
 
+class DaemonBesideTheApp(unittest.TestCase):
+    """build-nightly-remote-daemon (a Go cross-compile on Linux) builds while build-nightly-app compiles,
+    not after it: its queue and build sat between the app and signing (Leo, 2026-10-31, on "the daemon
+    built alongside the app": "just do whatever hurries all this shit up"). Both take the run's build
+    number from resolve-nightly-cmux-tui-client, so a re-run of only one of them (the owned-pool rescue
+    re-runs the app's picker and its dependents) still names the same daemon assets."""
+
+    def test_the_daemon_does_not_wait_for_the_app(self):
+        daemon = DOC['jobs']['build-nightly-remote-daemon']
+        self.assertNotIn('build-nightly-app', daemon['needs'])
+        self.assertNotIn('needs.build-nightly-app', json.dumps(daemon))
+        # It runs exactly when the app builds (and never for a build-only measurement).
+        app_if = DOC['jobs']['build-nightly-app']['if']
+        self.assertTrue(daemon['if'].startswith(app_if), daemon['if'])
+        self.assertIn("needs.decide.outputs.build_only != 'true'", daemon['if'])
+
+    def test_one_build_number_for_the_app_and_the_daemon(self):
+        jobs = DOC['jobs']
+        resolve = jobs['resolve-nightly-cmux-tui-client']
+        self.assertEqual(resolve['outputs']['daemon_build'], '${{ steps.daemon-build.outputs.build }}')
+        step = next(step for step in resolve['steps'] if step.get('id') == 'daemon-build')
+        self.assertIn('${GITHUB_RUN_ID}$(printf \'%02d\' "${GITHUB_RUN_ATTEMPT:-1}")', step['run'])
+        source = '${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}'
+        metadata = next(step for step in jobs['build-nightly-app']['steps'] if step.get('id') == 'remote_daemon')
+        # The step passes the resolver's build to its script (scripts/ci/nightly-steps/) through env.
+        self.assertEqual(metadata['env']['RESOLVED_DAEMON_BUILD'], source)
+        self.assertIn('build="${RESOLVED_DAEMON_BUILD}"', metadata['run'])
+        self.assertNotIn('GITHUB_RUN_ATTEMPT', metadata['run'])
+        build = next(step for step in jobs['build-nightly-remote-daemon']['steps']
+                     if step['name'] == 'Build immutable SSH daemon assets once for every app variant')
+        self.assertEqual(build['env']['BUILD'], source)
+        # The same version formula as the app's step; verify_remote_daemon_release.py refuses a mismatch.
+        self.assertIn('nightly_version.py marketing --track "$TRACK"', build['run'])
+        self.assertIn('--next-base "$(python3 scripts/ci/nightly_version.py next-base)"', build['run'])
+
+    def test_the_daemon_takes_the_helper_pick_else_blacksmith_linux(self):
+        source = DOC['jobs']['build-nightly-remote-daemon']['runs-on'].removeprefix('${{').removesuffix('}}')
+        mini = 'glaeda-side-std-xcode-26.6'
+        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                'needs.pick-nightly-build-runner.outputs.attempt': '1',
+                'needs.pick-nightly-build-runner.outputs.helper': mini,
+                'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-nightly-dedicated'}
+        self.assertEqual(evaluate(parse_expression(source), base), mini)
+        for changes in ({'needs.pick-nightly-build-runner.outputs.helper': ''},
+                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini},
+                        {'github.run_attempt': 2},
+                        {'github.ref': 'refs/heads/main'}):
+            with self.subTest(changes=changes):
+                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'blacksmith-32vcpu-ubuntu-2404')
+
+    def test_the_daemon_is_a_peer_the_app_build_stops_for(self):
+        peers = DOC['jobs']['build-nightly-app']['env']['NIGHTLY_PUBLISH_PEERS'].split()
+        self.assertIn('build-nightly-remote-daemon', peers)
+
+
 class PickerReRun(unittest.TestCase):
     """The owned-pool rescue and the nightly-next tick re-run pick-nightly-build-runner, and with it every job
     that needs it, so a re-run picks its runner fresh (scripts/ci/owned_pool_rescue.py repick_job(), on main).
@@ -651,6 +754,14 @@ class PickerReRun(unittest.TestCase):
 
     def test_the_ghostty_helper_s_uploads_overwrite(self):
         steps = DOC['jobs']['build-nightly-ghostty-cli-helper']['steps']
+        uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
+        self.assertTrue(uploads)
+        for step in uploads:
+            self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
+    def test_the_daemon_s_upload_overwrites(self):
+        # It builds beside the app, so a picker re-run that rescues a stuck app build re-runs it after it succeeded.
+        steps = DOC['jobs']['build-nightly-remote-daemon']['steps']
         uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
         self.assertTrue(uploads)
         for step in uploads:

@@ -71,6 +71,10 @@ extension AgentPaneRequest {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return
         }
+        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
+            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
         switch method {
         case "uiPointer.report":
             guard let params, JSONSerialization.isValidJSONObject(params),
@@ -142,7 +146,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.setAttachmentView":
-            // The composer's Inline or Strip choice; the page writes only this key with it.
+            // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
             } else {

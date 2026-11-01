@@ -1285,8 +1285,9 @@ jobs:
       # The Blacksmith labels a feed's compile counts as full (next_macos_cascade.fresh_stalled()): a feat-cmux-next
       # push's Release compile never falls back to one of them.
       fresh_stalled: ${{ steps.place.outputs.fresh_stalled }}
-      # Tiers with no live owned or Blacksmith macOS target are handed to the
-      # thin cmux-ci gateway once the matching client steps are enabled.
+      # The FLEET_CLIENT_JOBS that no owned or Blacksmith macOS label can take now (every one full or
+      # dead, next_macos_cascade.place()), space-delimited like blacksmith_6_jobs: each runs as a thin
+      # cmux-ci client on gateway_runner (<job>-fleet), and the job itself only reports its verdict.
       fleet_jobs: ${{ steps.place.outputs.fleet_jobs }}
       # vars.CI_FAST_LANE_RUNNER while one of its runners is idle, else empty
       # (side_lane_placement.fast_route()): the fast tier never queues on it.
@@ -1316,8 +1317,11 @@ jobs:
       gui_runner: ${{ steps.place.outputs.gui_runner }}
       # daemon-test and generated-files need a logged-in session, not the
       # console gui token: the session label (glaeda#1530) while an online
-      # runner carries it, else gui_runner. Empty from a trusted base whose
-      # placement predates it, so those jobs then read gui_runner.
+      # runner carries it and it has room (role_room(): not while the
+      # janitor finds it unserved, cmux#24295), else gui_runner. Empty from a
+      # trusted base whose placement predates it, so those jobs then read
+      # gui_runner. Their literal last owned leg is the gui label, never the
+      # session label: no placement judged it (tests/test_ci_runs_on_fallback.py).
       session_runner: ${{ steps.place.outputs.session_runner }}
       free_gui_runner: ${{ steps.place.outputs.free_gui_runner }}
       # The Blacksmith macOS label the GUI jobs take while no owned GUI runner has room (a queue deeper than
@@ -1433,6 +1437,14 @@ jobs:
           # and the PR's Mac Release compile, which runs when app-compile-fleet gives no verdict, joins
           # the cascade (GATEWAY_CASCADE) like swift-canary already does.
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+          # The cascade jobs with a build-fleet client job (<job>-fleet, which runs only the cmux-ci client on
+          # gateway_runner): with every macOS label full or dead they are listed in fleet_jobs instead of
+          # waiting, and the job itself only reports its client's verdict. A job joins only with its client
+          # (GatewayRunsOnlyTheFleetClient). A listed job's client needs an idle gateway runner of its own
+          # beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gateway()). swift-test
+          # and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
+          # same-tree cmux-tui daemon, which a fleet suite step reports as no result.
+          FLEET_CLIENT_JOBS: fast-tier
           # The gateway jobs this run starts (their own `if`s), each needing an idle runner.
           GATEWAY_JOBS: >-
             ${{ format('{0} {1} {2}',
@@ -1521,7 +1533,7 @@ jobs:
     name: portable job placement
     if: ${{ inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 4
     permissions:
       # The queue janitor's pool snapshot (nightly jobs waiting on a pool).
@@ -1603,9 +1615,11 @@ jobs:
     if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Fleet Linux, then a free mini (portable-placement), then Blacksmith 16 vCPU, which runs the script
-    # tests 32 at once (scripts/ci/run-checks-concurrently.sh). The checks are Python and bash; none needs Linux.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # tests 32 at once (scripts/ci/run-checks-concurrently.sh): 6.2 min mean, 7.3 p90 there. While the overflow
+    # switch has failed over it takes 8 vCPU, not 32 (.github/runners.json linux_sizes), hence 15 minutes.
+    # The checks are Python and bash; none needs Linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: read
@@ -2551,7 +2565,7 @@ jobs:
     needs: path_route
     if: ${{ (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
     name: cmux-next web bundles (source-keyed cache)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Only a feat-cmux-next run enters next-cache-writer (deployment branch
     # feat-cmux-next only), and only its push publishes the bundles to NEXT's
@@ -2669,7 +2683,7 @@ jobs:
     # skipped here; no synthetic cmux-tui-pin ref is created for them.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
     name: same-tree cmux-tui
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       statuses: write
     timeout-minutes: 3
@@ -2856,12 +2870,12 @@ jobs:
       # the queue focused on the current head instead of replaying stale
       # typechecks.
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.swift-canary-fleet.outputs.verdict == 'pass' && vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || needs.swift-canary-fleet.outputs.verdict == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-canary ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-canary ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-canary ') && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.swift-canary-fleet.outputs.verdict == 'pass' && vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || needs.swift-canary-fleet.outputs.verdict == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-canary ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-canary ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-canary ') && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       contents: read
     timeout-minutes: ${{ needs.swift-canary-fleet.outputs.verdict == 'pass' && 5 || 20 }}
     env:
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.swift-canary-fleet.outputs.verdict == 'pass' && vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || needs.swift-canary-fleet.outputs.verdict == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-canary ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-canary ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-canary ') && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.swift-canary-fleet.outputs.verdict == 'pass' && vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || needs.swift-canary-fleet.outputs.verdict == 'pass' && 'blacksmith-2vcpu-ubuntu-2404' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-canary ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-canary ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-canary ') && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       SWIFT_CANARY_TARGETS: ${{ needs.path_route.outputs.swift_canary_targets }}
     steps:
       - name: Report the build fleet compile verdict
@@ -2940,6 +2954,149 @@ jobs:
             echo "This is the fast PR gate for package-only CmuxNext Swift edits. The Release compile also runs on every PR that changes a CmuxNext Swift file, for Release-only optimizer failures a Debug build cannot see."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The fast tier as a thin build-fleet client, for when every owned and
+  # Blacksmith macOS label it could take is full or dead: macos-placement then
+  # lists it in fleet_jobs (next_macos_cascade.place(), FLEET_CLIENT_JOBS) and
+  # this job hands the swift entries of scripts/cmux-next/fast-tier.json to the
+  # fleet (`cmux-ci run` of package-test-lane.sh's suite mode, one step per
+  # package) instead of waiting for a Mac. The gateway runner runs nothing of
+  # the commit: no checkout, no action, no token, no secret, only the client
+  # (the checks-workflow guard GatewayRunsOnlyTheFleetClient).
+  # It tests the exact commit fast-tier builds (github.sha: a pull request's merge commit) and checks
+  # that every fleet step it reads tested that commit: no verdict, or a step at
+  # another commit, fails it and is never a pass. fast-tier keeps the check
+  # name and reports this job's verdict from a 2 vCPU Linux runner.
+  fast-tier-fleet:
+    needs: [macos-placement, path_route, push-head-preflight]
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
+    name: cmux-next fast tier (build fleet)
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-fleet', github.ref) || format('cmux-next-run-{0}-fast-tier-fleet', github.run_id) }}
+      cancel-in-progress: false
+    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
+    permissions: {}
+    # Longer than the client's queue (600 s) plus run (1500 s) timeouts and the
+    # report, so the client, not the job timeout, ends a slow step.
+    timeout-minutes: 40
+    outputs:
+      verdict: ${{ steps.client.outputs.verdict }}
+    steps:
+      - name: Run the fast tier's Swift suites on the build fleet
+        id: client
+        env:
+          # github.sha: a pull request's merge commit, the tree fast-tier itself checks out (as
+          # swift-canary-fleet), so a head that breaks against the current base is still caught.
+          REF: ${{ github.sha }}
+          # fast-tier.json's swift entries, by package (FastTierFleetClient keeps them equal).
+          HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests
+        run: |
+          set -uo pipefail
+          verdict=pass
+          reasons=()
+          # finish VERDICT: the job's output, its summary and its exit. Only pass exits 0.
+          finish() {
+            echo "verdict=$1" >> "$GITHUB_OUTPUT"
+            {
+              echo "### cmux-next fast tier on the build fleet: $1"
+              echo
+              printf -- '- %s\n' "${reasons[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            case "$1" in
+              pass) exit 0 ;;
+              fail) echo "::error title=Fast tier on the build fleet::a suite failed at $REF: ${reasons[*]}"; exit 1 ;;
+              *) echo "::error title=Fast tier on the build fleet: no verdict::no verdict for $REF, which is never a pass: ${reasons[*]}"; exit 1 ;;
+            esac
+          }
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            reasons+=("the commit to test is not a full sha ('$REF')")
+            finish unavailable
+          fi
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            reasons+=("$client is not installed on runner $RUNNER_NAME")
+            finish unavailable
+            # finish exits already; the literal exit is the client guard's contract (no "$client" call follows).
+            # shellcheck disable=SC2317
+            exit 1
+          fi
+          # submit N PACKAGE SUITES: one fleet step that builds PACKAGE once and runs SUITES at REF.
+          # CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 keeps the Mac fast tier's 60-second limit per entry
+          # (package-test-lane.sh's suite default is 900 s); the build before the suites has no such limit.
+          # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
+          submit() {
+            local status=0
+            "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
+              --arg=suite --arg="$2" --arg="$3" --no-supersede \
+              --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
+              --timeout 1500 --queue-timeout 600 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
+            echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
+          }
+          submit 1 Packages/Shared/CmuxHomeRender "$HOME_RENDER_SUITES" &
+          first=$!
+          submit 2 Packages/macOS/CmuxNext "$CMUX_NEXT_SUITES" &
+          second=$!
+          wait "$first"
+          wait "$second"
+          # judge N PACKAGE: print the step's log, then its verdict from its exit and the
+          # controller's record of the step, which must name REF as the commit it tested.
+          ref_re='"ref": *"([^"]*)"(.*)'
+          digest_re='"source_digest": *"([^"]*)"'
+          state_re='"state": *"([a-z_]*)"'
+          code_re='"exit_code": *(-?[0-9]+)'
+          # A step id as the fleet tools read it (tip-test-compile.sh): 6 to 64 hex.
+          step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
+          judge() {
+            local line id="" status="" json="" rest refs=0 state="" code="" step=unavailable why=""
+            echo "::group::$2 on the build fleet"
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              printf '%s\n' "$line"
+              # The client names its step before the step's own log streams.
+              if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi
+            done < "$RUNNER_TEMP/fast-tier-fleet-$1.log"
+            echo "::endgroup::"
+            read -r status < "$RUNNER_TEMP/fast-tier-fleet-$1.exit" || status=""
+            if [[ -z "$id" ]]; then
+              why="the client submitted no step (exit ${status:-unknown})"
+            elif ! json="$("$client" status "$id" 2>&1)"; then
+              why="the controller's record of step $id could not be read"
+            else
+              rest="$json"
+              while [[ "$rest" =~ $ref_re ]]; do
+                refs=$((refs + 1))
+                if [[ "${BASH_REMATCH[1]}" != "$REF" ]]; then why="step $id tested ${BASH_REMATCH[1]:-no commit}, not $REF"; break; fi
+                rest="${BASH_REMATCH[2]}"
+              done
+              if [[ -z "$why" && "$refs" -eq 0 ]]; then why="step $id's record names no tested commit"; fi
+              if [[ -z "$why" && "$json" =~ $digest_re && -n "${BASH_REMATCH[1]}" && "${BASH_REMATCH[1]}" != "$REF" ]]; then
+                why="step $id checked out ${BASH_REMATCH[1]}, not $REF"
+              fi
+              if [[ "$json" =~ $state_re ]]; then state="${BASH_REMATCH[1]}"; fi
+              if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
+            fi
+            if [[ -z "$why" ]]; then
+              # The controller's record decides: a pass is a step done at REF with exit 0 (and a client
+              # that exited 0); a step that ended with a nonzero exit is a fail whatever the client said;
+              # anything else (no worker, a queue or run timeout, a newer head, a cancel) is no verdict.
+              if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
+                step=pass; why="$2: every suite passed at $REF (step $id)"
+              elif [[ ( "$state" == "failed" || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
+                step=fail; why="$2: a suite failed or did not build at $REF (step $id, exit $code); the errors are in its log above"
+              else
+                why="$2: no verdict from step $id (client exit ${status:-unknown}, step ${state:-unknown})"
+              fi
+            fi
+            reasons+=("$why")
+            echo "$why"
+            case "$step" in
+              fail) verdict=fail ;;
+              unavailable) [[ "$verdict" == fail ]] || verdict=unavailable ;;
+            esac
+          }
+          judge 1 Packages/Shared/CmuxHomeRender
+          judge 2 Packages/macOS/CmuxNext
+          finish "$verdict"
+
   # The PR fast tier (hq#1915, cx-29ch2): every registered deterministic suite
   # (scripts/cmux-next/fast-tier.json) on every feat-cmux-next PR and push,
   # whatever paths changed, without the gui token. Target: under 5 minutes
@@ -2955,7 +3112,7 @@ jobs:
   # package build cannot see (cmux_next_route.py fast_tier). The cargo half
   # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
-    needs: [macos-placement, path_route, push-head-preflight]
+    needs: [macos-placement, path_route, push-head-preflight, fast-tier-fleet]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
@@ -2972,20 +3129,48 @@ jobs:
     # Otherwise the tier takes the current cascade allocation. With every
     # alternative excluded, deferred_runner preserves the base owned queue;
     # it never bypasses Blacksmith outage/nightly exclusions or skips tests.
-    # The later fleet-client integration replaces that deferred case.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' fast-tier ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # fast-tier-fleet replaces that deferred case when placement lists the tier for the fleet.
+    # When fast-tier-fleet ran (macos-placement found every macOS label it could take full or
+    # dead), this job keeps its check name and exit code but runs on fleet Linux (vars.LINUX_RUNNER
+    # when it names our own runner, as portable-placement does), else a 2 vCPU Blacksmith Linux runner, and
+    # only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
+    # step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && 'blacksmith-2vcpu-ubuntu-2404' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' fast-tier ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
     # A cold package build can exceed the 5-minute target; the job still runs
     # the entries so a cold mini reports, and the summary shows the time.
-    timeout-minutes: 20
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && 5 || 20 }}
+    env:
+      # 'report' when fast-tier-fleet ran: the steps below then only report its verdict.
+      CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && 'report' || '' }}
     steps:
+      # The build fleet's verdict, under this job's name: fail and no verdict both fail it.
+      - name: Report the build fleet's fast tier verdict
+        if: env.CMUX_FAST_TIER_FLEET == 'report'
+        env:
+          VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
+          RESULT: ${{ needs.fast-tier-fleet.result }}
+        run: |
+          if [[ "$VERDICT" == pass && "$RESULT" == success ]]; then
+            echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
+            printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$VERDICT" == fail ]]; then
+            echo "::error title=cmux-next fast tier::a Swift suite failed on the build fleet; its log is in cmux-next fast tier (build fleet)."
+            exit 1
+          fi
+          echo "::error title=cmux-next fast tier: no verdict::the build fleet gave no verdict (fast-tier-fleet $RESULT, verdict '${VERDICT:-none}'), and no verdict is never a pass. Re-run the run once a Mac or the fleet is free."
+          exit 1
+
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
       # (tests/test_ci_acpmux_job_home.py).
       - name: Give this job its own acpmux home
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         run: |
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
@@ -2994,12 +3179,14 @@ jobs:
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         shell: bash
         run: |
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
       - name: Checkout
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         id: checkout
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3030,12 +3217,15 @@ jobs:
       # The Swift entries need no submodule (cmux-tui and its ghostty-next build
       # moved to fast-tier-cargo), so drop whatever a previous job left.
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         run: scripts/ci/reset-stale-submodules.sh
 
       - name: Remove stale untracked source (keep ignored build caches)
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         run: git clean -ffd
 
       - name: Select Xcode
+        if: env.CMUX_FAST_TIER_FLEET != 'report'
         run: ./scripts/select-ci-xcode.sh
 
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
@@ -3046,7 +3236,7 @@ jobs:
       # own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
-        if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         continue-on-error: true
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
@@ -3084,7 +3274,7 @@ jobs:
       # After Xcode selection, so its fingerprint uses the compiler of this job.
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
-        if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
 
@@ -3096,12 +3286,12 @@ jobs:
       # one seed and match the input-time manifest in the swift directory.
       - name: Compute fast-tier cache keys
         id: fast-cache-key
-        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -3140,7 +3330,8 @@ jobs:
         run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Run the fast tier
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        id: fast-tier-run
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (steps.reuse.outputs.hit != 'true') }}
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
@@ -3150,7 +3341,7 @@ jobs:
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (always() && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -3161,7 +3352,7 @@ jobs:
           rm -rf "$home"
 
       - name: Upload fast-tier timing receipt
-        if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((always()) && steps.reuse.outputs.hit != 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -3202,7 +3393,7 @@ jobs:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # As cmux-tui.yml's Linux test job: a fork keeps the public or 4-vCPU lane.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
@@ -4028,7 +4219,7 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-daemon-test', github.ref) || format('cmux-next-run-{0}-daemon-test', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
     # actions: read lets the same-tree cmux-tui fetch read the artifacts runs.
     permissions:
       actions: read
@@ -4040,7 +4231,7 @@ jobs:
       # The folded generated files verdict (generated-verdict reads it): fresh, stale, catalog or empty.
       generated_files: ${{ steps.generated-files-verdict.outputs.verdict }}
     env:
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       # A pull request that changes no cmux-tui path runs on the newest
@@ -4296,7 +4487,7 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests' --skip BranchStateResourcesTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|MarkdownPageFindTests|FileSourceSwitchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests' --skip BranchStateResourcesTests
 
       - name: Run state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
@@ -4456,7 +4647,7 @@ jobs:
     # those runners are registered; while it is unset the route below is unchanged. The fork clause
     # stays first, so a fork pull request never reaches it. Same-repository PRs use the
     # generic side picker and its bounded overflow, never the console GUI label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
     permissions:
       # The reuse lookup lists artifacts.
       actions: read
@@ -4465,7 +4656,7 @@ jobs:
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26')) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -4849,7 +5040,7 @@ jobs:
     needs: [path_route, swift-test, daemon-test]
     if: ${{ !cancelled() && (needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped') }}
     name: cmux-next generated files (shared build)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -4946,7 +5137,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -5248,7 +5439,7 @@ jobs:
     # generated-verdict gives that verdict.
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -6026,7 +6217,7 @@ jobs:
     needs: [cmux-scheme-compile]
     if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
     name: cmux-next crash ends the app
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions: {}
     steps:
@@ -6559,7 +6750,7 @@ jobs:
     # passed holds the landings it covers.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a pull-requests write token; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 10
     permissions:
       actions: read
@@ -6590,7 +6781,7 @@ jobs:
     needs: [release-compile, release-compile-fast-admission]
     if: ${{ always() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next Release compile revert
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
     # The environment macos-placement already takes on a push for the same App key; push-only here.
     environment: ci-routing-agent
     timeout-minutes: 10
@@ -6699,7 +6890,7 @@ jobs:
     if: ${{ !cancelled() && needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 55
     permissions: {}
     steps:

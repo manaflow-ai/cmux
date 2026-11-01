@@ -78,7 +78,7 @@ impl CloudConversations {
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
-                    || !params.get("repo").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
+                    || params.get("repo").and_then(Value::as_str).is_none_or(|s| s.is_empty())
                 {
                     return Err(invalid());
                 }
