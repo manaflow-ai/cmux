@@ -32,6 +32,7 @@ final class PendingWorkspaceRows {
     /// Rows whose daemon workspace has taken over the stand-in (the row stays until the sidebar document places it):
     /// a close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
     @ObservationIgnored private var takenOver: Set<String> = []
+    @ObservationIgnored private(set) var unpinned: Set<String> = [] // creates whose workspace stays unpinned (an agent's chat open)
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
@@ -41,7 +42,7 @@ final class PendingWorkspaceRows {
     private(set) var unsentSlots: Set<String> = []
 
     /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
-    func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?) { add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
+    func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
     func add(_ row: Row, name: String) {
         rows.append(row)
         names[row.id] = (row.machine, name)
@@ -52,7 +53,7 @@ final class PendingWorkspaceRows {
     func remove(_ id: String) {
         rows.removeAll { $0.id == id }
         names[id] = nil
-        takenOver.remove(id)
+        takenOver.remove(id); unpinned.remove(id)
         redraws.run()
     }
 
@@ -83,7 +84,7 @@ final class PendingWorkspaceRows {
             row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
         }
         guard rows.contains(where: done) else { return }
-        for row in rows where done(row) { takenOver.remove(row.id) }
+        for row in rows where done(row) { takenOver.remove(row.id); unpinned.remove(row.id) }
         rows.removeAll(where: done)
         redraws.run()
     }
