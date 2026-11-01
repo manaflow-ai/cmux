@@ -59,6 +59,17 @@ extension AgentPaneView {
         }
     }
 
+    /// The page finished loading a document after its end: it lives, so the notice goes and the
+    /// chat leaves its crash group (a sibling's Reload must not reload it). The notice showed over a
+    /// working chat before this (user report 2026-10-30): a host route, a retarget or a WebKit
+    /// fallback had loaded the page again, and only Reload took the notice away.
+    func pageLoadedAgain() {
+        guard let notice = crashNotice else { return }
+        notice.removeFromSuperview()
+        crashNotice = nil
+        terminations.loadedAgain(self, session: model.sessionId)
+    }
+
     /// The notice's Reload: the person's request for every chat that ended with this one.
     @objc private func reloadAfterCrashes() {
         terminations.reload(from: self)

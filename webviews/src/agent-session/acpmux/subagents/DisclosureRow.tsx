@@ -13,6 +13,8 @@ import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
+import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
@@ -50,6 +52,8 @@ export type DisclosureRowProps = {
   actions?: ReactNode;
   /// Before the toggle, outside its button.
   leading?: ReactNode;
+  /// Shared activity-row treatment for transcript notices.
+  lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
 };
@@ -73,6 +77,7 @@ export function DisclosureRow({
   toggleLabel,
   actions,
   leading,
+  lineClassName,
   className,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
@@ -105,7 +110,12 @@ export function DisclosureRow({
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
-      <div className="cv-disclosure__line" data-find-skip ref={onOpen ? collapse.headerRef : undefined}>
+      <TranscriptActivityRowShell
+        className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        headerRef={onOpen ? collapse.headerRef : undefined}
+        onClick={headerToggleClick(collapse.toggle)}
+      >
         {leading}
         {onOpen ? (
           <>
@@ -138,7 +148,7 @@ export function DisclosureRow({
           </button>
         )}
         {actions}
-      </div>
+      </TranscriptActivityRowShell>
       {collapse.present && (
         <div id={bodyId} {...collapse.bodyProps}>
           <div className="cv-disclosure__panel">{children}</div>

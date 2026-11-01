@@ -616,6 +616,10 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     assert_eq!(text(&r), "to and text are required", "{r}");
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let r = call(&client, &tool("team_sned", json!({}))).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(text(&r), "unknown tool: team_sned; did you mean team_send?", "{r}");
 }
 
 /// Arguments that are not an object are an error the agent reads, never a panic.

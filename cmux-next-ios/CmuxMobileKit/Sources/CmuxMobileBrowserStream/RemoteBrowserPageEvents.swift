@@ -27,14 +27,16 @@ public struct RemoteBrowserMenuItem: Sendable, Equatable, Identifiable {
         self.items = items
     }
 
-    init?(json: [String: Any]) {
+    init?(json: [String: Any], kind: RemoteBrowserMenu.Kind) {
         guard let id = Self.int64(json["id"]), let type = json["type"] as? String else { return nil }
         self.id = id
         self.type = type
-        label = Self.withoutMnemonic(json["label"] as? String ?? "")
+        let rawLabel = json["label"] as? String ?? ""
+        // Chromium context labels encode mnemonics; HTML options and optgroups are literal.
+        label = kind == .context ? Self.withoutMnemonic(rawLabel) : rawLabel
         enabled = json["enabled"] as? Bool ?? true
         checked = json["checked"] as? Bool ?? false
-        items = (json["items"] as? [[String: Any]] ?? []).compactMap(RemoteBrowserMenuItem.init(json:))
+        items = (json["items"] as? [[String: Any]] ?? []).compactMap { RemoteBrowserMenuItem(json: $0, kind: kind) }
     }
 
     /// Chromium's labels mark their keyboard mnemonic with `&` ("Open Link in New &Tab";
@@ -89,7 +91,7 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         let anchor = json["anchor"] as? [String: Any] ?? [:]
         func number(_ key: String) -> Double { (anchor[key] as? NSNumber)?.doubleValue ?? 0 }
         self.anchor = CGRect(x: number("x"), y: number("y"), width: number("width"), height: number("height"))
-        items = (json["items"] as? [[String: Any]] ?? []).compactMap(RemoteBrowserMenuItem.init(json:))
+        items = (json["items"] as? [[String: Any]] ?? []).compactMap { RemoteBrowserMenuItem(json: $0, kind: kind) }
         selected = (json["selected"] as? NSNumber)?.intValue
         multiple = json["multiple"] as? Bool ?? false
     }

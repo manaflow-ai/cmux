@@ -5,10 +5,11 @@ import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import Testing
+import CmuxNextTestSupport
 
 /// A capture sends Return directly to Chromium's non-key child window. Its owning pane must
 /// see the same event as its local monitor would, or a native /btw request has no gesture.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct DebugChromiumGestureTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }

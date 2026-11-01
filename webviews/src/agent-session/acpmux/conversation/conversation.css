@@ -80,6 +80,17 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  --cv-tool-gap: var(--ds-space-2, 8px);
+  /* One icon column for every transcript meta row: a tool row, a sent message, a received or inbox
+     message, a background task, a sub-session or subagent card. Each starts its icon at the row's
+     left edge (no inset of its own), in the same slot, with its words the same distance after it
+     (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN MISALIGN THINGS"; test/transcript-meta-columns-browser.test.ts). */
+  --cv-row-icon: var(--cv-glyph-slot);
+  --cv-row-icon-gap: calc(var(--cv-tool-gap) - 1.5px);
+  /* Where a tool row's words start: the glyph slot, less the glyph's 1.5px overlap, and the gap. A
+     line under a row (a failure's cause, an opened message, a step's thought) starts here too. */
+  --cv-tool-text-inset: calc(var(--cv-glyph-slot) - 1.5px + var(--cv-tool-gap));
+  --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -714,11 +725,15 @@
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
+  .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+  .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
+  .acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
-  .acpmux-turnSummary:hover .cv-turn-actions {
+  .acpmux-turnSummary:hover .cv-turn-actions,
+  .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
@@ -733,6 +748,7 @@
   }
 }
 .cv-user:hover .cv-user__actions,
+.cv-user:has([data-popup-open]) .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
@@ -1004,6 +1020,11 @@
   position: absolute;
   left: 7px;
   font-weight: 600;
+}
+/* A number of three or more digits (Markdown.tsx listNumberStyle) gets room for itself, so it never
+   draws over its item's text. */
+.cv-ol[style*="--cv-ol-digits"] > li {
+  padding-left: calc(var(--cv-ol-digits) * 0.6em + 1.4em);
 }
 .cv-li__bullet {
   position: absolute;
@@ -1655,7 +1676,7 @@ pre.cv-math-source {
 }
 .cv-worked__chevron {
   margin-top: 0;
-  margin-left: 2px;
+  margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
    to one line and give way at the line's end, never wrapping it to a second. */
@@ -1778,7 +1799,24 @@ pre.cv-math-source {
 }
 /* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
 .cv-thinking.is-shimmer {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+.cv-shimmer__row {
   position: relative;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-shimmer__base {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-shimmer__band {
   display: none;
@@ -1800,17 +1838,32 @@ pre.cv-math-source {
     -webkit-user-select: none;
     -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
-    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-band var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
-    display: block;
+    display: flex;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
-    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-lit var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
-  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time {
+    flex: none;
+    margin-inline-start: 6px;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label::before,
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time::before {
+    content: attr(data-text);
+  }
+  /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
     content: attr(data-text);
   }
@@ -1851,10 +1904,9 @@ pre.cv-math-source {
 .cv-tool {
   all: unset;
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot);
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--cv-tool-gap);
   width: 100%;
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
@@ -1928,21 +1980,27 @@ pre.cv-math-source {
   }
 }
 .cv-tool__icon {
-  grid-column: 1;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: var(--cv-glyph-slot);
+  width: var(--cv-row-icon);
   height: var(--cv-glyph-line);
-  margin-right: -1.5px;
+  margin-right: calc(var(--cv-row-icon-gap) - var(--cv-tool-gap));
 }
 .cv-tool__text {
-  grid-column: 2;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
+   wraps instead of being cut at the row's edge. */
+.cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
@@ -1973,15 +2031,22 @@ pre.cv-math-source {
 }
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
-  grid-column: 4;
+  order: 3;
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: flex-end;
   width: var(--cv-disclosure-slot);
   height: var(--cv-disclosure-slot);
-  justify-self: end;
-  margin-left: 0;
+  /* The row's shared 8px gap also applies here; subtract it so the caret's visible gap is the
+     disclosure token rather than an icon-to-label spacing. */
+  margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-tool-gap));
   color: var(--cv-text-dim);
+}
+.cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,
+.cv-tool:not(.cv-agentmsg__line) > .cv-tool__meta {
+  order: 4;
+  margin-inline-start: auto;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
@@ -1995,9 +2060,9 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto var(--cv-disclosure-slot);
+  display: flex;
   align-items: center;
+  gap: var(--cv-tool-gap);
   padding-block: 0;
 }
 .cv-thought.is-full {
@@ -2135,6 +2200,29 @@ pre.cv-math-source {
   gap: 2px;
   margin-right: -6px;
 }
+/* Wrap lines is every Shell block's one choice: it shows on the block's hover or keyboard focus,
+   never on every open block at rest (Verbose opens them all); the chat menu's Transcript view
+   submenu has it once. */
+.cv-shell__actions .cv-shell__wrap {
+  opacity: 0;
+}
+.cv-shell:hover .cv-shell__wrap,
+.cv-shell:focus-within .cv-shell__wrap {
+  opacity: 1;
+}
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly; keyboard focus
+   shows it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shell__actions .cv-shell__wrap {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-shell:hover .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-shell:focus-within .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 .cv-shell__title {
   display: flex;
   align-items: center;
@@ -2227,6 +2315,12 @@ pre.cv-math-source {
   gap: 8px;
   margin: 4px 0 8px;
 }
+/* A call's images: the reply's fixed-shape thumbnail (chips.css .cv-thumb), narrower, so its
+ * height is held before the image loads and the image fits inside whole. */
+.cv-tool-images .cv-thumb {
+  width: min(100%, 320px);
+  margin: 0;
+}
 .cv-tool-images .cv-img {
   max-width: min(100%, 360px);
   max-height: 220px;
@@ -2280,53 +2374,65 @@ pre.cv-math-source {
   padding-left: 0;
   border-left: 0;
 }
-/* An opened run of commands, reads or searches (ToolGroupRow.tsx), as Claude Code desktop lists a
-   run's steps: one rounded group in the cards' ring, the thought that led into the run first in
-   full, then a row per step, hairlines between them, each step's disclosure right after its words
-   (the row's columns: words, disclosure, room, its mark). The rows keep their own glyph-less
-   words, failure words, spinner and background marks. Leo, 2026-10-29: "we want to have that
-   capabilitiy of rendering like claude code desktop has stuff organized." The look is a root
-   choice, `data-tool-steps-look` (the gallery's arms): "card" (default), "tree" (the earlier tree
-   guide, with hairlines) or "zebra" (no ring, alternate rows filled). */
+/* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
+   run first in full, then a row per step. By default each step is a normal tool row in the
+   transcript's one column: its glyph in the header's glyph column, its words at the header's text
+   start, its mark at the right edge, with no card, inset or hairlines around it (Leo, 2026-10-31:
+   "WHY IS IT ALGINED SO [...] SHIT" and "why are these indented for no reason"). A line under a
+   step (a thought's text, a failure's cause) starts at the same text column.
+   Leo, 2026-10-29, asked for the capability of Claude Code desktop's organization ("we want to have
+   that capabilitiy of rendering like claude code desktop has stuff organized"): it stays as the
+   gallery's root choices, `data-tool-steps-look`: "card" (one rounded group in the cards' ring,
+   hairlines between steps, each step's disclosure right after its words), "tree" (the earlier tree
+   guide) or "zebra" (no ring, alternate rows filled). */
 .cv-steps {
+  /* Where a step's under-line (a thought's text, a cause) starts. */
+  --cv-step-text: var(--cv-tool-text-inset);
+}
+/* A thought step has no glyph: its words start at the rows' text column. */
+.cv-step-thought:not(.is-open),
+.cv-step-thought__body,
+.cv-step > .cv-tool-error {
+  padding-left: var(--cv-step-text);
+}
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-steps {
   --cv-step-inset: 12px;
+  --cv-step-text: 0px;
   margin: 2px 0 6px;
   border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
   border-radius: 12px;
   overflow: hidden;
 }
-.cv-step {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step {
   padding: 4px var(--cv-step-inset);
 }
-.cv-step + .cv-step {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step + .cv-step {
   border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
 }
-.cv-step > .cv-tool {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool {
+  display: grid;
   grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
-  gap: 4px;
+  gap: var(--cv-disclosure-gap);
 }
-.cv-step > .cv-tool > .cv-tool__icon {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-tool__icon {
   display: none;
 }
 /* Every child names row 1: the meta comes before the chevron in the markup, and sparse
    auto-placement would otherwise move the chevron to a second row. */
-.cv-step > .cv-tool > * {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > * {
   grid-row: 1;
 }
-.cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
   grid-column: 1;
 }
-.cv-step > .cv-tool > .cv-tool__chevron {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-tool__chevron {
   grid-column: 2;
+  margin-inline-start: 0;
   justify-self: start;
   justify-content: flex-start;
 }
-.cv-step > .cv-tool > .cv-command__meta {
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 4;
-}
-/* A failed call's cause starts under its words: the step has no glyph column. */
-.cv-step > .cv-tool-error {
-  padding-left: 0;
 }
 /* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
    top of the row's end. */
@@ -2338,15 +2444,19 @@ pre.cv-math-source {
   width: var(--cv-disclosure-slot);
   min-height: 20px;
   margin-left: 8px;
-  grid-template-columns: var(--cv-disclosure-slot);
 }
 .cv-step-thought.is-open > .cv-tool__chevron {
+  margin-inline-start: 0;
+}
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open {
+  grid-template-columns: var(--cv-disclosure-slot);
+}
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step-thought.is-open > .cv-tool__chevron {
   grid-column: 1;
 }
 .cv-step-thought__body {
   display: block;
   margin: 0;
-  padding-left: 0;
   border-left: 0;
   line-height: 20px;
 }
@@ -2402,6 +2512,33 @@ pre.cv-math-source {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
+/* A group row's totals (EditCounts.tsx) come right after its summary, as Claude Code desktop puts
+   them (Leo 2026-10-30: "i like claude code they put the number overarching too"): the summary
+   cuts with an ellipsis and the totals and a failed count stay whole. */
+.cv-tool__text.has-counts {
+  display: flex;
+  align-items: baseline;
+  text-overflow: clip;
+}
+.cv-tool__text.has-counts > .cv-tool__summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-tool__text.has-counts > :is(.cv-tool__counts, .cv-tool__failed) {
+  flex: none;
+}
+.cv-tool__text.has-counts > .cv-tool__failed {
+  margin-left: 0.3em;
+}
+.cv-tool__text.has-counts > .cv-tool-error__inline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
 .cv-tool__file.is-link {
   cursor: default;
@@ -2425,7 +2562,7 @@ pre.cv-math-source {
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
 .cv-tool-error {
   margin: -3px 0 3px;
-  padding-left: 22.5px;
+  padding-left: var(--cv-tool-text-inset);
   overflow: hidden;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
@@ -2433,12 +2570,6 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-tool-error__hook {
-  margin-right: 6px;
-  font-family: var(--cv-mono);
-  font-size: var(--text-caption);
-  color: var(--cv-text-muted);
 }
 .cv-tool-error__inline {
   color: var(--cv-text-dim);
@@ -2448,7 +2579,7 @@ pre.cv-math-source {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 0 0 6px 22.5px;
+  margin: 0 0 6px var(--cv-tool-text-inset);
   padding: 5px 10px;
   border-radius: 10px;
   background: var(--cv-card-fill);
@@ -2486,7 +2617,7 @@ pre.cv-math-source {
 /* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
 .cv-command__text {
   grid-column: 2;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2519,8 +2650,7 @@ pre.cv-math-source {
   opacity: 0;
 }
 .cv-tool > .cv-command__meta {
-  grid-column: 3;
-  margin-left: 0;
+  margin-left: auto;
   min-width: var(--cv-glyph-slot);
   min-height: var(--cv-glyph-line);
   justify-content: center;
@@ -2543,8 +2673,17 @@ pre.cv-math-source {
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
+  margin-left: auto;
+}
+/* The row grammar's trailing column (design/chat-transcript.md "One row grammar"): status, then
+   duration, in column 3, before the chevron's column 4, so every row's chevron and status line up
+   whether or not a row has them. */
+.cv-tool__trail {
   grid-column: 3;
-  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: inherit;
 }
 .cv-command__bg-state {
   display: flex;
@@ -2576,7 +2715,7 @@ pre.cv-math-source {
    indent and with no box around it (Leo 2026-10-21: "a full bordered box for a 2-line message"
    is heavy): whole lines within eight lines (lineCut.ts), then Show more. */
 .cv-message > .cv-agentmsg__card {
-  margin: 0 0 6px 22.5px;
+  margin: 0 0 6px var(--cv-tool-text-inset);
   padding: 0;
   border-radius: 0;
   background: none;
@@ -2657,6 +2796,8 @@ pre.cv-math-source {
   height: var(--cv-disclosure-line-height);
   min-height: 0;
   color: var(--cv-activity-text);
+  /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
+  margin-inline-start: calc(-1 * var(--ds-space-1));
   padding-inline: var(--ds-space-1);
   border-radius: 6px;
   white-space: nowrap;
@@ -2701,6 +2842,7 @@ pre.cv-math-source {
   pointer-events: none;
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
+.cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
 .cv-received__hover:focus-within,
 .cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
@@ -2718,13 +2860,12 @@ pre.cv-math-source {
   max-width: 45%;
   min-width: 0;
   height: var(--cv-message-line);
-  gap: var(--ds-space-1);
-  padding-inline-start: var(--ds-space-1);
+  gap: var(--cv-row-icon-gap);
 }
 .cv-received__mark {
   display: inline-flex;
   flex: none;
-  width: 16px;
+  width: var(--cv-row-icon);
   justify-content: center;
   color: var(--cv-text-muted);
 }
@@ -2736,7 +2877,6 @@ pre.cv-math-source {
   color: var(--cv-activity-text);
 }
 .cv-received__from--open {
-  all: unset;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2767,14 +2907,12 @@ pre.cv-math-source {
   user-select: text;
   -webkit-user-select: text;
 }
-.cv-received:hover,
-.cv-received:focus-within {
+.cv-received:is(:hover, :active, :focus-within) {
   color: var(--cv-text);
 }
-.cv-received:hover .cv-received__from,
-.cv-received:focus-within .cv-received__from,
+.cv-received:is(:hover, :active, :focus-within) .cv-received__from,
 .cv-received:hover .cv-received__text,
-.cv-received:focus-within .cv-received__text {
+.cv-received:is(:hover, :active, :focus-within) .cv-received__text {
   color: var(--cv-text);
 }
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
@@ -2882,6 +3020,27 @@ a.cv-sha:focus-visible {
   line-height: 17px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* An opened cmux script (McpCallRows.tsx CmuxExecDetails): its script and result as code in the
+   text color, their tokens colored by role (jsHighlight.ts, valueTree.ts); the tools it called one a
+   line under a small head, in the same mono type; "Raw" (the call as it came) last, quiet. */
+.cv-cmux-exec__code {
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+.cv-cmux-exec__calls {
+  display: grid;
+  margin: 0 0 0 2px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 17px;
+}
+.cv-cmux-exec__call code {
+  font-family: var(--cv-mono);
+}
+.cv-cmux-exec__raw {
+  margin: 2px 0 0 2px;
 }
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
@@ -3198,7 +3357,8 @@ a.cv-sha:focus-visible {
   overflow-wrap: anywhere;
   text-align: start;
 }
-.cv-iconbtn:hover {
+.cv-iconbtn:hover,
+.cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
@@ -3235,6 +3395,7 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
+.acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
@@ -3248,6 +3409,7 @@ a.cv-sha:focus-visible {
   opacity: 0;
 }
 .acpmux-assistant:hover .cv-reply-actions,
+.acpmux-assistant:has([data-popup-open]) .cv-reply-actions,
 .acpmux-assistant:focus-visible .cv-reply-actions,
 .cv-reply-actions:focus-within {
   opacity: 1;
@@ -3397,6 +3559,12 @@ a.cv-sha:focus-visible {
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
+  /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
+     visible transcript when a subagent or command arrives; the row's measured box is already in
+     the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
+  .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
   .acpmux-row__message-presentation {
     transform-origin: center bottom;
     animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
@@ -3525,13 +3693,6 @@ a.cv-sha:focus-visible {
   margin: 6px 0;
   border-radius: 8px;
 }
-/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
- * opacity so the image cannot introduce a second layout shift during decode. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-img--enter {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
-}
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {
   all: unset;
@@ -3560,11 +3721,24 @@ a.cv-sha:focus-visible {
   backdrop-filter: blur(24px);
   color: var(--agent-text);
   outline: none;
+  /* Image viewing is a direct response to a click: show the already decoded image in its final
+   * stage immediately. The dialog's close transition still uses its own token. */
+  --ui-popup-open: 0s;
+  --ui-dialog-open: 0s;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
   z-index: var(--layer-overlay);
+  --ui-popup-open: 0s;
+  --ui-dialog-open: 0s;
+}
+.acpmux-image-viewer[data-starting-style] {
+  opacity: 1;
+  scale: none;
+}
+.acpmux-image-viewer-backdrop[data-starting-style] {
+  opacity: 1;
 }
 .acpmux-image-viewer-body {
   position: relative;
@@ -3939,6 +4113,12 @@ a.cv-sha:focus-visible {
 }
 .cv-diagram__lang {
   opacity: 0.7;
+}
+/* The Code toggle and Save stay together at the bar's end; the bar spaces its direct children apart. */
+.cv-diagram__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
 }
 .cv-diagram__toggle {
   border: 0;
@@ -4316,7 +4496,7 @@ a.cv-sha:focus-visible {
 /* One quiet tool-height line of short facts; the full facts wrap under it on a click, indented
    to the line's text. */
 .cv-session-start__detail {
-  padding: 0 0 4px 22.5px;
+  padding: 0 0 4px var(--cv-tool-text-inset);
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
@@ -4354,7 +4534,7 @@ a.cv-sha:focus-visible {
   align-items: center;
   gap: 10px;
   min-height: 24px;
-  padding-left: 22.5px;
+  padding-left: var(--cv-tool-text-inset);
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -4374,7 +4554,7 @@ a.cv-sha:focus-visible {
 /* The held previews, under the detail line: plain quoted text, one per line. */
 .cv-agent-pair__held {
   margin: 2px 0 4px;
-  padding: 0 0 0 22.5px;
+  padding: 0 0 0 var(--cv-tool-text-inset);
   list-style: none;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);

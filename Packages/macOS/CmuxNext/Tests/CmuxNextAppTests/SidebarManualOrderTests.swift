@@ -51,7 +51,7 @@ struct SidebarManualOrderTests {
 
         // The drag: row 5 to row 1, shown before the daemon replies.
         let five = start[0].workspaces[4].id
-        let drag = rows.add(.reorder([five], to: DropPosition(section: start[0].id, index: 0)))
+        let drag = rows.edits.add(.reorder([five], to: DropPosition(section: start[0].id, index: 0)))
         let dragged = ["w5", "w1", "w2", "w3", "w4"]
         #expect(Self.order(model) == dragged)
 
@@ -62,7 +62,7 @@ struct SidebarManualOrderTests {
         // The daemon holds the drag; its rows arrive with the states, and the edit settles.
         let held = Self.sections([5, 1, 2, 3, 4])
         rows.show(CmuxNextSidebar.SidebarSection.patching(Self.flagged(held), in: held))
-        rows.settle(drag)
+        rows.edits.settle(drag)
         #expect(Self.order(model) == dragged, "a row state moved a row after the drag")
 
         rows.patch(Self.flagged(held).map { var row = $0; row.activity = .success; return row })
