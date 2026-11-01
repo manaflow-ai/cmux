@@ -54,5 +54,13 @@ class AppTimeline(unittest.TestCase):
         self.assertIsNone(got["app_censored"])
 
 
+
+class Cold(unittest.TestCase):
+    def test_alternate_makes_the_even_cycles_cold(self):
+        self.assertEqual([ext_quit.is_cold("alternate", i) for i in range(4)], [True, False, True, False])
+        self.assertEqual([ext_quit.is_cold(True, i) for i in range(2)], [True, True])
+        self.assertEqual([ext_quit.is_cold(False, i) for i in range(2)], [False, False])
+
+
 if __name__ == "__main__":
     unittest.main()

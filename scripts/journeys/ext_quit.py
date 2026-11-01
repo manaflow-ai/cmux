@@ -50,6 +50,7 @@ daemon runs ${prior_tui})
 """
 import json
 import re
+import subprocess
 import time
 
 D = None
@@ -430,6 +431,25 @@ def app_timeline(entries, sub, visible=0):
             "app_censored": censored, "app_timeline": rows}
 
 
+def is_cold(cold, index):
+    """Whether cycle INDEX (from 0) is cold: `cold` true makes every cycle cold, "alternate" the even ones (warm and
+    cold interleaved in one lease), false none."""
+    return cold is True or (cold == "alternate" and index % 2 == 0)
+
+
+def purge_file_cache():
+    """Empties the file cache (`sudo -n /usr/sbin/purge`, no password prompt); {"ok", "seconds", "error"?}."""
+    started = time.monotonic()
+    try:
+        done = subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"ok": False, "seconds": round(time.monotonic() - started, 2), "error": str(error)[-200:]}
+    out = {"ok": done.returncode == 0, "seconds": round(time.monotonic() - started, 2)}
+    if done.returncode:
+        out["error"] = (done.stderr or done.stdout or f"exit {done.returncode}").strip()[-200:]
+    return out
+
+
 def step_quit_speed(j, step):
     """QUIT P0 speed: COUNT quit-and-reopen cycles of kind HOW (default quit-keep: the File menu's Quit, Keep
     Sessions, no dialog), each through ext_restore's restore_relaunch (the visible panes sampled from the new
@@ -445,8 +465,12 @@ def step_quit_speed(j, step):
                        as slower than 20 s)
       quit_to_gone_ms  the quit request to the old process's end (the driver waits on the old pid with kqueue NOTE_EXIT)
       app_*            the app's own per-terminal timeline (app_timeline): app_all_frames_ms, app_interactive_ms
-      visible_drawn_ms `launch.visible_terminals_drawn` where the build has it (every terminal on screen drew live)
-    Both arms are WARM (the app ran in this lease before): `warm-first` is cycle 1, `warm-again` the rest. A cycle
+      visible_drawn_ms `launch.visible_terminals_drawn` where the build has it: every live terminal on screen drew its
+                       first frame after its first daemon content (the held frame does not count). None: no such mark,
+                       or it never fired (a summary counts None as censored, never drops it)
+    Cycles are WARM (the app ran in this lease before): `warm-first` is cycle 1, `warm-again` the rest; with `cold`
+    (true: every cycle; "alternate": the even ones, interleaved) a cycle is `cold`: the file cache is emptied between
+    the end and the reopen (`sudo -n purge`; a cycle whose purge failed is not_run). A cycle
     whose window was occluded (a capture slot's other windows over it: AppKit stops drawing) is marked `occluded`
     and is not evidence; run it on a whole-host lease (run.py --whole-host). Writes speed.json and each cycle's
     restore-trace-N.json; fails when a cycle did not reopen."""
@@ -454,7 +478,14 @@ def step_quit_speed(j, step):
     rows = []
     for index in range(int(step.get("count", 3))):
         daemons_before = daemon_builds(j)
-        record = ext_restore.step_restore_relaunch(j, {"how": step.get("how", "quit-keep")})
+        cold = is_cold(step.get("cold", False), index)
+        purge = {}
+        relaunch = {"how": step.get("how", "quit-keep")}
+        if cold:
+            # COLD: between the old app's end and the reopen, the file cache is emptied (`purge`), so the reopen
+            # reads the app's binaries and the frames from disk. A cycle whose purge failed is not run.
+            relaunch["after_end"] = lambda: purge.update(purge_file_cache())
+        record = ext_restore.step_restore_relaunch(j, relaunch)
         r = getattr(j, "restore", None) or {}
         trace_file = j.out / "restore-trace.json"
         if trace_file.exists():
@@ -486,7 +517,8 @@ def step_quit_speed(j, step):
             occluded = any(p.get("window_occluded") for p in j.app.panes() if p.get("visible"))
         except (D.StepError, OSError, ValueError):
             pass
-        rows.append({"cycle": index + 1, "arm": "warm-first" if index == 0 else "warm-again",
+        rows.append({"cycle": index + 1, "arm": "cold" if cold else ("warm-first" if index == 0 else "warm-again"),
+                     "purge": purge or None,
                      "quit_to_gone_ms": round(record["ended_after_s"] * 1000, 1) if record.get("ended_after_s") is not None else None,
                      "first_frame_ms": sub(marks.get("terminal.launch_frame_shown", r.get("launch_frame_shown"))),
                      "frame_missed": marks.get("terminal.launch_frame_missed"),
@@ -502,7 +534,7 @@ def step_quit_speed(j, step):
                      # A cycle whose daemons are not all of the build under test is not run (cmux-ad 01:25Z).
                      "daemons_before": daemons_before, "daemons_after": daemon_builds(j)})
         rows[-1]["not_run"] = not (rows[-1]["daemons_before"]["of_build_under_test"]
-                                   and rows[-1]["daemons_after"]["of_build_under_test"])
+                                   and rows[-1]["daemons_after"]["of_build_under_test"]) or (cold and not purge.get("ok"))
         (j.out / "speed.json").write_text(json.dumps({"how": step.get("how", "quit-keep"), "rows": rows}, indent=1) + "\n")
     return {"rows": rows, "summary": {"cycles": len(rows), "censored": sum(1 for x in rows if x["censored"]),
                                       "frames_censored": sum(1 for x in rows if x["frames_censored"]),
