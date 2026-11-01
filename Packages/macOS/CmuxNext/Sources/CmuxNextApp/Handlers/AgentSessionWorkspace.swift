@@ -100,18 +100,7 @@ enum AgentSessionWorkspace {
            let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        // Placed like Cmd-N (`workspaces.newPlacement`, cx-caoh), then into the named `group`, else below the caller's grouped row; `top` first below Home.
-        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        if let group {
-            join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge else { return }
-                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
-            }
-        }
-        let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: services.machines.allWorkspaces.map { $0.0 }) : nil
-        let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
-        let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
+        expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         return Task { @MainActor in
             do {
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
@@ -144,6 +133,23 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Registers the sidebar placement of new workspace `id`: placed like Cmd-N (`workspaces.newPlacement`, cx-caoh),
+    /// then into the named `group`, else below the caller's grouped row; `top` first below Home.
+    @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
+                                           windows: WindowManager) {
+        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
+        if let group {
+            join = { id, sidebar in
+                guard let sidebar = sidebar as? SidebarBridge else { return }
+                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
+            }
+        }
+        let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
+        let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
+        let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
+        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
     }
 
     /// Records `caller`, the session of the agent that opened `session`'s
