@@ -6,6 +6,11 @@
 //! and closes its own tab; what decides is here:
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
+//!   (a new one for a send from a folder with a GitHub repository, on the
+//!   personal account, with the cmux credential on stdin
+//!   (`credential_on_stdin`): the platform's workspace machine, as `ensure`
+//!   makes it, pinned like any other and answered with `ensured`; the App
+//!   makes it only when the platform made none)
 //!   the one its first try took while that machine exists; for a send from a
 //!   Mac workspace, the machine that workspace already has; else a new one
 //!   named for chats; and the send's keys ([`Keys`]). For now each workspace
@@ -83,7 +88,11 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 1;
     };
     let answer = match action.as_str() {
-        "plan" => flags.one("--request").map(|request| plan(&ledger, request)),
+        "plan" => flags.one("--request").map(|request| {
+            plan_with(&ledger, request, &mut std::io::stdin().lock(), &|ensure, credential| {
+                ensure.post(credential)
+            })
+        }),
         "pin" => match (flags.key(), flags.account(), flags.one("--machine"), flags.workspace()) {
             (Some(key), Some(account), Some(machine), Some(workspace)) => {
                 Some(pin(&ledger, &key, account, machine, workspace))
@@ -187,10 +196,32 @@ struct PlanRequest {
     /// The cloud environment the send chose (`cloud.startChat`'s `environment`), echoed for `ensure`.
     #[serde(default)]
     environment: Option<String>,
+    /// The cmux credential is the first line of stdin: a new machine for a send from a repository's folder, on the
+    /// personal account, is the platform's workspace machine.
+    #[serde(default)]
+    credential_on_stdin: bool,
 }
 
-/// `plan`: where the send goes, pinned when it is a machine that exists.
+/// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
+pub(super) type EnsureCall<'a> =
+    &'a dyn Fn(&Ensure, &str) -> Result<Value, crate::cli::PlatformCallError>;
+
+/// `plan`: where the send goes, pinned when it is a machine that exists (no platform: [`plan_with`] makes the CLI's).
+#[cfg(test)]
 pub(super) fn plan(ledger: &Path, request: &str) -> Value {
+    plan_with(ledger, request, &mut std::io::empty(), &|_, _| {
+        Err(crate::cli::PlatformCallError::Unreachable("no platform here".into()))
+    })
+}
+
+/// [`plan`], making a new machine through `ensure` when the send's folder has a GitHub repository and the account is
+/// the personal one ([`ensures`]).
+pub(super) fn plan_with(
+    ledger: &Path,
+    request: &str,
+    stdin: &mut dyn std::io::BufRead,
+    ensure: EnsureCall<'_>,
+) -> Value {
     let request: PlanRequest = match serde_json::from_str(request) {
         Ok(request) => request,
         Err(error) => return refused("bad_request", error),
@@ -234,9 +265,54 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         }
         destination
     });
+    let repo = request.local.as_deref().and_then(folder_repo);
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => json!({"ok": true, "machine": id}),
+        Ok(Destination::New) if ensures(&request, repo.as_deref()) => {
+            let mut credential = String::new();
+            let _ = stdin.read_line(&mut credential);
+            let ask = Ensure {
+                // A send from no Mac workspace is a workspace of its own.
+                workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
+                create_key: keys.create.clone(),
+                repo: repo.clone().unwrap_or_default(),
+                git_ref: None,
+                environment: request.environment.clone(),
+                platform: None,
+            };
+            let answer = if credential.trim().is_empty() {
+                Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
+            } else {
+                ensure(&ask, credential.trim())
+            };
+            match answer {
+                Ok(body) => {
+                    let line = ensure_answer(Ok(body));
+                    let Some(id) = line["machine"].as_str() else { return line };
+                    // Pinned before the App opens anything there, as a machine the App made.
+                    if let Err(error) = Ledger::update(ledger, |pins| {
+                        pins.record(id, &send);
+                        if let Some(workspace) = workspace {
+                            pick::claim(pins, workspace, &request.account, id);
+                        }
+                    }) {
+                        return refused("ledger_failed", format!("{error:#}"));
+                    }
+                    json!({"ok": true, "machine": id, "ensured": {
+                        "created": line["created"], "snapshot": line["snapshot"], "environment": line["environment"],
+                    }})
+                }
+                // The platform made no machine: the App makes it, as before.
+                Err(error) if made_no_machine(&error) => json!({
+                    "ok": true,
+                    "machine": null,
+                    "new_name": pick::new_machine_name(request.machines.iter().map(|machine| machine.title.as_str())),
+                }),
+                // It may have made one: a retry with the same key reaches it, never a second paid machine.
+                Err(error) => return ensure_answer(Err(error)),
+            }
+        }
         Ok(Destination::New) => json!({
             "ok": true,
             "machine": null,
@@ -246,10 +322,36 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     };
     if let (Value::Object(line), Value::Object(fields)) = (&mut line, fields) {
         line.extend(fields);
-        line.insert("repo".into(), json!(request.local.as_deref().and_then(folder_repo)));
+        line.insert("repo".into(), json!(repo));
         line.insert("environment".into(), json!(request.environment));
     }
     line
+}
+
+/// Whether a new machine for the send is the platform's workspace machine: the send's folder has a GitHub repository
+/// (`repo`), the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
+/// the personal team) and the App handed over the credential.
+fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
+    let personal = request
+        .account
+        .split_once('/')
+        .is_some_and(|(user, team)| !user.is_empty() && team.is_empty());
+    repo.is_some() && personal && request.credential_on_stdin
+}
+
+/// Whether a failed ensure made no machine, so the App may make one: the platform has no workspace machines here (a
+/// 404 that is not a refused environment), refused the sign-in, has none configured, or admitted none.
+pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
+    use crate::cli::PlatformCallError as E;
+    match error {
+        E::Status { code: "cloud_environment.not_found", .. } => false,
+        E::Status { status: 401 | 403 | 404, .. } => true,
+        E::Status {
+            code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
+            ..
+        } => true,
+        _ => false,
+    }
 }
 
 /// A cloud environment's id, as the cmux platform makes them: `env_` and 24 hex digits.
@@ -400,22 +502,25 @@ impl Ensure {
         if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
             return refused("unauthorized", "no cmux credential on stdin");
         }
+        ensure_answer(self.post(credential.trim()))
+    }
+
+    /// `POST /v1/workspaces/{W}/machine` as `credential`. A platform this cannot reach (a bad `--platform`) is
+    /// unreachable.
+    fn post(&self, credential: &str) -> Result<Value, crate::cli::PlatformCallError> {
+        let unreachable = crate::cli::PlatformCallError::Unreachable;
         let env = |name: &str| std::env::var(name).ok();
-        let origin = match crate::cli::platform_origin(self.platform.as_deref(), &env) {
-            Ok(origin) => origin,
-            Err(error) => return refused("bad_request", error),
-        };
+        let origin =
+            crate::cli::platform_origin(self.platform.as_deref(), &env).map_err(unreachable)?;
         // A new machine's placement may take a while; the platform answers once it is admitted.
-        let platform = match crate::cli::Platform::new(
+        let platform = crate::cli::Platform::new(
             origin,
-            credential.trim().to_string(),
+            credential.to_string(),
             std::time::Duration::from_secs(120),
-        ) {
-            Ok(platform) => platform,
-            Err(failure) => return refused(failure.code, failure.message),
-        };
+        )
+        .map_err(|failure| unreachable(failure.message))?;
         let path = format!("/v1/workspaces/{}/machine", percent_segment(&self.workspace));
-        ensure_answer(platform.post(&path, self.body()))
+        platform.post(&path, self.body())
     }
 }
 

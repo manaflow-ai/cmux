@@ -7412,16 +7412,20 @@
 			<string>home.chiefPetMascot</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>orb</string>
-				<string>orb-spark</string>
-				<string>orb-hood</string>
+				<string>fox</string>
 				<string>machine</string>
 				<string>machine-cyan</string>
 				<string>machine-blue</string>
 				<string>moon</string>
 				<string>moon-blue</string>
-				<string>fox</string>
 				<string>mochi</string>
+				<string>fox-arctic</string>
+				<string>machine-violet</string>
+				<string>machine-gold</string>
+				<string>moon-rose</string>
+				<string>orb</string>
+				<string>orb-spark</string>
+				<string>orb-hood</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Character</string>
