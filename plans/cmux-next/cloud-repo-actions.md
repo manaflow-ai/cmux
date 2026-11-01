@@ -10,7 +10,7 @@ failures retain the normal `ok:false` envelope.
 | --- | --- | --- |
 | `cloud.repo.list` | `{session,query?}` | `{repos:[{fullName,private,source}],connect?:{install_url}}` |
 | `cloud.repo.add` | `{session,repo,ref?}` | `{state:"done",repo,folder,head}` or typed failure |
-| `cloud.repo.attached` | `{session}` | `{repos:[{state:"done",repo,folder,head}]}` |
+| `cloud.repo.attached` | `{session}` | `{repos:[{state:"done",repo,folder,head,notes?}],pending:[{repo,state:"running",phase?,progress?,notes?}]}` |
 | `cloud.repo.wait_github` | `{session,timeout_ms?}` | `{connected:boolean}` |
 | `cloud.repo.local` | `{}` | `{repos:[...],recent:[...],complete:boolean}` |
 | `cloud.repo.sync` | `{repos,recent?,complete?,install_url?}` | `{synced:number}` |
@@ -62,6 +62,19 @@ exactly those args without a user message. Agent tool results describe that auto
 The wait is bounded (30 seconds by default, at most 60); the card may re-arm it while mounted.
 Clone status waits stop after nine minutes and return an actionable resume response. Each
 request owns its socket and worker; no perpetual observer or timer is installed.
+
+An unlinked connector's typed `repo.needs_github` error is equivalent to `connect`:
+list exposes its install link, wait reports disconnected, and add supplies the retry payload.
+Seed start refusals keep their typed error even without a job. `seed.checkout_failed` asks for
+an existing branch, tag or full commit SHA; `seed.unknown_job` clears the saved job so retry
+can start again; `seed.unavailable` directs the user to a Cloud machine. Clone-only mode does
+not accept sparse checkout arguments.
+
+Running jobs expose `phase` and `progress:{received_bytes,objects,total_objects}` through the
+`pending` array. Updates emit the existing `FrontendProjectionChanged` event for frontend
+`cloud-repos`, scope `session`, subject `catalog`, at most once per second while polling;
+completion always emits its final state. The UI refreshes attached repositories on this event.
+Successful attachments also retain optional `notes:["lfs_unavailable"|"lfs_failed"]`.
 
 The feature requires the machine daemon's git-seed-v1 clone-only implementation and a platform
 deployment with the GitHub connector enabled. The matching app changes provide startup sync,

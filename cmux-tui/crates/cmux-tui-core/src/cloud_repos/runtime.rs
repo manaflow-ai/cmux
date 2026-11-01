@@ -113,6 +113,21 @@ impl<'a> Runtime<'a> {
             std::thread::sleep(Duration::from_secs(1));
         }
     }
+
+    fn install_url(&self, response: &Value) -> Result<String, Failure> {
+        response
+            .get("install_url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.is_empty())
+            .map(str::to_owned)
+            .or(store::install_url(self.mux)?)
+            .ok_or_else(|| {
+                Failure::new(
+                    "seed.bad_request",
+                    "Open Add repository on your Mac to connect GitHub, then retry.",
+                )
+            })
+    }
 }
 impl Backend for Runtime<'_> {
     fn sources(&self) -> Result<Vec<Repo>, Failure> {
@@ -142,6 +157,14 @@ impl Backend for Runtime<'_> {
             if answer.get("ok").and_then(Value::as_bool) != Some(true) {
                 let error = answer.get("error").unwrap_or(&Value::Null);
                 let code = error.get("code").and_then(Value::as_str).unwrap_or_default();
+                if code == "repo.needs_github" {
+                    // Missing installation is the same recoverable state
+                    // whether the bridge returns connect or a typed error.
+                    return Ok(Catalog {
+                        repos: Vec::new(),
+                        install_url: Some(self.install_url(error)?),
+                    });
+                }
                 let mut failure = Failure::new(
                     if code == "repo.no_access" { code } else { "seed.clone_failed" },
                     if code == "repo.no_access" {
@@ -161,20 +184,8 @@ impl Backend for Runtime<'_> {
                 }
                 return Err(failure);
             }
-            if answer.get("connect").is_some_and(Value::is_object) {
-                catalog.install_url = Some(
-                    answer
-                        .pointer("/connect/install_url")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .or(store::install_url(self.mux)?)
-                        .ok_or_else(|| {
-                            Failure::new(
-                                "seed.bad_request",
-                                "Open Add repository on your Mac to connect GitHub, then retry.",
-                            )
-                        })?,
-                );
+            if let Some(connect) = answer.get("connect").filter(|v| v.is_object()) {
+                catalog.install_url = Some(self.install_url(connect)?);
             }
             let rows = answer.get("repos").and_then(Value::as_array).ok_or_else(transport_error)?;
             for row in rows {
@@ -252,11 +263,12 @@ impl Backend for Runtime<'_> {
                 self.mux,
                 session,
                 name,
-                Some(&json!({"job":job,"repo":repo,"ref":reference})),
+                Some(&json!({"job":job,"repo":repo,"ref":reference,"state":"running"})),
             )?;
             job
         };
         let deadline = Instant::now() + CLONE_TIMEOUT;
+        let mut last_progress: Option<Instant> = None;
         loop {
             let status = match self.seed("git.seed.status", json!({"job":job}), repo) {
                 Ok(status) => status,
@@ -274,6 +286,21 @@ impl Backend for Runtime<'_> {
                     return Err(failure);
                 }
             };
+            // Progress shares the existing projection event. Bound writes to
+            // once per second; completion always removes the running state.
+            if status.get("state").and_then(Value::as_str) != Some("running")
+                || last_progress.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
+            {
+                let mut saved =
+                    json!({"job":job,"repo":repo,"ref":reference,"state":status.get("state")});
+                for key in ["phase", "progress", "notes"] {
+                    if let Some(value) = status.get(key) {
+                        saved.set(key, value.clone());
+                    }
+                }
+                store::set_job(self.mux, session, name, Some(&saved))?;
+                last_progress = Some(Instant::now());
+            }
             match status.get("state").and_then(Value::as_str) {
                 Some("done") => {
                     let head = status
@@ -281,7 +308,12 @@ impl Backend for Runtime<'_> {
                         .and_then(Value::as_str)
                         .filter(|h| !h.is_empty())
                         .ok_or_else(transport_error)?;
-                    return Ok(json!({"state":"done","repo":repo,"folder":folder,"head":head}));
+                    let mut result =
+                        json!({"state":"done","repo":repo,"folder":folder,"head":head});
+                    if let Some(notes) = status.get("notes") {
+                        result.set("notes", notes.clone());
+                    }
+                    return Ok(result);
                 }
                 Some("failed") => {
                     store::set_job(self.mux, session, name, None)?;
@@ -346,7 +378,9 @@ pub(crate) fn handle(mux: &Mux, cmd: &str, args: &Value) -> Value {
         match cmd {
             "cloud.repo.list" => list(&runtime, args.get("query").and_then(Value::as_str)),
             "cloud.repo.add" => add(&runtime, args),
-            "cloud.repo.attached" => Ok(json!({"repos":runtime.attached(session)?})),
+            "cloud.repo.attached" => Ok(
+                json!({"repos":runtime.attached(session)?,"pending":store::pending(mux, session)?}),
+            ),
             "cloud.repo.wait_github" => {
                 let timeout =
                     args.get("timeout_ms").and_then(Value::as_u64).unwrap_or(30_000).min(60_000);

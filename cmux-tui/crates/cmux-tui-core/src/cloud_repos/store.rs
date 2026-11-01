@@ -87,6 +87,26 @@ fn chat_repos(doc: &Value, session: &str) -> Vec<Value> {
 fn recent_repos(doc: &Value) -> Vec<Value> {
     doc.get("recent").and_then(Value::as_array).cloned().unwrap_or_default()
 }
+pub(super) fn pending(mux: &Mux, session: &str) -> Result<Vec<Value>, Failure> {
+    let (doc, _) = load(mux)?;
+    Ok(doc
+        .get("jobs")
+        .and_then(|jobs| jobs.get(session))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|jobs| jobs.values())
+        .filter(|job| job.get("state").and_then(Value::as_str) == Some("running"))
+        .map(|job| {
+            let mut result = json!({"repo":job.get("repo"),"state":"running"});
+            for key in ["phase", "progress", "notes"] {
+                if let Some(value) = job.get(key) {
+                    result.set(key, value.clone());
+                }
+            }
+            result
+        })
+        .collect())
+}
 pub(super) fn sync(mux: &Mux, args: &Value) -> Result<Value, Failure> {
     if args.get("complete").is_some_and(|v| v != true) {
         return Err(Failure::new(

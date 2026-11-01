@@ -70,6 +70,79 @@ fn done() -> Value {
 }
 
 #[test]
+fn cloud_repo_runtime_connector_auth_error_keeps_connect_and_automatic_retry() {
+    for supplied_url in [true, false] {
+        let fixture = Fixture::new();
+        let url = "https://github.com/apps/cmux/installations/new";
+        store::sync(&fixture.mux, &json!({"repos":[],"install_url":url})).unwrap();
+        let mut error = json!({"code":"repo.needs_github"});
+        if supplied_url {
+            error.set("install_url", json!(url));
+        }
+        let unlinked = json!({"ok":false,"error":error});
+        let agent = fixture.server(
+            "agent.sock",
+            vec![
+                unlinked.clone(),
+                unlinked.clone(),
+                unlinked,
+                json!({"ok":true,"repos":[{"fullName":"owner/tool","private":true}]}),
+            ],
+        );
+        let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"retry"})), done()]);
+        let runtime = fixture.runtime();
+        assert_eq!(list(&runtime, None).unwrap()["connect"]["install_url"], url);
+        assert_eq!(runtime.wait_github(0).unwrap(), json!({"connected":false}));
+        let args = json!({"session":fixture.session,"repo":"tool","ref":"main"});
+        let failure = add(&runtime, &args).unwrap_err().0;
+        assert_eq!(failure["code"], "repo.needs_github");
+        assert_eq!(failure["install_url"], url);
+        assert_eq!(failure["retry"]["args"], args);
+        assert_eq!(add(&runtime, &failure["retry"]["args"]).unwrap()["state"], "done");
+        assert_eq!(seed.join().unwrap().len(), 2);
+        assert_eq!(agent.join().unwrap().len(), 4);
+    }
+}
+
+#[test]
+fn cloud_repo_runtime_seed_start_refusals_keep_the_typed_next_action() {
+    for code in ["seed.bad_request", "seed.unavailable"] {
+        let fixture = Fixture::new();
+        let seed = fixture.server("seed.sock", vec![json!({"ok":false,"error_code":code})]);
+        let failure =
+            add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"owner/tool"}))
+                .unwrap_err()
+                .0;
+        assert_eq!(failure["code"], code);
+        assert!(failure["message"].as_str().unwrap().contains("retry"));
+        assert!(store::job(&fixture.mux, &fixture.session, "tool").unwrap().is_none());
+        assert_eq!(seed.join().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn cloud_repo_runtime_running_progress_finishes_with_seed_notes() {
+    let fixture = Fixture::new();
+    let progress = json!({"received_bytes":1024,"objects":2,"total_objects":4});
+    let notes = json!(["lfs_unavailable"]);
+    let seed = fixture.server(
+        "seed.sock",
+        vec![
+            seed_reply(json!({"job":"progress"})),
+            seed_reply(json!({"state":"running","phase":"clone","progress":progress})),
+            seed_reply(json!({"state":"done","head":"abc123","notes":notes})),
+        ],
+    );
+    let result =
+        add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"owner/tool"})).unwrap();
+    assert_eq!(result["notes"], notes);
+    assert!(store::pending(&fixture.mux, &fixture.session).unwrap().is_empty());
+    let requests = seed.join().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[1]["job"], requests[2]["job"]);
+}
+
+#[test]
 fn cloud_repo_runtime_clones_through_seed_and_replays_the_record_without_a_second_clone() {
     let fixture = Fixture::new();
     let server = fixture.server("seed.sock", vec![seed_reply(json!({"job":"clone-1"})), done()]);
@@ -105,6 +178,9 @@ fn cloud_repo_runtime_maps_every_seed_status_failure_and_clears_retryable_job() 
         "seed.disk_full",
         "seed.clone_failed",
         "seed.bad_request",
+        "seed.checkout_failed",
+        "seed.unknown_job",
+        "seed.unavailable",
     ] {
         let fixture = Fixture::new();
         let agent = (code == "seed.needs_github").then(|| fixture.server("agent.sock", vec![json!({
