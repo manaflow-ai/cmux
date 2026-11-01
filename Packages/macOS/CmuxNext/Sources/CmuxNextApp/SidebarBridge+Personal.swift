@@ -100,13 +100,7 @@ extension SidebarBridge {
                 report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
                 return .failed
             }
-            // The launch window is visible before restore registers its first workspace.
-            // Keep its queued placement alive while that registration is in flight; a
-            // registry miss for any other window means it was closed or removed.
-            guard let self, let state,
-                  (services.windows.registry.value.window(state.id)?.isOpen == true
-                   || (services.windows.registry.value.window(state.id) == nil
-                       && services.windows.launchWindowID == state.id)),
+            guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
                   ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
                   let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
             // `sections` retains this intent's neighbors. The planner now reads
