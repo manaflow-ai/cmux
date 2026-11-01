@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import io
 import sys
 import subprocess
 import os
@@ -27,7 +28,7 @@ ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
 ENV["JOBS"] = " ".join(sorted(admission.JOBS))
 REQUEST = admission.identity(ENV)
 LEASE = "b" * 24
-CREATED = dt.datetime.now(dt.timezone.utc)
+CREATED = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=180)
 
 
 def receipt(status="pending"):
@@ -43,6 +44,20 @@ def receipt(status="pending"):
 
 
 class Receipts(unittest.TestCase):
+    def test_future_receipt_cannot_authorize_overflow(self):
+        value = receipt("overflow")
+        future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=10)
+        value.update(created_at=future.isoformat(),
+                     expires_at=(future + dt.timedelta(seconds=180)).isoformat(),
+                     decided_at=(future + dt.timedelta(seconds=180)).isoformat())
+        with self.assertRaises(ValueError):
+            admission.validate(value, REQUEST)
+
+    def test_plain_public_http_cannot_supply_an_admission_receipt(self):
+        with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(b"{}")):
+            with self.assertRaises(ValueError):
+                admission.exchange("http://203.0.113.1/v1/nightly-linux-admission")
+
     def test_reserved_runners_are_bound_to_each_job(self):
         value = receipt("fleet")
         self.assertEqual(admission.routes(ENV, REQUEST, value), value["runners"])
@@ -175,6 +190,16 @@ class Workflow(unittest.TestCase):
                                "vars.LINUX_RUNNER": overflow}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
                         self.assertEqual(evaluate(parse_expression(source), context), admission.FLEET_LINUX)
+
+    def test_other_tracks_keep_their_existing_linux_route(self):
+        for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
+            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            for track in ("nightly", "rc"):
+                with self.subTest(job=name, track=track):
+                    context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
+                               "needs.decide.outputs.track": track,
+                               "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"]}
+                    self.assertEqual(evaluate(parse_expression(source), context), ENV["OVERFLOW_LINUX"])
 
     def test_signer_rejects_a_cached_macho_or_wrong_architecture(self):
         script = next(s["run"] for s in self.jobs["signer-build"]["steps"]
