@@ -76,6 +76,23 @@ impl Mux {
                 intent.set_path(&["terminal_reservation", "tab_id"], json!(tab_id));
             }
         }
+        // FC-1: a terminal tab or `pane.run` aimed at a pinned column that takes no tabs (Home's dock
+        // before its `allow_tabs`, or one closed to tabs) opens in a new column right of the dock
+        // instead of a `dock-column-pinned` refusal. Decided here, under the state lock, and stored
+        // in the intent, so the operation, its fingerprint and a replay stay the caller's, and every
+        // creator gets it: the JSON-lines `new-tab`, `tab.create_terminal`, the receipted
+        // `create-surface-with-receipt` (the TUI, the SDKs), and `pane.run`.
+        let beside_closed_dock =
+            matches!(operation, ResourceOperation::TabCreateTerminal | ResourceOperation::PaneRun)
+                .then(|| {
+                    resolved.pane.and_then(|pane| terminal_column_beside_closed_dock(state, pane))
+                })
+                .flatten();
+        if let Some(width) = beside_closed_dock {
+            intent.set(BESIDE_CLOSED_DOCK_FIELD, json!({ "viewport_width": width }));
+            intent.set("pane_reservation", json!({ "pane_id": PanePublicId::random()? }));
+            intent.set("split_reservation", json!({ "split_id": SplitPublicId::random()? }));
+        }
         if matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate) {
             // The new pane's public id is fixed here, so a creation resumed
             // after a restart makes the same pane (`split-client-keys-v1`).
@@ -354,6 +371,8 @@ impl Mux {
                             viewport_width: None,
                             row_height: None,
                             focus: true,
+                            name: None,
+                            on_exit: None,
                         },
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
@@ -409,6 +428,8 @@ impl Mux {
                             .get(PANE_SPLIT_FOCUS_FIELD)
                             .and_then(Value::as_bool)
                             .unwrap_or(true),
+                        name: None,
+                        on_exit: None,
                     },
                 )
                 .map(|created| created.path)
@@ -755,6 +776,28 @@ impl Mux {
         on_exit: Option<TerminalOnExit>,
         index: Option<usize>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // FC-1: the intent decided that the target is a pinned dock that takes no tabs: the
+        // terminal opens in a new column right of it, keeping the focus where it was.
+        if let Some(width) =
+            intent[BESIDE_CLOSED_DOCK_FIELD]["viewport_width"].as_f64().map(|width| width as f32)
+        {
+            return self.effect_add_pane(
+                intent,
+                target,
+                PaneAddOptions {
+                    direction: Some("right"),
+                    argv,
+                    cwd,
+                    size,
+                    ratio: None,
+                    viewport_width: Some(width),
+                    row_height: None,
+                    focus: false,
+                    name,
+                    on_exit,
+                },
+            );
+        }
         // `pinned-dock-v1`: a pinned column that takes no tabs refuses
         // before anything spawns, and again when the tab attaches.
         let operation = ResourceOperation::TabCreateTerminal.wire_name();
@@ -867,8 +910,18 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height, focus } =
-            options;
+        let PaneAddOptions {
+            direction,
+            argv,
+            cwd,
+            size,
+            ratio,
+            viewport_width,
+            row_height,
+            focus,
+            name,
+            on_exit,
+        } = options;
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -903,8 +956,16 @@ impl Mux {
             // An intent stored before pane reservations existed.
             None => PanePublicId::random()?,
         };
-        let spawned =
-            self.effect_spawn_pane_surface(intent, target, &workspace_key, argv, cwd, size)?;
+        let spawned = self.effect_spawn_pane_surface(
+            intent,
+            target,
+            &workspace_key,
+            argv,
+            cwd,
+            size,
+            name,
+            on_exit,
+        )?;
         let surface = spawned.surface().clone();
         #[cfg(test)]
         if viewport_width.is_some()

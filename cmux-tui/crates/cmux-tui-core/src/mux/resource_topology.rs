@@ -116,6 +116,9 @@ pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
 /// split keeps the user's focus; the daemon's and the user's own splits omit
 /// it and focus the new pane.
 pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
+/// The intent field of a terminal tab or `pane.run` aimed at a pinned dock that takes no tabs:
+/// `{"viewport_width": W}`, the new column it opens in right of the dock instead (FC-1).
+const BESIDE_CLOSED_DOCK_FIELD: &str = "beside_closed_dock";
 
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.
@@ -151,6 +154,11 @@ struct PaneAddOptions<'a> {
     /// (raw `split`, the TUI, the app) do; a `pane.split` resource request
     /// does only with `focus: true` (the router defaults it to false).
     focus: bool,
+    /// The new terminal's name and exit policy: a terminal tab or `pane.run`
+    /// aimed at a pinned dock that takes no tabs opens as a pane beside it
+    /// and keeps both (FC-1); a split has neither.
+    name: Option<String>,
+    on_exit: Option<TerminalOnExit>,
 }
 
 struct TerminalEffectOptions {
