@@ -118,6 +118,10 @@ extension FFIMacLink: BrowserStreamOpening {
         handle.warmMedia()
     }
 
+    func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+        try await openChannel(service: "localhost", args: ["port": String(port)])
+    }
+
     func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: ["tab": tab]), as: UTF8.self)
         do {

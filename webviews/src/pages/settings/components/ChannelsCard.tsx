@@ -51,9 +51,11 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             </span>
           )}
           {build.kept && <span className="badge">{labels.kept}</span>}
-          <span className={build.health === "held" || build.health === "pulled" ? "badge badge-warning" : "badge"}>
-            {build.health_title}
-          </span>
+          {build.health_title && (
+            <span className={build.health === "held" || build.health === "pulled" ? "badge badge-warning" : "badge"}>
+              {build.health_title}
+            </span>
+          )}
         </div>
       </div>
     </div>

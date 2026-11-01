@@ -739,3 +739,88 @@ async fn orchestration_session_changed_carries_effort() {
         c.wait_for(method::MUX_SESSION_CHANGED, |p| p["session"]["effort"] == "high").await;
     assert_eq!(changed["sessionId"], id);
 }
+
+/// An attach page that starts inside a turn names the prompt that opened it (`turnOpener`), the
+/// record a read of the user messages before the page finds: the pane shows what the turn was
+/// asked with no read of its own after the attach. A page that starts a turn, or holds the log
+/// from its start, names none.
+#[tokio::test]
+async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "opener").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let mut a = connect(&hub).await;
+    let attach = |limit: u64| json!({"sessionId": id, "kinds": ["transcript"], "limit": limit});
+    let whole = a.request(method::MUX_ATTACH, attach(10_000)).await.unwrap();
+    assert_eq!(whole["hasMore"], false);
+    assert_eq!(whole["turnOpener"], Value::Null, "{whole}");
+    let starts_turn =
+        |e: &Value| e["dir"] == "mux" && e["kind"] == "user_message" && e["msg"]["steer"] != true;
+    let transcript = whole["events"].as_array().unwrap().clone();
+    let last_prompt = transcript.iter().rposition(starts_turn).expect("a prompt in the log");
+    // Pages that start right after the newest prompt, inside its turn.
+    let inside = transcript.len() - last_prompt - 1;
+    assert!(inside >= 1, "the last turn has records after its prompt: {whole}");
+    for limit in 1..=inside as u64 {
+        let page = a.request(method::MUX_ATTACH, attach(limit)).await.unwrap();
+        let first = page["events"][0]["seq"].as_u64().unwrap();
+        let read = a
+            .request(
+                method::MUX_EVENTS,
+                json!({"sessionId": id, "beforeSeq": first, "limit": 16, "kinds": ["user_message"]}),
+            )
+            .await
+            .unwrap();
+        let expected =
+            read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
+        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+    }
+    // The page that starts with the prompt itself needs none.
+    let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();
+    assert!(starts_turn(&at_prompt["events"][0]), "{at_prompt}");
+    assert_eq!(at_prompt["turnOpener"], Value::Null);
+}
+
+/// A chat opens whatever the size of what it shows (Leo, 2026-10-31: "this is completely
+/// hardlocked bc of message size"). An attach page and its `turnOpener` each keep one record of
+/// up to 14 MiB, so a large prompt and its large answer made an attach reply past one message
+/// (16.9 MB), refused as `message.too_large` at every open and every Retry. The reply fits one
+/// message now: the largest record goes as a stub with its seq and kind.
+#[tokio::test]
+async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "large-open").await;
+    // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
+    // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(6 << 20), None)).await.unwrap();
+    let session = hub.resolve("large-open").unwrap();
+    let records = hub.events(&session.id, 0, 10_000).unwrap();
+    let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();
+    let opener = records.iter().find(|r| r.dir == "mux" && r.kind == "user_message").unwrap();
+    let echo = records
+        .iter()
+        .filter(|r| r.seq > opener.seq && r.dir == "in" && r.kind == "agent_message_chunk")
+        .max_by_key(|r| size(&r.msg))
+        .unwrap();
+    let limit = acpmux::rpc::MAX_MESSAGE_BYTES;
+    let (opener_bytes, echo_bytes) = (size(&opener.msg), size(&echo.msg));
+    // Each record fits one message on its own; together they do not.
+    assert!(
+        opener_bytes < limit - (1 << 20) && echo_bytes < limit - (1 << 20),
+        "opener {opener_bytes}, echo {echo_bytes}"
+    );
+    assert!(opener_bytes + echo_bytes > limit, "opener {opener_bytes}, echo {echo_bytes}");
+
+    // The pane's open of the turn's end: a page of the answer, inside the prompt's turn.
+    let mut a = connect(&hub).await;
+    let open = json!({"sessionId": id, "kinds": ["transcript"], "limit": 1, "beforeSeq": echo.seq + 1, "maxBytes": 128 << 10});
+    let page = a.request(method::MUX_ATTACH, open).await.expect("the chat opens");
+    let line = acpmux::rpc::Message::ok(json!(1), page.clone()).to_line();
+    assert!(line.len() <= limit, "the attach reply is {} bytes", line.len());
+    assert_eq!(page["events"][0]["seq"], echo.seq, "{}", &line[..2000.min(line.len())]);
+    assert_eq!(page["turnOpener"]["seq"], opener.seq);
+    let omitted = |e: &Value| e["msg"]["_meta"]["acpmux"]["omitted"]["reason"] == "too_large";
+    assert!(omitted(&page["events"][0]) || omitted(&page["turnOpener"]));
+}

@@ -51,14 +51,14 @@ struct DebugSidebarNestedFixture {
 
 /// `debug.daemon_update {state?, id?, name?, ssh_host?, reason?, build?, notify?, sidebar?, tooltip?, window?}`
 /// (DEBUG builds, captures of the daemon update): a capture host has no ssh peer and no update runs.
-/// - `state` (`updating`, `retrying`, `updated`, `failed`, `rolled_back`, `cannot_update`, `cleared`): applies that
-///   ``DaemonUpdateEvent`` to ``DaemonUpdateBoard/shared`` for the machine `id` (default
+/// - `state` (`updating`, `retrying`, `offline`, `updated`, `failed`, `rolled_back`, `cannot_update`, `cleared`): applies that
+///   ``DaemonUpdateEvent`` to the app's ``DaemonUpdateBoard`` for the machine `id` (default
 ///   `ssh:build-box`), named `name` (`build-box`), on `ssh_host` (`build-box.example.com`); `reason`
 ///   for a failure (for `cannot_update`, the whole line), `build` for an update and the build a
 ///   failure is about (its notice stays closed for that build), `notify` as the policy sets it for
 ///   a recorded failure. A `cannot_update` machine has no toast; Settings > Updates lists it.
 /// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, a section each, whose
-///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:)``,
+///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:updates:)``,
 ///   so whatever the live tooltip adds shows here too); `false` brings the live rows back. Shown again
 ///   after a `state`, it reads the board anew.
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
@@ -73,20 +73,18 @@ extension DebugSidebarNestedFixture {
         let host = params["ssh_host"]?.stringValue ?? "build-box.example.com"
         var answer: [String: JSONValue] = [:]
         if let raw = params["state"]?.stringValue {
-            guard let state = state(raw, reason: params["reason"]?.stringValue ?? "the machine ran out of disk space",
-                                    build: params["build"]?.stringValue ?? "abc123def") else {
-                return .object(["error": .string("unknown state"),
-                                "available": .array(["updating", "retrying", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
-                                    .map { .string($0) })])
+            guard let state = DaemonUpdateEvent.State(fixtureName: raw, reason: params["reason"]?.stringValue ?? "the machine ran out of disk space",
+                                                      build: params["build"]?.stringValue ?? "abc123def") else {
+                return .object(["error": .string("unknown state"), "available": .array(DaemonUpdateEvent.State.fixtureNames.map { .string($0) })])
             }
-            DaemonUpdateBoard.shared.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
+            services.daemonUpdates.board.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
                                                              notify: params["notify"]?.boolValue ?? false,
                                                              build: params["build"]?.stringValue))
             answer["state"] = .string(raw)
         }
         if params["click"]?.boolValue == true {
             // task-owner: one board call that returns at once (the stand-in policy accepts at once)
-            Task { _ = await DaemonUpdateBoard.shared.update(id) { _ in true } }
+            Task { [board = services.daemonUpdates.board] in _ = await board.update(id) { _ in true } }
             answer["click"] = .bool(true)
         }
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
@@ -101,7 +99,7 @@ extension DebugSidebarNestedFixture {
             // fixture turns the preference on; off, it goes back to the settings' value.
             DesignSettings.shared.sidebarSections.groupsByComputer = show
                 || (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
-            sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host) : nil
+            sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host, updates: services.daemonUpdates.board) : nil
             sidebar.container.sidebarView.renderNow() // the list reloads on its next turn otherwise; the header is looked up below
             sidebar.container.layoutSubtreeIfNeeded()
             answer["sidebar"] = .bool(show)
@@ -117,24 +115,11 @@ extension DebugSidebarNestedFixture {
         return .object(answer)
     }
 
-    static func state(_ raw: String, reason: String, build: String) -> DaemonUpdateEvent.State? {
-        switch raw {
-        case "updating": .updating
-        case "retrying": .retrying
-        case "updated": .updated(build: build)
-        case "failed": .failed(reason: reason, rolledBack: false)
-        case "rolled_back": .failed(reason: reason, rolledBack: true)
-        case "cannot_update": .cannotUpdate(reason: reason)
-        case "cleared": .cleared
-        default: nil
-        }
-    }
-
     /// This Mac with one workspace, then the ssh machine with one, so its header shows (one machine's
     /// header titles the list instead and has no tooltip).
-    private static func fixture(machine: MachineID, name: String, host: String) -> [SidebarSection] {
+    private static func fixture(machine: MachineID, name: String, host: String, updates: DaemonUpdateBoard) -> [SidebarSection] {
         let destination = (try? SSHDestination(parsing: "dev@" + host)) ?? (try? SSHDestination(parsing: "build-box"))
-        let tooltip = destination.map { SidebarBridge.sshTooltip(destination: $0, session: RemoteSessionName.defaultName, detail: nil) }
+        let tooltip = destination.map { SidebarBridge.sshTooltip(destination: $0, session: RemoteSessionName.defaultName, detail: nil, updates: updates) }
         let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let ssh = SidebarMachine(id: machine, name: name, kind: .ssh, status: .connected, detail: tooltip)
         return [

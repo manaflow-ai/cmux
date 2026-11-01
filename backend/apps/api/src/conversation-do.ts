@@ -571,6 +571,12 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
+  /** This actor's `uploading` slot whose completion may be resumed (store.completingSlot). */
+  async completingSlot(entity: string, id: string, mode: store.UploadSlot["mode"], actor: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    return store.completingSlot(this.sqlStore, id, mode, actor)
+  }
+
   /** The open slot whose declared poster or preview may be PUT now (moved to `uploading`). */
   async derivedSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
     if (!this.existingState(entity)) return null
@@ -582,7 +588,84 @@ export class ConversationDO extends OwnerDO<Head> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
+  async setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const kept = store.setMultipartUpload(this.sqlStore, id, uploadId, Date.now(), objectKey)
+    // A refused upload is queued for an abort; the alarm runs it.
+    if (!kept) this.scheduleAlarm()
+    return kept
+  }
+
+  /** An upload no slot names whose abort failed (an intent's lost owner call): the alarm aborts it later. */
+  async queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    store.queueAbort(this.sqlStore, { upload_id: uploadId, object_key: objectKey }, Date.now())
+    this.scheduleAlarm()
+  }
+
+  /** Claims the next part of an open multipart slot for one request before it reaches R2 (store.claimMultipartPart). */
+  async claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }> {
+    if (!this.existingState(entity)) return { ok: false, busy: false }
+    const claimed = store.claimMultipartPart(this.sqlStore, id, part, before)
+    this.scheduleAlarm()
+    return claimed
+  }
+
+  /** A streaming part's claim is still its request's: renewed, or false when it was taken over (store.renewMultipartPart). */
+  async renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const renewed = store.renewMultipartPart(this.sqlStore, id, claim)
+    this.scheduleAlarm()
+    return renewed
+  }
+
+  /** Ends a part claim whose upload failed (store.releaseMultipartPart). */
+  async releaseMultipartPart(entity: string, id: string, claim: string): Promise<void> {
+    if (this.existingState(entity)) store.releaseMultipartPart(this.sqlStore, id, claim)
+  }
+
+  /** Records a verified part of an open multipart slot under its claim (store.recordMultipartPart): false when another part, another claim or the expiry came first. */
+  async recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const recorded = store.recordMultipartPart(this.sqlStore, id, part, etag, before, after, claim)
+    this.scheduleAlarm()
+    return recorded
+  }
+
+  async leaseDirect(entity: string, id: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    const slot = store.leaseDirect(this.sqlStore, id)
+    this.scheduleAlarm()
+    return slot
+  }
+
+  async advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const advanced = store.advanceDirect(this.sqlStore, id, before, after)
+    this.scheduleAlarm()
+    return advanced
+  }
+
+  async multipartEtags(entity: string, id: string): Promise<Array<string>> {
+    return this.existingState(entity) ? store.multipartEtags(this.sqlStore, id) : []
+  }
+
+  /** A multipart completion that may not have happened: the slot is open again (store.reopenMultipart). */
+  async reopenMultipart(entity: string, id: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const reopened = store.reopenMultipart(this.sqlStore, id)
+    this.scheduleAlarm()
+    return reopened
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
+  /** An open multipart slot whose intent failed with no upload of it left alive: it goes at once (the Worker refunds its bytes). */
+  async dropUploadSlot(entity: string, id: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    const slot = store.slotIn(this.sqlStore, id, "open")
+    if (slot?.mode === "multipart" || slot?.mode === "direct") store.removeSlot(this.sqlStore, id)
+  }
+
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return
     const slot = store.slotIn(this.sqlStore, id, "uploading")
@@ -593,15 +676,26 @@ export class ConversationDO extends OwnerDO<Head> {
    * After the Worker verified the bytes of `uploading` slot `slotId`: records the upload for a
    * still-current participant of an open conversation and settles the slot in the same step.
    * `exists`: the bytes were already here, the caller deletes the slot's object and refunds.
+   * `objectId` (the slot's): when the slot is gone because this upload already committed (a retry
+   * after a lost answer), its record answers `stored` again, so the caller never deletes a kept object.
    */
   async commitAttachment(
     entity: string,
     slotId: string,
-    etag?: string
+    etag?: string,
+    objectId?: string
   ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: conversation.DerivedImage } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
-    const slot = store.slotIn(this.sqlStore, slotId, "uploading")
-    if (!slot) return { ok: false, code: "slot_gone" }
+    // A multipart slot is committed only after R2 joined its parts and the object was checked, so an open one counts
+    // too: a concurrent completion retry that failed transiently may have reopened it while this one completed.
+    const open = store.slotIn(this.sqlStore, slotId, "open")
+    const slot = store.slotIn(this.sqlStore, slotId, "uploading") ?? (open?.mode === "multipart" && open.multipart_upload_id ? open : null)
+    if (!slot) {
+      const kept = objectId ? store.recordByObjectId(this.sqlStore, objectId) : undefined
+      if (!kept) return { ok: false, code: "slot_gone" }
+      const image = conversation.recordedImageOf(kept)?.image
+      return { ok: true, state: "stored", object_key: kept.object_key, ...(image ? { derived: { hash: image.hash, mime_type: image.mime_type, byte_count: image.byte_count } } : {}) }
+    }
     const a = this.acting(entity, slot.actor)
     if (!a || !a.open) {
       store.settleSlot(this.sqlStore, slot, false)

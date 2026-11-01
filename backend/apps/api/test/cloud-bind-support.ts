@@ -21,7 +21,11 @@ export interface CloudStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<any>
   bindMachine(entity: string, body: BindBody): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
   mintLinkToken(entity: string, principal: Principal, params: unknown): Promise<{ ok: boolean; value?: any; code?: string; message?: string }>
-  fakeControl(cmd: { advance_ms?: number }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
+  fakeControl(cmd: {
+    advance_ms?: number
+    power_refuse?: number
+    vm_state?: { name: string; state: string }
+  }): Promise<{ files: Array<{ name: string; path: string; content: string; mode: number }>; audit: Array<Record<string, unknown>>; now: number }>
 }
 const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
 export const cloudStub = (team: string) => namespace.get(namespace.idFromName(team)) as unknown as CloudStub
@@ -104,14 +108,14 @@ export const post = async (path: string, token: string | undefined, body: unknow
 const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 /** A signed-in person with a registered mac install and an install token for it. */
-export const signedInWithInstall = async (sub: string, kind = "mac") => {
+export const signedInWithInstall = async (sub: string, kind = "mac", op_classes?: ReadonlyArray<string>) => {
   const session = await sessionToken(sub)
   const ensured = (await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const reg = await post("/v1/ops", session, {
     op: "install.register",
-    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos" },
+    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos", ...(op_classes ? { op_classes } : {}) },
     idempotency_key: crypto.randomUUID(),
     origin: "user"
   })

@@ -185,7 +185,7 @@ struct SubagentsScreen: View {
         .overlay {
             if store.subagents.isEmpty {
                 ContentUnavailableView("No subagents", systemImage: "person.2.wave.2",
-                                       description: Text("When \(store.summary.agentName) splits work across subagents, each one shows up here with its own transcript."))
+                                       description: Text("Each subagent has its own transcript."))
             }
         }
         .chatDemoReceiver(store: store, surface: surface)
@@ -216,7 +216,8 @@ struct SubagentTranscriptScreen: View {
             let turn = agent.asTurn
             let rows = turn.rows
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                // Lazy: a long subagent run builds the rows on screen only.
+                LazyVStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
                         Text("Subagent of \(agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name)")
@@ -235,7 +236,7 @@ struct SubagentTranscriptScreen: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
-                        SubagentRowView(row: row, turn: turn, store: store, isLast: row.id == rows.last?.id) { nested = $0 }
+                        SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)
@@ -267,6 +268,8 @@ struct SubagentRowView: View {
     let row: TurnRow
     let turn: AgentTurn
     let store: AgentChatStore
+    /// Diffs computed once each off the main thread (not per body).
+    let diffs: ChatDiffCache
     let isLast: Bool
     let open: (String) -> Void
 
@@ -286,7 +289,9 @@ struct SubagentRowView: View {
             if call.isRunning {
                 ToolRowView(call: call)
             } else {
-                DiffSnippet(call: call, changeSet: turn.changeSet ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: []))
+                DiffSnippet(call: call, previews: diffs.files(for: call)) {
+                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
+                }
             }
         case .plan(_, let entries):
             PlanCard(entries: entries)
@@ -351,15 +356,15 @@ struct CheckpointsScreen: View {
                                 }
                         }
                     } footer: {
-                        Text("Restoring puts the files in \(store.summary.workspaceTitle) back the way they were. The current state is checkpointed first, so a restore can be undone.")
+                        Text("Restore puts the files back; the current state is checkpointed first.")
                             .cmuxMobileTextColumn(.fixed(CheckpointsScreen.column))
                     }
                 }
                 .listStyle(.insetGrouped)
                 .overlay {
                     if checkpoints.isEmpty {
-                        ContentUnavailableView("No checkpoints yet", systemImage: "clock.arrow.circlepath",
-                                               description: Text("A checkpoint is saved before and after each turn that changes files."))
+                        ContentUnavailableView("No checkpoints", systemImage: "clock.arrow.circlepath",
+                                               description: Text("A checkpoint is saved before and after file changes."))
                     }
                 }
             }
@@ -504,7 +509,7 @@ struct HandoffScreen: View {
                     } header: {
                         Text("Continue in another agent").cmuxMobileTextColumn(.fixed(HandoffScreen.column))
                     } footer: {
-                        Text("\(store.summary.agentName) writes a summary of this chat for the new agent. You review it before anything is sent. The new chat starts on \(store.summary.macName) in the same folder.")
+                        Text("Review the summary before sending; the new chat starts on the same Mac and folder.")
                             .cmuxMobileTextColumn(.fixed(HandoffScreen.column))
                     }
                 }

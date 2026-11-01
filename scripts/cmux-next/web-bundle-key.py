@@ -29,11 +29,13 @@ import sys
 # source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and
 # xcstrings catalogs (not the strings tables: build output, ignored since #21946, made from those
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
-# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
-# webviews app's agent-session.html.
+# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
+# gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
+# marked.min.js is inlined into the webviews app's agent-session.html.
 INPUTS = [
     "webviews",
     "schemas/settings",
+    ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",

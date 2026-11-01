@@ -8,13 +8,28 @@ import table from "./generated/strings.json";
 import { MockStatsProvider, type MockStatsKind } from "./mockProvider";
 import { StatsPage } from "./StatsPage";
 import { StatsStore } from "./store";
-import type { Range } from "./types";
+import type { Range, StatsSummary } from "./types";
 
-type Props = { kind?: MockStatsKind; range?: Range; failure?: { code: string; message: string } };
+type Props = {
+  kind?: MockStatsKind;
+  range?: Range;
+  longestStreak?: number;
+  failure?: { code: string; message: string };
+};
 
-function StatsGallery({ kind = "busy", range = 84, failure }: Props) {
+function StatsGallery({ kind = "busy", range = 84, longestStreak, failure }: Props) {
   // UTC, so every capture draws the same calendar wherever it runs.
-  const [store] = useState(() => new StatsStore(new MockStatsProvider(kind, failure), () => 0));
+  const [store] = useState(() => {
+    const provider = new MockStatsProvider(kind, failure);
+    if (longestStreak !== undefined) {
+      const call = provider.call.bind(provider);
+      provider.call = async <R,>(op: string, params: unknown): Promise<R> => {
+        const summary = await call<StatsSummary>(op, params);
+        return { ...summary, streak: { ...summary.streak, longest: longestStreak } } as R;
+      };
+    }
+    return new StatsStore(provider, () => 0);
+  });
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.setRange(range);
@@ -38,6 +53,18 @@ export default componentEntry<Props>({
   variants: {
     quarter: { note: "Twelve weeks of a working machine: three agents, weekends light.", props: {} },
     week: { note: "The last seven days.", props: { range: 7 } },
+    "streak-ones": {
+      note: "The longest-streak detail with narrow proportional digits.",
+      props: { longestStreak: 11 },
+    },
+    "streak-eights": {
+      note: "The same detail with wide proportional digits.",
+      props: { longestStreak: 88 },
+    },
+    "streak-max": {
+      note: "The maximum 366-day lookback at the existing caption size.",
+      props: { longestStreak: 366 },
+    },
     empty: { note: "No agent has run in range yet.", props: { kind: "empty" } },
     failed: {
       note: "acpmux did not answer.",

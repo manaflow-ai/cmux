@@ -141,6 +141,7 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed reopen --workspace <ws>
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
@@ -160,11 +161,23 @@ closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
 ";
 
+pub(super) const SPACE_HELP: &str = "\
+USAGE
+  cmux space list [--json]
+  cmux space new <name> [--json]
+  cmux space switch <name> [--json]
+  cmux space rename <old-name> <new-name> [--json]
+  cmux space move workspace <workspace> <space> [--json]
+  cmux space move tab <tab> <space> [--json]
+  cmux space close <name> [--json]
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
-    [--max-files <n>] [--context-lines <n>] [<path>...]
+    [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+    [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -177,6 +190,7 @@ USAGE
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
     [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+    [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
   cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
@@ -208,7 +222,11 @@ default branch, else main or master), and in a linked worktree its main
 checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
-counted. Paths are relative to the repository root and taken literally.
+counted, and --after-path with the reply's next_path lists the next page.
+With --patch and one file path, --patch-offset reads that file's whole patch
+in pages from a byte offset (start at 0); pass the first page's revision as
+--patch-revision to read the later pages. Paths are relative to the repository
+root and taken literally.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it

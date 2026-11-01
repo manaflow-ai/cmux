@@ -1,0 +1,147 @@
+{
+  "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
+  "version": 1,
+  "surfaces": {
+    "model-picker": {
+      "spec": "leo-workspace design/model-picker.md",
+      "checklist": "design/model-picker.md#checklist",
+      "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
+        "webviews/src/agent-session/acpmux/ModelPicker.tsx",
+        "webviews/src/agent-session/acpmux/modelPicker.css",
+        "webviews/src/agent-session/acpmux/modelPickerLayout.ts",
+        "webviews/src/agent-session/acpmux/EffortTrack.tsx",
+        "webviews/src/agent-session/acpmux/EffortPicker.tsx"
+      ]
+    },
+    "environment-picker": {
+      "spec": "leo-workspace design/environment-picker.md",
+      "aliases": ["environment picker", "machine picker", "computer menu", "where a chat runs", "This Mac"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
+        "webviews/src/agent-session/acpmux/environments.ts",
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx",
+        "webviews/src/agent-session/acpmux/ComposerContext.gallery.tsx",
+        "webviews/test/environment-picker.test.tsx"
+      ]
+    },
+    "composer": {
+      "spec": "leo-workspace design/composer.md",
+      "aliases": ["composer", "prompt box", "bottom stack"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "webviews/src/agent-session/acpmux/ComposerBox.tsx",
+        "webviews/src/agent-session/acpmux/ComposerFoot.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPickers.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPlusMenu.tsx",
+        "webviews/src/agent-session/acpmux/composerPlusRegistry.ts",
+        "webviews/src/agent-session/acpmux/composerChrome.tsx",
+        "webviews/src/agent-session/acpmux/composerControls.css",
+        "webviews/src/agent-session/acpmux/composerFooterShared.css",
+        "webviews/src/agent-session/acpmux/composerLook.css",
+        "webviews/src/agent-session/acpmux/composerStates.css",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/agent-session/acpmux/hostLine.ts",
+        "webviews/src/agent-session/acpmux/hostRetry.ts",
+        "webviews/src/agent-session/acpmux/bottomStack.css"
+      ]
+    },
+    "running-tray": {
+      "spec": "leo-workspace design/running-tray.md",
+      "aliases": ["running tray", "subagent tray", "running in background"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/subagents/SubagentTray.tsx",
+        "webviews/src/agent-session/acpmux/subagents/subagents.css"
+      ]
+    },
+    "session-rail": {
+      "spec": "leo-workspace design/session-rail.md",
+      "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
+      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+    },
+    "feature-tips": {
+      "spec": "leo-workspace design/feature-tips.md",
+      "aliases": ["feature tip", "tips", "coach mark", "callout", "new badge"],
+      "paths": [
+        "webviews/src/ui/FeatureTip.tsx",
+        "webviews/src/ui/featureTip.css",
+        "webviews/src/ui/featureTips/",
+        "webviews/src/agent-session/acpmux/featureTips.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFeatureTips.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/FeatureTipBudget.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Tips/"
+      ]
+    },
+    "new-tab": {
+      "spec": "leo-workspace design/new-tab.md",
+      "aliases": ["new tab"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/NewTabPage.tsx",
+        "webviews/src/agent-session/acpmux/newtab/"
+      ]
+    },
+    "sidebar": {
+      "spec": "leo-workspace design/sidebar.md",
+      "aliases": ["sidebar"],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+      ]
+    },
+    "chat-transcript": {
+      "spec": "leo-workspace design/chat-transcript.md",
+      "aliases": ["transcript", "tool row", "tool rows", "mcp row", "cmux exec", "cmux_exec"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
+        "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
+        "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",
+        "webviews/src/agent-session/acpmux/conversation/jsHighlight.ts",
+        "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
+        "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
+      ]
+    },
+    "settings": {
+      "spec": "leo-workspace design/settings.md",
+      "aliases": ["settings", "settings page", "settings menu", "settings select", "update channel", "check every"],
+      "paths": [
+        "webviews/src/pages/settings/components/",
+        "webviews/src/pages/settings/editors/",
+        "webviews/src/pages/settings/format.ts",
+        "webviews/src/pages/settings/layout.css",
+        "webviews/src/pages/settings/refined.css",
+        "webviews/src/pages/settings/styles.css",
+        "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
+      ]
+    },
+    "session-info": {
+      "spec": "leo-workspace design/session-info.md",
+      "aliases": [
+        "session info",
+        "inspector",
+        "session panel"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/session-info"
+      ]
+    }
+  }
+}

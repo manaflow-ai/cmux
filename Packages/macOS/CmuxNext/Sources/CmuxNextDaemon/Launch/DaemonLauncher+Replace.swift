@@ -63,6 +63,13 @@ extension DaemonLauncher {
         }
     }
 
+    /// One plain `server ensure` whose outcome feeds ``ensureOutcome`` (and so ``UnresponsiveOwnerWatch``), its
+    /// result dropped: the probe of a connected owner that leaves its heartbeat unanswered while its connection
+    /// stays open (``DaemonRecovery``), as the reconnect's ensure was while a missed heartbeat closed the connection.
+    public func probeOwner() async {
+        _ = try? await ensureRecordingOutcome()
+    }
+
     /// The JSON error of a failed `server ensure` (the last JSON line on stderr).
     static func ensureFailure(_ result: ProcessResult) -> EnsureFailure? {
         let line = String(decoding: result.stderr, as: UTF8.self)

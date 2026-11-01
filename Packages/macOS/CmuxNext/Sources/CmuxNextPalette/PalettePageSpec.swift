@@ -75,6 +75,8 @@ public struct PalettePageSpec {
     /// opens (a file name without its extension); nil puts the caret at
     /// the end.
     public var initialQuerySelection: Int?
+    /// Values chosen so far on a multi-value step, drawn as chips before the query.
+    public var tokens: [PaletteToken] = []
 
     public init(
         id: String,

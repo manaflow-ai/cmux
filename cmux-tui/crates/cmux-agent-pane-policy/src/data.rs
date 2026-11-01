@@ -53,6 +53,8 @@ pub struct QuestionAnswers {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyShape {
     String,
+    /// A finite number, never a boolean (Swift's `.number`).
+    Number,
     Object(BTreeMap<String, ReplyShape>),
     List(Box<ReplyShape>),
 }
@@ -61,6 +63,9 @@ impl ReplyShape {
     fn from_json(v: &Value) -> Option<ReplyShape> {
         if v.as_str() == Some("string") {
             return Some(ReplyShape::String);
+        }
+        if v.as_str() == Some("number") {
+            return Some(ReplyShape::Number);
         }
         let o = v.as_object()?;
         if let Some(fields) = o.get("object").and_then(Value::as_object) {

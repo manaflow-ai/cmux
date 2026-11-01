@@ -151,7 +151,8 @@ impl Tokens {
     /// Forget the cached token (after the backend refused it).
     pub async fn invalidate(&self) {
         if let TokenSource::Supplied(receiver) = &self.source {
-            *self.refused.lock().await = receiver.borrow().clone();
+            let refused = receiver.borrow().clone();
+            *self.refused.lock().await = refused;
         }
         *self.cached.lock().await = None;
     }

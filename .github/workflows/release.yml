@@ -138,7 +138,7 @@ jobs:
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
   # success, and build-sign-notarize then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ci-routing-agent
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
@@ -512,10 +512,13 @@ jobs:
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
+      # The Bundle cmux-tui phase bundles none (deferred): "Install universal
+      # Ghostty CLI helper" below installs this tree's universal cmux-tui client
+      # (install-cmux-tui-client.sh); the phase never takes another build's client.
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
@@ -547,9 +550,12 @@ jobs:
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$version" --release-tag "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" --output-dir remote-daemon-assets
+          # No --verify-cli here: the cmux-tui client is installed below (the
+          # Bundle cmux-tui phase bundled none). "Verify signed app SSH daemon
+          # contract" runs the bundled-CLI query on the signed app.
           python3 scripts/verify_remote_daemon_release.py \
             --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
-            --assets-dir remote-daemon-assets --app "$app" --embed --verify-cli
+            --assets-dir remote-daemon-assets --app "$app" --embed
 
       - name: Attest SSH daemon release assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'

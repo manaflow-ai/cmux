@@ -81,6 +81,58 @@ fn agents_wait_idle_targets_the_tab_and_the_agent_id_too() {
     }
 }
 
+/// A GUI chat that starts while the app is unavailable still runs in acpmux, with
+/// a session UUID but no terminal, agent_ record or visible tab. Waiting on the
+/// UUID must read the scoped acpmux state instead of calling it missing.
+#[test]
+fn agents_wait_uses_chat_state_for_a_tabless_session() {
+    const CHAT: &str = "01234567-89ab-4cde-8f01-23456789abcd";
+    let daemon = |running: bool| {
+        json!({
+            "workspaces": [{"id": WORKSPACE}],
+            "chats": [{
+                "chat": CHAT, "running": running,
+                "status": if running { "running" } else { "ready" },
+                "queued": 0, "pending_permissions": 0
+            }],
+        })
+    };
+    let mut working = Server::new(Fake::live(Some(daemon(true)), None), None);
+    let result = call(
+        &mut working,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": CHAT, "timeout_seconds": 0.1
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["matched"], false, "{result}");
+
+    let mut ready = Server::new(Fake::live(Some(daemon(false)), None), None);
+    let result = call(
+        &mut ready,
+        "agents_wait",
+        json!({
+            "until": "idle", "target": CHAT, "timeout_seconds": 1, "session": "another"
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["matched"], true, "{result}");
+    assert_eq!(result["structuredContent"]["match"]["state"], "idle", "{result}");
+    assert_eq!(result["structuredContent"]["match"]["chat"], CHAT, "{result}");
+    let requests = sent_of(&ready, "chat");
+    assert!(requests.iter().any(|row| row["session"] == "another"), "{requests:?}");
+}
+
+#[test]
+fn agents_wait_unknown_chat_still_reports_selector_not_found() {
+    const CHAT: &str = "12345678-1234-4234-8234-123456789abc";
+    let mut server = Server::new(Fake::live(Some(json!({"workspaces": []})), None), None);
+    let result = call(&mut server, "agents_wait", json!({"until": "idle", "target": CHAT}));
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(result.to_string().contains("selector.not_found"), "{result}");
+}
+
 #[test]
 fn agents_wait_returns_at_once_when_the_condition_already_holds() {
     let mut server = Server::new(Fake::live(Some(daemon("idle")), None), None);

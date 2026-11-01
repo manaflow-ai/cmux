@@ -7,13 +7,14 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
   low     docs, copy, generated files, tests, tooling. Merges on green; post-merge checks catch the rest.
   normal  everything else, which is most cmux NEXT UI and logic: agent review and the relevant
           checks, then auto-merge. Nothing here waits for a person.
-  high    auth and credentials, socket and relay access policy, stored-data migrations, release,
-          signing, notarization and the updater, the risk gate itself, code that adds a delete
-          of user data, and a workflow that adds a pull_request_target or workflow_run trigger. Read for
+  high    auth and credentials, socket and relay access policy (with peer and code-signature
+          trust), stored-data migrations, release, signing, notarization and the updater, the
+          risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
-          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
-          yet is a warning, not a hold.
+          commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head, or no verdict yet,
+          is a warning: the lander refuses a BLOCK, and risk-tier.yml turns red only on a takeback.
 
 Size is not a rule: in the audit, the changes that broke things were as often small as large.
 Separately from the tier, a pull request that takes back what another pull request merged in the
@@ -38,6 +39,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 TIERS = ("low", "normal", "high")
 LABELS = {tier: f"risk:{tier}" for tier in TIERS}
@@ -101,6 +103,38 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
+    )),
+    # Who answers or connects on a local socket or XPC service, and which code may run, decided by
+    # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
+    # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
+    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
+    # state and control pipe (where the app's admission values arrive), host check and the two
+    # socket servers that call them, the app's check of the helper on that socket, the requirement
+    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
+    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
+    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
+    # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
+    # (#29072 changed which time a signing chain is valid at and graded normal).
+    ("high", "peer identity or code-signature trust", (
+        "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+        "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
+        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
+        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
+        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+        NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
+        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+        NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+        # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
+        r"re:(?i)(^|/)[^/]*(code[-_]?signature|signature[-_]?check)[^/]*\.(rs|swift|go)$",
     )),
     # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
     # _acpmux methods and params it may relay, the frame check, the gesture rule (the tickets, which
@@ -214,13 +248,245 @@ class Grade:
         return {"tier": self.tier, "label": LABELS[self.tier], "reasons": self.reasons}
 
 
-def delete_lines(patch: str, sign: str) -> list[str]:
-    """The code lines a patch adds (sign "+") or removes ("-") that delete files or rows, with
-    whitespace collapsed. Comment lines don't count."""
-    found = []
+HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+# A Rust test module is test code, like a file under tests/: `#[cfg(test)] mod name { ... }`. Its
+# attributes are read on its own line or the lines above; a multi-line attribute ends the search,
+# so that module counts as product code. A file that `#[cfg(test)] mod name;` declares is not
+# exempt: the same file can also be reached as product code (`#[path]`, an enclosing module).
+RUST_ATTRIBUTE = re.compile(r"#\s*\[([^\[\]]*)\]\s*")
+# Only these test cfgs, read with whitespace removed: cfg(test), or cfg(all(...)) with a bare `test`
+# beside identifiers, not(identifier) and key="simple value". Anything else (any, comments, other
+# strings, deeper nesting) counts as product code.
+RUST_CFG_ARGUMENT = r'(?:[A-Za-z_]\w*|not\([A-Za-z_]\w*\)|[A-Za-z_]\w*="[\w.+-]*")'
+RUST_TEST_CFG = re.compile(rf"cfg\((?:test|all\((?:{RUST_CFG_ARGUMENT},)*test(?:,{RUST_CFG_ARGUMENT})*,?\))\)")
+RUST_MOD = re.compile(r"(?:pub\s*(?:\([^)]*\))?\s*)?mod\s+\w+\s*\{")
+RUST_RAW_STRING = re.compile(r'(?<![A-Za-z0-9_])[bc]?r(#*)"')
+# A char or byte literal: one character, or one escape (`'\''`, `'\x7f'`, `'\u{1F600}'`).
+RUST_CHAR = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}|.)|[^\\'\n])'")
+
+
+class RustBraces:
+    """Brace depth over Rust lines fed in order, skipping braces in strings, chars and comments,
+    with the depth of open parentheses and brackets beside it."""
+
+    def __init__(self) -> None:
+        self.depth = 0
+        self.low = 0  # the lowest brace depth the last line fed reached
+        self.nest = 0  # open ( and [
+        self.comments = 0  # nested /* */ depth
+        self.string = False  # inside an ordinary string, where a backslash escapes
+        self.raw: str | None = None  # inside a raw string: the '"' plus hashes that end it
+
+    def in_code(self) -> bool:
+        return not self.comments and not self.string and self.raw is None
+
+    def feed(self, line: str, floor: int | None = None) -> bool:
+        """Read one line. True when a closing brace on it brings the depth to `floor` or below."""
+        closed = False
+        self.low = self.depth
+        i = 0
+        while i < len(line):
+            if self.comments:
+                if line.startswith(("*/", "/*"), i):
+                    self.comments += 1 if line[i] == "/" else -1
+                    i += 2
+                else:
+                    i += 1
+            elif self.string:
+                if line[i] == "\\":
+                    i += 2
+                    continue
+                self.string = line[i] != '"'
+                i += 1
+            elif self.raw is not None:
+                if line.startswith(self.raw, i):
+                    i += len(self.raw)
+                    self.raw = None
+                else:
+                    i += 1
+            elif line.startswith("//", i):
+                break
+            elif line.startswith("/*", i):
+                self.comments, i = 1, i + 2
+            elif raw := RUST_RAW_STRING.match(line, i):
+                self.raw, i = '"' + raw.group(1), raw.end()
+            elif line[i] == '"':
+                self.string, i = True, i + 1
+            elif line[i] == "'":
+                char = RUST_CHAR.match(line, i)  # else a lifetime or a label
+                i = char.end() if char else i + 1
+            else:
+                if line[i] == "{":
+                    self.depth += 1
+                elif line[i] == "}":
+                    self.depth -= 1
+                    self.low = min(self.low, self.depth)
+                    closed |= floor is not None and self.depth <= floor
+                elif line[i] in "([":
+                    self.nest += 1
+                elif line[i] in ")]":
+                    self.nest -= 1
+                i += 1
+        return closed
+
+
+def skip_block_comment(text: str) -> str:
+    """What follows the (possibly nested) block comment `text` starts with, or "" when it runs
+    past the line: a comment between `#[cfg(test)]` and its `mod` keeps the attribute pending."""
+    depth, i = 0, 0
+    while i < len(text):
+        if text.startswith("/*", i):
+            depth, i = depth + 1, i + 2
+        elif text.startswith("*/", i):
+            depth, i = depth - 1, i + 2
+            if depth == 0:
+                return text[i:].lstrip()
+        else:
+            i += 1
+    return ""
+
+
+def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]:
+    """Of a Rust file's lines from its first line on, the indexes of those inside a
+    `#[cfg(test)] mod name { ... }`. The lines that open and close the module are not inside: code
+    can sit before or after the module on them, and their indexes go to `edges` when given, with
+    the attribute lines above that made the module a test module. A test module counts only where
+    an item can stand: outside any parenthesis or bracket, and inside no brace but module bodies. In
+    a macro's tokens (`emit! { #[cfg(test)] mod m { ... } }`) the attribute may never apply."""
+    braces, inside = RustBraces(), set()
+    module_braces: set[int] = set()  # the brace depths, from 1, that open a plain `mod name {` body
+    test_attribute = False
+    attribute_lines: list[int] = []  # lines of the attributes read so far for the next item
+    module_depth: int | None = None  # the depth outside the open test module
+    for index, text in enumerate(lines):
+        opened, module_brace = False, None
+        if module_depth is None and not braces.in_code():
+            # A line that starts inside a comment is read from where the comment ends; one that starts
+            # inside a string ends the search.
+            rest = skip_block_comment("/*" * braces.comments + text.strip()) if braces.comments else None
+            if rest is None:
+                test_attribute, attribute_lines = False, []
+        else:
+            rest = text.strip() if module_depth is None else None
+        if rest is not None:
+            while True:
+                if attribute := RUST_ATTRIBUTE.match(rest):
+                    test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None
+                    rest = rest[attribute.end():]
+                    if not attribute_lines or attribute_lines[-1] != index:
+                        attribute_lines.append(index)
+                elif rest.startswith("/*"):
+                    rest = skip_block_comment(rest)
+                else:
+                    break
+            item_place = braces.nest == 0 and module_braces >= set(range(1, braces.depth + 1))
+            if (mod := RUST_MOD.match(rest)) and item_place:
+                if test_attribute:
+                    module_depth, opened = braces.depth, True
+                    if edges is not None:
+                        edges.update(attribute_lines)
+                elif not rest[mod.end():].strip() or rest[mod.end():].lstrip().startswith("//"):
+                    module_brace = braces.depth + 1
+            # Blank lines, comments and attribute-only lines keep looking for the item.
+            if rest and not rest.startswith("//"):
+                test_attribute, attribute_lines = False, []
+        closed = braces.feed(text, module_depth)
+        module_braces = {depth for depth in module_braces if depth <= braces.low} | (
+            {module_brace} if module_brace is not None and braces.depth >= module_brace else set())
+        if closed and module_depth is not None:
+            module_depth = None
+            if edges is not None:
+                edges.add(index)
+        elif opened and edges is not None:
+            edges.add(index)
+        elif module_depth is not None and not opened:
+            inside.add(index)
+    return inside
+
+
+# Code that may be test-only although no test module above was read as one: a `test` cfg in a form
+# rust_test_lines doesn't take (`cfg(all(test, any(...)))`, `cfg_attr(test, ...)`, a `#[test]` outside
+# a test module), or an attribute that goes on past its line.
+RUST_TEST_WORD = re.compile(r"\btest\b")
+RUST_OPEN_ATTRIBUTE = re.compile(r"\s*#\s*!?\s*\[")
+
+
+def rust_test_doubt(lines: list[str], tests: set[int], edges: set[int]) -> bool:
+    """Whether lines outside the test modules rust_test_lines found may still be test code."""
+    for index, text in enumerate(lines):
+        if index in tests or index in edges:
+            continue
+        if RUST_TEST_WORD.search(text) or (RUST_OPEN_ATTRIBUTE.match(text) and text.count("[") > text.count("]")):
+            return True
+    return False
+
+
+def patch_hunks(patch: str) -> list[list[tuple[str, int | None, int | None, str]]]:
+    """A patch's hunks, each a list of (kind " ", "+" or "-", base line number, head line number,
+    text). The numbers are None in a patch with no hunk header."""
+    hunks: list[list[tuple[str, int | None, int | None, str]]] = []
+    old = new = None
     for line in patch.splitlines():
-        if line.startswith(sign) and not line.startswith(sign * 3):
-            code = " ".join(line[1:].split())
+        if header := HUNK.match(line):
+            old, new = int(header.group(1)), int(header.group(2))
+            hunks.append([])
+        elif line[:1] in (" ", "+", "-"):
+            if not hunks:
+                hunks.append([])
+            kind = line[0]
+            hunks[-1].append((kind, old if kind != "+" else None, new if kind != "-" else None, line[1:]))
+            if old is not None:
+                old += kind != "+"
+                new += kind != "-"
+    return hunks
+
+
+def rust_test_roles(patch: str, sign: str, source: str | None = None) -> dict[tuple[int, int], bool]:
+    """For the lines on one side of a Rust patch ("+" the head, "-" the base), keyed (hunk, index):
+    True in a test module, False in product code. A line is missing when that can't be known: a
+    hunk shows a module only if the whole file up to it is there, so each hunk is read against
+    `source` (the file on that side) when every line of it matches, else on its own only when it
+    starts at line 1, else not at all. A line that opens or closes a test module is missing too: it
+    can hold test code and product code at once. On the base side ("-"), where product code earns
+    removal credit, no line is product code when rust_test_doubt finds possible test code the
+    module reading missed."""
+    whole = source.splitlines() if source else []
+    whole_edges: set[int] = set()
+    whole_tests = rust_test_lines(whole, whole_edges)
+    whole_doubt = sign == "-" and rust_test_doubt(whole, whole_tests, whole_edges)
+    roles = {}
+    for h, hunk in enumerate(patch_hunks(patch)):
+        side = [(i, (old if sign == "-" else new), text) for i, (kind, old, new, text) in enumerate(hunk)
+                if kind in (" ", sign)]
+        if whole and all(n is not None and 0 < n <= len(whole) and whole[n - 1].rstrip() == text.rstrip()
+                         for _, n, text in side):
+            roles |= {(h, i): n - 1 in whole_tests for i, n, _ in side
+                      if n - 1 not in whole_edges and not (whole_doubt and n - 1 not in whole_tests)}
+        elif side and side[0][1] == 1:
+            edges: set[int] = set()
+            texts = [text for _, _, text in side]
+            tests = rust_test_lines(texts, edges)
+            doubt = sign == "-" and rust_test_doubt(texts, tests, edges)
+            roles |= {(h, i): k in tests for k, (i, _, _) in enumerate(side)
+                      if k not in edges and not (doubt and k not in tests)}
+    return roles
+
+
+def delete_lines(patch: str, sign: str, path: str = "", source: str | None = None) -> list[str]:
+    """The code lines a patch adds (sign "+") or removes ("-") that delete files or rows, with
+    whitespace collapsed. Comment lines don't count. In a Rust file (`source` is the file on that
+    side), an added line counts unless it is known to be in a test module, and a removed line
+    counts only if it is known to be product code: a removed test cleanup must not pay for a new
+    product delete."""
+    roles = rust_test_roles(patch, sign, source) if path.endswith(".rs") else None
+    found = []
+    for h, hunk in enumerate(patch_hunks(patch)):
+        for i, (kind, _, _, text) in enumerate(hunk):
+            if kind != sign or text.startswith(sign * 2):
+                continue
+            if roles is not None and (roles.get((h, i)) is not False if sign == "-" else roles.get((h, i)) is True):
+                continue
+            code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
             if DELETES.search(code):
@@ -233,15 +499,18 @@ def in_delete_scope(path: str) -> bool:
     return classify_path(path)[0] != "low" and not any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED)
 
 
-def new_delete_files(patches: dict[str, str]) -> set[str]:
+def new_delete_files(patches: dict[str, str], sources: dict[str, str] | None = None,
+                     base_sources: dict[str, str] | None = None) -> set[str]:
     """The product-code files that gain a delete of files or rows. A delete line the pull request
     also removes, in the same file or another, was moved; a file that removes as many delete lines
-    as it adds was edited. Neither is new."""
+    as it adds was edited. Neither is new. `sources` and `base_sources` hold Rust files at the head
+    and at the merge base (keyed by the head path), which place a line in or out of a test module."""
+    sources, base_sources = sources or {}, base_sources or {}
     # Only product code can be the source of a move: a cleanup line taken out of a test, a doc or a
     # script and put into product code is a new delete there.
-    removed = {path: Counter(delete_lines(patch, "-") if in_delete_scope(path) else [])
+    removed = {path: Counter(delete_lines(patch, "-", path, base_sources.get(path)) if in_delete_scope(path) else [])
                for path, patch in patches.items()}
-    added = {path: delete_lines(patch, "+") for path, patch in patches.items()}
+    added = {path: delete_lines(patch, "+", path, sources.get(path)) for path, patch in patches.items()}
     unmatched: dict[str, list[str]] = {}
     # A moved line cancels one removal of the same text, in its own file first, then anywhere.
     for path in sorted(added, key=lambda p: 0 if removed[p] else 1):
@@ -275,11 +544,13 @@ def added_privileged_trigger(path: str, patch: str) -> bool:
     return False
 
 
-def classify(files: list[str], patches: dict[str, str] | None = None) -> Grade:
+def classify(files: list[str], patches: dict[str, str] | None = None, sources: dict[str, str] | None = None,
+             base_sources: dict[str, str] | None = None) -> Grade:
     """The highest tier of any changed path, raised to high by a new delete of user data or a new
-    privileged workflow trigger."""
+    privileged workflow trigger. `sources` and `base_sources`: Rust files at the head and the merge
+    base (see new_delete_files)."""
     patches = patches or {}
-    deleting = new_delete_files(patches)
+    deleting = new_delete_files(patches, sources, base_sources)
     rank = 0
     reasons: dict[str, list[str]] = {}
     for path in files:
@@ -301,10 +572,11 @@ SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an 
 def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
                      taken_back: list[int] | None = None, blocked: bool = False,
                      unread: bool = False) -> list[str]:
-    """What still holds the merge. Empty means nothing does. A high pull request is held only by a
-    BLOCK (or FIX, or a change request) that is the newest verdict on its head; with no verdict yet
-    it gets a warning (pending_review), not a hold. A takeback holds any tier until the description
-    owns it."""
+    """What the summary lists as held. Empty means nothing is. A high pull request is listed only for a
+    BLOCK (or FIX, or a change request) that is the newest verdict on its head, which risk-tier.yml
+    only warns on (the lander refuses it); with no verdict yet it gets a warning (pending_review). A
+    takeback is listed for any tier until the description owns it, and only that turns the check red
+    (unowned_takebacks)."""
     missing = []
     if tier == "high" and unread and not human_ok:
         missing.append("the review verdicts on the head commit could not be read (a GitHub API error), so a "
@@ -312,13 +584,17 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
     elif tier == "high" and blocked and not human_ok:
         missing.append(f"the newest review verdict on the head commit is a BLOCK, FIX or change request. "
                        f"Address it and push; a review of the new head clears it: {SIGN_OFF_HOW}")
-    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
-    for number in sorted(set(taken_back or [])):
-        if number not in acknowledged:
-            missing.append(
-                f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
-                f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
+    for number in unowned_takebacks(body, taken_back):
+        missing.append(
+            f"this takes back #{number}'s change from the last {RECENT_DAYS} days. If the base is stale, "
+            f"merge it and push; if it's on purpose, add a line `Takes back #{number}: <why>`")
     return missing
+
+
+def unowned_takebacks(body: str = "", taken_back: list[int] | None = None) -> list[int]:
+    """The pull requests this one takes back without a `Takes back #N: <why>` line owning it."""
+    acknowledged = {int(n) for n in TAKES_BACK.findall(strip_comments(body or ""))}
+    return [number for number in sorted(set(taken_back or [])) if number not in acknowledged]
 
 
 def pending_review(tier: str, human_ok: bool = False, blocked: bool = False) -> str:
@@ -498,6 +774,33 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     return {number: sorted(set(paths)) for number, paths in found.items()}
 
 
+# At most this many Rust files are read on each side per grading. A file past the cap is graded on
+# its hunks alone, which errs toward high.
+MAX_RUST_SOURCES = 20
+
+
+def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
+    """{key: the Rust file at `ref`} for paths given as {key: path at ref}. A file that can't be
+    read is left out, so its lines are graded on their hunks alone."""
+    sources = {}
+    for key, path in sorted(paths.items())[:MAX_RUST_SOURCES]:
+        try:
+            sources[key] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
+                                   f"repos/{repo}/contents/{quote(path)}?ref={ref}"])
+        except (subprocess.CalledProcessError, UnicodeDecodeError):
+            print(f"::warning::couldn't read {printable(path)} at {ref[:12]}; its hunks alone grade it")
+    return sources
+
+
+def merge_base_of(repo: str, pr: dict) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+    try:
+        return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
+                       "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return pr["base"]["sha"]
+
+
 def pr_mode(args: argparse.Namespace) -> int:
     base = f"repos/{args.repo}/pulls/{args.number}"
     entries = gh_items(f"{base}/files?per_page=100")
@@ -506,16 +809,19 @@ def pr_mode(args: argparse.Namespace) -> int:
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
     pr = gh_json("api", base)
-    grade = classify(files, patches)
+    # Rust product files that add or remove a delete: read on that side, they place each line in or
+    # out of a test module.
+    rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
+    adds = {path: path for path in rust if delete_lines(patches[path], "+")}
+    removes = {path: e.get("previous_filename") or path for path, e in rust.items()
+               if e.get("status") != "added" and delete_lines(patches[path], "-")}
+    # The patches' line numbers are relative to the merge base, not the base branch's tip.
+    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
+                     rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
     if args.repo_dir:
         unread: list[str] = []
-        # The patches' line numbers are relative to the merge base, not the base branch's tip.
-        try:
-            merge_base = gh_json("api", f"repos/{args.repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
-                                 "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
-            merge_base = pr["base"]["sha"]
         try:
             undone = recent_reverts(entries, args.repo_dir, merge_base, int(args.number), unread=unread)
         except Exception as error:  # The takeback check informs the grade; it never crashes it.
@@ -535,7 +841,7 @@ def pr_mode(args: argparse.Namespace) -> int:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
-            # BLOCK: hold, never warn.
+            # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).
             signed, blocked, unread = None, False, True
     missing = missing_evidence(grade.tier, signed is not None, pr.get("body") or "", list(undone), blocked,
                                unread)
@@ -550,6 +856,10 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
+            # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
+            takes_back = bool(unowned_takebacks(pr.get("body") or "", list(undone)))
+            out.write(f"takes_back={'true' if takes_back else 'false'}\n")
     return 0
 
 

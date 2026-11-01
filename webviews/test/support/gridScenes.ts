@@ -28,7 +28,7 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-queued-kind": "lead",
   ".acpmux-permission-request-icon": "icon",
   ".acpmux-permission-card-leading": "icon",
-  ".acpmux-chat-inspector-section__icon": "icon",
+  ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
   ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
@@ -89,6 +89,13 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
 };
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
+// The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
+// markdown), so its text lines are a design absence; the empty prompt's text line is measured in
+// composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.
+const attachScreenshot = composer("attach-screenshot", placeholder, "agent-pane.composer");
+attachScreenshot.absent = {
+  [placeholder]: "The capture fixture's prompt shows no placeholder; claude-auto measures the text line.",
+};
 
 const stackToken: Record<string, string> = {
   "stack.strip": "strip",
@@ -159,12 +166,14 @@ const card = (
     mid(title, icon),
   ]);
 
+const noticeCard = ".acpmux-host-error-card";
+
 /** Promotion is per surface and requires a fleet measurement; no surface is assumed to pass. */
 export const gridScenes: GridScene[] = [
   composer("claude-auto"),
   running,
   composer("grid-draft", ".acpmux-md p"),
-  composer("attach-screenshot", placeholder, "agent-pane.composer"),
+  attachScreenshot,
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
@@ -212,7 +221,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-agent-line",
     ".acpmux-lineage__icon",
     ".acpmux-summary-agent__name",
-    ".acpmux-agent-line__stop-slot button",
+    ".acpmux-agent-line__stop-slot",
   ),
   ...["several-running", "grid-31"].map((variant) =>
     stack(
@@ -273,7 +282,8 @@ export const gridScenes: GridScene[] = [
   ]),
   menu("picker.model", "agent-pane.composer-pickers", "model-menu", ".acpmux-quick-menu", true),
   menu("picker.account", "agent-pane.composer-pickers", "claude-direct-accounts", ".acpmux-quick-submenu", true),
-  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-efforts", [
+  // #27948 moved the levels from an inline fieldset into the running model's side dropdown.
+  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-effort-menu", [
     left("edge", ".acpmux-quick-effort-segment", "left", menuToken("highlight-inset")),
     left("lead: checked state", '[aria-checked="true"] svg', "cx", menuToken("state-x")),
     left("text", ".acpmux-quick-effort-segment", "text", menuToken("state-text-x")),
@@ -328,36 +338,79 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
+  // The notice and error card over the composer (`.acpmux-host-error-card`: HostError.tsx's
+  // folder harness card, HarnessHealthNotice.tsx, RulesNotice.tsx). It is a card (grid.md 5.6):
+  // padding 12, radius 12, its action row 8 under the text with an 8 gap between buttons. It has
+  // no header icon and no trailing control, so it has no lead, text column or trail line.
+  ...[
+    ["agent-pane.host-error", "enable", noticeCard],
+    ["agent-pane.harness-health-notice", "signed-out", `.acpmux-harness-notice ${noticeCard}`],
+  ].map(([entry, variant, root]) => ({
+    ...scene("cards.notice", entry!, variant!, root!, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      from(
+        "action row",
+        ".acpmux-host-error-actions > button:first-child",
+        "top",
+        point(":scope > p:last-of-type", "bottom"),
+        token("gap"),
+      ),
+      ...(variant === "signed-out"
+        ? [
+            from(
+              "actions: gap",
+              ".acpmux-host-error-actions > button:nth-child(2)",
+              "left",
+              point(".acpmux-host-error-actions > button:first-child", "right"),
+              token("gap"),
+            ),
+          ]
+        : []),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail" as const,
+  })),
+  {
+    ...scene("cards.notice", "agent-pane.rules-notice", "collapsed", `.acpmux-rules-notice ${noticeCard}`, [
+      value("edge: padding", ":scope", "padding", token("cards-padding")),
+      value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
+      value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
+      value("radius", ":scope", "radius", token("cards-radius")),
+    ]),
+    level: "fail",
+  },
+  // Glance has a bare Environment and heterogeneous section bodies (SessionInfo.tsx).
   // Section roots keep a proven header absence from excusing another section's selector.
   ...[
-    ["environment", ".acpmux-chat-inspector-row__name"],
-    ["context", ".acpmux-chat-inspector-context__total > span:first-child"],
-    ["connectors", ".acpmux-chat-inspector-row__name"],
-    ["changes", ".acpmux-chat-inspector-pr__title"],
-    ["sources", ".acpmux-chat-inspector-source__label"],
-    ["outputs", ".acpmux-chat-inspector-row__name"],
+    ["environment", ".acpmux-session-info-row__name"],
+    ["context", ".acpmux-session-info-context__total > span:first-child"],
+    ["connectors", ".acpmux-session-info-row__name"],
+    ["changes", ".acpmux-session-info-pr__title"],
+    ["sources", ".acpmux-session-info-source__label"],
+    ["outputs", ".acpmux-session-info-row__name"],
     ["subagents", ".acpmux-summary-text"],
-    ["tasks", ".acpmux-chat-inspector-task__command"],
+    ["tasks", ".acpmux-session-info-task__command"],
   ].map(([section, body]) => {
     const entry = card(
       "transcript.cards",
       "agent-pane.chat-inspector",
       "layout-glance-open",
-      `.acpmux-chat-inspector-section[data-section="${section}"]`,
-      ".acpmux-chat-inspector-section__icon",
-      ".acpmux-chat-inspector-section__title",
+      `.acpmux-session-info-section[data-section="${section}"]`,
+      ".acpmux-session-info-section__icon",
+      ".acpmux-session-info-section__title",
       body!,
-      ".acpmux-chat-inspector-section__fold",
+      ".acpmux-session-info-section__fold",
     );
     entry.absent = {};
     if (section !== "context" && section !== "connectors")
-      entry.absent[".acpmux-chat-inspector-section__icon"] =
-        `ChatInspector's ${section} section supplies no header icon in layout-glance-open.`;
+      entry.absent[".acpmux-session-info-section__icon"] =
+        `SessionInfo's ${section} section supplies no header icon in layout-glance-open.`;
     if (section === "environment") {
-      entry.absent[".acpmux-chat-inspector-section__title"] =
-        "Glance Environment is bare: InspectorSection renders its body without a header.";
-      entry.absent[".acpmux-chat-inspector-section__fold"] = "Bare Environment has no section disclosure control.";
+      entry.absent[".acpmux-session-info-section__title"] =
+        "Glance Environment is bare: SessionInfoSection renders its body without a header.";
+      entry.absent[".acpmux-session-info-section__fold"] = "Bare Environment has no section disclosure control.";
     }
     return entry;
   }),

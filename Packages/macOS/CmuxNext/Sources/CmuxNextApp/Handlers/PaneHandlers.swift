@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 /// Pane and split actions (category `.pane` except columns and screens):
@@ -24,8 +25,9 @@ enum PaneHandlers {
     /// several adjacent panes, and of a strip column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
-        // One logical line: docked columns before and after the strip.
-        let frames = content.layoutView.navigationFrames
+        // One logical line: docked columns before and after the strip. The frames of `pane`'s own screen,
+        // active or not: what opens beside a chat on a screen the person left reads that screen (#28044).
+        let frames = content.layoutView.navigationFrames(ofScreenContaining: pane)
         return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
                                         recency: content.recentPanes,
                                         columns: screen.layout.columns.map(\.root.panes))
@@ -126,7 +128,7 @@ enum PaneHandlers {
         // focus moves only after the reply; on the optimistic path the provisional view stays (it
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID, machine: daemon.machineID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
         // The split and the even sizing of its chain are one gesture: hold the chain's target
@@ -140,9 +142,14 @@ enum PaneHandlers {
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
         }
-        ctx.registry.track(Task {
+        // An optimistic split joins the workspace's creates, as New Column and New Row do
+        // (`WorkspaceContentController.createInKeysTurn`): it goes out once the create before it is in the store, so a
+        // quick second Cmd-D on the first one's stand-in names the daemon's pane (P0 2026-10-30).
+        let previous = intended == nil ? nil : content?.pendingCreate
+        let work: ActionWork = Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            await previous?.value
             do {
                 let created = if let intended {
                     try await intended()
@@ -154,12 +161,28 @@ enum PaneHandlers {
                 landed = true
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
+            } catch is PaneSplitCancelled {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
+                return nil // the person closed the new pane first
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
-                return "split: \(error)"
+                return .create("split", error)
             }
-        })
+        }
+        if intended != nil { content?.pendingCreate = work }
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        ctx.registry.trackRollingBack(splitAction(direction), work)
+    }
+
+    /// The action a split in `direction` runs (its title names a refused split).
+    static func splitAction(_ direction: PaneDirection) -> ActionID {
+        switch direction {
+        case .left: "splitLeft"
+        case .right: "splitRight"
+        case .up: "splitUp"
+        case .down: "splitDown"
+        }
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {

@@ -1,10 +1,11 @@
 // The machine list in two prototype layouts (Debug setting `cloud.machines.layout`): dense rows
 // (default) and cards. Both draw the same rows: status dot, title, a "Classic" badge for a machine
 // from cmux Cloud classic (read-only until upgraded: no inline actions), status or pending intent,
-// size (cards), and an inline Pause or Resume. Plain Up/Down select, Return connects (not a classic
+// size (cards), the cost line the sidebar shows (cost.ts), and an inline Pause or Resume. Plain Up/Down select, Return connects (not a classic
 // machine); chords are ignored.
 import type { KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
+import { costLine, costTicks, useCostClock } from "./cost";
 import {
   canPause,
   canResume,
@@ -43,6 +44,7 @@ export function MachineList({
   onResume,
 }: MachineListProps) {
   const { t, language } = strings;
+  const now = useCostClock(rows.some((row) => costTicks(row.machine)));
   const open = (id: string) => {
     if (!rows.find((row) => row.id === id)?.classic) onOpen(id);
   };
@@ -61,7 +63,10 @@ export function MachineList({
     <div className={`cloud-machine-list layout-${layout}`} role="listbox" tabIndex={0} onKeyDown={onKeyDown}>
       {rows.map((row) => {
         const selected = row.id === selection;
-        const status = row.pending ? t(IntentLabel[row.pending]) : t(StatusLabel[row.status]);
+        // A running machine's cost line says "Running 2h 14m" itself, so it stands in for the status.
+        const cost = row.machine && !row.pending ? costLine(row.machine, now, t, language) : undefined;
+        const label = row.pending ? t(IntentLabel[row.pending]) : t(StatusLabel[row.status]);
+        const status = cost && costTicks(row.machine) ? cost : cost ? `${label} · ${cost}` : label;
         const memory = row.machine?.size?.memory_mb;
         const size = memory ? formatMegabytes(memory, t, language) : "";
         return (

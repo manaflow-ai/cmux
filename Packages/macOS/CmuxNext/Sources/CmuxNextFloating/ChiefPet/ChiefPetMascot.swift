@@ -1,19 +1,28 @@
 public import AppKit
 
 /// The Chief pet's character: the Chief Dock's nine pixel mascots (#21194, its `ChiefMascot`
-/// ids), bundled at 256 px wide, and Mochi, the first animated avatar set. Orb is the dock's default too.
+/// ids), bundled at 256 px wide, Mochi, the first animated avatar set, and Series 2, new colourways
+/// of Fox, Machine and Moon (`scripts/cmux-next/art/chief_mascot_series2.py`). The cases are in the
+/// picker's order: Series 1 without the orbs, Mochi, Series 2, then the orbs (Leo 2026-11-01: "we can
+/// reorder them a little bit so they orb doesn't come first"). A choice is kept by its id, never its
+/// place, so the order changes nobody's pick, and Orb stays the default (`initial`).
 public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
-    case orb
-    case orbSpark = "orb-spark"
-    case orbHood = "orb-hood"
+    case fox
     case machine
     case machineCyan = "machine-cyan"
     case machineBlue = "machine-blue"
     case moon
     case moonBlue = "moon-blue"
-    case fox
     /// The first animated set (`cmux-avatar/1`, webviews avatars/sets/mochi); still here, its idle frame.
     case mochi
+    // Series 2.
+    case foxArctic = "fox-arctic"
+    case machineViolet = "machine-violet"
+    case machineGold = "machine-gold"
+    case moonRose = "moon-rose"
+    case orb
+    case orbSpark = "orb-spark"
+    case orbHood = "orb-hood"
 
     public static let initial = ChiefPetMascot.orb
 
@@ -23,6 +32,9 @@ public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
     }
 
     public var image: NSImage? { Bundle.module.image(forResource: resource) }
+
+    /// An animated character's sheet (`ChiefMascot<Name>Sheet.png` with its `.json`); nil for a still one.
+    var sprite: ChiefPetSprite? { ChiefPetSprite.bundled(resource) }
 
     /// The character as a Chief avatar: whole, centered on a transparent square with room
     /// around it (`…Avatar.png`), so a round avatar (the Home header and list, New Message)

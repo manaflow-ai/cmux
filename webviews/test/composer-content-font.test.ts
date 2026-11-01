@@ -112,9 +112,11 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
           }
           // Shell mode is another editor in the same box and must keep the chosen size.
           if (context === "new-tab") {
-            const prompt = page.locator(".nt-field");
-            await prompt.fill("");
-            await prompt.press("!");
+            await page.locator(".nt-field").evaluate((element) => {
+              const field = (element as MarkdownFieldElement).acpmuxMarkdownField;
+              if (!field?.type("")) throw new Error("The New Tab editor is not ready");
+              field.insertTyped("!");
+            });
           } else {
             // Use the editor's typing API: DOM fill can race ProseMirror's mutation observer,
             // leaving its document nonempty when the following beforeinput arrives.

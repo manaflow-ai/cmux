@@ -17,6 +17,8 @@ struct TabTitleResolver {
     var showsNewTabPage: @MainActor (TabModel) -> Bool
     /// A New Tab page tab's own title (`AgentHistoryPage.title`), if it has one.
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
+    /// A subagent pane's own name (``SubagentTabTitles``), nil for any other tab.
+    var subagentTitle: @MainActor (TabModel) -> String? = { SubagentTabTitles.shared.title(ofTab: $0.id) }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
     /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
@@ -70,6 +72,9 @@ struct TabTitleResolver {
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
             if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
+            // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
+            if let subagent = subagentTitle(tab) { return subagent }
             let title = chatTitle(tab)
             if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title

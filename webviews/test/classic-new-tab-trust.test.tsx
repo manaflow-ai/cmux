@@ -1,8 +1,8 @@
 // The classic New Tab page with no agent to name yet (acpmux listed none): Return starts the chat
-// with a bare `chat.new` in the folder picked on the page. When acpmux refuses that start, the
-// prompt is never lost with it, nor is anything typed in the chat composer while the start was out:
-// a trust refusal sends it once Trust is answered, once; any other refusal leaves it in the composer
-// to send again, in the same folder.
+// with a bare `chat.new` in the folder picked on the page, which stays up until that start settles.
+// When acpmux refuses the start, the prompt is never lost with it: a trust refusal sends it once
+// Trust is answered, once; any other refusal leaves it in the composer to send again, in the same
+// folder.
 //
 // The pane runs on its in-page mock daemon (transport "mock"), whose session/new refuses the
 // picked folder until it is trusted, as acpmux's trust gate does (trust_gate.rs).
@@ -230,7 +230,7 @@ const trustRefusal = (folder: string): Refusal => ({
 });
 
 test("classic Return with no agent named: a start refused for the folder's trust sends its prompt once Trust is answered, once", async () => {
-  const folder = "/tmp/untrusted-project";
+  const folder = "/Users/sample/untrusted-project";
   let trusted = false;
   const { prompts, started } = await mountClassic(folder, async () => (trusted ? undefined : trustRefusal(folder)));
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
@@ -256,35 +256,40 @@ test("classic Return with no agent named: a start refused for the folder's trust
   expect(started).toEqual([folder, folder]);
 }, 60_000);
 
-test("a start refused after a while keeps the prompt ahead of what was typed in the composer meanwhile", async () => {
-  const folder = "/tmp/slow-untrusted-project";
-  let answer!: () => void;
-  const { prompts } = await mountClassic(folder, async (attempt) => {
+// The New Tab page stays up until its start settles (#27009: leaving it first flashed the empty chat
+// hero), so nothing can be typed in the chat composer while the start is out: the page holds the
+// prompt until then, and a refusal after a while gives it back as a quick one does.
+test("a start refused after a while keeps the New Tab page until then, and gives the prompt back with the trust question", async () => {
+  const folder = "/Users/sample/slow-untrusted-project";
+  let answer: (() => void) | undefined;
+  const { prompts, started } = await mountClassic(folder, async (attempt) => {
     if (attempt > 1) return undefined;
     await new Promise<void>((done) => (answer = done));
     return trustRefusal(folder);
   });
   await askIn(folder, "hello");
-  // The start is still out: the chat composer shows, and the person goes on typing in it.
-  await until(() => promptField() !== undefined && answer !== undefined, "the chat composer is up");
-  await act(async () => void promptField()!.type("and one more thing"));
-  expect(composerText()).toBe("and one more thing");
+  // The start is still out: the New Tab page stays, and no chat composer stands in for it yet.
+  await until(() => answer !== undefined, "the start went");
+  await tick();
+  expect(host.querySelector(".acpmux-newtab-field"), "the New Tab page while the start is out").not.toBeNull();
+  expect(promptField(), "no chat composer while the start is out").toBeUndefined();
+  expect(prompts).toEqual([]);
 
-  await act(async () => answer());
+  await act(async () => answer!());
   await until(() => trustButton() !== undefined, "the trust question shows");
-  // Nothing is lost: the refused prompt first, then what was typed since, and nothing went yet.
-  await until(() => composerText().includes("hello"), "the composer got the prompt back");
-  expect(composerText()).toBe("hello\n\nand one more thing");
+  // Nothing is lost: the refused prompt is back in the chat composer, and nothing went yet.
+  await until(() => composerText() === "hello", "the composer got the prompt back");
   expect(prompts).toEqual([]);
 
   await act(async () => trustButton()!.click());
   await until(() => prompts.length > 0, "the prompt went after Trust");
   await quiet("the page settles after the send");
-  expect(prompts).toEqual(["hello\n\nand one more thing"]);
+  expect(prompts).toEqual(["hello"]);
+  expect(started).toEqual([folder, folder]);
 }, 60_000);
 
 test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
-  const folder = "/tmp/busy-project";
+  const folder = "/Users/sample/busy-project";
   const { prompts, started } = await mountClassic(
     folder,
     async (attempt) => (attempt === 1 ? { message: "acpmux could not start the agent" } : undefined),
@@ -308,4 +313,89 @@ test("a start refused for another reason leaves the prompt in the composer, and 
   await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello"]);
   expect(started).toEqual([folder, folder]);
+}, 60_000);
+
+test("App failed-row Retry cannot bypass a pending folder choice or duplicate the Trust retry", async () => {
+  const folder = "/Users/sample/retry-pending-folder";
+  const { prompts } = await mountClassic(folder, async () => undefined, { trusted: true });
+  await askIn(folder, "Start this chat");
+  await quiet("the initial turn ends");
+  const actions = dom.window.cmuxAcpmuxActions!;
+  const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
+  const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
+  const recorded = proto.answer;
+  let trusted = false;
+  let retries = 0;
+  const payloads: unknown[] = [];
+  proto.answer = function (this: unknown, method, params) {
+    if (method === "acp.trust.get") return Promise.resolve({ cwd: folder, level: trusted ? "trusted" : "unknown" });
+    if (method === "acp.trust.set") trusted = params.level === "trusted";
+    if (method === "session/prompt") {
+      retries++;
+      payloads.push(params.prompt);
+      if (!trusted)
+        return Promise.reject(
+          Object.assign(new Error("Trust this folder first"), { data: { reason: "trust.pending", cwd: folder } }),
+        );
+    }
+    return recorded.call(this, method, params);
+  };
+  await act(async () => {
+    await actions["chat.send"]!({ text: "Retry the attached plan", attachments: [] }).catch(() => undefined);
+  });
+  await until(() => trustButton() !== undefined, "trust refusal shows its question");
+  await until(() => host.querySelector(".cv-user__status--failed") !== null, "refused prompt stays in its failed row");
+  expect(retries).toBe(1);
+  const native = (
+    dom.window as unknown as {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: (message: { method: string; params?: Record<string, unknown> }) => Promise<unknown>;
+          };
+        };
+      };
+    }
+  ).webkit.messageHandlers.agentSession;
+  const post = native.postMessage;
+  let finishFolder: (() => void) | undefined;
+  native.postMessage = (message) => {
+    if (message.method !== "workspace.useFolder") return post(message);
+    if (!message.params?.confirm)
+      return Promise.resolve({ ok: true, value: { status: "confirm", reason: "home", cwd: folder } });
+    return new Promise((resolve) => {
+      finishFolder = () => resolve({ ok: true, value: { status: "ok", cwd: folder } });
+    });
+  };
+  // This check keeps the existing chat selected when the host accepts its current folder;
+  // the App owns the real pending question, Trust button, failed-row Retry, and release effect.
+  actions["chat.new"] = async () => undefined;
+  await act(async () => {
+    dom.window.cmuxAcpmuxDebug!.pickFolder(folder);
+  });
+  const useFolder = () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Use Home Folder"),
+    );
+  await until(() => useFolder() !== undefined, "the actual folder question is pending");
+  await act(async () => trustButton()!.click());
+  await quiet("trust accepted while the folder question waits");
+  expect(retries).toBe(1);
+  const retry = [...host.querySelectorAll<HTMLButtonElement>(".cv-user__status--failed button")].find(
+    (button) => button.textContent === "Retry",
+  );
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  await quiet("actual App Retry settles behind the folder question");
+  expect(retries).toBe(1);
+  await act(async () => useFolder()!.click());
+  await until(() => finishFolder !== undefined, "host received folder confirmation");
+  await quiet("confirmation remains in flight");
+  expect(retries).toBe(1);
+  await act(async () => finishFolder!());
+  await quiet("folder confirmation releases one retry and the turn settles");
+  expect(retries).toBe(2);
+  expect(payloads[1]).toEqual(payloads[0]);
+  expect(prompts).toEqual(["Start this chat", "Retry the attached plan"]);
+  expect(host.querySelector(".cv-user__status--failed")).toBeNull();
 }, 60_000);

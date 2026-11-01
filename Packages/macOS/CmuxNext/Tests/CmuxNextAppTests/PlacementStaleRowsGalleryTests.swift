@@ -5,7 +5,9 @@ import CmuxNextControl
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
+import CmuxNextLayout
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -25,7 +27,7 @@ nonisolated struct PlacementGalleryCaptured: Decodable, Sendable {
 /// are mirrored back and the real AppKit sidebar is saved without image edits.
 /// Both refs pass: expected order is metadata, while behavioral red/green is
 /// covered independently. Artifact: Packages/macOS/CmuxNext/placement-stale-rows-gallery.tar.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct PlacementStaleRowsGalleryTests {
     private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse
@@ -107,7 +109,7 @@ struct PlacementStaleRowsGalleryTests {
         let savedDocument = SidebarDocStore.current
         SidebarDocStore.current = nil // This fixture advertises personal order only, as the regression does.
         defer { SidebarDocStore.current = savedDocument }
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", daemonScript, mixed ? "1" : "0"])
+        let bridge = DaemonBridge.fakePython(["-c", daemonScript, mixed ? "1" : "0"])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-gallery-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {

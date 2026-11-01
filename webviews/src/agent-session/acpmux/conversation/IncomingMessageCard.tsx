@@ -5,16 +5,21 @@
 // (subagents/DisclosureRow.tsx): the sender's harness mark (a small bot when it has none), the
 // sender's name, then the message's first line muted and cut to the line (messagePreview), and a
 // chevron. A sub-session family's sender reads with who it is to this chat: "Parent ·
-// coordinator". Opened, a light panel under the line says who it is from and holds the WHOLE
-// message as Markdown, PR, issue and file references linked, with the original prompt (cmux's or
+// coordinator". Opened, a light panel under the line holds the WHOLE message as Markdown (the line
+// already names the sender, so the panel never says it again; Leo, 2026-10-29), PR, issue and file references linked, with the original prompt (cmux's or
 // Claude Code's envelope) behind Details, its images, and the reply editor. Opening and closing hold
 // the line on its pixel while the panel grows or shrinks under it (useAnchoredCollapse.ts: the
 // transcript holds it, foldAnchor.ts). Whether it is open lasts while the page does
 // (incomingOpened.ts), so the virtualized transcript keeps it, and the row estimator reads it; Find
 // opens a message that holds its match without the hold, so Find can scroll to it.
-// Open chat, on hover at the line's end, opens the sender's chat beside this one, or its tab when one
-// shows it (its id from the message, else the listed chat with its name; Leo, ask-7325396234: "I
-// THINK I WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"). Reply, at the line's end too,
+// The sender's name is its own control at the line's start: a click opens the sender's chat beside
+// this one, or its tab when one shows it (its id from the message, else the listed chat with its
+// name), and its hover highlight is the name's alone, never the row's (Leo, 2026-10-29: "why the
+// fuck do you even have this instead of just being able to click on the fucking name of the thing,
+// the open chat? ... Just click the left name thing."). The rest of the line opens the message.
+// The sender's mark is its harness's: the listed chat's, else the one the message names (a peer's
+// relayed message, `fromHarness`), else its name's (agentBrand), and a small bot only when none
+// says (Leo, 2026-10-29: "why are some of these icons still only placeholders?"). Reply, at the line's end,
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor in the panel. An open reply and its draft last while
 // the page does; closing the message closes the reply and keeps the draft.
@@ -28,20 +33,28 @@ import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
-import { AgentMark } from "../../shared/AgentMark";
+import { CardCopy } from "./CardCopy";
+import { knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
+import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { AgentTag } from "./AgentTag";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { laneNotice } from "./laneReport";
+import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -50,6 +63,81 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   ancestor: "message.from.ancestor",
   descendant: "message.from.descendant",
 };
+
+/// A harness logo's size in the sender's glyph slot (see SenderName).
+const SENDER_LOGO_SIZE = 12;
+
+/// The sender's mark and name at a received line's start (and a waiting group's sender head,
+/// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
+export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
+  const t = useT();
+  // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
+  // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  // Read only (a guest): the sender's chat is not this reader's to open.
+  const readOnly = useTranscriptReadOnly();
+  const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
+  const avatar = useAgentAvatar(sender.sessionId);
+  const notice = laneNotice(message);
+  const inboxNames =
+    notice?.kind === "inbox"
+      ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
+      : "";
+  const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
+  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
+  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
+  const harness = knownMark(
+    sender.harness,
+    message.harness,
+    message.name,
+    message.name.split("/")[0],
+    sender.harness ?? message.harness,
+  );
+  const picture = message.chief ? chief?.src : avatar;
+  const icon = picture ? (
+    <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
+  ) : message.chief && chief?.text ? (
+    <span className="cv-chief-text-avatar" aria-hidden="true">
+      {chief.text}
+    </span>
+  ) : (
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell
+    // apart. A logo fills its whole box while the envelope and the bot leave a margin in their 16px
+    // one: at 12px its ink is the stroke glyphs' (about 12px), so a sender's logo and a send's
+    // envelope read as one size in the shared glyph slot (transcript-icon-column.test.ts).
+    <AgentIdentity
+      harness={harness}
+      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
+      size={SENDER_LOGO_SIZE}
+      fallbackNode={<Bot size={16} />}
+    />
+  );
+  // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
+  const openTitle = sender.host
+    ? t("subagents.openOnHost", { name, host: sender.host })
+    : t("subagents.open", { name });
+  return (
+    // Its own part of the line: the name opens the sender's chat or nothing, never the message.
+    <span className="cv-received__sender" data-own-click="">
+      <span className="cv-received__mark" aria-hidden="true">
+        {icon}
+      </span>
+      {sessionId ? (
+        <AgentTag
+          name={from}
+          className="cv-received__from cv-received__from--open"
+          title={openTitle}
+          ariaLabel={openTitle}
+          onClick={() => onOpen(sessionId)}
+        />
+      ) : (
+        <AgentTag name={from} className="cv-received__from" />
+      )}
+    </span>
+  );
+}
 
 /// The messages whose reply is open, and the reply drafts, by the same key.
 const replying = new Set<string>();
@@ -82,6 +170,9 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  // Read only (a guest): nobody replies.
+  const readOnly = useTranscriptReadOnly();
+  const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -100,14 +191,15 @@ export function IncomingMessageLine({
   const envelope = useAnchoredCollapse({
     open: details,
     onOpenChange: setDetails,
-    animates: () => played.current,
+    animates: () => !notice && played.current,
+    fadeIn: false,
   });
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle));
-  const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
+  const inText = Boolean(needle && foldFind(notice?.body ?? unsigned(message.text, message.name)).includes(needle));
+  const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
     played.current = false;
@@ -116,28 +208,26 @@ export function IncomingMessageLine({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
-  const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
-  const sessionId = sender.sessionId;
-  const place = useSenderPlace(sessionId);
-  const avatar = useAgentAvatar(sessionId);
+  const raw = notice?.details ?? (message.raw.trim() === message.text ? undefined : message.raw);
+  // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
+  // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
+  const chief = useChiefFace(message.chief);
+  const name = (message.chief && chief?.name) || message.name;
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = unsigned(message.text, message.name);
+  const text = notice?.body ?? unsigned(message.text, message.name);
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  const preview = useMemo(() => messagePreview(body), [body]);
-  // "Open chief-ui (huge-blue)": the chat Open chat opens, and the other machine it runs on.
-  const openTitle = sender.host
-    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
-    : t("subagents.open", { name: message.name });
+  const preview = useMemo(() => notice?.preview ?? messagePreview(body), [body, notice]);
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );
@@ -168,48 +258,38 @@ export function IncomingMessageLine({
     if (!next && editing) setReply("closed");
     show(next);
   };
-  const icon = avatar ? (
-    <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-  ) : (
-    <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
-  );
   return (
     <DisclosureRow
-      className="cv-received"
+      className={notice ? "cv-received cv-lane-notice" : "cv-received"}
       open={open}
       onOpenChange={toggled}
-      animates={() => played.current}
-      icon={icon}
+      animates={() => !notice && played.current}
+      leading={<SenderName message={message} onOpen={onOpen} />}
+      lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
-        <>
-          <span className="cv-received__from">{from}</span>
-          {/* Find counts the panel's whole text, not the line's first-line copy of it. */}
-          <span className="cv-received__preview" data-find-skip="">
-            {preview || t("message.noText")}
-          </span>
-        </>
+        // Find counts the panel's whole text, not the line's first-line copy of it.
+        <span className="cv-received__preview" data-find-skip="">
+          {preview || t("message.noText")}
+        </span>
       }
-      onOpen={sessionId ? () => onOpen(sessionId) : undefined}
-      openLabel={sessionId ? t("subsession.openChat") : undefined}
-      openTitle={sessionId ? openTitle : undefined}
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
+      // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves
+      // the chevron, which ends every message's line at the same place (conversation.css).
       actions={
-        <>
+        <span className="cv-received__hover">
           {replies && !editing && (
             <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
               {t("message.reply")}
             </button>
           )}
           {actions}
-        </>
+        </span>
       }
     >
-      {/* Find counts the message, not this header of it. */}
-      <div className="cv-received__from-line" data-find-skip="">
-        {t("message.fromHeader", { name: from })}
-      </div>
+      {/* The sender's words, as written, from the card's corner. */}
+      <CardCopy text={text} />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
         <div className="cv-received__text selectable">
@@ -245,10 +325,8 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              <pre className="cv-tool-output selectable">{raw}</pre>
             </div>
           )}
         </div>
@@ -258,7 +336,7 @@ export function IncomingMessageLine({
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}
             canSend
-            label={t("message.replyTo", { name: message.name })}
+            label={t("message.replyTo", { name })}
             // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
             // the DOM attribute the rule is about: the reader opened this reply editor with a
             // click and types into it next.

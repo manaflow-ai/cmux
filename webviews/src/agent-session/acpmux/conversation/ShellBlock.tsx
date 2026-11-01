@@ -82,7 +82,9 @@ export function ShellBlock({
           )}
         </span>
         <span className="cv-shell__actions">
-          <WrapButton kind="output" />
+          {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
+              so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
+          <WrapButton kind="output" className="cv-codeblock__action cv-shell__wrap" />
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>
@@ -166,10 +168,15 @@ export const ShellCommand = memo(function ShellCommand({ command }: { command: s
 });
 
 /// While `following`, keeps the box scrolled to its newest line as `content` grows, unless the
-/// reader scrolled up from the end; scrolling back to the end follows again. One scroll listener for
-/// as long as it follows, and one assignment per change of `content`.
+/// reader scrolled up from the end; scrolling back to the end follows again. A late reflow (the mono
+/// font loading, the pane resizing) grows the content without a scroll, so a resize of the box or
+/// of its output pins the end again too. The output span may be a new node after any change (it
+/// goes when the output empties), so each change re-aims the observer at the current one. One
+/// scroll listener and one ResizeObserver for as long as it follows, and per change of `content`
+/// one lookup of the output and one assignment.
 function useFollowEnd(ref: RefObject<HTMLElement | null>, content: unknown, following: boolean) {
   const away = useRef(false);
+  const watch = useRef<{ resize: ResizeObserver; output: Element | null } | null>(null);
   useLayoutEffect(() => {
     const box = ref.current;
     if (!box || !following) return;
@@ -177,10 +184,30 @@ function useFollowEnd(ref: RefObject<HTMLElement | null>, content: unknown, foll
       away.current = moreBelow(box);
     };
     box.addEventListener("scroll", onScroll, { passive: true });
-    return () => box.removeEventListener("scroll", onScroll);
+    const view = box.ownerDocument.defaultView;
+    if (view?.ResizeObserver) {
+      const resize = new view.ResizeObserver(() => {
+        if (!away.current) box.scrollTop = box.scrollHeight;
+      });
+      resize.observe(box);
+      watch.current = { resize, output: null };
+    }
+    return () => {
+      box.removeEventListener("scroll", onScroll);
+      watch.current?.resize.disconnect();
+      watch.current = null;
+    };
   }, [ref, following]);
   useLayoutEffect(() => {
     const box = ref.current;
-    if (box && following && !away.current) box.scrollTop = box.scrollHeight;
+    if (!box || !following) return;
+    const current = watch.current;
+    const output = box.querySelector(".cv-shell__output");
+    if (current && output !== current.output) {
+      if (current.output) current.resize.unobserve(current.output);
+      if (output) current.resize.observe(output);
+      current.output = output;
+    }
+    if (!away.current) box.scrollTop = box.scrollHeight;
   }, [ref, content, following]);
 }

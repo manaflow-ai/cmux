@@ -1,0 +1,10 @@
+{
+  "title": "Sidebar one-list with a workspace on another computer (fixture Cloud machine demo-cloud): base draws a second line naming the computer under the row; cmux#28510 draws none.",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Fixture This Mac and Cloud machine demo-cloud, a workspace each", "rpc": {"method": "debug.cloud_machine_fixture", "params": {"sidebar": true, "name": "demo-cloud"}}, "wait": 1.5, "record": true},
+    {"title": "One list (no section per computer), as the default sidebar", "cmux": ["settings", "set", "sidebar.groupByComputer", "false"], "wait": 2},
+    {"title": "The rows", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 1, "record": true}
+  ]
+}

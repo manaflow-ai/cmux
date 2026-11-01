@@ -25,6 +25,8 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
+// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// Tools, AI, Interaction, Accounts and Devices, Data and System.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
@@ -33,17 +35,19 @@ test("the categories are the approved ones, in order", () => {
     "appearance",
     "terminal",
     "editor",
+    "browser",
     "agents",
     "chief",
     "notifications",
-    "browser",
-    "import",
     "keyboard",
-    "privacy",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "accounts",
     "mobile",
-    "server",
     "devices",
+    "server",
+    "import",
+    "privacy",
     "advanced",
     "experimental",
     "development",
@@ -82,6 +86,19 @@ test("old section routes and focused keys open the category that holds the row",
   expect(parseLocation("/settings/notifications").section).toBe("notifications");
   expect(parseLocation("/settings/general?focus=history.terminalCommands").section).toBe("privacy");
   expect(parseLocation("/settings/nope").section).toBe("general");
+});
+
+test.each(["/settings/%", "/settings/%ZZ", "/settings/%E0%A4%A"])(
+  "a malformed deep-link section falls back to General without breaking Settings (%s)",
+  (href) => {
+    expect(parseLocation(href).section).toBe(defaultCategory);
+    // A real focused key still resolves to its home even when the section slug is corrupt.
+    expect(parseLocation(`${href}?focus=history.terminalCommands`).section).toBe("privacy");
+  },
+);
+
+test("a valid percent-encoded Settings category still opens normally", () => {
+  expect(parseLocation("/settings/%61ppearance").section).toBe("appearance");
 });
 
 test("every category and group title is in all locales", () => {

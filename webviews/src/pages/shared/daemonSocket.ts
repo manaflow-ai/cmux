@@ -81,7 +81,9 @@ export class DaemonSocket {
       socket.addEventListener("message", (event) => {
         let value: Record<string, unknown>;
         try {
-          value = JSON.parse(String(event.data)) as Record<string, unknown>;
+          const parsed: unknown = JSON.parse(String(event.data));
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return;
+          value = parsed as Record<string, unknown>;
         } catch {
           return;
         }

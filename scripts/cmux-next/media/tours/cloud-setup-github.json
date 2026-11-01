@@ -1,0 +1,11 @@
+{
+  "title": "Set Up GitHub on This Machine: the confirm before (device flow only) and after (the cmux GitHub App by default, the device flow with its reason)",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Before: the confirm when the machine always signed in itself", "rpc": {"method": "debug.dialog", "params": {"open": "cloudSetupGitHub", "app": "device"}}, "wait": 1, "shot": true},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "wait": 0.5},
+    {"title": "After: the team's cmux GitHub App is ready", "rpc": {"method": "debug.dialog", "params": {"open": "cloudSetupGitHub", "app": "ready"}}, "wait": 1, "shot": true, "optional": "the cloudSetupGitHub fixture is new in this change"},
+    {"title": "Close it", "rpc": {"method": "debug.dialog", "params": {"dismiss": true}}, "wait": 0.5},
+    {"title": "After: the team has not connected the App, so the machine signs in itself and says why", "rpc": {"method": "debug.dialog", "params": {"open": "cloudSetupGitHub", "app": "not_connected"}}, "wait": 1, "shot": true, "optional": "the cloudSetupGitHub fixture is new in this change"}
+  ]
+}

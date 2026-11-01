@@ -1,6 +1,6 @@
 // l10n-allow-file: sample transcript and screenshot labels, not shipped UI.
 // Leo: "when I said move the scrollbar to the right, I do mean to the right". The
-// Inspector may move the text column, but never the native scrollbar's own box.
+// Session Info may move the text column, but never the native scrollbar's own box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
@@ -35,11 +35,11 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             actions.configureQuickActions(tools ? undefined : { quickActions: [] });
             window.cmuxAcpmuxBridge?.applyHeaderState?.({ inspector: true, version: 2 });
           }, tools);
-          const toggle = page.locator("button.acpmux-chat-inspector-toggle");
-          const panel = page.locator("aside.acpmux-chat-inspector");
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const panel = page.locator("aside.acpmux-session-info");
           await toggle.waitFor();
           if ((await panel.count()) === 0) await toggle.click();
-          await page.locator('.acpmux-chat-inspector[data-presence="shown"]').waitFor();
+          await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();
           await settled(page);
           const geometry = await page.evaluate(() => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
@@ -68,17 +68,16 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           expect(geometry.thumbInk).not.toBe("rgba(0, 0, 0, 0)");
           expect(Math.abs(geometry.rightInset)).toBeLessThanOrEqual(1);
           expect(geometry.columnOffset).toBeLessThanOrEqual(1);
-          // Find is sticky chrome inside the scroller: preserve its existing content shift too.
+          // Find is sticky chrome inside the scroller.
           await page.evaluate(() => window.cmuxAcpmuxActions?.["chat.find"]({ text: "Answer" }));
           await page.locator(".acpmux-find .find-pill__field").waitFor();
           await settled(page);
           const findOffset = await page.evaluate(() => {
             const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const find = document.querySelector(".acpmux-find__bar")!;
-            const shift = parseFloat(getComputedStyle(find).getPropertyValue("--acpmux-chat-shift")) || 0;
             const inset = parseFloat(getComputedStyle(find).right);
             const contentRight = scroll.getBoundingClientRect().left + scroll.clientLeft + scroll.clientWidth;
-            return Math.abs(contentRight - find.getBoundingClientRect().right - inset - shift);
+            return Math.abs(contentRight - find.getBoundingClientRect().right - inset);
           });
           console.log(`SCROLLBAR_FIND ${JSON.stringify({ width, tools, findOffset })}`);
           expect(findOffset).toBeLessThanOrEqual(1);

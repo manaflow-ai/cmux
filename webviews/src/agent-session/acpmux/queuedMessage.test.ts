@@ -86,6 +86,26 @@ test("a queue row the pane never read the record of is an agent's message when t
   ]);
 });
 
+test("a queue listing with agent_message provenance keeps its sender without fromAgent", () => {
+  const listed = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p-provenance",
+        prompt: "Rebase first",
+        client: "acpmux",
+        _meta: { provenance: { kind: "agent_message", from: "acp:s-deputy", fromName: "coord-deputy" } },
+      },
+    ],
+  );
+  expect(listed[0]?.message).toEqual({
+    name: "coord-deputy",
+    sessionId: "s-deputy",
+    text: "Rebase first",
+    raw: "Rebase first",
+  });
+});
+
 test("a queue row the list says is the person's drops the agent's name its record gave", () => {
   const message = { name: "lane-a", text: "Rebase first", raw: "Rebase first" };
   // Edited past the preview's cut: the head the list shows is the same, the sender is not.
@@ -111,4 +131,20 @@ test("a teammate's queued prompt keeps its author through acpmux's list", () => 
     [{ promptId: "p1", prompt: "Rebase first", fromAgent: null }],
   );
   expect(listed[0]?.author).toEqual(ana);
+});
+
+// Leo, 2026-10-29, on a sub-session's note to its parent drawn as a plain box of raw text: "why is
+// this styled like this?". `acpmux send --no-wait` delivers through the daemon's outbox, whose
+// client is `acpmux-outbox#…`: its "From <name>:" names the sender as a shell's does.
+test("a sub-session's note through the outbox names its sender, not the person", () => {
+  const text = "From claude-sr2/ui-think-tank: merged https://github.com/teamleaderleo/leo-workspace/pull/1234";
+  expect(queuedMessage({ text, client: "acpmux-outbox#7@cosmic", promptId: "p9" })).toEqual({
+    name: "claude-sr2/ui-think-tank",
+    text: "merged https://github.com/teamleaderleo/leo-workspace/pull/1234",
+    raw: text,
+  });
+  // The person's own words stay theirs: "From now on" names no agent, and the person sends through
+  // the outbox too, so a bracket lead there is theirs, never a sender named "P1".
+  expect(queuedMessage({ text: "From now on: rebase first", client: "acpmux-outbox#7" })).toBeUndefined();
+  expect(queuedMessage({ text: "[P1] Fix the crash", client: "acpmux-outbox#7" })).toBeUndefined();
 });

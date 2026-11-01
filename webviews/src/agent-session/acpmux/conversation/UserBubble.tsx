@@ -14,7 +14,7 @@
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AcpmuxRow, PromptImage } from "../model";
+import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
@@ -23,6 +23,9 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
+import { recordedPromptParts } from "../inlinePrompt";
+import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import {
   ForkButton,
@@ -56,14 +59,10 @@ export function UserBubble({
   const resend = row.resend ?? row.text ?? text;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
-  const originals = new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
-  );
+  // The ordered bubble below skips them by the same rule.
+  const originals = imageOriginals(row);
   const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" &&
-    part.companionOf === undefined &&
-    !part.mimeType?.startsWith("video/") &&
-    !originals.has(attachmentPath(part.uri) ?? "")
+    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
       ? [{ ...part, path: attachmentPath(part.uri) }]
       : [],
   );
@@ -79,6 +78,29 @@ export function UserBubble({
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
+  const orderedParts = useMemo(() => {
+    const kept = imageOriginals(row);
+    return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
+  }, [row]);
+  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
+  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
+  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
+  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
+  // to read beside its attachments, keep the legacy bands above the bubble.
+  const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
+  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  const hasInterleaved =
+    firstMedia >= 0 &&
+    (placed
+      ? orderedParts!.some((part) => !isStripMedia(part))
+      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
+  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
+  const banded = (part: PromptContentPart) =>
+    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
+  const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
+  const shownParts = orderedParts?.filter((part) => !banded(part));
+  const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -98,20 +120,37 @@ export function UserBubble({
   }
   return (
     <>
-      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      {Boolean(files?.length) && (
+      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
         </div>
       )}
+      {stripMedia.length > 0 && (
+        <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
+          {stripMedia.map((part, index) =>
+            part.kind === "image" ? (
+              <span key={`${part.id}-${index}`} className="cv-user__inline-image">
+                {renderImage(part)}
+              </span>
+            ) : (
+              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+            ),
+          )}
+        </div>
+      )}
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {text.trim() && (
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
           <div className="ui-glass cv-user__bubble selectable">
-            <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+            {hasInterleaved ? (
+              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+            ) : (
+              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+            )}
             {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
@@ -185,6 +224,19 @@ export function UserBubble({
   );
 }
 
+/// The paths of the originals a prompt's images kept (an image the composer converted sends its
+/// original file after it).
+function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
+  return new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+}
+
+/// A file part that is an image's retained original: drawn as the image, never again as a file.
+function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
+  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
+}
+
 function UserFooter({
   className,
   pending,
@@ -234,11 +286,12 @@ export function sentImageWidth(size: { width?: number; height?: number }): numbe
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
 /// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
 /// has shows nothing. It fades in on its first draw only.
-const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
+export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const shown = useStableImage({ id: image.id, read: promptImage }, image);
+  // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);

@@ -96,6 +96,8 @@ struct ClassicMigrationTests {
         do {
             try await Self.awaitMigration(services)
             try await after(services)
+            // The run queues its sidebar placements; read the tree once they have landed.
+            await services.placementsSettled()
             result = .success(Self.read(services))
         } catch { result = .failure(error) }
         if let connection = services.daemon.connection {

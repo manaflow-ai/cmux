@@ -12,6 +12,7 @@ import {
   promptBlocks,
   recordingAttachment,
   recordingLeftOutNotice,
+  remoteRecordingAttachment,
   takesAudio,
 } from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
@@ -282,4 +283,49 @@ test("a recording that finishes in another chat never attaches, splices or auto-
     root = undefined;
   }
   configureDictation(undefined);
+});
+
+// A chat on another computer: the host sends the WAV it wrote, from its own disk, to the chat's
+// machine (`dictation.recording.upload` with the host's own path), and the chip links the copy
+// there, so the remote agent opens it. The page never reads the recording's bytes.
+test("a long recording for a chat elsewhere goes as the copy the host sent to that machine", async () => {
+  const long = { mimeType: "audio/wav", path: "/Users/me/cmux/Chat Uploads/u/Recording.wav", byteCount: 96_000_044 };
+  const calls: [string, Record<string, unknown>][] = [];
+  const remote = "/home/me/.acpmux/uploads/chat-a/Recording.wav";
+  const chip = await remoteRecordingAttachment(long, "Voice recording", async (method, params) => {
+    calls.push([method, params]);
+    return { path: remote };
+  });
+  expect(calls).toEqual([["dictation.recording.upload", { path: long.path }]]);
+  expect(chip).toMatchObject({
+    kind: "link",
+    saved: true,
+    path: remote,
+    name: "Voice recording.wav",
+    size: 96_000_044,
+  });
+  const blocks = promptBlocks("hello", [chip!]);
+  expect(blocks).toContainEqual(expect.objectContaining({ type: "resource_link", uri: `file://${remote}` }));
+  expect(JSON.stringify(blocks)).not.toContain(long.path);
+});
+
+test("a long recording the host could not send elsewhere goes as the transcript alone", async () => {
+  const long = { mimeType: "audio/wav", path: "/Users/me/cmux/Chat Uploads/u/Recording.wav", byteCount: 96_000_044 };
+  const refused = async () => {
+    throw Object.assign(new Error("Couldn't send the file to huge-blue."), { code: "upload_failed" });
+  };
+  expect(await remoteRecordingAttachment(long, "Voice recording", refused)).toBeUndefined();
+  // An older host, or an answer that is not a path there.
+  expect(await remoteRecordingAttachment(long, "Voice recording", async () => ({}))).toBeUndefined();
+  expect(
+    await remoteRecordingAttachment(long, "Voice recording", async () => ({ path: "relative.wav" })),
+  ).toBeUndefined();
+  // A recording that went inline has no file to send: nothing is asked.
+  let asked = false;
+  const inline = await remoteRecordingAttachment(clip, "Voice recording", async () => {
+    asked = true;
+    return { path: "/x" };
+  });
+  expect(inline).toBeUndefined();
+  expect(asked).toBe(false);
 });

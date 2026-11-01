@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPages
@@ -17,7 +18,7 @@ import Testing
         var allowed = false
         var writes: [([String], JSONValue)] = []
         var invite: MobileHostPairInvite?
-        let host = IPhoneHostService()
+        let host = IPhoneHostService(loginKeychain: LoginKeychain())
 
         func provider() -> MobilePairingPageProvider {
             MobilePairingPageProvider(dependencies: .init(

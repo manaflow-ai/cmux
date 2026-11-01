@@ -601,11 +601,18 @@ byte-identical across turns. The request the model gets is not fully ours:
   on claude-sr, which resets `CLAUDE_CONFIG_DIR` (see Compactor routes). When
   acpmux refuses the preset, turns still start (with the harness's own
   configuration) and host.log says so; compactor sessions never do.
-  Claude Code keeps each turn's transcript (the whole view) for 2 days
-  (`cleanupPeriodDays`, minimum 1, set in both the isolated configuration
-  and the session directory's project settings); on claude-sr the
-  transcripts are under `~/.claude/projects/`, and whether a project-level
-  `cleanupPeriodDays` governs that sweep is not checked.
+  Each turn's transcript (the whole view) is kept for 2 days: Claude Code's
+  `cleanupPeriodDays` in the isolated configuration, and the host's
+  TurnRetention (`turn_retention.rs`), which prunes exactly the turn
+  project (and the compactor's slot projects a crash left, after 1 day) in
+  the user's Claude home. No Chief project settings file (turn, subagent,
+  compactor slot) sets `cleanupPeriodDays`: Claude Code reads it from the
+  merged settings and its sweep walks every project of the store the
+  session runs on, which for these sessions is the user's own
+  `~/.claude`, so a project-level 2 deleted the user's other chats'
+  transcripts (checked against Claude Code 2.1.312; cmux#27740's
+  investigation). `tests/harness.rs`
+  `chief_project_settings_never_set_the_stores_retention` holds it.
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
@@ -1222,6 +1229,7 @@ all chief approvals. chief should never have to ask for approvals"):
 | One that reads the Home workspace block (the host reads it on every turn) | the configured one |
 | One a paired device of the owner started | the configured one |
 | Another person wrote in it (a shared Chief, a channel), or it reads the report of a subagent spawned under such a turn | `ask`, and the host refuses every local effect at once |
+| Another agent wrote it: `cmux chief -p`, `cmux chief send` or `cmux chief acp` run by an acpmux session (its `client_msg_id` names the session, `cmux_conversation::agent_sender`; the text shows `[from NAME]`), or an acpmux session's answer to the Chief's `tell(id: "session:NAME")` | `ask`, as for another person |
 
 History: Lawrence added the device gate on 2026-10-05 (0654733226a, default
 ask), made auto-approve the default on 2026-10-06 (8f1b5b9c65b, "i dont want
@@ -1240,7 +1248,9 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   `sleep`, `spawn` (its children take the floor), `send` without
   attachments, `profile` reads (`history` or no field), and `control`
   `status`, `interrupt` with no message and `answer` with `deny`, plus a
-  `tell` or `control` to a subagent that runs with `ask` itself. Plain
+  `tell` or `control` to a subagent that runs with `ask` itself, `control
+  sessions`, and a `tell` to `session:NAME` when the turn carries NAME's own
+  message (it answers that agent, never starts a talk with another). Plain
   replies need nothing.
 - Refused: everything else (a shell command, a file write or edit, computer
   use, a `send` with attachments, a `profile` write or undo, a `tell` or

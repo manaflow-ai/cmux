@@ -16,11 +16,20 @@ struct ProviderDetectionSourcesTests {
 
     struct Keychain: KeychainProbing {
         let services: Set<String>
+        var values: [String: Data] = [:]
         func hasGenericPassword(service: String) -> Bool { services.contains(service) }
+        func genericPassword(service: String) -> Data? { values[service] }
     }
 
     struct NoServers: LocalServerProbing {
         func isReachable(_ url: URL) async -> Bool { false }
+    }
+
+    struct EmptyKeys: ProviderKeyStoring {
+        func savedProviders() -> Set<AIProvider> { [] }
+        func save(_ key: String, for provider: AIProvider) throws {}
+        func key(for provider: AIProvider) throws -> String? { nil }
+        func delete(for provider: AIProvider) throws {}
     }
 
     static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = []) -> ProviderDetector {
@@ -91,6 +100,34 @@ struct ProviderDetectionSourcesTests {
             experimental_bearer_token = "t"
             """
         #expect(Self.detector(files: [Self.codexConfig: config]).detectCodex().status == .signedIn)
+    }
+
+    @Test func codexKeyringCredentialCanConnect() throws {
+        let idToken = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImZvdW5kZXJAZXhhbXBsZS5jb20ifQ."
+        let auth = Data("{\"tokens\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"\(idToken)\",\"account_id\":\"acct\"}}".utf8)
+        let files = Files(files: ["/fixture/home/.codex/config.toml": "cli_auth_credentials_store = \"keyring\""])
+        let keychain = Keychain(services: [ProviderDetector.codexKeychainService], values: [ProviderDetector.codexKeychainService: auth])
+        let environment = DetectionEnvironment(home: Self.home, environment: [:], files: files, keychain: keychain,
+                                                servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)))
+        let credential = try CredentialResolver(environment: environment, keys: EmptyKeys()).codexCredential()
+        #expect(credential.accountID == "acct")
+        #expect(credential.email == "founder@example.com")
+    }
+
+    @Test func codexKeyringSignInWinsOverAStaleAuthFile() throws {
+        let idToken = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImZvdW5kZXJAZXhhbXBsZS5jb20ifQ."
+        let auth = Data("{\"tokens\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"\(idToken)\",\"account_id\":\"keychain-acct\"}}".utf8)
+        let stale = "{\"tokens\":{\"access_token\":\"old\",\"id_token\":\"\(idToken)\",\"account_id\":\"file-acct\"}}"
+        let files = Files(files: ["/fixture/home/.codex/config.toml": "cli_auth_credentials_store = \"keyring\"",
+                                  "/fixture/home/.codex/auth.json": stale])
+        let keychain = Keychain(services: [ProviderDetector.codexKeychainService], values: [ProviderDetector.codexKeychainService: auth])
+        let environment = DetectionEnvironment(home: Self.home, environment: [:], files: files, keychain: keychain,
+                                                servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)))
+        let credential = try CredentialResolver(environment: environment, keys: EmptyKeys()).codexCredential()
+        #expect(credential.accountID == "keychain-acct")
+        let detection = ProviderDetector(environment: environment).detectCodexLogin()
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.keychain(ProviderDetector.codexKeychainService)])
     }
 
     @Test(arguments: ["short", "contains\nnewline"])

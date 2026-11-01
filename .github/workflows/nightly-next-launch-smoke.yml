@@ -1,10 +1,13 @@
 name: nightly-next launch smoke
 
-# The cmux NEXT post-publish launch smoke. It is not a publish gate: nightly.yml
-# publishes without waiting on it, and nothing reads its result before a
-# publish. After a build is on the feed, it launches that build's app the way a
-# first install does (an empty home, no defaults; scripts/ci/fresh_home_launch_smoke.py)
-# and needs it to stay up 30 s with Home rendered.
+# The cmux NEXT post-publish launch smoke, the backstop. nightly.yml smokes the
+# DMG it would publish before any appcast names it (scripts/ci/nightly-steps/
+# launch-smoke-gate.sh in its verify jobs: a crash there publishes nothing), and
+# publishes a build its gate could not smoke. This workflow gates nothing: nothing
+# waits on it or reads its result before a publish. After a build is on the feed,
+# it launches that build's app the way a first install does (an empty home, no
+# defaults; scripts/ci/fresh_home_launch_smoke.py) and needs it to stay up 30 s
+# with Home rendered.
 #
 #   pass        nothing happens.
 #   cannot-run  nothing happens (no Mac, no GUI session, a download, harness or
@@ -49,6 +52,7 @@ on:
       - .github/workflows/nightly-next-launch-smoke.yml
       - scripts/ci/fresh_home_launch_smoke.py
       - scripts/ci/nightly_next_launch_smoke.py
+      - scripts/ci/nightly_next_artifact_check.py
 
 permissions: {}
 
@@ -70,7 +74,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 8
     # The routing App's read-only key for the placement, in the environment cmux-next's placement
     # uses; a pull request's run takes none (and mints no token).
@@ -91,6 +95,8 @@ jobs:
       placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
+      # The item's sparkle:edSignature: the smoke checks the downloaded DMG's bytes against it.
+      ed_signature: ${{ steps.feed.outputs.ed_signature }}
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
       hour: ${{ steps.hour.outputs.hour }}
     steps:
@@ -180,6 +186,7 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
+          CI_FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           JOBS: launch-smoke
           CASCADE_JOBS: launch-smoke
@@ -206,6 +213,7 @@ jobs:
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
+      DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -214,17 +222,22 @@ jobs:
           sparse-checkout: |
             scripts/ci/fresh_home_launch_smoke.py
             scripts/ci/nightly_next_launch_smoke.py
+            scripts/ci/nightly_next_artifact_check.py
+            scripts/ci/release-signer/verify_appcast_item.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
           sparse-checkout-cone-mode: false
 
+      # The bytes, not only the length: the feed item's edSignature must verify over the
+      # downloaded DMG with the pinned key (nightly_next_artifact_check.py), so a stale or corrupt
+      # object of the feed's length is never launched. A mismatch fails here (cannot-run, an error).
       - name: Download the feed's DMG
         id: dmg
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/smoke.dmg" "$DMG_URL"
-          actual="$(stat -f %z "$RUNNER_TEMP/smoke.dmg")"
-          [ "$actual" = "$DMG_LENGTH" ] || { echo "downloaded $actual bytes, the feed says $DMG_LENGTH" >&2; exit 1; }
+          python3 -I scripts/ci/nightly_next_artifact_check.py dmg --dmg "$RUNNER_TEMP/smoke.dmg" \
+            --length "$DMG_LENGTH" --ed-signature "$DMG_ED_SIGNATURE"
 
       # Two attempts: one flaky launch never rolls a build back. Exit 0 passes,
       # 1 is a crash, anything else could not run (and ends the check).
@@ -302,7 +315,7 @@ jobs:
     concurrency:
       group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
@@ -386,7 +399,7 @@ jobs:
   record:
     needs: [pick, smoke]
     if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     steps:

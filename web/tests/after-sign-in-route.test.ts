@@ -65,6 +65,7 @@ function signInRequest(
   nativeReturnTo: string,
   handoffNonce: string,
   webReturnTo?: string,
+  origin = "https://cmux.test",
 ): NextRequest {
   const encodedReturnTo = encodeURIComponent(nativeReturnTo);
   const encodedNonce = encodeURIComponent(handoffNonce);
@@ -72,7 +73,7 @@ function signInRequest(
     ? `&web_return_to=${encodeURIComponent(webReturnTo)}`
     : "";
   return new NextRequest(
-    `https://cmux.test/handler/after-sign-in?native_app_return_to=${encodedReturnTo}&cmux_auth_handoff=${encodedNonce}${encodedWebReturnTo}`,
+    `${origin}/handler/after-sign-in?native_app_return_to=${encodedReturnTo}&cmux_auth_handoff=${encodedNonce}${encodedWebReturnTo}`,
     {
       headers: {
         "accept-language": "en",
@@ -199,6 +200,35 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.protocol).toBe("cmux-next:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
+  });
+
+  test("redirects verified signed NEXT DEV handoffs on staging to cmux-next-dev", async () => {
+    // Signed NEXT DEV is a Release build that signs into staging, so its
+    // callback must survive the deployed after-sign-in handoff there.
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next-dev://auth-callback?cmux_auth_state=state-next-dev";
+
+    const response = await GET(
+      signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux-staging.vercel.app"),
+    );
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux-next-dev:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next-dev");
+  });
+
+  test("rejects signed NEXT DEV handoffs on production", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next-dev://auth-callback?cmux_auth_state=state-next-dev";
+
+    const response = await GET(
+      signInRequest(nativeReturnTo, "handoff-nonce", undefined, "https://cmux.com"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.com/");
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {

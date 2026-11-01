@@ -74,6 +74,14 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         return order.map { DiffFile(path: $0, edits: byPath[$0] ?? []) }
     }
 
+    /// A tool call of this turn wrote a file (`edits` is not empty), without building them.
+    public var hasEdits: Bool {
+        items.contains { item in
+            guard case .tool(let call) = item, call.status != .pending, call.status != .failed else { return false }
+            return call.content.contains { if case .diff = $0 { return true }; return false }
+        }
+    }
+
     public func question(_ id: String) -> AgentQuestion? {
         for case .question(let question) in items where question.id == id { return question }
         return nil
@@ -167,7 +175,7 @@ public final class AgentChatStore {
     /// The chat's title: the agent's session title, else the session's name, else (a new
     /// session) the first prompt trimmed to 40 characters, as ChatGPT and Claude do.
     public var displayTitle: String {
-        Self.chatTitle(sessionTitle: sessionTitle, name: summary.name, firstPrompt: turns.first?.prompt)
+        Self.chatTitle(sessionTitle: sessionTitle, name: summary.name, firstPrompt: firstPrompt)
     }
 
     public nonisolated static let untitledName = "New session"
@@ -210,6 +218,8 @@ public final class AgentChatStore {
     @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
+    /// Whether the last failed prompt can be sent again from the composer.
+    public var canRetryPrompt: Bool { resendable != nil }
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
     /// a prompt that never went out).
     private var seenPromptIDs: Set<String> = []
@@ -235,6 +245,9 @@ public final class AgentChatStore {
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
     private var task: Task<Void, Never>?
+    /// The chat's edit diffs, computed once each off the main thread (the transcript, its
+    /// grid card and the subagent screens share them).
+    @ObservationIgnored public let diffs = ChatDiffCache()
 
     public init(source: any AgentSessionSource) {
         self.source = source
@@ -243,31 +256,139 @@ public final class AgentChatStore {
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
-                self.apply(event)
+                self.receive(event)
             }
         }
     }
 
     isolated deinit {
         task?.cancel()
+        chunkFlush?.cancel()
     }
 
-    public var isRunning: Bool { turns.last?.status == .running }
+    // MARK: Derived state
+    //
+    // Read by views that must not redraw per streamed token (the composer, the
+    // toolbar, the transcript's host): each is stored and written only when its value
+    // changes, after every applied event, so observing it costs nothing while text streams.
 
-    public var pendingPermission: PermissionRecord? {
-        guard let turn = turns.last else { return nil }
+    /// The chat has turns (the empty state is gone).
+    public private(set) var hasTurns = false
+    /// The newest turn is running.
+    public private(set) var isRunning = false
+    /// The first turn's prompt (the title of an untitled chat).
+    public private(set) var firstPrompt: String?
+    /// An edit by the agent in any turn ("Agent Edits").
+    public private(set) var hasAgentEdits = false
+    /// The newest turn's open permission request.
+    public private(set) var pendingPermission: PermissionRecord?
+    /// The newest turn's open question.
+    public private(set) var pendingQuestion: AgentQuestion?
+    /// The running turn's latest plan.
+    public private(set) var runningPlanEntries: [ACPPlanEntry]?
+    /// Turns before the newest that hold an edit (counted once per new turn).
+    @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
+
+    /// `lastTurnOnly`: only the newest turn changed (streamed text).
+    private func refreshDerived(lastTurnOnly: Bool = false) {
+        let last = turns.last
+        assign(\.hasTurns, !turns.isEmpty)
+        assign(\.isRunning, last?.status == .running)
+        assign(\.firstPrompt, turns.first?.prompt)
+        assign(\.pendingPermission, last.flatMap(Self.openPermission))
+        assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
+        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
+        let earlier = max(turns.count - 1, 0)
+        if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
+            editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
+        }
+        assign(\.hasAgentEdits, editsBeforeLast.any || last?.hasEdits == true)
+    }
+
+    private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
+        if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
         for case .permission(let record) in turn.items.reversed() where record.resolution == nil {
             return record
         }
         return nil
     }
 
-    public var pendingQuestion: AgentQuestion? {
-        guard let turn = turns.last else { return nil }
+    nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
         }
         return nil
+    }
+
+    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
+        for item in turn.items.reversed() {
+            if case .plan(_, let entries) = item { return entries }
+        }
+        return nil
+    }
+
+    // MARK: Streamed chunks, one store change per frame
+
+    /// Text chunks that arrived since the last frame, applied together at the next one
+    /// (`flushChunks`), so a burst of tokens is one change to `turns`. Any other event
+    /// applies them first, so the order of events never changes.
+    @ObservationIgnored private var pendingChunks: [AgentSessionEvent] = []
+    @ObservationIgnored private var chunkFlush: Task<Void, Never>?
+    /// Waits for the next display frame. nil applies every event at once (tests, macOS).
+    @ObservationIgnored var nextFrame: (@MainActor () async -> Void)? = AgentChatStore.defaultNextFrame
+    /// Coalesced applies (tests: one per frame, not one per chunk).
+    @ObservationIgnored private(set) var chunkFlushes = 0
+
+    func receive(_ event: AgentSessionEvent) {
+        guard let nextFrame, Self.isTextChunk(event) else {
+            flushChunks()
+            apply(event)
+            return
+        }
+        pendingChunks.append(event)
+        guard chunkFlush == nil else { return }
+        chunkFlush = Task { [weak self] in
+            await nextFrame()
+            self?.flushChunks()
+        }
+    }
+
+    /// Applies the waiting chunks now (a merged run of one message's chunks is one append).
+    func flushChunks() {
+        chunkFlush?.cancel()
+        chunkFlush = nil
+        guard !pendingChunks.isEmpty else { return }
+        let chunks = pendingChunks
+        pendingChunks = []
+        chunkFlushes += 1
+        for chunk in Self.merged(chunks) { applyEvent(chunk) }
+        refreshDerived(lastTurnOnly: true)
+    }
+
+    nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
+        switch event {
+        case .update(.agentMessageChunk), .update(.agentThoughtChunk): true
+        default: false
+        }
+    }
+
+    /// Consecutive chunks of the same message (or of thinking) joined into one.
+    nonisolated static func merged(_ chunks: [AgentSessionEvent]) -> [AgentSessionEvent] {
+        var out: [AgentSessionEvent] = []
+        for chunk in chunks {
+            switch (out.last, chunk) {
+            case (.update(.agentMessageChunk(let text, let id))?, .update(.agentMessageChunk(let more, let nextID))) where id == nextID:
+                out[out.count - 1] = .update(.agentMessageChunk(text: text + more, messageId: id))
+            case (.update(.agentThoughtChunk(let text))?, .update(.agentThoughtChunk(let more))):
+                out[out.count - 1] = .update(.agentThoughtChunk(text: text + more))
+            default:
+                out.append(chunk)
+            }
+        }
+        return out
     }
 
     public var currentModelName: String? {
@@ -353,15 +474,42 @@ public final class AgentChatStore {
 
     public func setModel(_ id: String) { source.send(.setModel(id)) }
 
+    /// Retry on a finished turn: its prompt goes again with what it attached. An image only
+    /// the Mac's record holds is read back first; one that can't be read goes without its
+    /// bytes, so the send fails and the draft comes back instead of a prompt without it.
+    public func retry(_ turn: AgentTurn) {
+        withAttachments(of: turn) { $0.send(prompt: turn.prompt, attachments: $1) }
+    }
+
     /// Retry with another model (the Mac's turn menu): the chat moves to `model`, then `turn`'s
-    /// prompt goes again; the model the chat runs retries as Retry does. When the Mac refuses
-    /// the model, the prompt is not sent and the chat shows the Mac's reason.
+    /// prompt goes again with its attachments; the model the chat runs retries as Retry does.
+    /// When the Mac refuses the model, the prompt is not sent and the chat shows the Mac's reason.
     public func retry(_ turn: AgentTurn, model: String) {
         let text = turn.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        guard model != currentModelID else { return send(prompt: text) }
-        clientError = nil
-        source.send(.retryWithModel(model: model, text: text, promptID: UUID().uuidString.lowercased()))
+        guard !text.isEmpty || !turn.attachments.isEmpty else { return }
+        withAttachments(of: turn) { store, attachments in
+            guard model != store.currentModelID else { return store.send(prompt: text, attachments: attachments) }
+            store.clientError = nil
+            let promptID = UUID().uuidString.lowercased()
+            store.keepSent(attachments, promptID: promptID)
+            store.source.send(.retryWithModel(model: model, text: text, attachments: attachments, promptID: promptID))
+        }
+    }
+
+    /// Runs `then` with `turn`'s attachments holding their bytes: at once when the phone has
+    /// them all, else after reading recorded images from the source.
+    private func withAttachments(of turn: AgentTurn, then: @escaping @MainActor (AgentChatStore, [AgentAttachment]) -> Void) {
+        let attachments = turn.attachments
+        guard attachments.contains(where: { $0.data == nil && $0.fileURL == nil }) else { return then(self, attachments) }
+        Task { [weak self] in
+            var loaded = attachments
+            for index in loaded.indices where loaded[index].data == nil && loaded[index].fileURL == nil {
+                guard let source = self?.source else { return }
+                loaded[index].data = await source.attachmentData(loaded[index])
+            }
+            guard let self else { return }
+            then(self, loaded)
+        }
     }
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
@@ -369,6 +517,15 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
+    }
 
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
@@ -424,6 +581,11 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        applyEvent(event)
+        refreshDerived()
+    }
+
+    private func applyEvent(_ event: AgentSessionEvent) {
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -539,7 +701,7 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = isRunning ? .running : .idle
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -547,7 +709,7 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = isRunning ? .running : .idle
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .modelsAvailable(let models, let current):
             self.models = models
             currentModelID = current
@@ -578,9 +740,10 @@ public final class AgentChatStore {
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
-            for event in events { apply(event) }
+            for event in events { applyEvent(event) }
             markReplayed()
             lastChangeWasReplay = true
+
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -650,24 +813,30 @@ public final class AgentChatStore {
     private func applyUpdate(_ update: ACPSessionUpdate) {
         switch update {
         case .agentMessageChunk(let text, let messageId):
-            guard var turn = turns.last else { return }
-            if !startsNewAttempt, case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
-                turn.items[turn.items.count - 1] = .message(id: id, markdown: existing + text)
+            guard let last = turns.indices.last else { return }
+            // Appended in place: the item's string is taken out first, so it has one
+            // owner and grows without copying the whole message per chunk.
+            if !startsNewAttempt, case .message(let id, var markdown)? = turns[last].items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
+                let item = turns[last].items.count - 1
+                turns[last].items[item] = .message(id: id, markdown: "")
+                markdown += text
+                turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turn.items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false
-            turns[turns.count - 1] = turn
         case .agentThoughtChunk(let text):
-            guard var turn = turns.last else { return }
-            if !startsNewAttempt, case .thought(let id, let existing)? = turn.items.last {
-                turn.items[turn.items.count - 1] = .thought(id: id, text: existing + text)
+            guard let last = turns.indices.last else { return }
+            if !startsNewAttempt, case .thought(let id, var existing)? = turns[last].items.last {
+                let item = turns[last].items.count - 1
+                turns[last].items[item] = .thought(id: id, text: "")
+                existing += text
+                turns[last].items[item] = .thought(id: id, text: existing)
             } else {
-                turn.items.append(.thought(id: UUID().uuidString, text: text))
+                turns[last].items.append(.thought(id: UUID().uuidString, text: text))
             }
             startsNewAttempt = false
-            turns[turns.count - 1] = turn
         case .toolCall(var call):
             call.startedAt = call.startedAt ?? Date()
             if call.status == .completed || call.status == .failed { call.endedAt = Date() }

@@ -38,6 +38,8 @@ struct MessageCellLayout {
     var senderNameFrame: CGRect?
     var quoteFrame: CGRect?
     var quoteTextFrame: CGRect?
+    /// "N Replies" under the quote (the quoted message's thread).
+    var quoteRepliesFrame: CGRect? = nil
     var threadPath: CGPath?
     var imageFrames: [CGRect]
     /// Bubble outline including the tail area.
@@ -356,6 +358,26 @@ extension MessageCellLayout {
         return ConversationBubbleGeometry.iOSTailDrop(radius: radius)
     }
 
+    // Messages' reply preview (iPhone 17 Pro Max, iOS 27, Large text): one
+    // caption2 line, truncated, its text 10 pt in from each side; the outline
+    // shows 29.33 pt tall (this frame plus its hairline), and grows with the
+    // font under Dynamic Type.
+    static let quoteTextInset: CGFloat = 10
+    static let quoteHeight: CGFloat = 28
+    static let quoteMinimumWidth: CGFloat = 48
+    /// "N Replies" under the quote when the quoted message has two or more
+    /// (Messages: "3 Replies" under both quotes of "ill merge ok?", none under
+    /// a quote with one): its glyphs 7.33 pt under the quote, 12 pt in.
+    static let quoteRepliesGap: CGFloat = 17.0 / 3
+    static let quoteRepliesInset: CGFloat = 12
+    /// To the reply's top: from the quote, 12 pt on one side (the line runs
+    /// between them) and 10.33 pt across; from "N Replies", 11.33 pt and
+    /// 3 pt from its glyphs (each measured to the outline Messages draws).
+    static let quoteToSameSideReply: CGFloat = 12
+    static let quoteToOtherSideReply: CGFloat = 31.0 / 3
+    static let repliesToSameSideReply: CGFloat = 32.0 / 3
+    static let repliesToOtherSideReply: CGFloat = 7.0 / 3
+
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
@@ -399,27 +421,41 @@ extension MessageCellLayout {
         var y: CGFloat = 0
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
+        var quoteRepliesFrame: CGRect?
         if let quote = model.replyQuote {
+            // Messages' reply preview balloon (`textReplyPreviewBalloon…`):
+            // caption2 text inset 10 pt, one line 29 pt tall (iPhone 17 Pro
+            // Max, iOS 27), up to `replyBalloonMaximumNumberOfLines`, an
+            // outline only, with the tail hanging below it on its sender's side.
             let quoteFont = t.quoteFont
             let quoteString = NSAttributedString(string: quote.text, attributes: [.font: quoteFont])
-            let size = measure(quoteString, maxWidth: maxBubbleWidth - 24)
-            let textHeight = min(size.height, ceil(quoteFont.lineHeight * 2))
-            let bodyWidth = min(maxBubbleWidth, size.width + 24)
-            let h = textHeight + 14
-            // The quote sits on the original sender's side, outline only.
+            let inset = Self.quoteTextInset
+            let size = measure(quoteString, maxWidth: maxBubbleWidth - 2 * inset)
+            let textHeight = min(size.height, ceil(quoteFont.lineHeight))
+            let bodyWidth = min(maxBubbleWidth, max(Self.quoteMinimumWidth, size.width + 2 * inset))
+            let h = pixelRound(Self.quoteHeight * quoteFont.pointSize / 11)
+            // The quote sits on the original sender's side.
             let quoteLeading = margin + (model.isGroup ? t.avatarSize + t.avatarGap : 0)
             let frame = quote.isOutgoing
                 ? CGRect(x: width - margin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
                 : CGRect(x: quoteLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
-            quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
-            // The quote's tail hangs below it, and the thread line leaves from under the tail.
-            // A reply on the quote's own side (outside a group's avatar column) also needs
-            // room for the line that drops between them.
-            let straightLine = quote.isOutgoing == model.isOutgoing && !(model.isGroup && !quote.isOutgoing)
-            y += h + Self.quoteTailDrop(quoteHeight: h, quoteBodyWidth: bodyWidth) + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
-                + (straightLine ? ConversationReplyThread.minimumStraightRun : 0)
+            quoteTextFrame = CGRect(x: bodyMinX + inset, y: y + (h - textHeight) / 2, width: bodyWidth - 2 * inset, height: textHeight)
+            y += h
+            // "N Replies" belongs to the quoted message: Messages shows it under
+            // the quote once that message has two or more replies.
+            let sameSide = quote.isOutgoing == model.isOutgoing
+            if quote.replyCount >= 2 {
+                let h = t.footerHeight
+                quoteRepliesFrame = quote.isOutgoing
+                    ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
+                    : CGRect(x: bodyMinX + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
+                y += Self.quoteRepliesGap + h
+                y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
+            } else {
+                y += sameSide ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
+            }
         }
 
         var senderNameFrame: CGRect?
@@ -617,19 +653,21 @@ extension MessageCellLayout {
         if let quoteFrame, let quote = model.replyQuote {
             let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
             let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
-            // The thread line drops from under the quote and joins the reply.
+            // The line runs in its own column at the transcript's leading
+            // edge (a group's avatar column), whichever side the bubbles are on.
+            let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
             var quoteBody = quoteFrame
             quoteBody.size.width -= t.tailWidth
             if !quote.isOutgoing { quoteBody.origin.x += t.tailWidth }
+            // Under a quote of theirs the line drops from the leading edge,
+            // where "N Replies" sits: it starts under the label instead.
+            if !quote.isOutgoing, let labels = quoteRepliesFrame { quoteBody.size.height = labels.maxY - quoteBody.minY }
             threadPath = ConversationReplyThread.row(
-                quoteBody: quoteBody,
+                quote: quoteBody,
                 quoteSide: quote.isOutgoing ? .trailing : .leading,
-                quoteTailDrop: Self.quoteTailDrop(quoteHeight: quoteFrame.height, quoteBodyWidth: quoteBody.width),
-                // The reply's first piece of content: the line meets it, never crosses it.
                 reply: replyTop,
                 replySide: model.isOutgoing ? .trailing : .leading,
-                isGroup: model.isGroup,
-                avatarColumnCenter: margin + t.avatarSize / 2,
+                columnX: column,
                 replyAvatarTop: !model.isOutgoing && model.reservesAvatarColumn ? (avatarFrame?.minY ?? primary.maxY) : nil
             ).path
         }
@@ -654,6 +692,7 @@ extension MessageCellLayout {
             senderNameFrame: senderNameFrame,
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
+            quoteRepliesFrame: quoteRepliesFrame,
             threadPath: threadPath,
             imageFrames: imageFrames,
             bubbleFrame: bubbleFrame,

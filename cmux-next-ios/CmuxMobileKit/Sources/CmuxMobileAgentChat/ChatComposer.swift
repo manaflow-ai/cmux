@@ -24,6 +24,11 @@ struct ChatComposer: View {
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
+    /// Window y the slash-command list may not rise above (under the chat's header and
+    /// what the bottom stack shows over the composer); nil when the host does not say.
+    var suggestionsCeiling: CGFloat?
+    /// A Retry uses the same send path, including queue/steer and draft clearing.
+    var retryCount = 0
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -32,9 +37,14 @@ struct ChatComposer: View {
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
     @State private var planMode = false
+    #if DEBUG
+    @State private var ranOfflineSendDemo = false
+    #endif
     /// Set by a tap on the collapsed capsule: the text field only exists
     /// when expanded, so focus can only move into it after it is built.
     @State private var expandRequested = false
+    /// The slash-command list's bottom edge, window y (its height bound's floor).
+    @State private var suggestionsBottom: CGFloat?
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
@@ -83,10 +93,22 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        #if DEBUG
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
+                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  !ranOfflineSendDemo else { return }
+            ranOfflineSendDemo = true
+            text = "Run the tests and summarize the results."
+            send(steer: false)
+        }
+        #endif
         // A returned prompt the Mac turned out to have run: out of the composer again,
         // unless the person already changed it.
         .onChange(of: store.withdrawnDraft) { _, draft in
@@ -230,7 +252,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
@@ -488,25 +510,39 @@ struct ChatComposer: View {
         return prefix.isEmpty ? store.availableCommands.filter { $0.name.lowercased().contains(query) } : prefix
     }
 
+    /// Every matching command, in a list as tall as its rows while they fit between the
+    /// ceiling and the composer card, scrolling past that (`SlashSuggestionsBound`).
     private var slashSuggestions: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(slashMatches) { command in
-                Button {
-                    text = "/\(command.name) "
-                } label: {
-                    HStack {
-                        Text("/\(command.name)").font(.body.monospaced())
-                        Text(command.description).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer()
+        let bound = SlashSuggestionsBound(ceiling: suggestionsCeiling, bottom: suggestionsBottom)
+        return CappedHeightLayout(maxHeight: bound.maxHeight) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(slashMatches) { command in
+                        Button {
+                            text = "/\(command.name) "
+                        } label: {
+                            HStack {
+                                Text("/\(command.name)").font(.body.monospaced())
+                                Text(command.description).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: SlashSuggestionsBound.minRowHeight)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 44)
-                    .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
+        .clipShape(.rect(cornerRadius: 20, style: .continuous))
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        // The card's top, which only the keyboard or the resting place moves (the
+        // stack is bottom-aligned), so the list's own height never feeds back here.
+        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+            if suggestionsBottom != bottom { suggestionsBottom = bottom }
+        }
         .padding(.horizontal, 12)
     }
 
@@ -608,6 +644,7 @@ struct QueuedPromptsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
         }
         // The X while a draft is in the composer: the draft stays, so the message is not
         // put back there; it is removed only on a choice here, and can be copied first.

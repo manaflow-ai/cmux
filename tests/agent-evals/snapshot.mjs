@@ -51,11 +51,15 @@ export function columnsOf(layout) {
 
 export function normalize(raw) {
   const placements = new Map((raw.placements ?? []).map((p) => [p.workspace?.workspace_id, p.group_id ?? null]));
+  // The sidebar's order is the personal placement order (PersonalSidebar.swift), not the
+  // session's workspace index: `workspace_place {index}` changes only the former.
+  const sidebarIndex = new Map((raw.placements ?? []).map((p) => [p.workspace?.workspace_id, p.index]));
   const workspaces = (raw.workspaces ?? []).map((w) => ({
     id: w.id,
     name: w.name ?? "",
     focused: !!w.focused,
     index: w.index,
+    sidebar_index: sidebarIndex.get(w.id) ?? w.index,
     group_id: placements.get(w.id) ?? null,
   }));
   const paneInfo = new Map();
@@ -64,7 +68,8 @@ export function normalize(raw) {
     const columns = columnsOf(layout);
     for (const column of columns) {
       for (const pane of column.pane_ids) {
-        if (!paneInfo.has(pane)) paneInfo.set(pane, { column_index: column.index, column_id: column.column_id, docked: column.docked });
+        // `row_index`: top to bottom in its column (a down split puts the new pane after).
+        if (!paneInfo.has(pane)) paneInfo.set(pane, { column_index: column.index, row_index: column.pane_ids.indexOf(pane), column_id: column.column_id, docked: column.docked });
       }
     }
     return {
@@ -82,6 +87,7 @@ export function normalize(raw) {
     screen_id: p.screen_id,
     workspace_id: screenOf.get(p.screen_id)?.workspace_id ?? null,
     column_index: paneInfo.get(p.id)?.column_index ?? 0,
+    row_index: paneInfo.get(p.id)?.row_index ?? 0,
     column_id: paneInfo.get(p.id)?.column_id ?? null,
     docked: paneInfo.get(p.id)?.docked ?? false,
   }));

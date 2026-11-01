@@ -1,5 +1,7 @@
 """risk_tier.py grades a pull request low, normal or high, and holds only high (for a person) and takebacks."""
+import contextlib
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -50,6 +52,56 @@ class ClassifyTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "normal")
+
+    def test_peer_identity_and_code_signature_trust_are_high(self):
+        # #29072 changed which time a moved acpmux's signing chain must be valid at, and graded normal.
+        for path in (
+            "Native/OptChat/optchat-chief/src/code_signature.rs",
+            "Native/OptChat/optchat-chief/src/acpmux_peer.rs",
+            NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+            "cmux-tui/crates/cmux-link/src/caller.rs",
+            "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+            "cmux-tui/crates/cmux-link/src/app_caller.rs",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
+            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
+            NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
+            NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
+            NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
+            NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperSocketServer.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
+            NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
+            NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
+            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
+            "scripts/cmux-cua-helper-trust.sh",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+            NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
+        # Their tests and fixtures stay low; a file that only mentions a signature stays normal.
+        for path, tier in (
+            ("Native/OptChat/optchat-chief/tests/acpmux_peer_moved.rs", "low"),
+            ("Native/OptChat/optchat-chief/tests/fixtures/nightly-acpmux-signature.bin", "low"),
+            ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
+            ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
+            ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
+            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
+            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # Where the daemon lives and its environment: the executable choice is in +Resolve.
+            (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path)[0], tier)
 
     def test_size_alone_never_raises_the_tier(self):
         path = NEXT + "CmuxNextSidebar/A.swift"
@@ -346,6 +398,234 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(risk.split_diff(diff), {"a.swift": "@@ -1 +1 @@\n-x\n+y", "b.md": "@@ -0,0 +1 @@\n+z"})
 
 
+RS = "cmux-tui/crates/cmux-tui-core/src/history.rs"
+CLEANUP = "        std::fs::remove_dir_all(&dir).unwrap();"
+
+
+def hunk(old, new, lines):
+    """A unified diff hunk at these start lines; each line is (" ", "+" or "-") + text."""
+    return f"@@ -{old},{sum(l[0] != '+' for l in lines)} +{new},{sum(l[0] != '-' for l in lines)} @@\n" + "\n".join(lines)
+
+
+def context(text):
+    return [" " + line for line in text.split("\n")]
+
+
+class RustTestModuleTests(unittest.TestCase):
+    """A delete inside a Rust `#[cfg(test)] mod` is test code, like a file under tests/. Where that
+    can't be known, an added delete counts and a removed one doesn't pay for another."""
+
+    def tier(self, patch, sources=None, base_sources=None, path=RS):
+        return risk.classify([path], {path: patch}, sources, base_sources).tier
+
+    def around(self, opening):
+        """A hunk from line 1 adding the cleanup line below these lines, then a closing brace."""
+        return hunk(1, 1, context(opening) + ["+" + CLEANUP, " }"])
+
+    def test_a_delete_in_an_inline_test_module_is_not_new(self):
+        self.assertEqual(self.tier(hunk(1, 1, context("fn load() {}\n\n#[cfg(test)]\nmod tests {\n    use super::*;")
+                                         + ["+", "+    #[test]", "+    fn cleans_up() {", "+        let dir = tempdir();",
+                                            "+" + CLEANUP, "+    }", " }"])), "normal")
+        for opening in ("#[cfg(test)]\n/// Tests.\n\n#[allow(dead_code)]\npub(crate) mod tests {",
+                        "#[cfg(test)] mod tests {", "#[cfg( test )]\n#[path = \"x\"]\nmod tests {",
+                        "#[cfg(all(test, unix))]\nmod tests {",
+                        "#[cfg(test)]\n/** Tests. */\nmod tests {", "#[cfg(test)]\n/**\n * Tests.\n */\nmod tests {",
+                        "#[cfg(test)] /* a */ /* b /* c */ */ mod tests {", "#[cfg(test)]\n/* x */ #[allow(dead_code)]\nmod tests {", "#[cfg(all(target_os = \"macos\", not(windows), test))]\nmod tests {"):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.tier(self.around(opening)), "normal")
+        # A new file whose test module holds the cleanup.
+        self.assertEqual(self.tier("@@ -0,0 +1,4 @@\n+#[cfg(test)]\n+mod tests {\n+" + CLEANUP + "\n+}"), "normal")
+
+    def test_the_same_delete_outside_the_test_module_is_new(self):
+        # After the module closes, in the same hunk.
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn helper() { let s = \"}\"; }\n}")
+                     + ["+", "+fn prune(dir: &Path) {", "+" + CLEANUP, "+}", " fn other() {}"])
+        self.assertEqual(self.tier(patch), "high")
+        # Another hunk of the file, with no module above it.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\nmod tests {") + "\n"
+                                   + hunk(80, 81, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"])), "high")
+        # `#[cfg(test)]` on something else, a plain `mod tests`, or a cfg that isn't test-only, is product code.
+        for opening in ("#[cfg(test)]\nfn helper() {}\nmod store {", "mod tests {", "#[cfg(not(test))]\nmod tests {",
+                        "#[cfg(any(test, unix))]\nmod tests {", "#[cfg(all(unix, feature = \"test\"))]\nmod tests {",
+                        "#[cfg(all(unix /*,test,*/))]\nmod tests {", "#[cfg(all(unix, feature = \"a,test,b\"))]\nmod tests {",
+                        "#[cfg(all(any(test, unix), test2))]\nmod tests {",
+                        "#[cfg_attr(\n    test,\n    allow(dead_code))]\nmod tests {", "#[cfg(test)]\nmod tests\n{"):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.tier(self.around(opening)), "high")
+
+    def test_braces_in_strings_chars_and_comments_do_not_close_the_module(self):
+        body = ["#[cfg(test)]", "mod tests {", "    fn a<'a>(x: &'a str) -> char { '}' }",
+                "    // } a comment", "    /* } /* nested } */ } */", '    const S: &str = "}\\"}";',
+                '    const R: &str = r#"} "} "#;', '    const M: &str = "line one }', '    } line two";',
+                "    fn b() { if true { match 1 { _ => {} } } }"]
+        patch = hunk(1, 1, context("\n".join(body)) + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "normal")
+        # Unbalanced on purpose: one brace too many closes the module before the delete.
+        self.assertEqual(self.tier(patch.replace("{} } } }", "{} } } } }")), "high")
+
+    def test_a_comment_that_ends_before_code_ends_the_attribute_search(self):
+        # The comment closes on a line that goes on with another item, so the attribute was that item's.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* a /* b\n*/ */ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ mod tests {")), "normal")
+
+    def test_raw_c_strings_and_escaped_chars_do_not_hide_the_module_end(self):
+        for line in ('    const C: &CStr = cr#"a " { b"#;', "    const T: (char, char) = ('\\'', '{');",
+                     "    const U: char = '\\u{7B}'; const X: u8 = b'\\x7b';"):
+            with self.subTest(line=line):
+                patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line + "\n}\nfn prune(dir: &Path) {")
+                             + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(patch), "high")
+                inside = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line) + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(inside), "normal")
+
+    def test_a_raw_string_ends_at_its_quote_even_after_a_backslash(self):
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    const S: &str = r\"\\\";\n}\nfn prune(dir: &Path) {")
+                     + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+
+    def test_code_on_the_lines_that_close_or_open_the_module_is_product_code(self):
+        # The module closes and a product function opens on one line.
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n} fn prune(dir: &Path) {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+        for line in ("mod tests { fn a() {} } fn b() { " + CLEANUP.strip() + " }",
+                     "mod tests { } " + CLEANUP.strip()):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(hunk(1, 1, [" #[cfg(test)]", "+" + line])), "high")
+
+    def test_a_hunk_that_starts_below_line_1_needs_the_file_on_its_side(self):
+        source = "\n".join(["fn prune() {}", "", "#[cfg(test)]", "mod tests {", "    use super::*;", "",
+                            "    #[test]", "    fn one() {", "        let dir = tempdir();", "    }", "",
+                            "    #[test]", "    fn two() {", "        let dir = tempdir();", CLEANUP, "    }", "}", "",
+                            "fn after() {", CLEANUP, "}"])
+        patch = hunk(9, 9, context("        let dir = tempdir();\n    }")
+                     + ["+", "+    #[test]", "+    fn two() {", "+        let dir = tempdir();", "+" + CLEANUP, "+    }", " }"])
+        # Unknown without the file, as when the read fails or the cap is reached: it counts.
+        self.assertEqual(self.tier(patch), "high")
+        self.assertEqual(self.tier(patch, {RS: source}), "normal")
+        # A file whose lines don't match the patch, or the same line after the module, still counts.
+        self.assertEqual(self.tier(patch, {RS: source.replace("fn two", "fn three")}), "high")
+        after = hunk(16, 18, context("\nfn after() {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(after, {RS: source}), "high")
+
+    def test_the_file_overrules_a_hunk_that_starts_inside_a_string(self):
+        # Read alone, this hunk sees a test module in the middle of a multi-line string.
+        source = "\n".join(["const DOC: &str = \"", "#[cfg(test)]", "mod tests {", "\";", "fn prune() {", CLEANUP, "}"])
+        patch = hunk(2, 2, context("#[cfg(test)]\nmod tests {\n\";\nfn prune() {") + ["+" + CLEANUP, " }"])
+        self.assertEqual(self.tier(patch), "high")
+        self.assertEqual(self.tier(patch, {RS: source}), "high")
+
+    def test_a_removed_test_cleanup_does_not_pay_for_a_new_product_delete(self):
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {", CLEANUP, "    }", "}", "fn prune() {",
+                          "    let x = 1;", "}"])
+        head = base.replace("fn prune() {\n    let x = 1;", "fn prune() {\n    let x = 1;\n" + CLEANUP)
+        head = head.replace("    fn a() {\n" + CLEANUP, "    fn a() {\n" + CLEANUP + " // again")
+        patch = (hunk(3, 3, context("    fn a() {") + ["-" + CLEANUP, "+" + CLEANUP + " // again", "     }"]) + "\n"
+                 + hunk(7, 7, context("fn prune() {\n    let x = 1;") + ["+" + CLEANUP, " }"]))
+        for sources, base_sources in ((None, None), ({RS: head}, None), ({RS: head}, {RS: base})):
+            with self.subTest(head=sources is not None, base=base_sources is not None):
+                self.assertEqual(self.tier(patch, sources, base_sources), "high")
+
+    def test_a_removed_cleanup_on_a_module_edge_line_does_not_pay_for_a_new_product_delete(self):
+        # The edge lines hold test code too: removing one pays for nothing, while adding one still counts.
+        one_line = "mod tests { fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); } }"
+        base = "\n".join(["#[cfg(test)]", one_line, "fn prune(dir: &str) {", "    let x = 1;", "}"])
+        head = "\n".join(["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, ["-#[cfg(test)]", "-" + one_line] + context("fn prune(dir: &str) {\n    let x = 1;")
+                     + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        for base_sources in (None, {RS: base}):
+            with self.subTest(base=base_sources is not None):
+                self.assertEqual(self.tier(patch, {RS: head}, base_sources), "high")
+        closing = "} fn cleanup(dir: &str) { std::fs::remove_dir_all(dir).unwrap(); }"
+        base = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", closing, "fn prune(dir: &str) {",
+                           "    let x = 1;", "}"])
+        head = "\n".join(["#[cfg(test)]", "mod tests {", "    fn a() {}", "}", "fn prune(dir: &str) {",
+                           "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"])
+        patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    fn a() {}") + ["-" + closing, "+}"]
+                     + context("fn prune(dir: &str) {\n    let x = 1;") + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
+    def test_a_removed_cleanup_under_a_test_cfg_the_reader_does_not_take_pays_for_nothing(self):
+        # A test-only module in a form the module reader doesn't take is not shown to be product code.
+        head_prune = ["fn prune(dir: &str) {", "    let x = 1;", "    std::fs::remove_dir_all(dir).unwrap();", "}"]
+        for attribute in (["#[cfg(all(test, any(unix, windows)))]"], ["#[cfg(", "    test", ")]"],
+                          ["#[cfg_attr(test, allow(dead_code))]"]):
+            with self.subTest(attribute=attribute):
+                base = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {",
+                                               "        std::fs::remove_dir_all(dir).unwrap();", "    }", "}",
+                                               "fn prune(dir: &str) {", "    let x = 1;", "}"])
+                head = "\n".join(attribute + ["mod tests {", "    fn cleanup(dir: &str) {", "    }", "}"] + head_prune)
+                n = len(attribute)
+                patch = (hunk(n + 2, n + 2, context("    fn cleanup(dir: &str) {")
+                              + ["-        std::fs::remove_dir_all(dir).unwrap();", "     }"]) + "\n"
+                         + hunk(n + 7, n + 6, context("fn prune(dir: &str) {\n    let x = 1;")
+                                + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"]))
+                self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
+
+    def test_a_test_module_inside_macro_tokens_is_product_code(self):
+        # A macro can take `#[cfg(test)] mod m { ... }` as tokens and emit the module without the cfg.
+        body = ["    #[cfg(test)]", "    mod generated {", "        fn clean(p: &str) {",
+                "            std::fs::remove_dir_all(p).unwrap();", "        }", "    }"]
+        for opening, closing in (("emit! {", "}"), ("emit!(", ");"), ("macro_rules! emit {", "}"),
+                                 ("fn f() {", "}")):
+            with self.subTest(opening=opening):
+                lines = [opening] + body + [closing]
+                patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+                self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "high")
+        # Inside a plain module body, the test module still counts.
+        lines = ["mod outer { // the outer module"] + body + ["}"]
+        patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+        self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "normal")
+
+    def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
+        base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
+        head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")
+        patch = hunk(3, 3, context("fn prune(dir: &Path) {") + ["-    fs::remove_dir_all(dir).ok();",
+                                                                  "+    fs::remove_dir_all(dir)?;", " }"])
+        self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "normal")
+        # Without the base file, a removed line below line 1 can't be shown to be product code.
+        self.assertEqual(self.tier(patch, {RS: head}), "high")
+
+    def test_a_declared_test_module_file_is_still_graded_as_product_code(self):
+        # `#[cfg(test)] mod cleanup;` inside `mod nested` names nested/cleanup.rs, and a #[path] can make the
+        # same file product code: a declaration exempts no file.
+        lib = "cmux-tui/crates/cmux-tui-core/src/lib.rs"
+        child = "cmux-tui/crates/cmux-tui-core/src/cleanup.rs"
+        patches = {lib: hunk(1, 1, context("pub mod cleanup;\nmod nested {") + ["+    #[cfg(test)]", "+    mod cleanup;", " }"]),
+                   child: "@@ -0,0 +1 @@\n+" + CLEANUP}
+        self.assertEqual(risk.classify([lib, child], patches).tier, "high")
+
+    def test_pr_mode_reads_rust_files_that_add_or_remove_a_delete_on_their_side(self):
+        calls = []
+
+        def fake_run(args, attempts=3):
+            calls.append(args[-1])
+            return "fn x() {}\n"
+
+        def fake_json(*args):
+            return {"sha": "b" * 40} if "compare" in args[1] else {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}}
+
+        entries = [
+            {"filename": RS, "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/b.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+    let y = 1;"])},
+            {"filename": "cmux-tui/crates/a/tests/c.rs", "status": "modified", "patch": hunk(1, 1, [" fn x() {}", "+" + CLEANUP])},
+            {"filename": "cmux-tui/crates/a/src/new.rs", "status": "renamed", "previous_filename": "cmux-tui/crates/a/src/old.rs",
+             "patch": hunk(5, 5, [" fn x() {", "-" + CLEANUP, " }"])},
+        ]
+        saved = risk.gh_run, risk.gh_json, risk.gh_items
+        risk.gh_run, risk.gh_json, risk.gh_items = fake_run, fake_json, lambda endpoint: entries
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(["pr", "--repo", "o/r", "--number", "1", "--github-output", str(out)])
+                self.assertIn("tier=high", out.read_text())
+        finally:
+            risk.gh_run, risk.gh_json, risk.gh_items = saved
+        self.assertEqual(sorted(calls), sorted([f"repos/o/r/contents/{RS}?ref={HEAD}",
+                                                f"repos/o/r/contents/cmux-tui/crates/a/src/old.rs?ref={'b' * 40}"]))
+
+
 class RecentRevertTests(unittest.TestCase):
     """A pull request that takes back another pull request's change from the last week is high."""
 
@@ -438,6 +718,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(risk.missing_evidence("normal", body="<!-- Takes back #21369: x -->",
                                                    taken_back=[21369])), 1)
         self.assertEqual(len(risk.missing_evidence("normal", body="Takes back #21369:", taken_back=[21369])), 1)
+
+    def test_only_an_unowned_takeback_is_what_keeps_the_check_red(self):
+        # risk-tier.yml fails the check on `takes_back`; a BLOCK alone only warns there.
+        body = "Takes back #21369: the olderLoadKey guard moved into the store\n"
+        self.assertEqual(risk.unowned_takebacks(body, [21369, 21384, 21384]), [21384])
+        self.assertEqual(risk.unowned_takebacks(body, [21369]), [])
+        self.assertEqual(risk.unowned_takebacks("", None), [])
+        self.assertTrue(risk.missing_evidence("high", blocked=True))
+        self.assertEqual(risk.unowned_takebacks("", []), [])
 
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}

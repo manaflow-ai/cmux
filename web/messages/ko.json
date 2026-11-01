@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
+      "savedMessage": "Plus: 일시 정지된 머신을 포함하여 총 1대의 VM 저장",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
+      "activeMessage": "Plus: Cloud VM 1대",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
+      "hoursMessage": "Plus: 월간 시간 제한 없음",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "VM을 일시 중지하거나 삭제하세요."
     },
     "activeLimit": {
-      "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
+      "counted": "현재 포함: {machines}. 일시 중지된 머신도 한도에 포함됩니다.",
       "provisioning": "{name} (프로비저닝 중)",
       "separator": ", "
     }
@@ -423,13 +423,13 @@
     "faqCustomizeQ": "cmux를 커스터마이징할 수 있나요?",
     "faqCustomizeA": "네. 터미널 렌더링은 당신의 Ghostty 설정을 사용하므로 테마, 글꼴, 색상, 커서가 그대로 이어집니다. cmux 고유의 설정은 <path>~/.config/cmux/cmux.json</path>에 있으며 사이드바, 탭 바, 분할 패널, 동작을 제어하고, 모든 <shortcutsLink>키보드 단축키</shortcutsLink>를 편집할 수 있습니다. <link>구성</link>을 참고하세요.",
     "faqIosQ": "iOS 앱이 있나요?",
-    "faqIosA": "네, 베타로 제공됩니다. Mobile Connect 창에서 iPhone을 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택할 수 있습니다. TestFlight에 cmux BETA로 배포됩니다. 앞서 사용해 볼 수 있는 권한은 <foundersLink>cmux Founders Edition</foundersLink>에 포함됩니다.",
+    "faqIosA": "네, 베타로 제공됩니다. Mobile Connect 창에서 iPhone을 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택할 수 있습니다. TestFlight에 cmux BETA로 배포됩니다.",
     "faqSkillsQ": "cmux에 스킬이 있나요?",
     "faqSkillsA": "네. 스킬은 cmux에서 실행되는 모든 agent에 줄 수 있는 재사용 가능한 워크플로로, CLI 제어, 워크스페이스 자동화, 설정, 브라우저 서피스 같은 작업에 사용합니다. <skillsLink>cmux-skills</skillsLink>에서 공개 컬렉션을 둘러보거나 <link>스킬 문서</link>를 읽어보세요.",
     "faqBrowserQ": "내장 브라우저로 무엇을 할 수 있나요?",
     "faqBrowserA": "cmux는 터미널 옆에 실제 브라우저 패널을 분할 배치할 수 있으며, 완전히 프로그래밍 가능합니다. 같은 socket API를 통해 탐색, DOM 스냅샷, 클릭, 입력, JavaScript 실행, 콘솔 및 네트워크 활동 읽기가 가능합니다. agent는 이를 사용해 cmux를 벗어나지 않고 자신의 web 변경 사항을 검증합니다. <link>브라우저 자동화</link>를 참고하세요.",
     "faqSupportQ": "cmux를 어떻게 후원할 수 있나요?",
-    "faqSupportA": "cmux는 무료이며 오픈 소스이고, 앞으로도 항상 그럴 것입니다. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 비롯한 다음 기능에 먼저 접근하고 싶다면 <foundersLink>cmux Founders Edition</foundersLink>을 확인해 보세요.",
+    "faqSupportA": "cmux는 무료이며 오픈 소스이고, 앞으로도 항상 그럴 것입니다.",
     "faqFeatureQ": "기능 요청이 있거나 버그를 발견했어요",
     "faqFeatureA": "여러분의 의견을 듣고 싶습니다. GitHub에서 <issuesLink>issue</issuesLink>나 <prLink>pull request</prLink>를 열거나 <mailLink>이메일을 보내주세요</mailLink>."
   },
@@ -552,12 +552,12 @@
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
           "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
           "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
-          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
+          "foundersLifetime": "평생 구매에는 Pro가 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "로컬 세션 기록"
           ],
           "go": [
-            "실행 중인 Cloud VM 1대",
-            "매월 40 VM 시간",
-            "저장된 VM 2대"
+            "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB 디스크",
+            "커뮤니티 지원",
+            "월간 시간 제한 없음"
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
@@ -608,8 +609,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
-        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
-        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에도 평생 구매로 Pro를 계속 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에도 평생 구매로 Pro를 계속 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
@@ -636,6 +637,12 @@
         "title": "App Store를 통해 결제됨",
         "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
         "manage": "App Store에서 관리"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Plus 요금제는 {date}에 갱신됩니다.",
+        "pendingBody": "Plus 요금제는 {date}에 종료됩니다.",
+        "monthlyPrice": "${amount}/월"
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "무료",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2874,7 +2881,7 @@
       "intro": "cmux iOS 앱은 Mac을 위한 동반 앱입니다. iPhone 또는 iPad를 cmux가 실행 중인 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림을 선택적으로 전달할 수 있습니다.",
       "betaNote": "iOS 앱은 베타 버전입니다. TestFlight에서 cmux BETA로 배포됩니다.",
       "accessTitle": "액세스 받기",
-      "accessDesc": "앱은 TestFlight를 통해 배포됩니다. 앞서 사용해 볼 수 있는 권한은 다른 초기 기능과 함께 <foundersLink>cmux Founders Edition</foundersLink>에 포함됩니다.",
+      "accessDesc": "앱은 TestFlight를 통해 배포됩니다. 베타 이용 권한은 cmux Pro에 포함되며, 대시보드의 TestFlight 페이지에서 참여할 수 있습니다.",
       "prereqTitle": "사전 요구 사항",
       "prereqIntro": "시작하기 전에 다음이 필요합니다:",
       "prereq1": "cmux가 실행 중이고 로그인된 Mac.",
@@ -2962,9 +2969,9 @@
       "limitsTitle": "플랜 한도",
       "limitsDesc": "활성 머신은 하나의 vCPU 및 메모리 풀을 공유합니다. 큰 머신 한 대를 실행하거나 작은 머신 여러 대를 실행할 수 있습니다. 일시 중지된 머신은 풀을 사용하지 않습니다. 디스크는 머신마다 따로 정해지며 풀에 포함되지 않습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
-      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
+      "limitsPaid": "Pro 계정은 vCPU 20개와 40 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
+      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 일시 중지된 머신을 포함한 머신을 최대 5대까지 가질 수 있습니다. Max 머신 한 대는 64 GB와 vCPU 32개까지 사용할 수 있으며, 24 GB / 12 vCPU와 32 GB / 16 vCPU 크기도 포함됩니다. Pro와 Team은 16 GB와 vCPU 8개까지입니다.",
       "limitsPoolFull": "새로 만들거나, 재개하거나, 크기를 늘리거나, 포크한 머신이 풀을 넘게 되면 cmux는 요청을 거부하고 풀 사용량을 보여 줍니다. 머신을 일시 중지하거나 삭제해 리소스를 확보하거나 Max로 업그레이드하세요.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
       "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
@@ -2974,7 +2981,7 @@
       "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
       "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Go는 16 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 Pro와 Team에서 4 GB 단위로 최대 128 GB, Max에서 최대 256 GB까지 늘릴 수 있습니다(Plus는 128 GB로 제한됩니다). 메모리와 CPU는 Pro와 Team에서 최대 16 GB와 8 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -5254,7 +5261,18 @@
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus 이용하기",
+      "featuresLead": "포함 사항:",
+      "features": [
+        "일시 정지된 머신을 포함하여 총 1대의 VM 저장",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "커뮤니티 지원",
+        "월간 시간 제한 없음"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

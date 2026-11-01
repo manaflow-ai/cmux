@@ -1,4 +1,4 @@
-import CmuxMobileFeed
+@testable import CmuxMobileFeed
 import CmuxMobileModel
 import Foundation
 import Testing
@@ -10,10 +10,10 @@ import Testing
 @Suite struct TerminalFeedTests {
     /// The Mac: a workspace with a Codex terminal (surface 1), a second
     /// terminal (surface 2), an agent chat tab (surface 7) and a browser (surface 9).
-    static func tree(codex: String = "blocked", markers: String = "") -> DaemonTree {
+    static func tree(codex: String = "blocked", markers: String = "", codexTitle: String = "codex") -> DaemonTree {
         let reply = Data("""
         {"ok":true,"data":{"workspaces":[{"id":4,"key":"ws-a","title":"cmux","screens":[{"id":3,"active":true,"active_pane":2,"panes":[{"id":2,"active_tab":0,"tabs":[
-          {"surface":1,"kind":"pty","title":"codex","cwd":"/Users/me/src/cmux"\(markers)},
+          {"surface":1,"kind":"pty","title":"\(codexTitle)","cwd":"/Users/me/src/cmux"\(markers)},
           {"surface":2,"kind":"pty","title":"zsh","cwd":"/Users/me/src/cmux"},
           {"surface":7,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-1","harness":"claude"}}},
           {"surface":9,"kind":"browser","title":"Docs","url":"https://cmux.com"}
@@ -80,6 +80,35 @@ import Testing
     }
 
     static let connection = 1
+
+    /// A row says where it happened: the workspace and the tab, by the names the Mac shows; a
+    /// tab named only after its program adds nothing and is left out.
+    @Test func eventsNameTheirWorkspaceAndTab() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.treeChanged(Self.tree(codexTitle: "Fix login redirect"), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+        let item = store.item(id: "term-mac-ntf_1")
+        #expect(item?.tabTitle == "Fix login redirect")
+        #expect(item?.place == "cmux › Fix login redirect")
+
+        let (plainStore, plainFeed) = Self.make(daemon)
+        plainFeed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { plainStore.items.count == 1 }
+        #expect(plainStore.item(id: "term-mac-ntf_1")?.place == "cmux", "a tab titled \"codex\" repeats the agent")
+    }
+
+    /// The archive keeps the tab's name, so a relaunched phone still says where.
+    @Test func theArchiveKeepsTheTabName() throws {
+        var item = FeedItem(id: "turn-1", kind: .response, workspaceID: "ws", tabID: "t", agentName: "Claude",
+                            harness: "claude", workspaceTitle: "api-server", markdown: "Done.", quote: nil,
+                            createdAt: Date(timeIntervalSince1970: 1_000))
+        item.tabTitle = "Fix login redirect"
+        let data = try JSONEncoder().encode(try #require(FeedArchive.Entry(item)))
+        let back = try JSONDecoder().decode(FeedArchive.Entry.self, from: data).item
+        #expect(back?.place == "api-server › Fix login redirect")
+    }
 
     @Test func hydratesTerminalAgentEventsOnConnect() async {
         let daemon = FakeDaemon()
@@ -469,12 +498,12 @@ import Testing
         #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("may not have been submitted") == true)
         // The agent started working or asking (or restarted) since the phone looked: the daemon refuses.
         daemon.sendError = "agent not waiting: the terminal's agent is working, asking, or another session"
-        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi")?.contains("busy, asking something, or restarted") == true)
+        #expect(await feed.reply(itemID: "term-mac-ntf_2", text: "hi") == "Open the terminal to answer the agent.")
         #expect(daemon.sent.isEmpty)
         // The card shows why, and the reply can be tried again.
         store.replyToTerminal("term-mac-ntf_2", text: "hi") { item, text in await feed.reply(itemID: item.id, text: text) }
         await Self.settle { store.item(id: "term-mac-ntf_2")?.pending == nil }
-        #expect(store.item(id: "term-mac-ntf_2")?.error?.contains("busy") == true)
+        #expect(store.item(id: "term-mac-ntf_2")?.error == "Open the terminal to answer the agent.")
         #expect(store.item(id: "term-mac-ntf_2")?.replies == [])
         // Not connected.
         feed.request = nil

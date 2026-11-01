@@ -77,6 +77,16 @@ final class DesktopNotifier: NSObject {
         usesSystemCenter(in: environment) && (optsIntoNativeNotifications(environment) || !isGUIJob(environment))
     }
 
+    /// An automation launch that opted in to the system center (`CMUX_NEXT_NATIVE_NOTIFICATIONS=1`): it starts
+    /// with this bundle's delivered notifications removed (`startsWithoutDeliveredBanners(in:)`).
+    nonisolated static let startsWithoutDeliveredBanners = startsWithoutDeliveredBanners(in: ProcessInfo.processInfo.environment)
+
+    /// Whether a launch with `environment` removes this bundle's delivered notifications when it first uses the
+    /// system center: only an automation launch that opted in, never a user's launch.
+    nonisolated static func startsWithoutDeliveredBanners(in environment: [String: String]) -> Bool {
+        optsIntoNativeNotifications(environment) && WindowDrawPolicy.isAutomationLaunch(environment)
+    }
+
     nonisolated private static func optsIntoNativeNotifications(_ environment: [String: String]) -> Bool {
         environment[nativeNotificationsVariable] == "1"
     }
@@ -211,6 +221,13 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        if Self.startsWithoutDeliveredBanners {
+            // An automation launch starts from empty state, so its notification ids count from 1 again: a banner a
+            // previous launch left in Notification Center under the same id would turn the next post into a silent
+            // update. Only this launch's own notifications are removed (they are all stale).
+            center.removeAllDeliveredNotifications()
+            center.removeAllPendingNotificationRequests()
+        }
         center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(),
                                           IPhonePairNotices.notificationCategory()])
         self.center = center

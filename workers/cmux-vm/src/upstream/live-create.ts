@@ -16,6 +16,9 @@ const digest = (text: string) => Effect.promise(async () => {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
 });
 
+/** The provider's own customer id rule (freestyle@0.2.21 `Customer.customerId`). */
+const CUSTOMER_ID = /^[A-Za-z0-9_.:@-]{1,128}$/u;
+
 /** 4xx answers that prove the provider made nothing; 408 (timeout), 409 (slug may exist), 5xx and transport errors do not. */
 const definitelyRejected = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 
@@ -43,6 +46,10 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     const request = yield* digest(JSON.stringify(body));
     metadata["cmux_create"] = request;
     const context = yield* digest(JSON.stringify([config.baseUrl, Redacted.value(config.apiKey), body]));
+    // The tenant is the provider's customer (abuse protection tells tenants apart by it). It is sent outside the
+    // digests above: it follows from the tenant id the name and metadata already carry, and a create journaled
+    // before this field existed must still match its retained request and context.
+    const sent = CUSTOMER_ID.test(caller.value.tenantId) ? { ...body, customer: { customerId: caller.value.tenantId } } : body;
     if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
     yield* journal.beforeSend(context, {
       provider: yield* providerContext(config),
@@ -69,7 +76,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
         if (snapshot.id !== imageId) return yield* Effect.fail(new UpstreamError({ operation: "verifyBootImage", status: null }));
       }
       const token = yield* journal.beginSend();
-      return yield* http.json("createVm", "POST", "/v5/vms", body, { timeoutMs: 120_000 }).pipe(
+      return yield* http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
         Effect.flatMap(decode), Effect.flatMap(checked),
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
         Effect.catchAll((error) => recover.pipe(Effect.flatMap((found) => Option.isSome(found) ? Effect.succeed(found.value)

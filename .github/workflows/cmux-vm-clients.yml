@@ -17,6 +17,8 @@ on:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
       - workers/cmux-vm/sdk/**
+      # The cli tests run every command in this agent guide (tests/agent_doc.rs).
+      - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml
@@ -28,6 +30,8 @@ on:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
       - workers/cmux-vm/sdk/**
+      # The cli tests run every command in this agent guide (tests/agent_doc.rs).
+      - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
       - .github/workflows/cmux-vm-clients.yml
@@ -41,7 +45,7 @@ permissions:
 
 jobs:
   rust:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     defaults:
       run:
@@ -116,7 +120,7 @@ jobs:
           fi
 
   sdk:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:

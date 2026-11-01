@@ -108,6 +108,8 @@ fn bundled() -> Catalog {
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
+    // A refresh that ends after the home was lost never makes it again (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
     // Owner-only whatever the umask, like the rest of the acpmux home.
     let mut made = std::fs::DirBuilder::new();
     made.recursive(true);

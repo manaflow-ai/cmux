@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -80,8 +81,8 @@ final class WindowShortcutHints {
         }
         var hints: [ShortcutHintOverlayView.Hint] = []
         let sidebar = controller.sidebar.container.sidebarView
-        // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every
-        // sidebar destination drawn (Home, the App Store, collapsed groups, workspace rows).
+        // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every sidebar destination
+        // drawn. A sidebar frame is the row's content, so its chip ends on the one trailing edge with no inset; a rail tick's keeps 2.
         let order = controller.sidebar.model.itemOrder, navigation = SidebarNavigation.settings(controller.services)
         // The thin rail (`sidebar.style` = rail) draws each chip beside its tick.
         let container = controller.sidebar.container, rail = container.railView
@@ -89,7 +90,7 @@ final class WindowShortcutHints {
             ? rail.shortcutHintItemFrames.mapValues { sidebar.convert($0, from: rail) } : sidebar.shortcutHintItemFrames
         for (item, rect) in frames.sorted(by: { $0.value.minY < $1.value.minY }) {
             guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
-            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item)))
+            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item), trailingInset: container.isRailShown ? 2 : 0))
         }
         for (index, rect) in sidebar.shortcutHintSpaceFrames.enumerated() where index < 9 {
             if let text = label("space.selectByNumber", digit: index + 1) {

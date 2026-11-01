@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { collectGeometry, parseSelectorMap, type GeometrySelection } from "./geometry-collector";
+import { collectGeometry, parseSelectorMap, prepareGeometryCapture, type GeometrySelection } from "./geometry-collector";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -32,6 +32,7 @@ export function settleSummary(samples: readonly unknown[]) {
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 const DEFAULT_DEVICE_SCALE = 2;
+const DEFAULT_CAPTURE_CONTEXT = 32;
 /** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
  * 2026-10-07); the run's own pause by exact id is the primary path. */
 const FREESTYLE_IDLE_SECONDS = 300;
@@ -194,6 +195,32 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
   return { baseUrl: `http://127.0.0.1:${server.port}`, close: () => server.stop() };
 }
 
+
+/** Capture the named gallery surface with a small context border. Gallery entries can opt into
+ * a tighter element using `data-gallery-capture`; the root remains the safe default for stages
+ * without a named surface. Coordinates are CSS pixels and Playwright applies the 2x scale. */
+export async function captureClip(page: Page): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
+  const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR;
+  const measured = await page.evaluate(({ selector }) => {
+    const element = selector
+      ? document.querySelector(selector)
+      : document.querySelector("[data-gallery-capture]") ?? document.querySelector("#root");
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+  }, { selector });
+  if (!measured) return undefined;
+  const visibleLeft = Math.max(0, measured.left);
+  const visibleTop = Math.max(0, measured.top);
+  const visibleRight = Math.min(measured.viewportWidth, measured.right);
+  const visibleBottom = Math.min(measured.viewportHeight, measured.bottom);
+  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return undefined;
+  const left = Math.max(0, measured.left - DEFAULT_CAPTURE_CONTEXT);
+  const top = Math.max(0, measured.top - DEFAULT_CAPTURE_CONTEXT);
+  const right = Math.min(measured.viewportWidth, measured.right + DEFAULT_CAPTURE_CONTEXT);
+  const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
+  return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
+}
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
@@ -220,7 +247,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
       const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
-      await page.screenshot({ path: join(outputDir, name), fullPage: true });
+      const clip = await captureClip(page);
+      await page.screenshot({ path: join(outputDir, name), ...(clip ? { clip } : { fullPage: true }) });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
       stillsMs += Date.now() - started;
     });
@@ -264,8 +292,9 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     const geometrySelections: GeometrySelection[] | undefined = process.env.CMUX_GEOMETRY_SELECTORS
       ? parseSelectorMap(JSON.parse(readFileSync(process.env.CMUX_GEOMETRY_SELECTORS, "utf8")), process.env.CMUX_GEOMETRY_SELECTORS)[item.id] : undefined;
-    if (geometrySelections) await page.evaluate(() => document.getAnimations().forEach((animation) => animation.pause()));
-    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
+    if (geometrySelections) await prepareGeometryCapture(page, typeof params.auditScroll === "string" ? params.auditScroll : undefined);
+    const clip = await captureClip(page);
+    await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), ...(clip ? { clip } : { fullPage: true }) });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };

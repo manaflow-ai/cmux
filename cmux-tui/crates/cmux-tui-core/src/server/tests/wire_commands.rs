@@ -251,6 +251,27 @@ fn cmux_next_set_tab_pinned_reports_pinned_first_order_over_the_wire() {
     );
 }
 
+/// `move-tab` (the apps' drag) moves a tab whose terminal is still adopting
+/// after a daemon restart: placed in its pane, no runtime surface yet
+/// (https://github.com/manaflow-ai/cmux/issues/25999).
+#[test]
+fn cmux_next_move_tab_moves_a_tab_without_a_runtime_surface() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+    let second = mux.new_tab(Some(pane), None, None).unwrap().id;
+    let _adopting = mux.state.lock().unwrap().surfaces.remove(&second).unwrap();
+    let moved =
+        run_json_command(&mux, json!({"cmd":"move-tab","surface":second,"pane":pane,"index":0}))
+            .unwrap();
+    assert_eq!(moved["moved"], true);
+    assert_eq!(mux.with_state(|state| state.panes[&pane].tabs.clone()), vec![second, first]);
+    assert!(
+        run_json_command(&mux, json!({"cmd":"move-tab","surface":999999,"pane":pane,"index":0}))
+            .is_err()
+    );
+}
+
 #[test]
 fn cmux_next_frontend_browser_tab_commands_and_attach_refusal() {
     let mux = test_mux();

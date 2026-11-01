@@ -41,6 +41,12 @@ enum RoomHandlers {
                 windows.openWindow(id: windowID, workspaces: adoptable)
             }
         }
+        // Move Space to This Window, the inverse: the acting window takes the space's workspaces from
+        // every other normal window and shows the space; a window left with none closes.
+        bind("space.bringHere") { invocation in
+            let room = try context.room(invocation)
+            try context.services.windows.bringSpace(room.id, into: context.window(invocation).state)
+        }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows
@@ -111,12 +117,12 @@ enum RoomHandlers {
                 return
             }
             let patch = try RoomDefaultsArguments.patch(invocation)
-            RoomDefaultsUpdates.apply(patch, to: room.id, context)
+            context.services.roomDefaults.apply(patch, to: room.id, context)
         }
         // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
         bind("space.clearDefaults") { invocation in
             let room = try context.room(invocation)
-            RoomDefaultsUpdates.apply(.clear, to: room.id, context)
+            context.services.roomDefaults.apply(.clear, to: room.id, context)
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
@@ -271,12 +277,13 @@ enum RoomHandlers {
 /// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
 /// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
 /// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
-/// the old mirror, and the second's whole-object write would drop the first's field.
+/// the old mirror, and the second's whole-object write would drop the first's field. One per app
+/// (``AppServices/roomDefaults``).
 @MainActor
-enum RoomDefaultsUpdates {
+final class RoomDefaultsUpdates {
     /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
     /// removed, unless a newer run replaced it.
-    private static var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
+    private var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
 
     /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
     /// connection): the body holds the only reference, so the next run never waits forever.
@@ -287,17 +294,17 @@ enum RoomDefaultsUpdates {
     }
 
     /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
-    static func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
+    func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
 
-    static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
+    func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
         let previous = tails[id]?.done
         // Nothing is ever yielded; the stream only ends, so one slot is plenty.
         let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let finish = Finish(signal)
         let token = UUID()
-        tails[id] = (token, Task { @MainActor in
+        tails[id] = (token, Task { @MainActor [weak self] in
             for await _ in finished {}
-            if tails[id]?.token == token { tails[id] = nil }
+            if self?.tails[id]?.token == token { self?.tails[id] = nil }
         })
         context.services.machines.local.send("update-profile") { connection in
             defer { finish.signal.finish() }

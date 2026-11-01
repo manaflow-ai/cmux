@@ -24,6 +24,7 @@ extension AppStore {
         if macData.removeValue(forKey: id) != nil { known = true }
         if macConnection.removeValue(forKey: id) != nil { known = true }
         if macLinkStatus.removeValue(forKey: id) != nil { known = true }
+        if macLinkDiagnostics.removeValue(forKey: id) != nil { known = true }
         if known, let count = accountMacCount, count > 0 { accountMacCount = count - 1 }
         for (key, value) in defaults.dictionaryRepresentation() where Self.isAccountPreference(key) && value as? String == id {
             defaults.removeObject(forKey: key)

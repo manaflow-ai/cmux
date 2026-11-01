@@ -9,8 +9,12 @@ pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
 mod agent_pairs;
+mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod atomic_json;
+mod build;
+pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
@@ -25,7 +29,7 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
-mod cancel;
+pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
 pub mod composers;
@@ -34,7 +38,13 @@ mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+#[cfg(test)]
+mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod prompt_accept_tests;
+#[cfg(test)]
+mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
@@ -47,6 +57,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -56,15 +69,18 @@ mod locate;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
+pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
+mod log_deferral;
 mod log_load;
 mod retention;
 pub use retention::RetentionRequest;
@@ -85,10 +101,17 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+#[cfg(test)]
+mod prompt_line_tests;
+mod prompt_sender;
+mod protected_hold;
 mod queue;
+mod queue_admission;
 mod queue_edit;
+pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, supersede::key as supersede_key};
+pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod profile_respawn;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -97,7 +120,10 @@ pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
 mod github_owner;
+mod lane_report_reads;
+mod lane_report_text;
 mod lane_reports;
+mod meta_save;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -113,6 +139,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -122,6 +149,7 @@ mod steer_end;
 mod store_load;
 mod stream;
 mod tags;
+mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
@@ -131,12 +159,18 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
+pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
+#[cfg(all(test, target_os = "linux"))]
+mod peer_flap_soak;
+mod peer_grace;
+#[cfg(test)]
+mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
@@ -172,18 +206,29 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+pub(crate) mod stop_if_idle;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
+mod transfer_authority;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
 mod trust_wait;
+mod turn_attestation;
 mod turn_git;
 mod turn_usage;
+mod usage_view;
+pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+pub mod background_turn;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+pub(crate) mod usage_warnings;
+#[cfg(test)]
+mod usage_warnings_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -204,6 +249,7 @@ use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the
@@ -232,8 +278,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// question waiting, no activity) before it hibernates: it exits and the
 /// session resumes on its next prompt (`idle.rs`).
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
-/// Git hash and date stamped at build time (see build.rs).
-pub const BUILD: &str = env!("ACPMUX_BUILD");
 
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
@@ -242,6 +286,16 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+}
+
+/// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
+/// that received it and the peer holding that chat.
+fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
+    match (target, peer) {
+        (None, _) => id.to_owned(),
+        (Some(target), None) => format!("{target}\0{id}"),
+        (Some(target), Some(peer)) => format!("{peer}\u{1}{target}\0{id}"),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -281,8 +335,10 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
-    /// `prompt_preview` masked before its cut, for the sub-session tools
-    /// (`subsession_row`): a secret across the cut leaves no head there.
+    /// The line its prompt leaves on the session summary (`turn.prompt`: the sidebar's step, the
+    /// hover card's task, the sub-session tools): another agent's message as "name: first line",
+    /// never its envelope (`prompt_line.rs`), masked before its cut, so a secret across the cut
+    /// leaves no head. `prompt_preview` stays the prompt as sent, for the turn's records.
     pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
@@ -295,8 +351,14 @@ pub struct TurnInfo {
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
     /// What the turn does right now: its latest tool call's title and its
-    /// plan's step in progress, raw and masked (`activity.rs`).
+    /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
+    /// Its prompt is acpmux's own notice of other agents' messages (an inbox notice or a
+    /// digest, `prompt_line::is_notice`), not words anyone typed: the summary's `turn.notice`.
+    pub notice: bool,
+    /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
+    /// inbox notice and no other agent's steer goes into it.
+    pub persons: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -304,6 +366,9 @@ pub struct TurnInfo {
 pub struct PromptOptions {
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
     pub prompt_id: Option<String>,
+    /// The delivery id for a message sent through `_acpmux/send_queue`; direct prompts use the
+    /// prompt id when no separate delivery id exists.
+    pub message_id: Option<String>,
     /// Called once, as soon as the prompt is recorded (queued or started),
     /// with `{sessionId, promptId, turnId, queued, position?, steer?}`, or
     /// `{sessionId, promptId, duplicate: true}` for a prompt id seen before.
@@ -338,6 +403,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Sender identity carried across a peer link. Provenance is intentionally removed at that
+    /// boundary, but the additive message event still needs the sender's stable identity.
+    pub message_sender: Option<Value>,
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
@@ -360,9 +428,20 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// The queue took it already and it goes back in (a Send now or a steer whose turn ended
+    /// first): its room is not checked again (`queue_admission.rs`), so a prompt it accepted is
+    /// never refused for room.
+    pub admitted: bool,
     /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
     /// turn's cap (`turn_cap.rs`).
     pub send_now: bool,
+    /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
+    /// `topic:T`; `None` derives it.
+    pub thread: Option<String>,
+    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
+    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
+    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    pub inbox: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -398,6 +477,11 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Projection-only message repairs in flight, keyed by destination and delivery id. These
+    /// retries never resend a prompt and are bounded in `message_events.rs`.
+    pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
+    #[cfg(test)]
+    pub(super) message_projection_failures: StdMutex<std::collections::HashSet<String>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     /// Inline `/btw` side sessions being created, by their request-unique name: the family and
@@ -408,6 +492,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
+    pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -430,6 +516,10 @@ pub struct Hub {
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The config's `usageWarnings` thresholds, set at start and on each reload
+    /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
+    /// swaps the configured rules for the defaults (`usage_warnings.rs`).
+    pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
@@ -440,6 +530,7 @@ pub struct Hub {
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
+    pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -453,6 +544,9 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
+    /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
+    pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
     store_load: store_load::StoreLoad,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
     /// chat log. A request for one chat waits for that chat's log only (`session_log`).
@@ -480,9 +574,12 @@ pub struct Hub {
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
     pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
-    /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
-    /// futures must not write a second result when the agent ends.
+    /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
+    /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
+    /// ends looks again (`shutdown.rs` `settle_ends`).
+    pub(super) ends_moved: Notify,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
     /// Harnesses whose last model probe failed, with the reason; reported in
@@ -544,6 +641,15 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
+    #[cfg(test)]
+    pub(super) first_work_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
+    #[cfg(test)]
+    pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
+    #[cfg(test)]
+    pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -569,6 +675,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
+    /// Authenticated parents already receiving a lane result through wait/history.
+    lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Creates admitted and still starting (`admission.rs`).
@@ -578,8 +686,6 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
-    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
-    pub(super) auto_resumes: auto_resume::Pending,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -660,17 +766,23 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            usage_limits,
             wireguard,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            message_repairs: StdMutex::new(std::collections::HashSet::new()),
+            #[cfg(test)]
+            message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -686,10 +798,12 @@ impl Hub {
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
+            peer_notices_stop: tokio::sync::watch::channel(false).0,
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
@@ -704,6 +818,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
@@ -737,6 +852,12 @@ impl Hub {
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            first_work_seam: Default::default(),
+            #[cfg(test)]
+            finish_seam: Default::default(),
+            #[cfg(test)]
+            retry_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -750,11 +871,11 @@ impl Hub {
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             lane_reports: Default::default(),
+            lane_report_reads: Default::default(),
             subsessions: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
-            auto_resumes: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -831,24 +952,17 @@ impl Hub {
         *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
+    /// How many outbox deliveries are not settled yet (`outbox.rs`).
+    pub fn outbox_unsettled(&self) -> usize {
+        self.outbox.unsettled()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
-    }
-
-    #[cfg(all(unix, feature = "tailnet"))]
-    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
-        self.tailnet_controller
-            .get_or_init(|| {
-                crate::tailnet::embedded::Controller::new(
-                    crate::tailnet::embedded::state_dir(&crate::config::home()),
-                    crate::hand::pair::hostname(),
-                )
-            })
-            .clone()
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
@@ -925,14 +1039,14 @@ impl Hub {
         if let Some(link) = &meta.subsession {
             self.subsessions.note_name(&link.started_by, &link.short_name);
         }
-        // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
-        if let Some(link) =
-            meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
-        {
-            self.subsessions.set_open(&link.started_by, &meta.id, true);
+        // A live sub-session holds a slot of its parent (`subsessions.rs`). Idle-finished,
+        // disconnected and closed children are retained in the store but do not use a slot.
+        if let Some(link) = meta.subsession.as_ref() {
+            self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
@@ -1028,6 +1142,9 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
+        // policy change refuses it as while it moved (`queue::moving_error`).
+        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1037,25 +1154,37 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            meta_writer: Default::default(),
+            message_ids: StdMutex::new(None),
+            log_deferral: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
+            protected_hold: AtomicBool::new(false),
+            auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
+            turn_claimed: AtomicBool::new(false),
+            admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             team_information: Default::default(),
             queue_moved: Notify::new(),
-            moving: StdMutex::new(None),
+            moving: StdMutex::new(moving),
+            transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
+            digest_bytes: AtomicU64::new(0),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
@@ -1065,10 +1194,14 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            profile_respawn: AtomicBool::new(false),
+            ending: StdMutex::new(None),
+            detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
+            person: AtomicBool::new(false),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -1080,13 +1213,23 @@ impl Hub {
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
+            stopping: StdMutex::new(None),
+            stop_restart: StdMutex::new(None),
+            stopped_agent: AtomicU64::new(0),
+            stop_respawn: AtomicU64::new(0),
+            taps: AtomicU64::new(0),
+            muted_taps: AtomicU64::new(0),
+            stop_hold: AtomicU64::new(0),
+            turn_hold: AtomicU64::new(0),
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
+            status_changes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
@@ -1099,6 +1242,7 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
+            inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -1107,6 +1251,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
@@ -1124,7 +1269,17 @@ impl Hub {
         newest_first(v)
     }
 
-    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+    /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
+    /// either. Only when none of those finds a session here and no peer lists one `key` names
+    /// (by id, id prefix, whole name or `PEER/NAME`, `Hub::remote_strict_matches`), a bare key
+    /// (no `/`) that is a sub-session's last name segment (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+    /// `session_name::ends_with_segments`) names it: so no key that found a session before
+    /// short names, or was refused, finds another now. A short name only a peer's session has
+    /// is the peer route's (`Hub::resolve_remote`); one several sessions share, here or on
+    /// peers, is refused with their names. A miss is the plain `no session matches`
+    /// (`Hub::unknown_session` adds the close names where a caller is told). A key with a `/`
+    /// never matches by short name here: `HOST/NAME` stays a host's (`own_host.rs`).
+    pub(super) fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
@@ -1139,25 +1294,147 @@ impl Hub {
         }
         // Names are read under each session's meta lock, never cloned: a
         // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
-        // (`acpmux session cancel NAME`) and every other call by name.
-        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
-            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
-        };
-        let mut by_name: Vec<_> =
-            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
+        // (`acpmux session cancel NAME`) and every other call by name. One
+        // pass sorts them into the tiers below.
+        let bare = !key.contains('/');
+        let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
+        for s in sessions.values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if meta.name == key {
+                by_name.push(s.clone());
+            }
+            if bare && crate::session_name::ends_with_segments(&meta.name, key) {
+                by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
+            }
+            if s.id.starts_with(key) || meta.name.starts_with(key) {
+                by_prefix.push(s.clone());
+            }
+        }
+        drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
-        let by_prefix: Vec<_> = sessions
-            .values()
-            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
-            .cloned()
-            .collect();
-        match by_prefix.len() {
-            1 => Ok(by_prefix.into_iter().next().unwrap()),
-            0 => Err(RpcError::not_found(format!("no session matches {key:?}"))),
-            n => Err(RpcError::invalid_params(format!("{key:?} matches {n} sessions; use the id"))),
+        let named = |matched: &[Arc<Session>]| -> Vec<String> {
+            matched
+                .iter()
+                .map(|s| {
+                    format!("{} ({})", s.meta.lock().unwrap_or_else(|e| e.into_inner()).name, s.id)
+                })
+                .collect()
+        };
+        let tied = |mut names: Vec<String>| {
+            names.sort();
+            names.dedup();
+            crate::session_name::ambiguous(key, &names)
+        };
+        // A short name here, only where the rules above find nothing here and no peer lists a
+        // session `key` names: then this answers as it did before short names matched. The
+        // peers' rows are read only with a local candidate in hand (a plain miss, as for every
+        // request a peer's session serves, reads none), with this daemon's sessions unlocked.
+        // A short name only a peer's session has is `resolve_remote`'s.
+        if by_name.is_empty()
+            && by_prefix.is_empty()
+            && !by_segment.is_empty()
+            && self.remote_strict_matches(key) == 0
+        {
+            // Closed ones count only when no live one, here or on a peer, has the short name
+            // (`hub/key_route.rs`), so this agrees with the route the unix socket takes.
+            let remote = self.remote_segment_names(key);
+            let live = by_segment.iter().any(|(_, closed)| !closed)
+                || remote.iter().any(|(_, closed)| !closed);
+            let here: Vec<Arc<Session>> = by_segment
+                .into_iter()
+                .filter(|(_, closed)| !live || !closed)
+                .map(|(s, _)| s)
+                .collect();
+            let there: Vec<String> =
+                remote.into_iter().filter(|(_, closed)| !live || !closed).map(|(n, _)| n).collect();
+            match (here.as_slice(), there.len()) {
+                ([one], 0) => return Ok(one.clone()),
+                // The one a peer has is `resolve_remote`'s.
+                ([], 1) => return Err(crate::session_name::not_found(key, &[])),
+                // Several, here or on peers: a tie, refused with every name.
+                _ => {
+                    let mut names = named(&here);
+                    names.extend(there);
+                    return Err(tied(names));
+                }
+            }
         }
+        match by_prefix.len() {
+            1 => Ok(by_prefix.remove(0)),
+            0 => Err(crate::session_name::not_found(key, &[])),
+            _ => Err(tied(named(&by_prefix))),
+        }
+    }
+
+    /// This daemon's own sessions `key` names: [by id, name or a prefix of either; by short name
+    /// and live; by short name and closed]. A peer's short name gives way to the first two, and
+    /// to the third only when it is closed too (`Hub::resolve_remote`).
+    pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
+        let bare = !key.contains('/');
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut counts = [0_usize; 3];
+        for s in sessions.values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if s.id.starts_with(key) || meta.name.starts_with(key) {
+                counts[0] = counts[0].saturating_add(1);
+            } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
+                let slot = if meta.status == SessionStatus::Closed { 2 } else { 1 };
+                if let Some(count) = counts.get_mut(slot) {
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+        counts
+    }
+
+    /// The one session here whose last name segment is the bare `key` (`HOST/SHORT` with this
+    /// machine as `HOST`, `own_host.rs`): None when none is; refused when several are. Closed
+    /// sessions count only when none is live, as in `key_route` and `resolve_here`.
+    pub(super) fn resolve_short_here(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
+        if key.contains('/') {
+            return None;
+        }
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (live, closed): (Vec<_>, Vec<_>) = sessions
+            .values()
+            .filter_map(|s| {
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                crate::session_name::ends_with_segments(&meta.name, key)
+                    .then(|| (s.clone(), meta.name.clone(), meta.status == SessionStatus::Closed))
+            })
+            .partition(|(_, _, closed)| !closed);
+        drop(sessions);
+        let found = if live.is_empty() { closed } else { live };
+        match found.as_slice() {
+            [] => None,
+            [(s, _, _)] => Some(Ok(s.clone())),
+            many => Some(Err(crate::session_name::ambiguous(
+                key,
+                &many.iter().map(|(s, n, _)| format!("{n} ({})", s.id)).collect::<Vec<_>>(),
+            ))),
+        }
+    }
+
+    /// The refusal for a key no session here or on a peer names, with the names it nearly
+    /// matched (`session_name::candidates`), so the caller can pick one instead of running
+    /// `acpmux ls`. Reads every name: only where the refusal goes back to a caller.
+    pub fn unknown_session(&self, key: &str) -> RpcError {
+        let lower = key.to_ascii_lowercase();
+        let mut names: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter_map(|s| {
+                let name = s.meta.lock().unwrap_or_else(|e| e.into_inner()).name.clone();
+                name.to_ascii_lowercase().contains(&lower).then_some(name)
+            })
+            .collect();
+        names.extend(self.remote_names_containing(&lower));
+        let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
+        crate::session_name::not_found(key, &close)
     }
 
     // ------------------------------------------------------------ logging
@@ -1170,6 +1447,128 @@ impl Hub {
         msg: Value,
     ) -> EventRecord {
         self.append_with_host_seq(session, dir, kind, msg, None)
+    }
+
+    /// Persist one session-to-session message projection. The journal containing the copy is
+    /// named by `session`; the payload keeps that id too so clients can route a replayed event.
+    #[cfg(test)]
+    pub(super) fn append_message_event(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+    ) -> bool {
+        self.append_message_event_scoped(session, sender, text, message_id, at, None, None)
+    }
+
+    /// `target_scope` names the receiving chat of a sender's copy, and `target_peer` the peer
+    /// that holds it: a peer's chat may keep the raw id of one here (an export and import keeps
+    /// ids), and a message to each is its own copy.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
+    pub(super) fn append_message_event_scoped(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_scope: Option<&str>,
+        target_peer: Option<&str>,
+    ) -> bool {
+        #[cfg(test)]
+        if self
+            .message_projection_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session.id)
+        {
+            return false;
+        }
+        let mut msg = json!({
+            "sessionId": session.id.clone(),
+            "sender": sender,
+            "text": text,
+            "at": at,
+            "messageId": message_id,
+        });
+        if let Some(target) = target_scope {
+            msg.set("_acpmuxTarget", json!(target));
+            if let Some(peer) = target_peer {
+                msg.set("_acpmuxTargetPeer", json!(peer));
+            }
+        }
+        tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+        // A forwarded delivery can be accepted more than once while a caller retries
+        // the same id.  Keep one projection per delivery id in the durable journal,
+        // including after a daemon restart. Load the id index once, not once per
+        // message or recovered record. The append lock serializes check and append.
+        let mut index = session.message_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if index.is_none() {
+            let mut ids = std::collections::HashSet::new();
+            if let Err(error) =
+                self.store.scan_kinds(&session.id, &["_acpmux/message"], &mut |record| {
+                    if let Some(id) = record.msg.get("messageId").and_then(Value::as_str) {
+                        let target = record.msg.get("_acpmuxTarget").and_then(Value::as_str);
+                        let peer = record.msg.get("_acpmuxTargetPeer").and_then(Value::as_str);
+                        ids.insert(message_key(id, target, peer));
+                    }
+                    true
+                })
+            {
+                tracing::warn!(session = %session.id, %error, "cannot read message projection ids");
+                return false;
+            }
+            *index = Some(ids);
+        }
+        let Some(ids) = index.as_mut() else { return false };
+        let key = message_key(&message_id, target_scope, target_peer);
+        if ids.contains(&key) {
+            return true;
+        }
+        // The payload retains the acceptance time; the journal records when this
+        // copy was appended, so recovering an old message cannot regress activity.
+        // Published only once stored: a failed copy is repaired later (`message_events.rs`),
+        // and that repair's copy is the one clients and peers hear.
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true, true).1 {
+            ids.insert(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record the sender-side copy when a prompt is accepted by peer `target_peer`'s chat
+    /// `target_session`.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
+    pub(super) fn append_sender_message_event(
+        &self,
+        sender_session: &str,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_peer: &str,
+        target_session: &str,
+    ) -> bool {
+        if let Ok(session) = self.resolve(sender_session)
+            && session.id == sender_session
+        {
+            self.append_message_event_scoped(
+                &session,
+                sender,
+                text,
+                message_id,
+                at,
+                Some(target_session),
+                Some(target_peer),
+            )
+        } else {
+            false
+        }
     }
 
     pub(crate) fn append_stored(
@@ -1208,6 +1607,23 @@ impl Hub {
         self.append_at(session, dir, kind, msg, host_seq, None)
     }
 
+    /// Persist a record without broadcasting it. Callers use this for a durable marker whose
+    /// in-memory state is installed immediately afterward; the following state event is the
+    /// first watcher-visible record.
+    pub(super) fn append_quiet(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> EventRecord {
+        let mut msg = msg;
+        tool_paths::add_canonical_paths(session, kind, &mut msg);
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+        self.append_at_locked(session, dir, kind, msg, None, None, false, false).0
+    }
+
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
     /// None: now), as a fork's copy of its parent's turns did.
     pub(super) fn append_at(
@@ -1215,14 +1631,34 @@ impl Hub {
         session: &Session,
         dir: &str,
         kind: &str,
-        mut msg: Value,
+        msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
+        let mut msg = msg;
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
+    }
+
+    /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
+    /// neither counted nor published (its caller appends it again), so no client or peer hears a
+    /// copy the journal does not hold. `kept`: what the log stores for it.
+    #[allow(clippy::too_many_arguments)]
+    fn append_record_locked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        stored_only: bool,
+        kept: log_deferral::Kept,
+        notify: bool,
+    ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -1249,8 +1685,20 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        self.touch(session);
-        let stored = match self.store.append(&session.id, &record) {
+        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
+        // keeps the chat's agent awake.
+        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+            self.touch(session);
+        }
+        let appended = match kept {
+            // A fenced record keeps its receipt.
+            log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
+                &session.id,
+                &EventRecord { msg, dir: record.dir.clone(), kind: record.kind.clone(), ..record },
+            ),
+            _ => self.store.append(&session.id, &record),
+        };
+        let stored = match appended {
             Ok(()) => true,
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
@@ -1258,10 +1706,16 @@ impl Hub {
                 false
             }
         };
+        if stored {
+            session.note_transfer_event(&record);
+        }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
         if session.status() == SessionStatus::Closed {
             self.store.close_log(&session.id);
+        }
+        if stored_only && !stored {
+            return (record, false);
         }
         {
             let mut m = session.meta.lock().unwrap();
@@ -1284,31 +1738,49 @@ impl Hub {
                 | "turn_result"
                 | "turn_end"
                 | "turn_error"
+                | "stopping"
+                | "unstuck"
                 | work_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
                 | "queue_order"
+                | "queue_restored"
                 | "queue_paused"
                 | "queue_resumed"
                 | "created"
                 | "tags"
                 | "rules"
+                | profile_respawn::RECORD_KIND
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
-        let _ = self.events.send(HubEvent {
-            session_id: session.id.clone(),
-            record: Arc::new(record.clone()),
-            remote: None,
-        });
+        if notify {
+            let _ = self.events.send(HubEvent {
+                session_id: session.id.clone(),
+                record: Arc::new(record.clone()),
+                remote: None,
+            });
+        }
         (record, stored)
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
+        // A failed save is logged there; no request waits for this one.
+        let _ = self.set_rules_answered(session, rules);
+    }
+
+    /// [`Hub::set_rules`] for `_acpmux/set_rules`: answered only once the rules are saved
+    /// (`meta_save.rs`).
+    pub(crate) fn set_rules_answered(
+        &self,
+        session: &Session,
+        rules: Option<Value>,
+    ) -> Result<(), RpcError> {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
-        self.save_meta(session);
+        let saved = self.save_meta_answered(session);
         self.append(session, "mux", "rules", json!({"rules": rules}));
+        saved
     }
 
     /// The largest composer draft the daemon will persist for one session.
@@ -1321,15 +1793,15 @@ impl Hub {
         &self,
         session: &Session,
         text: &str,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, RpcError> {
         if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
-            return Err(format!(
+            return Err(RpcError::invalid_params(format!(
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
-            ));
+            )));
         }
         if session.moving().is_some() {
-            return Err(queue::moving_error().message);
+            return Err(RpcError::invalid_params(queue::moving_error().message));
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
@@ -1337,7 +1809,8 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        self.save_meta(session);
+        // Answered only once the draft is in `session.json`: "the one durable shared draft".
+        self.save_meta_answered(session)?;
         Ok(draft)
     }
 
@@ -1400,6 +1873,9 @@ impl Hub {
                 }
                 "turn_result" => {
                     if let Some(t) = cur.as_mut() {
+                        if let Some(id) = e.msg.get("turnId") {
+                            t.insert("turnId".into(), id.clone());
+                        }
                         t.insert(
                             "status".into(),
                             e.msg.get("status").cloned().unwrap_or(json!("completed")),
@@ -1456,26 +1932,6 @@ impl Hub {
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(latest)
-    }
-
-    /// Saves the session's record; never a purged session's. A late save (a generated title after
-    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
-    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
-    /// when the node is built, left about 450 of them in two hours (2026-10-20).
-    pub(super) fn save_meta(&self, session: &Session) {
-        if session.purged.load(Ordering::SeqCst) {
-            return;
-        }
-        let meta = session.meta();
-        if let Err(e) = self.store.save(&meta) {
-            tracing::warn!(session = %session.id, "save meta failed: {e}");
-        }
-        // The purge ran between the check and the save: delete it again.
-        if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.delete(&session.id)
-        {
-            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
-        }
     }
 
     /// Lists the temporary folders of sessions this daemon no longer has
@@ -1544,6 +2000,9 @@ impl Hub {
                 return false;
             }
             m.status = status;
+            if was != status {
+                session.status_changes.fetch_add(1, Ordering::SeqCst);
+            }
             // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
             // it as old as it was, or a chat stopped every day would never be old enough for log
             // retention (`retention.rs`) and would move up the lists that sort by it.
@@ -1554,11 +2013,7 @@ impl Hub {
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
             if let Some(link) = &m.subsession {
-                self.subsessions.set_open(
-                    &link.started_by,
-                    &session.id,
-                    status != SessionStatus::Closed,
-                );
+                self.subsessions.note_status(&link.started_by, &session.id, status);
             }
             (was, m.subsession.clone())
         };

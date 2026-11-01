@@ -425,7 +425,9 @@ the recent agent chats and the account band; it keeps each workspace and
 group (those in Pinned or a removed section go to the end of their machine
 section) and removes this machine's closed workspaces and every other item
 of the removed sections and Pinned. `sidebar.item.remove_ref {ref}` removes
-every item that shows an old layout ref ("Remove from Sidebar"). A `url` item's body has
+every item that shows an old layout ref ("Remove from Sidebar"). `sidebar.item.update`
+also takes `room` (the item's `extra.room`, null clears it): the space whose
+windows draw a Pinned link, tab or app. A `url` item's body has
 `icon_url` (its favicon, set by `sidebar.item.update`); an older client's
 `extra.icon_url` moves into the body when the item is added and, for stored
 items, once at open. `sidebar.move {items, to}`, `sidebar.pin`,

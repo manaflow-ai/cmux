@@ -111,6 +111,10 @@ fn harnesses() -> Value {
                          "capabilities": {"effort": ["low", "none", "high"], "resume": true, "permissionModes": true},
                          "auth": {"login": "opencode auth login"},
                          "unavailable": "opencode is not on PATH"},
+            // acpmux's built-in Chief harness (`cmux chief acp`): the person's chat with this
+            // Chief, so a Chief turn or subagent on it would message itself as the person.
+            "chief": {"kind": "acp", "argv": ["/Applications/cmux.app/cmux-tui", "chief", "acp"],
+                      "family": "chief", "displayName": "Chief"},
             "unii": {"kind": "acp", "argv": ["/Applications/cmux.app/acpmux", "uniichat-agent"],
                      "family": "unii", "displayName": "UniiChat",
                      "description": "UniiChat: one chat that never ends (uniichat.com)",
@@ -790,4 +794,26 @@ fn the_engine_set_takes_the_reaction_classifier() {
         }),
     );
     assert_eq!(unknown["error"]["code"], "unknown_harness", "{unknown:#}");
+}
+
+#[test]
+fn the_chief_harness_is_never_offered_to_a_chief_and_never_admitted() {
+    // The agent chat offers acpmux's `chief` harness to the person (user, 2026-10-30); a Chief
+    // that ran its turns, compactor or subagents on it would send its own prompts into its
+    // own conversation as the person and wake itself without end.
+    let refused = optchat_chief::harness_gate::admit(&harnesses(), "chief")
+        .expect_err("the gate admits the Chief harness");
+    assert!(refused.contains("Chief"), "{refused}");
+    assert!(optchat_chief::harness_gate::admit_profile(&harnesses(), "chief").is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let offered = answer["offered"]["harnesses"].as_array().unwrap();
+    assert!(
+        offered
+            .iter()
+            .all(|h| h["id"] != "chief" && h["family"] != "chief"),
+        "the engine picker offers the Chief harness: {answer:#}"
+    );
 }

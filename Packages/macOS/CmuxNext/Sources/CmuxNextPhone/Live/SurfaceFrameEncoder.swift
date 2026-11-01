@@ -24,6 +24,13 @@ final class SurfaceFrameEncoder {
     private var frameIndex: Int64 = 0
     private var kbps = 0
 
+    /// The bitrate in kbps for an `encode` line's number: clamped to the encoder's range, 4000 when
+    /// absent or NaN. `Int(Double)` traps outside Int's range, so the clamp comes first.
+    nonisolated static func bitrate(fromWire value: Double?) -> Int {
+        guard let value, !value.isNaN else { return 4_000 }
+        return Int(min(max(value, 300), 40_000))
+    }
+
     /// The encoded size for a surface of `width` x `height`: scaled to fit, even sides.
     nonisolated static func encodedSize(width: Int, height: Int) -> (width: Int, height: Int) {
         let even = { (value: Int) in max(2, value & ~1) }

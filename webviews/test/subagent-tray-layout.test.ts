@@ -11,3 +11,21 @@ test("the bottom-stack tray is flush with the composer and keeps the shared oute
   expect(rule).toMatch(/margin:\s*0\s+var\(--cv-inset-end,\s*var\(--cv-inset\)\)\s+0\s+var\(--cv-inset\)\s*;/);
   expect(rule).not.toMatch(/8px/);
 });
+
+// Leo, 2026-10-29: "why the fuck do you still have this fucking thing at the bottom of the running
+// thing? ... It's just unnecessary, stupid-ass fucking padding." The stack's 34px row floor left a
+// strip of tray glass under the tray's 28px header; the tray's floor is its one row.
+test("the bottom-stack tray's floor is its one row, not the stack's taller row", () => {
+  const rules = [
+    ...bottomStack
+      .replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "")
+      .matchAll(/\.acpmux-dock > \.acpmux-running-tray\s*\{([^}]*)\}/g),
+  ].map((match) => match[1]!);
+  const floors = rules.flatMap((rule) =>
+    [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()),
+  );
+  expect(floors.at(-1)).toBe("var(--ui-row-height, var(--ds-control-row, 28px))");
+  // The header is one row at every width (its time follows its counts), so a narrow tray keeps the
+  // same one-row floor: no strip of glass under a folded header.
+  expect(bottomStack).not.toMatch(/\.acpmux-dock\s*>\s*\.acpmux-running-tray\[data-narrow\]/);
+});

@@ -2,7 +2,7 @@ import type { Env } from "../env.ts"
 import { runChanged } from "../chief-brain/brain-io.ts"
 import { activityLine, chunks } from "../chief-brain/brain-stream.ts"
 import type { LiveFrame } from "../chief-brain/contract.ts"
-import { type Run, type Step, readSteps, upsertStep } from "../chief-brain/brain-runs.ts"
+import { type Run, type Step, readRunPage, readSteps, upsertStep } from "../chief-brain/brain-runs.ts"
 import { type CpNote, type CpRun, decodeNote } from "./contract.ts"
 
 /**
@@ -173,8 +173,8 @@ export class LiveRuns {
   runs(conversation: string, before: number | undefined, limit: number): { runs: Array<Record<string, unknown>>; has_more: boolean } {
     const agent = this.deps.get("agent")
     if (!agent) return { runs: [], has_more: false }
-    const rows = this.deps.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE conversation = ? AND started < ? ORDER BY started DESC LIMIT ?`, conversation, before ?? Number.MAX_SAFE_INTEGER, limit + 1).toArray()
-    return { runs: rows.slice(0, limit).flatMap((r) => this.readRun(agent, String(r.id)) ?? []), has_more: rows.length > limit }
+    const page = readRunPage(this.deps.sql, conversation, before, limit)
+    return { runs: page.rows.flatMap((r) => this.readRun(agent, String(r.id)) ?? []), has_more: page.has_more }
   }
   run(id: string, afterSeq = 0, limit = 500): { run: Record<string, unknown>; steps: Array<Step>; has_more: boolean } | null {
     const agent = this.deps.get("agent")
