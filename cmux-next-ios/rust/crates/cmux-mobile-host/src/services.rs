@@ -185,7 +185,7 @@ fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
 /// Return only authenticated Cloud machines. Carrier paths and owner markers
 /// are never exposed to the phone.
 async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
-    if args.as_object().is_some_and(|object| !object.is_empty()) {
+    if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
         return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
     }
     let links =
@@ -216,6 +216,9 @@ async fn cloud_acpmux(
     let object = args
         .as_object()
         .ok_or_else(|| Refusal::new("bad_request", "cloud-acpmux arguments must be an object"))?;
+    if object.keys().any(|key| key != "machine_id" && key != "team_id") {
+        return Err(Refusal::new("bad_request", "cloud-acpmux accepts only machine_id and team_id"));
+    }
     let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
     let team_id = cloud_id(object.get("team_id"), "team_id")?;
     let links =
@@ -240,31 +243,11 @@ async fn cloud_acpmux(
         .await
         .map_err(|error| Refusal::new("unavailable", format!("Cloud carrier unavailable: {error}")))?;
     let (read, mut write) = socket.into_split();
-    let dial = serde_json::json!({"op":"link.dial", "host": machine_id, "service":"daemon"});
-    write
-        .write_all(dial.to_string().as_bytes())
-        .await
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    write.write_all(b"\n").await.map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
     let mut read = BufReader::new(read);
-    let mut reply = Vec::new();
-    read.read_until(b'\n', &mut reply)
-        .await
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    let reply: Value = serde_json::from_slice(reply.strip_suffix(b"\n").unwrap_or(&reply))
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned an invalid dial reply"))?;
-    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
-        let reason = reply.get("error_code").and_then(Value::as_str).unwrap_or("not_authorized");
-        return Err(Refusal::new("forbidden", format!("Cloud carrier refused dial: {reason}")));
-    }
-    write
-        .write_all(b"{\"service\":\"daemon\"}\n")
-        .await
-        .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    // Identify the stream before forwarding the phone's ACP frames. The VM
-    // daemon admits this capability only on an authenticated remote link and
-    // then applies its agent-session-only Cloud chat adapter; the phone never
-    // gets a local-owner session or a raw ACP socket.
+    // The Cloud connect resolver hands us an already accepted daemon carrier.
+    // It has consumed the dial reply before exposing this socket; sending a
+    // second link.dial or ServiceHello would be interpreted as a daemon command
+    // and closes the connection. Identify the authenticated phone directly.
     let client_info = serde_json::json!({
         "cmd": "set-client-info",
         "id": "cloud-mobile-host",
@@ -289,12 +272,24 @@ async fn cloud_acpmux(
         return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat capability"));
     }
     let mut phone_message = MessageAssembler::default();
+    let mut pending = HashMap::<String, CloudForward>::new();
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(message) = phone_message.push(&bytes)? else { continue; };
-                    if write.write_all(message.as_bytes()).await.is_err() { break; }
+                    let request: Value = serde_json::from_str(message.as_str())
+                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                    match adapt_cloud_request(request, &machine_id, &team_id)? {
+                        CloudRequest::Local(reply) => {
+                            if sender.send(Bytes::from(reply.to_string())).await.is_err() { break; }
+                            continue;
+                        }
+                        CloudRequest::Forward { request, call } => {
+                            if let Some(id) = request.get("id") { pending.insert(cloud_request_key(id), call); }
+                            if write.write_all(request.to_string().as_bytes()).await.is_err() { break; }
+                        }
+                    }
                     if write.write_all(b"\n").await.is_err() { break; }
                 }
                 Some(ChannelEvent::Closed(_)) | None => break,
@@ -308,11 +303,147 @@ async fn cloud_acpmux(
                 if size == 0 { break; }
                 let line = line.strip_suffix(b"\n").unwrap_or(&line);
                 if line.is_empty() { continue; }
-                if sender.send(Bytes::copy_from_slice(line)).await.is_err() { break; }
+                let response: Value = serde_json::from_slice(line)
+                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                let response = adapt_cloud_response(response, &mut pending);
+                if sender.send(Bytes::from(response.to_string())).await.is_err() { break; }
             }
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CloudForwardKind {
+    Sessions,
+    History,
+    Send,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CloudForward {
+    kind: CloudForwardKind,
+}
+
+enum CloudRequest {
+    Local(Value),
+    Forward { request: Value, call: CloudForward },
+}
+
+fn cloud_request_key(id: &Value) -> String {
+    serde_json::to_string(id).unwrap_or_default()
+}
+
+/// Translate the public AcpmuxHub surface to the narrow Cloud mobile RPCs.
+/// The VM side owns the actual AcpmuxLink and applies its session/owner policy;
+/// the phone never gets an arbitrary daemon command channel.
+fn adapt_cloud_request(mut request: Value, machine: &str, team: &str) -> Result<CloudRequest, Refusal> {
+    let object = request
+        .as_object_mut()
+        .ok_or_else(|| Refusal::new("bad_request", "Cloud ACP request must be an object"))?;
+    let method = object.get("method").and_then(Value::as_str).unwrap_or_default();
+    let id = object.get("id").cloned().unwrap_or(Value::Null);
+    let params = object.remove("params").unwrap_or_else(|| serde_json::json!({}));
+    let p = params.as_object().cloned().unwrap_or_default();
+    let local =
+        |result: Value| CloudRequest::Local(serde_json::json!({"jsonrpc":"2.0", "id":id, "result":result}));
+    if method == "initialize" {
+        return Ok(local(serde_json::json!({"protocolVersion":1,
+            "serverInfo":{"name":"cmux-cloud","version":env!("CARGO_PKG_VERSION")},
+            "_meta":{"acpmux":{"personInstance":"cloud-mobile","fullAccess":false}}})));
+    }
+    let (command, kind) = match method {
+        "_acpmux/watch" | "_acpmux/sessions" => ("mobile-chat-sessions", CloudForwardKind::Sessions),
+        "_acpmux/attach" | "_acpmux/events" => ("mobile-chat-history", CloudForwardKind::History),
+        "session/prompt" => ("mobile-chat-send", CloudForwardKind::Send),
+        "_acpmux/permission_respond" | "_acpmux/permission_answer" => {
+            return Ok(local(
+                serde_json::json!({"error":{"code":-32000,"message":"Cloud phone approvals are unavailable"}}),
+            ));
+        }
+        _ => return Err(Refusal::new("unsupported", format!("Cloud ACP method is unavailable: {method}"))),
+    };
+    let mut forwarded = serde_json::Map::new();
+    forwarded.insert("id".into(), id);
+    forwarded.insert("cmd".into(), Value::String(command.into()));
+    forwarded.insert("machine_id".into(), Value::String(machine.into()));
+    forwarded.insert("team_id".into(), Value::String(team.into()));
+    match kind {
+        CloudForwardKind::Sessions => {
+            if let Some(v) = p.get("limit") {
+                forwarded.insert("limit".into(), v.clone());
+            }
+            if let Some(v) = p.get("cursor").or_else(|| p.get("nextCursor")) {
+                forwarded.insert("cursor".into(), v.clone());
+            }
+        }
+        CloudForwardKind::History => {
+            let session = p
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Refusal::new("bad_request", "sessionId is required"))?;
+            forwarded.insert("session_id".into(), Value::String(session.into()));
+            for (from, to) in [
+                ("afterSeq", "after_seq"),
+                ("beforeSeq", "before_seq"),
+                ("limit", "limit"),
+                ("kinds", "kinds"),
+            ] {
+                if let Some(v) = p.get(from) {
+                    forwarded.insert(to.into(), v.clone());
+                }
+            }
+        }
+        CloudForwardKind::Send => {
+            let session = p
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Refusal::new("bad_request", "sessionId is required"))?;
+            let prompt = p
+                .get("prompt")
+                .and_then(Value::as_array)
+                .and_then(|a| a.iter().find_map(|v| v.get("text").and_then(Value::as_str)))
+                .ok_or_else(|| Refusal::new("bad_request", "text prompt is required"))?;
+            let prompt_id = p
+                .pointer("/_meta/acpmux/promptId")
+                .and_then(Value::as_str)
+                .or_else(|| p.get("promptId").and_then(Value::as_str))
+                .unwrap_or("cloud-prompt");
+            forwarded.insert("session_id".into(), Value::String(session.into()));
+            forwarded.insert("text".into(), Value::String(prompt.into()));
+            forwarded.insert("prompt_id".into(), Value::String(prompt_id.into()));
+        }
+    }
+    Ok(CloudRequest::Forward { request: Value::Object(forwarded), call: CloudForward { kind } })
+}
+
+fn adapt_cloud_response(mut response: Value, pending: &mut HashMap<String, CloudForward>) -> Value {
+    let Some(object) = response.as_object_mut() else { return response };
+    let id = object.get("id").cloned().unwrap_or(Value::Null);
+    let call = pending.remove(&cloud_request_key(&id));
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        let message = object.get("error").and_then(Value::as_str).unwrap_or("Cloud request failed");
+        return serde_json::json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":message}});
+    }
+    let data = object.remove("data").unwrap_or_else(|| serde_json::json!({}));
+    let result = match call.map(|c| c.kind) {
+        Some(CloudForwardKind::Sessions) => {
+            let sessions = data.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|row| {
+                serde_json::json!({"sessionId":row.get("id").cloned().unwrap_or(Value::Null), "name":row.get("title").cloned().unwrap_or(Value::Null), "status":row.get("state").cloned().unwrap_or(Value::String("unknown".into())), "updatedAt":row.get("updated_at").cloned().unwrap_or(Value::Null)})
+            }).collect::<Vec<_>>();
+            serde_json::json!({"sessions":sessions,"nextCursor":data.get("next_cursor").cloned().unwrap_or(Value::Null)})
+        }
+        Some(CloudForwardKind::History) => {
+            let events = data.get("messages").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().enumerate().map(|(i,row)| {
+                let role = row.get("role").and_then(Value::as_str).unwrap_or("assistant");
+                let kind = if role == "user" { "user_message" } else { "assistant_message_chunk" };
+                serde_json::json!({"seq":i+1,"kind":kind,"msg":{"text":row.get("text").cloned().unwrap_or(Value::Null),"role":role}})
+            }).collect::<Vec<_>>();
+            serde_json::json!({"session":{"sessionId":data.get("session_id").cloned().unwrap_or(Value::Null)},"events":events,"hasMore":false})
+        }
+        Some(CloudForwardKind::Send) | None => serde_json::json!({}),
+    };
+    serde_json::json!({"jsonrpc":"2.0","id":id,"result":result})
 }
 
 async fn echo(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
