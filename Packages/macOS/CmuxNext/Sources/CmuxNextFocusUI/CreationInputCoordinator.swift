@@ -16,11 +16,14 @@ public struct CreationInputFocus {
     public var terminalTab: String?
     /// A key now lands where the focus names (``CreationInputHost`` decides: never in another terminal or nowhere).
     public var takesKeys: Bool
+    /// Scratch red seam only (read by nothing here): the test host sets them as the fix reads them.
+    public var terminalHasKeyboard: Bool
+    public var terminalShown: Bool
 
     public init(shell: NSWindow?, inContent: Bool, expectedTab: String? = nil, expectedGeneration: UInt64? = nil,
-                terminalTab: String? = nil, takesKeys: Bool = true) {
+                terminalTab: String? = nil, takesKeys: Bool = true, terminalHasKeyboard: Bool = false, terminalShown: Bool = false) {
         (self.shell, self.inContent, self.expectedTab, self.expectedGeneration) = (shell, inContent, expectedTab, expectedGeneration)
-        (self.terminalTab, self.takesKeys) = (terminalTab, takesKeys)
+        (self.terminalTab, self.takesKeys, self.terminalHasKeyboard, self.terminalShown) = (terminalTab, takesKeys, terminalHasKeyboard, terminalShown)
     }
 }
 
