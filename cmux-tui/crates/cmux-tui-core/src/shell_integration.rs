@@ -43,6 +43,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
+            include_str!("shell_integration/incognito-history.zsh"),
         ),
     },
     Script {
@@ -50,6 +51,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
             include_str!("shell_integration/agent-shims.bash"),
+            include_str!("shell_integration/incognito-history.bash"),
         ),
     },
     Script {
@@ -70,6 +72,10 @@ const SCRIPTS: &[Script] = &[
         path: "fish/vendor_conf.d/cmux-tui-agent-shims.fish",
         contents: include_str!("shell_integration/cmux-tui-agent-shims.fish"),
     },
+    Script {
+        path: "fish/vendor_conf.d/cmux-tui-incognito-history.fish",
+        contents: include_str!("shell_integration/cmux-tui-incognito-history.fish"),
+    },
 ];
 
 /// The directory holding cmux-tui's `codex` and `claude` shims. Integrated
@@ -78,6 +84,24 @@ const SCRIPTS: &[Script] = &[
 /// of the real agent cannot bypass the shim and its per-terminal hooks. The
 /// app's own integration (`Resources/cmux-cli-path`) does the same.
 pub const AGENT_SHIMS_ENV: &str = "CMUX_TUI_AGENT_SHIMS";
+
+/// Set (to `1`) in the shells of an incognito workspace's terminals: the
+/// integration scripts keep history off after the user's startup files
+/// ([`keep_no_history`]).
+pub const INCOGNITO_ENV: &str = "CMUX_TUI_INCOGNITO";
+
+/// History off for a terminal of an incognito workspace (design/spaces.md
+/// "Incognito": nothing kept): `HISTFILE=/dev/null` for bash and zsh,
+/// `fish_private_mode` for fish, and [`INCOGNITO_ENV`] so the integration
+/// scripts turn it off again after startup files that set `HISTFILE`
+/// (macOS `/etc/zshrc` does). Appended last, so it wins over an inherited
+/// or caller value.
+pub(crate) fn keep_no_history(env: &mut Vec<(String, String)>) {
+    env.retain(|(key, _)| key != "HISTFILE" && key != "fish_private_mode" && key != INCOGNITO_ENV);
+    env.push(("HISTFILE".into(), "/dev/null".into()));
+    env.push(("fish_private_mode".into(), "1".into()));
+    env.push((INCOGNITO_ENV.into(), "1".into()));
+}
 
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
@@ -167,20 +191,96 @@ pub struct ShellLaunch {
 /// Only the default shell is modified: an explicit command is the caller's
 /// program, and `-c` style launches are never interactive. Any failure leaves
 /// the launch unchanged, so a shell always starts.
+/// The launch of a terminal's `command`: the default shell (`None` or
+/// empty), integrated by [`integrate_default_shell`], or the caller's
+/// program unchanged. An incognito terminal's interactive shell that nobody
+/// integrated is integrated too: its scripts are what keep its history off
+/// after the startup files ran ([`keep_no_history`]).
+pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) -> ShellLaunch {
+    match command.filter(|command| !command.is_empty()) {
+        None => integrate_default_shell(vec![crate::platform::default_shell()], env),
+        Some(command) if needs_incognito_integration(&command, &env) => {
+            integrate_default_shell(command, env)
+        }
+        Some(command) => ShellLaunch { command, env },
+    }
+}
+
+/// The keys a terminal with launch environment `env` must not inherit from
+/// the daemon's own environment, removed after `env` is applied.
+pub fn inherited_keys_to_unset(env: &[(String, String)]) -> Vec<&'static str> {
+    inherited_keys_to_unset_from(env, &|key| std::env::var(key).ok())
+}
+
+fn inherited_keys_to_unset_from(
+    env: &[(String, String)],
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> Vec<&'static str> {
+    let own = |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, v)| v.clone());
+    // An incognito terminal keeps its markers; a daemon started outside an
+    // incognito terminal has none to pass on.
+    if is_incognito(&own) || !is_incognito(inherited) {
+        return Vec::new();
+    }
+    std::iter::once(INCOGNITO_ENV)
+        .chain(["fish_private_mode", "HISTFILE"].into_iter().filter(|key| own(key).is_none()))
+        .collect()
+}
+
+/// Whether `env` is an incognito terminal's.
+fn is_incognito(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
+    lookup(INCOGNITO_ENV).is_some_and(|value| !value.is_empty())
+}
+
+/// The keys of a shell some frontend already integrated (the app's
+/// `GhosttyShellIntegration` and `BundledCLIEnvironment`).
+const FRONTEND_INTEGRATION_KEYS: [&str; 6] = [
+    "GHOSTTY_ZSH_ZDOTDIR",
+    "GHOSTTY_BASH_INJECT",
+    "GHOSTTY_SHELL_INTEGRATION_XDG_DIR",
+    "CMUX_CLI_ZSH_ZDOTDIR",
+    "CMUX_CLI_BASH_ENV",
+    "CMUX_CLI_FISH_XDG_DIR",
+];
+
+/// An explicit `command` of an incognito terminal that is a bare
+/// interactive zsh, bash or fish (login and interactive flags only) and
+/// that no frontend integrated.
+fn needs_incognito_integration(command: &[String], env: &[(String, String)]) -> bool {
+    let lookup =
+        |key: &str| env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone());
+    is_incognito(&lookup)
+        && detect_shell(command).is_some()
+        && command.iter().skip(1).all(|arg| matches!(arg.as_str(), "-l" | "--login" | "-i"))
+        && !FRONTEND_INTEGRATION_KEYS.iter().any(|key| lookup(key).is_some())
+}
+
 pub fn integrate_default_shell(
     command: Vec<String>,
     extra_env: Vec<(String, String)>,
 ) -> ShellLaunch {
-    let inherited = extra_env.clone();
-    let lookup = move |key: &str| -> Option<String> {
-        inherited
-            .iter()
-            .rev()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value.clone())
-            .or_else(|| std::env::var(key).ok())
+    integrate_with(command, extra_env, &|key| std::env::var(key).ok())
+}
+
+/// [`integrate_default_shell`] over the daemon's own environment
+/// `inherited`.
+fn integrate_with(
+    command: Vec<String>,
+    extra_env: Vec<(String, String)>,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> ShellLaunch {
+    let launch_env = extra_env.clone();
+    let own = move |key: &str| -> Option<String> {
+        launch_env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone())
     };
-    if lookup(OPT_OUT_ENV).as_deref() == Some("none") {
+    let lookup = |key: &str| -> Option<String> { own(key).or_else(|| inherited(key)) };
+    // An incognito shell is integrated even under the opt-outs: the
+    // integration is what keeps its history off (design/spaces.md
+    // "Incognito": nothing kept). Only the launch says so: the daemon's own
+    // environment carries an incognito terminal's marker when the daemon
+    // started in one ([`inherited_keys_to_unset`]).
+    let incognito = is_incognito(&own);
+    if lookup(OPT_OUT_ENV).as_deref() == Some("none") && !incognito {
         return ShellLaunch { command, env: extra_env };
     }
     let user = ghostty_files::read(&lookup);
@@ -192,7 +292,9 @@ pub fn integrate_default_shell(
         export_features(&mut env, &lookup, &user);
         env
     };
-    let Some(shell) = shell_for(user.mode, &command) else {
+    let shell = shell_for(user.mode, &command)
+        .or_else(|| if incognito { detect_shell(&command) } else { None });
+    let Some(shell) = shell else {
         return ShellLaunch { env: features_only(extra_env), command };
     };
     let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
@@ -440,6 +542,9 @@ mod test_pty;
 
 #[cfg(all(test, unix))]
 mod prompt_redraw_tests;
+
+#[cfg(all(test, unix))]
+mod incognito_history_tests;
 
 #[cfg(all(test, target_os = "macos"))]
 mod fork_watch;

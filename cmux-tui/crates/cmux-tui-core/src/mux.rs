@@ -314,6 +314,7 @@ mod terminal_progress;
 mod terminal_reap;
 #[cfg(unix)]
 mod terminal_rehost;
+mod incognito_terminals;
 mod terminal_relaunch;
 pub(crate) mod terminal_respawn;
 mod terminal_sizing;
@@ -672,6 +673,10 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// Keys of the incognito (ephemeral) workspaces this run created
+    /// (incognito_terminals.rs): a terminal created with its workspace
+    /// spawns before the workspace's row is published.
+    incognito_workspace_keys: Mutex<HashSet<String>>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
