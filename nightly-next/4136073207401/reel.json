@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4136073207401",
+  "notes": "notes/4136073207401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31423,
+      "title": "Session Info pushes the chat left where the right gutter cannot hold it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31410,
+      "title": "ci(nightly): the all-nightly reservation's idle runners take nightly-next's light jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31419,
+      "title": "Agent chat: one Send now for the waiting steers, on the newest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31417,
+      "title": "fix(composer): Mac Ctrl-B/Ctrl-F step over a chip by key code, with Caps Lock or another layout too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31412,
+      "title": "fix(composer): chip arrows follow the text's direction, and the Mac's Ctrl-B/Ctrl-F step over a chip too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31413,
+      "title": "cmux NEXT transcript: the session link chip drops its up-right arrow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29379,
+      "title": "Changes panel: bars and controls on the 4 pt grid (with fail-level grid checks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31343,
+      "title": "What's New sheet: wide and dense, each change once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31409,
+      "title": "cmux NEXT: the working spinner is the turning arc again, not segmented spokes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31407,
+      "title": "cmux NEXT composer: arrow keys step over an inline attachment as one character",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31408,
+      "title": "fix(agent-pane): the prompt rail's ticks sit centered, never stacked at the pane's foot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31394,
+      "title": "pre-push hook: a delete-only push passes without a work tree",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21356,
+      "title": "cmux NEXT Chief: regression test for drag selection over markdown tables",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31363,
+      "title": "feat(next): suggest reusable actions from repeated terminal commands",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
