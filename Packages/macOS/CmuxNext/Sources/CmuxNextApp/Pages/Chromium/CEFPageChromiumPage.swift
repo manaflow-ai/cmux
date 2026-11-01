@@ -51,7 +51,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     private func listen() {
         guard onEvent != nil, !closed else {
             tab.clearPageEventHooks()
-            tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
             return
@@ -99,7 +98,6 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         closed = true
         crashWatch?.cancel()
         crashWatch = nil
-        tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.clearPageHooks()
         tab.delegate = nil
         tab.close()

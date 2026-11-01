@@ -163,8 +163,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
     }
 
-    /// Stops telling the page host about the page's drags, input and pastes (it stopped listening).
+    /// Stops telling the page host about the page's messages, drags, input and pastes (it stopped
+    /// listening).
     public func clearPageEventHooks() {
+        agentRelay.set(onMessage: nil, onEnd: nil)
         pageFilesDragged = nil
         pageDragEnded = nil
         pageUserInput = nil
