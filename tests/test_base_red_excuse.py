@@ -224,6 +224,38 @@ class StepFailureOutput(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def test_defaults_checker_fail_line_is_compared(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "check-group-menus: FAIL tab: tabGroup.create is not a top-level row"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+        }
+        self.assertIn(defaults, "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
+    def test_defaults_checker_summary_cannot_excuse_a_crash(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "schemas/defaults/cmux-next.json is stale: the settings export changed"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, failure, "Segmentation fault (core dumped)",
+                   "##[error]Process completed with exit code 139."),
+            2: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+        }
+        with self.assertRaisesRegex(excuse.Refused, "crash"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
 
 # A `gh` on PATH: it records its argv; FAKE_GH=http and FAKE_GH=other-flag refuse every call.
 # Otherwise it prints a coloured log, which the Python parser strips.

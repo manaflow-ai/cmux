@@ -184,7 +184,7 @@ WARNING = re.compile(r"##\[warning\]|\bwarning:")
 GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
 SUMMARY_FAILURE = re.compile(
     r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
-    r"cannot|could not|failure|failed)\b"
+    r"cannot|could not|failure|failed|fail)\b"
 )
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
@@ -684,14 +684,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               "a no-verdict compile is never a base red; re-run it once the fleet answers")
             audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
             continue
-        own = test_reds.read(head_log)
-        if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
-            raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
-                          + " (a crash or a cut-short run is never a base red)")
         head_steps, head_tests, head_errors = signature(job, head_log)
         chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
                                         and CHROMIUM_CURRENCY_STEP in head_steps
                                         and not (head_tests or head_errors or crash_signals(head_log)))
+        own = test_reds.read(head_log)
+        if own.crashes or (own.truncated and not chromium_without_diagnostics):
+            raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
+                          + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
