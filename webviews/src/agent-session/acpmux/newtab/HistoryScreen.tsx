@@ -15,7 +15,7 @@ export function HistoryScreen({
   now,
 }: {
   load: LoadChatsPage;
-  onOpen(key: string): void;
+  onOpen(key: string): void | Promise<unknown>;
   onOpenInTerminal?(key: string): void;
   onViewOnly?(key: string): void;
   now?: number;
