@@ -24,11 +24,14 @@ import WebKit
                                                                  in: nil, contentWorld: .page) as? String
             call.done = true
         }
+        // The parallel run's load (CMUX_TEST_MAIN_ACTOR_STALL_SECONDS): other tests hold the main actor while the page answers.
+        let stall = MainActorStall().schedule()
         // A hung call must fail the test, not hang it: wait at most 10 s.
         let deadline = started + .seconds(10)
         while !call.done, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
         let took = ContinuousClock.now - started
         running.cancel()
+        await stall?.value
         #expect(call.done, "the call did not answer within 10 s")
         #expect(call.answer?.contains("has no cmuxAcpmuxDebug.chatState") == true, "answer: \(String(describing: call.answer))")
         #expect(took < .seconds(7), "a page without the hook held the call \(took)")
