@@ -120,6 +120,11 @@ struct AnimationPixelRun {
             + "\(String(format: "%.2f", fixture.display.refreshPeriod * 1000)) ms, \(frames.count) complete and \(stream.idleFrames) idle "
             + "frames (ScreenCaptureKit own-process capture, no Screen Recording grant asked), capture times put on the display link's "
             + "vsync grid (max shift \(String(format: "%.2f", grid.maxResidual * 1000)) ms, \(String(format: "%.2f", grid.linkOffset * 1000)) ms from the display link's phase), \(failures.count) failures")
+        // The raw capture stamps and display-link ticks, so a run can be refitted offline.
+        print("ANIMATION-PIXEL \(name): raw capture stamps (ms after the change): "
+            + captured.map { AnimationPixelRun.ms($0.time - trigger) }.joined(separator: " "))
+        print("ANIMATION-PIXEL \(name): display-link ticks (ms after the change): "
+            + sampler.samples.map { AnimationPixelRun.ms($0.time - trigger) }.filter { !$0.hasPrefix("-") }.prefix(60).joined(separator: " "))
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures
