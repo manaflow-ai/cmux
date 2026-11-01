@@ -58,7 +58,11 @@ async fn trigger_chat_connected_old_daemon_remains_unsupported() {
         let response = json!({"jsonrpc":"2.0", "id":hello["id"], "result":{}});
         wr.write_all(format!("{response}\n").as_bytes()).await.unwrap();
         line.clear();
-        assert_eq!(reader.read_line(&mut line).await.unwrap(), 0, "no trigger request to old daemon");
+        assert_eq!(
+            reader.read_line(&mut line).await.unwrap(),
+            0,
+            "no trigger request to old daemon"
+        );
     };
     let (out, ()) = tokio::time::timeout(Duration::from_secs(10), async {
         tokio::join!(trigger(dir.path(), dir.path(), &socket), serve)
