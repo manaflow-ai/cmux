@@ -38,6 +38,8 @@ struct AgentPaneDisplaySettingTests {
         // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
         Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
+            accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -117,7 +119,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.rail.side",
+        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

@@ -275,15 +275,7 @@ impl Surface {
         };
         let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
-        let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-            Some(argv) => {
-                crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-            }
-            None => crate::shell_integration::integrate_default_shell(
-                vec![platform::default_shell()],
-                opts.extra_env.clone(),
-            ),
-        };
+        let launch = crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
         let argv = launch.command;
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
@@ -301,8 +293,8 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
-        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
-            cmd.env_remove(*key);
+        for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
+            cmd.env_remove(key);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {

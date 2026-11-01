@@ -54,7 +54,7 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
-    func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
+    func layoutStatusColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let columns = SidebarStyle.columns(rowWidth: rowWidth)
         let column = columns.trailingCenter()
         let view: NSView

@@ -74,6 +74,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var sendIsIncognito: (@MainActor () -> Bool)?
     /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
     /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
+    /// Another machine picked for this pane's Cloud chat whose first send has not run
+    /// (``AgentPaneCloudRepick``): the App moves the chat there and sends its first prompt again.
+    @ObservationIgnored public var onCloudRepickChat: (@MainActor (AgentPaneCloudRepick) async -> [String: Any])?
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
@@ -470,6 +473,11 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
+        // Only a chat on another machine, on the person's own pick (one gesture).
+        case .cloudRepickChat(let repick):
+            guard let onCloudRepickChat, remoteChat, newTab == nil else { return Self.unsupported("cloud.repickChat") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            return await onCloudRepickChat(repick)
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudHandoffTurn(let session):

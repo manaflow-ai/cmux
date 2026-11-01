@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 546,
+  "count": 547,
   "sections": [
     {
       "id": "general",
@@ -1650,6 +1650,18 @@
             "compact",
             "full",
             "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.presentation",
+          "title": "Chat Presentation",
+          "help": "",
+          "kind": "choice",
+          "default": "transcript",
+          "group": "Agent Chat",
+          "values": [
+            "transcript",
+            "messages"
           ]
         },
         {

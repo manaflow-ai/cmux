@@ -199,11 +199,17 @@ impl Mux {
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
             let cwd = self.new_terminal_cwd(cwd, Some(target), None);
-            let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
+            let workspace_key = self.workspace_key_for_pane(target);
+            let (launch_opts, cell_pixels) = self.terminal_spawn_options_in(
+                cwd,
+                command,
+                size,
+                &env,
+                workspace_key.as_deref(),
+            );
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
-            let workspace_key = self.workspace_key_for_pane(target);
             let terminal_id = match terminal_id {
                 // A retry of a keyed create names a terminal that exists: the
                 // create replays its first result, so nothing may launch a
@@ -247,6 +253,15 @@ impl Mux {
             self.terminal_work.standby.refill(&self.terminal_work);
             let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
+            // An incognito terminal is private before its first byte; a
+            // normal one is known normal before its registry row exists.
+            if let (Some(key), Some(public_id)) = (workspace_key.as_deref(), host.terminal_public_id()) {
+                if self.workspace_key_is_ephemeral(key) {
+                    self.output_store.mark_private(public_id);
+                } else {
+                    self.output_store.mark_public(public_id);
+                }
+            }
             // The deprecated recovery mirror syncs a file twice; do it here,
             // in parallel, instead of under the creation lock. A tab that
             // lands in another workspace rewrites it there.

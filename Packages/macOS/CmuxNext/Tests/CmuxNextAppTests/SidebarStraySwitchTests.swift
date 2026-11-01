@@ -255,7 +255,7 @@ struct SidebarStraySwitchTests {
         // renders nothing never; this stands in for it, so the exit below relies on the window being out of sight,
         // not on Core Animation finishing a fade in a window nobody sees.
         _ = Motion.canAnimate(in: h.card) // starts the app's one occlusion observer (idempotent)
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: h.window)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: h.window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
         try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
         h.window.orderOut(nil)
         try await h.show(nil, exits: true)
