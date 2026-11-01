@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
 
-/// A person's Cmd-N on this Mac (instant-new-surfaces): the new workspace and its New Tab page
+/// A person's Cmd-N on this Mac, or an open of a chat (instant-new-surfaces): the new workspace and its New Tab page or chat
 /// show in the key's frame as a store intent (`Intent.createWorkspace`), under the key and name
 /// the create sends; `create-workspace` and its first tab (`new-conversation-tab {workspace,
 /// transaction}`) run behind, and the daemon's workspace and tab take the stand-ins over in place.
@@ -78,6 +78,8 @@ extension AgentTabStore {
                 self?.tabCreated(tabKey, as: created.0)
                 ProvisionalTab.created(transaction, surface: created.0.surface, in: store)
                 if let sequence = created.1 { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
+                // A chat its page started before the store answered binds now, as in ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)``.
+                if let started = self?.sessions[created.0.key] { self?.sendSession(started, for: created.0.key) }
                 return key.rawValue
             } catch {
                 fail()
