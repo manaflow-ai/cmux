@@ -29,7 +29,9 @@ TEST_STEPS = {
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
-MAX_OUTPUT = 32 * 1024 * 1024
+# Swift test logs are commonly around 40 MiB. Keep a bounded per-command cap while leaving room for
+# the complete log plus the diagnostics needed to classify its failures.
+MAX_OUTPUT = 64 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")

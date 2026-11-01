@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1099,6 +1100,31 @@ class LogOfARunStillGoing(unittest.TestCase):
         gh = self.Recorder([("--log", "HTTP 404: Not Found")])
         with self.assertRaisesRegex(excuse.Refused, "404"):
             gh.log(REPO, self.JOB)
+
+
+class LargeEvidenceOutput(unittest.TestCase):
+    """Swift test logs can exceed the old 32 MiB evidence cap."""
+
+    def test_swift_sized_log_is_retained_for_classification(self):
+        payload = "x" * (40 * 1024 * 1024)
+
+        class Process:
+            returncode = 0
+
+            def __init__(self, stdout, stderr):
+                stdout.write(payload.encode())
+                stderr.write(b"")
+
+            def wait(self, timeout=None):
+                return 0
+
+        class Popen:
+            def __new__(cls, args, stdout, stderr):
+                return Process(stdout, stderr)
+
+        with unittest.mock.patch.object(excuse.subprocess, "Popen", Popen):
+            output = excuse._evidence.GitHub().run(["api", "evidence"])
+        self.assertEqual(len(output), len(payload))
 
 
 WEB = "cmux-next web bundles (source-keyed cache)"
