@@ -500,7 +500,8 @@ jobs:
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # One header-directed quota-reset wait (at most 65m), then the guard/move.
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read
@@ -538,6 +539,7 @@ jobs:
           script: |
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
+            github.hook.wrap('request', guard.quotaResetRetry({ core }));
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
             // the "dry-run:" prefix on the SHA, and the 30-minute tick's
