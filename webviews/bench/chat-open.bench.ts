@@ -10,6 +10,8 @@
 // Long tasks (count, total), layout-shift sum and the transcript's scroll drift after `latest` say how
 // much the page still moved after the newest messages appeared.
 //   bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+// PROFILE=1 adds a CPU profile of one load (the build is then unminified so functions keep their names)
+// and prints the functions with the most self time between navigation and `settled`.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -72,7 +74,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(process.env.PROFILE === "1" ? { minify: false } : {}) },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -164,6 +166,34 @@ try {
     };
   };
 
+  if (process.env.PROFILE === "1") {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Profiler.enable");
+    await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+    await cdp.send("Profiler.start");
+    await page.goto(url);
+    await page.getByText(LATEST, { exact: false }).first().waitFor({ timeout: 120_000 });
+    await page.waitForTimeout(500);
+    const { profile } = (await cdp.send("Profiler.stop")) as {
+      profile: {
+        nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+        samples: number[];
+        timeDeltas: number[];
+      };
+    };
+    const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+    const self = new Map<string, number>();
+    profile.samples.forEach((id, index) => {
+      const frame = byId.get(id)!.callFrame;
+      const key = `${frame.functionName || "(anon)"} ${frame.url.split("/").slice(-1)[0]}:${frame.lineNumber + 1}`;
+      self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+    });
+    const total = [...self.values()].reduce((a, b) => a + b, 0);
+    console.log(`profile: ${total.toFixed(0)} ms sampled; top self time (ms)`);
+    for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${ms.toFixed(1)}\t${key}`);
+    await page.close();
+  }
   await open(); // warm the page's caches
   const rounds: Round[] = [];
   for (let round = 0; round < ROUNDS; round += 1) rounds.push(await open());
