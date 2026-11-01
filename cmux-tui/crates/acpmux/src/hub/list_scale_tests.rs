@@ -143,33 +143,36 @@ fn process_cpu() -> Duration {
     Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
 }
 
-/// Same 7,828-record fixture used for the live-index before/after measurement. The baseline is
-/// the pre-index full metadata walk; the indexed call is the exclude-closed snapshot path.
+/// Same 7,828-record fixture used for the live-index before/after measurement. Each pair uses
+/// the same operation with the pre-index full walk and the indexed live projection.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 #[ignore = "manual live-index measurement"]
 async fn measure_7828_exclude_closed_index() {
     let rounds = 5;
+    let measure = |mut run: Box<dyn FnMut()>| {
+        let start = std::time::Instant::now();
+        let cpu = process_cpu();
+        for _ in 0..rounds {
+            run();
+        }
+        (
+            start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+            (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds),
+        )
+    };
+
     let baseline = scale_hub();
-    let start = std::time::Instant::now();
-    let cpu = process_cpu();
-    for _ in 0..rounds {
-        std::hint::black_box(baseline.all_session_summaries());
-    }
-    eprintln!(
-        "7828 excludeStatus baseline full walk: {:.3} wall ms/list, {:.3} CPU ms/list",
-        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
-        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
-    );
+    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(Snapshot::build(&baseline))));
+    eprintln!("7828 list baseline Snapshot::build: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
     let indexed = scale_hub();
-    let start = std::time::Instant::now();
-    let cpu = process_cpu();
-    for _ in 0..rounds {
-        std::hint::black_box(Snapshot::build_live(&indexed));
-    }
-    eprintln!(
-        "7828 excludeStatus indexed live snapshot: {:.3} wall ms/list, {:.3} CPU ms/list",
-        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
-        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
-    );
+    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(Snapshot::build_live(&indexed))));
+    eprintln!("7828 list indexed Snapshot::build_live: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(baseline.all_session_summaries())));
+    eprintln!("7828 locate/wait baseline all_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
+    let indexed = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(indexed.live_session_summaries())));
+    eprintln!("7828 locate/wait indexed live_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
 }
