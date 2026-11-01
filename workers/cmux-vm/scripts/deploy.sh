@@ -36,6 +36,37 @@ if [ "$TARGET" = preview ]; then
 fi
 node scripts/wrangler-config.mjs "$TARGET" "$hyperdrive_id" $lane
 
+# CMUX_VM_SERVICE_KEYS_EXTRA and CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM (both optional) hold more
+# service key entries, appended to CMUX_VM_SERVICE_KEYS, so a key is added without reading back or
+# rewriting a write-only secret (each one is its own environment secret; CLOUD_PLATFORM holds
+# cmux-platform's Cloud driver key). Checked here, before anything deploys: each must be a JSON
+# array, ids and hashes unique across all of them (the Worker turns every service key off on a
+# duplicate). Values never reach the log.
+service_keys="${CMUX_VM_SERVICE_KEYS:-}"
+extras=()
+for name in CMUX_VM_SERVICE_KEYS_EXTRA CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM; do
+  if [ -n "${!name:-}" ]; then extras+=("$name"); fi
+done
+if [ "${#extras[@]}" -gt 0 ]; then
+  if [ -z "$service_keys" ]; then
+    echo "::error::${extras[0]} is set without CMUX_VM_SERVICE_KEYS; refusing to replace the Worker's service keys with the extra entries alone"
+    exit 1
+  fi
+  for name in CMUX_VM_SERVICE_KEYS "${extras[@]}"; do
+    if ! printf '%s' "${!name}" | jq -e 'type == "array"' >/dev/null 2>&1; then
+      echo "::error::$name is not a JSON array"
+      exit 1
+    fi
+  done
+  for name in "${extras[@]}"; do
+    service_keys="$(jq -cn --arg a "$service_keys" --arg b "${!name}" '($a | fromjson) + ($b | fromjson)' 2>/dev/null)"
+  done
+  if ! printf '%s' "$service_keys" | jq -e '([.[].id] | length == (unique | length)) and ([.[].sha256] | length == (unique | length))' >/dev/null 2>&1; then
+    echo "::error::CMUX_VM_SERVICE_KEYS and ${extras[*]} share a service key id or hash"
+    exit 1
+  fi
+fi
+
 umask 077
 secrets="$(mktemp)"
 trap 'rm -f "$secrets"' EXIT
@@ -43,7 +74,7 @@ jq -n \
   --arg upstream "$CMUX_VM_UPSTREAM_API_KEY" \
   --arg project "$CMUX_VM_STACK_PROJECT_ID" \
   --arg server "$CMUX_VM_STACK_SECRET_SERVER_KEY" \
-  --arg service_keys "${CMUX_VM_SERVICE_KEYS:-}" \
+  --arg service_keys "$service_keys" \
   '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}
    + (if $service_keys == "" then {} else {CMUX_VM_SERVICE_KEYS: $service_keys} end)' > "$secrets"
 

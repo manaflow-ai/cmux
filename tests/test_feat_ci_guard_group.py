@@ -8,6 +8,7 @@ for the branch: test_preflight_trust.py errored in all five tests there unseen (
 """
 import os
 from pathlib import Path
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,8 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
 
 
@@ -182,6 +185,47 @@ class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
         runs = "\n".join(str(step.get("run", "")) for step in steps)
         self.assertIn("python3.9", runs)
         self.assertIn("GITHUB_PATH", runs)
+
+
+class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
+    """The job runs every routed guard group twice (the head, then the base) with a worker per core, and runs on
+    every feat-cmux-next pull request and push. On 4 vCPU with 8 workers it took 175-359 s (runs 39873974117,
+    39873712114), and on 32 vCPU 3.3 min mean, 4.9 p90 (2026-10-30/31), so the 32 vCPU size bought nothing. Leo,
+    2026-11-01: "we should have resized a long-ass time ago." It takes the size .github/runners.json linux_sizes
+    measured for it, with
+    the Blacksmith outage guard the compile jobs use (tests/test_ci_linux_compile_runners.py), and as many workers
+    as the runner has cores."""
+
+    def job(self) -> dict:
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        return workflow["jobs"]["ci-guard-group"]
+
+    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
+        # Fleet Linux, then a free mini (portable-placement), then Blacksmith at its measured size
+        # (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things cant our minis just run them").
+        placed = "needs.portable-placement.outputs"
+        attempt = f"{placed}.placed_attempt == format('{{0}}', github.run_attempt)"
+        self.assertEqual(self.job()["needs"], ["portable-placement"])
+        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        self.assertEqual(
+            self.job()["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
+            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
+            f" || {attempt} && contains({placed}.linux_jobs, ' ci-guard-group ') && {placed}.linux_runner"
+            f" || {attempt} && contains({placed}.mini_jobs, ' ci-guard-group ') && {placed}.mini_runner"
+            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
+            " || " + blacksmith_route("cmux-next-guards.yml", "ci-guard-group") + " }}",
+        )
+
+    def test_each_guard_pass_uses_a_worker_per_core(self):
+        run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        self.assertEqual(len(calls), 2, calls)
+        for call in calls:
+            with self.subTest(call=call):
+                # getconf, not nproc: a mini (macOS) has no GNU coreutils.
+                self.assertIn('--jobs "$(getconf _NPROCESSORS_ONLN)"', call)
+                self.assertNotIn("--jobs 8", call)
 
 
 if __name__ == "__main__":

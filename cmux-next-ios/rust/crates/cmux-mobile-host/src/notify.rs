@@ -225,7 +225,7 @@ impl Classifier {
         Self { places: Some(places), ..Self::default() }
     }
 
-    /// Sessions from the `_acpmux/watch` result: labels only, no events.
+    /// Sessions from the `_acpmux/watch` result or a later page of its list: labels only, no events.
     pub fn load(&mut self, watch_result: &Value) {
         for session in watch_result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
             if let Some((id, label)) = session_label(session) {
@@ -557,10 +557,18 @@ async fn watch_once(
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
     }
     tracing::info!("push watch started");
+    let mut waiting = crate::notify_waiting::Waiting::default();
     loop {
         let due = classifier.next_due();
+        let deadline = waiting.next_deadline();
         let message = tokio::select! {
             message = source.next() => message,
+            () = async {
+                match deadline {
+                    Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+                    None => std::future::pending().await,
+                }
+            } => return Err("pending-input lookup timed out".into()),
             () = async {
                 match due {
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
@@ -580,16 +588,31 @@ async fn watch_once(
             _ => continue,
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
-        if value.get("id").and_then(Value::as_i64) == Some(2)
-            && let Some(result) = value.get("result")
-        {
-            classifier.load(result);
-            continue;
-        }
-        let Some(event) = classifier.handle(&value) else { continue };
-        reporter.send(event);
+        let (queries, events) = waiting.receive(&value, classifier)?;
+        report_and_query(&mut sink, queries, events, |event| reporter.send(event)).await?;
     }
     Err("acpmux closed".into())
+}
+
+pub(super) async fn report_and_query<S>(
+    sink: &mut S,
+    queries: Vec<Value>,
+    events: Vec<NotifyEvent>,
+    mut report: impl FnMut(NotifyEvent),
+) -> Result<(), String>
+where
+    S: futures_util::Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    // Classification already marked these IDs as seen across reconnects. Hand
+    // them to the reporter before any fallible send of the next recovery lookup.
+    for event in events {
+        report(event);
+    }
+    for query in queries {
+        sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

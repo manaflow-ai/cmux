@@ -68,6 +68,8 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
     var activeDrag: DividerDragState?
+    /// Column widths before a create, for the R3b check (``ColumnWidthLedger``); recorded in debug builds only.
+    var columnWidths = ColumnWidthLedger()
     /// A person's resize drag as the pane contents hear it (`ScreenContentView+ResizeGesture`).
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
@@ -91,9 +93,9 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
-    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
-    /// moved or whose covers changed, not every pane).
-    var stripClipsComputed = 0
+    /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
+    /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
+    var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -168,7 +170,7 @@ final class ScreenContentView: NSView {
     /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
     /// focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion)
+        reconcile(animated: keepsMotion, presents: false)
         syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
     }
 
@@ -192,16 +194,22 @@ final class ScreenContentView: NSView {
         let structural = !self.layout.hasSameStructure(as: layout)
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
+        #if DEBUG
+        let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
+        #endif
         self.layout = layout
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false)
+        #if DEBUG
+        if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
+        #endif
         return moving || canvasState.camera.isMoving
     }
 
     @discardableResult
-    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
+    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false, presents: Bool = true) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
@@ -320,7 +328,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
+                view.onPointerChange = { [weak self] in self?.context.invalidateHoverTopmost(); self?.refreshDividerHover() }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -382,13 +390,13 @@ final class ScreenContentView: NSView {
         // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
         reconcileDock()
         reconcileCanvasStacking()
-        // The scroll follows in `syncScroll`, which the root calls with the focus after every update.
+        // The scroll follows in `syncScroll`, which the root calls with the focus after every update, and presents.
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
-        applyPresentation(force: structural)
+        if structural { forcesPresentation = true }
+        if presents { applyPresentation() }
         let moving = animate && hasMotion
-        if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
     }

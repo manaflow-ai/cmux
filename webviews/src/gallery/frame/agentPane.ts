@@ -39,6 +39,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     cmuxAcpmuxMockHarnessHealth: state.mockHarnessHealth,
     cmuxAcpmuxMockNative: state.native,
     cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
+    cmuxAcpmuxMockCapabilities: state.mockCapabilities,
   });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
@@ -106,7 +107,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.applySessionStatus?.(state.sessionStatus === true);
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
-    bridge.applyWorkflowLabs?.(state.workflowLabs === true);
+    bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {

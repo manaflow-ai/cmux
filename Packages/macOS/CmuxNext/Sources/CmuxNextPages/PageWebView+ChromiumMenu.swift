@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
 
 // A Chromium page's right-click menu and the person's gestures in it: Chromium's own menu never
@@ -35,7 +36,6 @@ extension PageWebView {
     }
 
     private func buildChromiumMenu(_ request: PageChromiumContextMenu) {
-        defer { request.finish() }
         let menu = NSMenu()
         if !request.selection.isEmpty {
             let copy = Self.menuItem(Self.copyTitle) { [weak self] in self?.copyChromiumSelection() }
@@ -43,12 +43,25 @@ extension PageWebView {
             menu.addItem(copy)
         }
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDefaultMenuItems(in: menu) }
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return }
-        chromiumMenuPresenter(menu, NSPoint(x: request.location.x, y: request.location.y), self)
-        // The menu tracked the person's own pointer and keys until it closed: what they chose (or
-        // their dismissal) is a gesture, as a WebKit page's menu choice is. Page calls a row
-        // starts arrive after this.
-        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return request.finish() }
+        // The menu tracks from a run-loop callout of its own, never inline. The request comes inside
+        // a CEF pump pass (the pump skips a pass it re-enters, so Chromium stood still while the
+        // menu was open), and on the agent chat inside a main-actor job after `chromiumMenuWait`
+        // (the main queue does not drain inside its own job, so every main-actor reply, transcript
+        // update and Chromium event waited behind the open menu). The click that closed the menu
+        // then waited for that backlog: "clicking out of a fucking context menu is sometimes slow
+        // as fucking balls" (Leo, 2026-10-29). From a callout the menu's tracking loop keeps the
+        // main queue and the pump running, as WebContextMenu and BrowserContextMenuBuilder do.
+        let point = NSPoint(x: request.location.x, y: request.location.y)
+        MainRunLoopBlock.perform { [weak self] in
+            defer { request.finish() }
+            guard let self else { return }
+            chromiumMenuPresenter(menu, point, self)
+            // The menu tracked the person's own pointer and keys until it closed: what they chose
+            // (or their dismissal) is a gesture, as a WebKit page's menu choice is. Page calls a
+            // row starts arrive after this.
+            chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        }
     }
 
     /// Copies the Chromium page's selection, as WebKit's Copy does.

@@ -18,6 +18,7 @@
     }
   },
   "guarded_vars": {
+    "PLATFORM_MACHINES=on": "leo 2026-10-31 (relayed): the platform Worker's workspace machines answer in production too; creates still need a paid plan or grant (no stub plan in production)",
     "INFERENCE_ENABLED=1": "lawrence 2026-10-12 via the chief (cx-f5tk4): paid teams on",
     "INFERENCE_FREE_ENABLED=0": "lawrence 2026-10-12 via the chief (cx-f5tk4): free tier off until cx-ds09i",
     "INFERENCE_DAILY_CAP_USD=20": "lawrence 2026-10-12 via the chief (cx-f5tk4): 20 USD per provider line per UTC day",
@@ -31,6 +32,11 @@
     "CHIEF_BRAIN_CLAUDE_OWNERS=team_2fcc617e7ba8be229bcb,team_6197db2f4b9d28c7115a,team_7648bed712529f7a64fa,team_760c83ddd31c6360c927": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: the 4 manaflow personal teams (lawrence, aziz, austin, leo)",
     "CHIEF_BRAIN_FALLBACK_MODEL=claude-haiku-5-5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: fallback through the same paid-model gate",
     "CHIEF_BRAIN_COMPACTOR_MODEL=claude-haiku-5-5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: compactor on Haiku, charged to credits",
-    "CHIEF_RUN_TOKEN_CAP_USD=5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: 5 USD cap per agent gateway token"
+    "CHIEF_RUN_TOKEN_CAP_USD=5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: 5 USD cap per agent gateway token",
+    "INFERENCE_MODEL_ALLOWLIST=deepseek/deepseek-v4.1-flash-1017,deepseek/deepseek-v4.1-flash,deepseek/deepseek-v4-flash,deepseek/deepseek-v4-pro": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_PRIMARY_PROVIDER=vercel": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_CF_GATEWAY_ID=cmux-ai-proxy": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_AZURE_ENDPOINT=https://lawrence-1614-resource.services.ai.azure.com": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_VERCEL_RELAY_URL=https://console.cmux.dev/api/ai-gateway/chat/completions": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider"
   }
 }

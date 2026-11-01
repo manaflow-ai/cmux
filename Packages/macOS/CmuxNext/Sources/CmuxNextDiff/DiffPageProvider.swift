@@ -28,6 +28,8 @@ public final class DiffPageProvider: PageProvider {
     static let chooseFolderOp = "cmux.diff.chooseFolder"
     static let openOp = "cmux.diff.open"
     static let notARepository = "cmux.diff.not_a_repo"
+    /// A repository on another machine that cannot answer now (the page shows the message).
+    static let machineOffline = "cmux.diff.machine_offline"
     /// The id the page closes before its first open has answered.
     static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
     static let maximumRequestBytes = 1024 * 1024
@@ -37,6 +39,9 @@ public final class DiffPageProvider: PageProvider {
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
     let remote: Bool
+    /// The name of the machine a remote tab's repository is on (#25581, a Cloud workspace's), for
+    /// the page's offline message; nil for this Mac and for a remote chat's tab.
+    public let machine: String?
     private(set) weak var host: (any DiffTabHosting)?
     /// Prefs and viewed marks (``DiffPageStores``); nil serves no store op.
     let stores: DiffPageStores?
@@ -69,8 +74,10 @@ public final class DiffPageProvider: PageProvider {
     private static let remoteFullFileContextLines = 100_000
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
-         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
+         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil,
+         machine: String? = nil) {
         self.ready = ready
+        self.machine = machine
         self.stores = stores
         self.git = git
         self.sidecar = sidecar
@@ -91,10 +98,11 @@ public final class DiffPageProvider: PageProvider {
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
         case Self.recentsOp:
-            guard let host else { throw PageError.unknownOp(op) }
+            // This Mac's folders: a tab of another machine's repository picks none of them.
+            guard let host, !remote else { throw PageError.unknownOp(op) }
             return await host.recents()
         case Self.chooseFolderOp:
-            guard let host else { throw PageError.unknownOp(op) }
+            guard let host, !remote else { throw PageError.unknownOp(op) }
             let start = params["start"]?.stringValue.map { URL(fileURLWithPath: $0, isDirectory: true) }
             return await host.chooseFolder(start: start).map { ["path": .string($0.path)] } ?? .null
         case Self.openOp:
@@ -253,6 +261,13 @@ public final class DiffPageProvider: PageProvider {
         return result
     }
 
+    /// A remote read that got no answer names the machine (#25581); the session host's own
+    /// refusals keep their code.
+    func remoteError(_ failure: AgentPaneGitFailure) -> PageError {
+        guard let machine, failure == .notConnected || failure == .timedOut else { return Self.pageError(failure) }
+        return PageError(code: Self.machineOffline, message: DiffPageStrings.machineOffline(machine), retryable: true)
+    }
+
     /// A remote daemon has no local sidecar. Its git result is materialized into
     /// this tab's patch grant, while the session response stays sidecar-shaped.
     private func remoteSessionOpen(_ params: [String: JSONValue], tab: DiffTabReady) async throws -> JSONValue {
@@ -266,7 +281,7 @@ public final class DiffPageProvider: PageProvider {
             }
             do {
                 diff = try await git.checkpointDiff(tab.grant.repository, from: turn.from, to: turn.to)
-            } catch { throw Self.pageError(error) }
+            } catch { throw remoteError(error) }
             scope = .uncommitted
         } else {
             switch source["kind"]?.stringValue {
@@ -277,7 +292,7 @@ public final class DiffPageProvider: PageProvider {
             }
             do {
                 diff = try await git.diff(tab.grant.repository, scope: scope, includePatch: true)
-            } catch { throw Self.pageError(error) }
+            } catch { throw remoteError(error) }
         }
         let files = diff["files"]?.arrayValue ?? []
         guard !files.isEmpty else { throw PageError(code: "emptyDiff", message: "No changes to diff") }
@@ -325,7 +340,7 @@ public final class DiffPageProvider: PageProvider {
         do {
             diff = try await git.diff(tab.grant.repository, scope: scope, includePatch: true,
                                       options: AgentPaneGitDiffOptions(paths: [path], contextLines: Self.remoteFullFileContextLines))
-        } catch { throw Self.pageError(error) }
+        } catch { throw remoteError(error) }
         guard let file = diff["files"]?.arrayValue?.first(where: { $0["path"]?.stringValue == path }) else {
             throw PageError(code: "remoteFileUnavailable", message: "The remote file is no longer in this diff")
         }
@@ -406,9 +421,11 @@ public final class DiffPageProvider: PageProvider {
                 status == "deleted" ? nil : new)
     }
 
-    private static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
-        guard let end = header.range(of: " @@") else { return nil }
-        let ranges = header[header.index(header.startIndex, offsetBy: 3)..<end.lowerBound]
+    /// The counts in a `@@ -a,b +c,d @@` header; nil when it has no two ranges (a remote patch is untrusted).
+    static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
+        guard let start = header.index(header.startIndex, offsetBy: 3, limitedBy: header.endIndex),
+              let end = header[start...].range(of: " @@") else { return nil }
+        let ranges = header[start..<end.lowerBound]
             .split(separator: " ")
         guard ranges.count >= 2,
               let old = hunkCount(ranges[0], prefix: "-"),

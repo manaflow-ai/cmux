@@ -40,7 +40,12 @@ pub(crate) fn explain(
     if command.has_subcommands() {
         return None;
     }
-    let takes = |c: &clap::Command| c.get_arguments().any(|a| a.get_long() == Some(long));
+    // By its name or a hidden alias: `--host` is `--machine`'s old spelling.
+    let takes = |c: &clap::Command| {
+        c.get_arguments().any(|a| {
+            a.get_long() == Some(long) || a.get_all_aliases().is_some_and(|all| all.contains(&long))
+        })
+    };
     let taken_by: Vec<&str> = cli
         .get_subcommands()
         .filter(|c| c.get_name() != name && !c.is_hide_set() && takes(c))
@@ -68,7 +73,7 @@ pub(crate) fn explain(
         .join(", ");
     let (instead, try_command) = match (name, long) {
         ("send", "prompt-file") => {
-            let rest = &words[at + 1..];
+            let rest = words.get(at + 1..).unwrap_or_default();
             let line = send_from_file(command, rest, program);
             let instead = "send reads its prompt from stdin when it has no prompt words or `-`";
             (instead.to_owned(), line)
@@ -97,11 +102,10 @@ fn send_from_file(send: &clap::Command, rest: &[String], program: &str) -> Optio
     let mut file = None;
     let mut positional = 0;
     let mut i = 0;
-    while i < rest.len() {
-        let word = &rest[i];
+    while let Some(word) = rest.get(i) {
         if word == "--" {
             positional += rest.len() - i - 1;
-            kept.extend(rest[i..].iter().cloned());
+            kept.extend(rest.get(i..).unwrap_or_default().iter().cloned());
             break;
         }
         if let Some(value) = word.strip_prefix("--prompt-file=") {
@@ -177,6 +181,21 @@ mod tests {
         // Prompt words too: send would send them, not the file, so the try is its help.
         let e = refusal(&["send", "lane", "hi", "--prompt-file", "b.md"]).unwrap();
         assert_eq!(e.data.unwrap()["try"], "acpmux send --help");
+    }
+
+    /// `--host`, now a hidden alias of `--machine`, is still explained as a flag other commands
+    /// take, under the spelling the person typed.
+    #[test]
+    fn an_old_flag_spelling_is_explained_like_its_new_one() {
+        for flag in ["--host", "--machine"] {
+            let e = refusal(&["history", "lane", flag, "box"]).unwrap_or_else(|| panic!("{flag}"));
+            let data = e.data.clone().unwrap();
+            assert_eq!(data["reason"], "usage.unknown_flag", "{data}");
+            assert_eq!(data["flag"], flag, "{data}");
+            let taken: Vec<&str> =
+                data["takenBy"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+            assert!(taken.contains(&"new") && taken.contains(&"ls"), "{data}");
+        }
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
@@ -255,15 +256,15 @@ fn key_event_params(event: CdpKeyEvent<'_>) -> Value {
         "modifiers": event.modifiers,
     });
     if !event.code.is_empty() {
-        params["code"] = json!(event.code);
+        params.set("code", json!(event.code));
     }
     if event.windows_virtual_key_code != 0 {
-        params["windowsVirtualKeyCode"] = json!(event.windows_virtual_key_code);
-        params["nativeVirtualKeyCode"] = json!(event.windows_virtual_key_code);
+        params.set("windowsVirtualKeyCode", json!(event.windows_virtual_key_code));
+        params.set("nativeVirtualKeyCode", json!(event.windows_virtual_key_code));
     }
     if let Some(text) = event.text {
-        params["text"] = json!(text);
-        params["unmodifiedText"] = json!(text);
+        params.set("text", json!(text));
+        params.set("unmodifiedText", json!(text));
     }
     params
 }
@@ -683,9 +684,9 @@ impl CdpClient {
             "method": method,
             "params": null,
         });
-        msg["params"] = params;
+        msg.set("params", params);
         if let Some(session_id) = session_id {
-            msg["sessionId"] = json!(session_id);
+            msg.set("sessionId", json!(session_id));
         }
         if let Err(e) = self.send_value(&msg) {
             pending_calls(&self.inner).remove(&id);
@@ -1308,6 +1309,23 @@ impl CdpClient {
             .map(|_| ())
     }
 
+    /// [`Self::handle_javascript_dialog`] without waiting for the answer: an
+    /// event handler must never wait on a CDP reply.
+    pub fn handle_javascript_dialog_detached(
+        &self,
+        session_id: &str,
+        accept: bool,
+    ) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Page.handleJavaScriptDialog",
+            "params": { "accept": accept },
+            "sessionId": session_id,
+        });
+        self.send_value(&msg)
+    }
+
     pub fn set_device_metrics(
         &self,
         session_id: &str,
@@ -1342,10 +1360,10 @@ impl CdpClient {
             "y": y,
         });
         if let Some(button) = button {
-            params["button"] = json!(button);
+            params.set("button", json!(button));
         }
         if let Some(click_count) = click_count {
-            params["clickCount"] = json!(click_count);
+            params.set("clickCount", json!(click_count));
         }
         self.call("Input.dispatchMouseEvent", params, Some(session_id)).map(|_| ())
     }

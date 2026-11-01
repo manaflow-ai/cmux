@@ -23,7 +23,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var rowHeight: CGFloat
     /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
-    public var tabRowHeight: CGFloat
     /// The one gap between consecutive rows: a group's last member, a folder's last row and the
     /// Pinned block's last row take it too, never a padding of their own (Leo 2026-10-21).
     public var rowSpacing: CGFloat
@@ -37,7 +36,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
-        rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
+        rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, rowSpacing: CGFloat,
         emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
@@ -46,12 +45,11 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.sectionSpacing = sectionSpacing
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
-        self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows and group headers (a
     /// header follows `rowHeight`). A group header keeps its solid bar in the group's color, only
     /// shorter (Lawrence 2026-10-18).
     public var minimal: SidebarLayoutMetrics {
@@ -59,7 +57,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         let step = (rowHeight * 0.17).rounded()
         m.rowHeight -= step
         m.rowHeightWithSubtitle -= step
-        m.tabRowHeight -= step
         return m
     }
 
@@ -121,7 +118,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsSoleMachineHeader = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
-    /// than this Mac names it (and a failed connection) on its second line.
+    /// than this Mac names it (and a failed connection) in its machine mark,
+    /// hover card and accessibility label, and an expanded row's meta line.
     public var flattensMachines = false
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
@@ -131,10 +129,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
-    /// Include tab rows beneath each visible workspace.
-    public var showWorkspaceTabs = false
-    /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
-    public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
@@ -159,6 +153,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsTimestamps = false
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
+    /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -181,7 +177,14 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
-    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
+    /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
+    public var foldsArchived = true
+    /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
+    /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
+    public var archiveSection = true
+    /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
+    /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
     public var rowLimit = 0
@@ -207,6 +210,9 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
+        // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
+        content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,
@@ -217,13 +223,21 @@ nonisolated extension SidebarLayoutOptions {
             content.badge = nil
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        if !showsColors { content.icon = content.icon?.uncolored }
+        if !showsColors {
+            content.icon = content.icon?.uncolored
+        } else if colorIndicator != .dot, let color = ws.color ?? ws.icon?.color {
+            // The rail or the fill says the color, so a bare swatch would say it twice; a symbol or emoji stays.
+            (content.rowColor, content.colorStyle) = (color, colorIndicator)
+            if case .swatch? = content.icon { content.icon = nil }
+        }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
+        if !minimal, content.detail != nil, let step = ws.agentStep {
+            (content.now, content.detail) = (step, step)
+        }
         return content
     }
 
@@ -252,17 +266,5 @@ nonisolated extension SidebarLayoutOptions {
     /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
     func visible(_ ws: SidebarWorkspace) -> Bool {
         !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
-    }
-
-    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
-    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
-    }
-
-    /// A workspace row's tab disclosure; nil when the list shows no tabs.
-    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
-        guard showWorkspaceTabs else { return nil }
-        if ws.tabs.isEmpty { return .empty }
-        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

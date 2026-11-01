@@ -35,15 +35,23 @@ extension WorkspaceRowView {
         return trailing - w - Metrics.space2
     }
 
-    /// The pin button of an expanded row, with the menu button (hover, not
-    /// renaming): left of it, Pin or Unpin by the row's section, fading in
-    /// and out in place with it. Returns its minX while it shows.
-    func layoutPin(showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded ? isPinned?() : nil
-        setHoverShown(pinButton, showMore && pinned != nil, fades: fades)
-        guard let pinned else { return nil }
-        (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
-        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+    /// The Unpin button of an expanded pinned row, with the menu button (hover,
+    /// not renaming): left of it, fading in and out in place with it. Returns
+    /// its minX while it shows. An unpinned row draws no pin, at rest or on
+    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
+    /// symbol by default").
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
+        let pinned = isExpanded && isPinned?() == true
+        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        guard pinned else { return nil }
+        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
+        if SidebarTunables.rowCloseSpot.value.atEnd {
+            let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+        } else {
+            pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+        }
         return showMore ? pinButton.frame.minX : nil
     }
 

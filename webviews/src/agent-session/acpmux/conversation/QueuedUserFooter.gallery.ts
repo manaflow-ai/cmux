@@ -21,10 +21,18 @@ const snapshot = (steer: "waiting" | "landed" = "waiting") => {
 const preview = (gap?: string) => async (ctx: PlayContext) => {
   await ctx.hover({ text: TEXT });
   const pending = ctx.document.querySelector<HTMLElement>(".cv-user__pending");
-  if (pending && gap) pending.style.gap = gap;
+  const footer = pending?.querySelector<HTMLElement>(".cv-message-footer-row");
+  if (footer && gap) footer.style.gap = gap;
   const actions = pending?.parentElement;
+  const bubble = pending?.closest(".cv-user")?.querySelector<HTMLElement>(".cv-user__bubble");
   if (actions?.querySelector(".cv-user__time, .cv-user__read, .cv-user__dot, .cv-message-retry"))
     throw new Error("queue footer includes normal hover actions");
+  if (pending && bubble) {
+    const bubbleBox = bubble.getBoundingClientRect();
+    const footerBox = actions!.getBoundingClientRect();
+    if (footerBox.top < bubbleBox.bottom || Math.abs(footerBox.right - bubbleBox.right) > 1)
+      throw new Error("waiting steer footer is not under the bubble's right edge");
+  }
 };
 export default agentPaneEntry({
   id: "agent-pane.queued-user-footer",
@@ -37,17 +45,17 @@ export default agentPaneEntry({
   ],
   variants: {
     compact: {
-      note: "Alternative: no gap between Send now and remove. The controls read too close together.",
+      note: "Alternative: a compact footer with a 2px gap between controls.",
       snapshot: snapshot(),
-      play: preview("0px"),
+      play: preview("2px"),
     },
     balanced: {
-      note: "Chosen: plain Send now and a 24px remove target, separated by 4px. No receipt, time, dot, Copy or Retry.",
+      note: "Chosen: the right-aligned footer uses the sent prompt's shared control slots for Send now, remove and Copy, with no receipt, time or Retry.",
       snapshot: snapshot(),
       play: preview(),
     },
     roomy: {
-      note: "Alternative: 12px gap gives the controls more separation than this quiet footer needs.",
+      note: "Alternative: a roomier 12px control gap while keeping the footer under the bubble.",
       snapshot: snapshot(),
       play: preview("12px"),
     },

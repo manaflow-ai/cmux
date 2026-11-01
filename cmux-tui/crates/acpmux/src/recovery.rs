@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// The `errorKind` names. Clients match on these; never rename one.
 pub mod kind {
@@ -323,11 +324,14 @@ pub fn disk_status(low_bytes: u64) -> Value {
     let Some(space) = space(&crate::config::home()) else { return Value::Null };
     let mut v = json!({"path": space.path, "freeBytes": space.free, "totalBytes": space.total, "low": space.free < low_bytes});
     if space.free < low_bytes {
-        v["errorKind"] = json!(kind::DISK_LOW);
-        v["recovery"] = json!(format!(
-            "The disk is nearly full; agents fail once it is. {}",
-            free_space_sentence(&space, true)
-        ));
+        v.set("errorKind", json!(kind::DISK_LOW));
+        v.set(
+            "recovery",
+            json!(format!(
+                "The disk is nearly full; agents fail once it is. {}",
+                free_space_sentence(&space, true)
+            )),
+        );
     }
     v
 }

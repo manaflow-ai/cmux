@@ -219,6 +219,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
+  artifacts: {
+    out: "webviews/src/pages/artifacts/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
+  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
@@ -272,6 +277,11 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
               ].includes(key),
@@ -291,7 +301,7 @@ export const PAGES = {
             (key) =>
               /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
               [
-                "chatInspector.changes.failingOnBase",
+                "sessionInfo.changes.failingOnBase",
                 "header.prConflicts",
                 "header.prNoChecks",
                 "image.open",
@@ -504,6 +514,10 @@ export function writeStrings({
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
+  // The feature tips table is build output beside the strings tables, made by every run that makes
+  // them (install, the webview and bundle builds, the gallery; gen-feature-tips.mjs).
+  const { writeFeatureTips } = await import("./gen-feature-tips.mjs");
+  const tipsFailed = writeFeatureTips({ check });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -511,5 +525,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit(failed && !bestEffort ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed ? 1 : 0);
 }

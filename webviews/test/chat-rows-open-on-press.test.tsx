@@ -185,3 +185,86 @@ test("a Recently Closed row reopens on the press, once", async () => {
   await release(row);
   expect(reopened).toEqual(["closed-1"]);
 });
+
+test("Enter on a failed history-page retry keeps the selection shortcut out of the way", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const pageRows = Array.from({ length: 8 }, (_, index) => ({
+    key: `page-${index}`,
+    harness: "claude",
+    title: `History ${index}`,
+    cwd: "/Users/me/src/cmux",
+    updatedAt: 10 - index,
+  }));
+  const requests: {
+    cursor?: string;
+    reject(error: unknown): void;
+    resolve(value: { chats: typeof pageRows; nextCursor?: string; ready?: boolean }): void;
+  }[] = [];
+  const load = (params: { cursor?: string }) =>
+    new Promise<{ chats: typeof pageRows; nextCursor?: string; ready?: boolean }>((resolve, reject) => {
+      requests.push({ cursor: params.cursor, resolve, reject });
+    });
+  const opened: string[] = [];
+  const brought: string[][] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <AllChatsList load={load} onOpen={(key) => opened.push(key)} onBring={(keys) => brought.push(keys)} />,
+    ),
+  );
+  await act(async () => requests[0]!.resolve({ chats: pageRows, nextCursor: "page-2", ready: true }));
+  await settle();
+  expect(requests).toHaveLength(2);
+  await act(async () => requests[1]!.reject(new Error("daemon unavailable")));
+  await settle();
+
+  const row = allChatsRow("History 0");
+  await release(row, { metaKey: true });
+  const retry = host.querySelector<HTMLButtonElement>(".nt-chats-retry")!;
+  retry.focus();
+  const enter = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" });
+  retry.dispatchEvent(enter);
+  expect(enter.defaultPrevented).toBe(false);
+  expect(brought).toEqual([]);
+  await act(async () => retry.click());
+  expect(requests).toHaveLength(3);
+  expect(requests[2]!.cursor).toBe("page-2");
+  expect(opened).toEqual([]);
+});
+
+test("Enter and Escape still operate on a focused selected chat row", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const brought: string[][] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <AllChatsList
+        load={async () => ({ chats, ready: true })}
+        onOpen={() => {}}
+        onBring={(keys) => brought.push(keys)}
+      />,
+    ),
+  );
+  await settle();
+  for (const title of ["Retry uploads", "Fix the sidebar"]) {
+    await press(allChatsRow(title), { metaKey: true });
+    await release(allChatsRow(title), { metaKey: true });
+  }
+  const row = allChatsRow("Fix the sidebar");
+  row.focus();
+  const enter = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" });
+  row.dispatchEvent(enter);
+  expect(enter.defaultPrevented).toBe(true);
+  expect(brought).toEqual([["a", "b"]]);
+
+  for (const title of ["Retry uploads", "Fix the sidebar"]) {
+    await press(allChatsRow(title), { metaKey: true });
+    await release(allChatsRow(title), { metaKey: true });
+  }
+  const escape = new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" });
+  await act(async () => allChatsRow("Retry uploads").dispatchEvent(escape));
+  expect(escape.defaultPrevented).toBe(true);
+  expect(host.querySelectorAll(".nt-all-row[data-selected]")).toHaveLength(0);
+});

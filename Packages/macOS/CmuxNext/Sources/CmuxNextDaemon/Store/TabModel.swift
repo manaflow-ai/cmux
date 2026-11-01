@@ -93,6 +93,34 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// An agent needs the person to act in this tab (log in, confirm, approve, pick):
+    /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
+    /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
+    /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
+    public private(set) var attention: TabAttention?
+    @ObservationIgnored private var recordAttention: TabAttention?
+    @ObservationIgnored private var pendingAttentionClear: TabAttention?
+
+    /// Hide the request in the action's own turn. The returned token identifies this clear.
+    public func expectAttentionClear() -> TabAttention? {
+        guard let attention, let requestID = attention.requestID, TabAttention.validRequestID(requestID) else { return nil }
+        pendingAttentionClear = attention
+        self.attention = nil
+        return attention
+    }
+
+    /// A failed old clear never restores over a newer request or a newer clear.
+    public func dropExpectedAttentionClear(_ request: TabAttention) {
+        guard pendingAttentionClear == request else { return }
+        pendingAttentionClear = nil
+        attention = recordAttention
+    }
+    /// Client-local generation of the request whose ring the person hid. This never stores time.
+    public var attentionRingHiddenThrough: UInt64?
+    /// A local render identity changes when the owner request changes; TabAttention equality
+    /// includes requestID, so identical reason/time replacements are still distinct.
+    public private(set) var attentionGeneration: UInt64 = 0
+
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
     /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
     /// observers already follow.
@@ -148,6 +176,9 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
+    /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
+    public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
+
     /// Whether the tab holds an unread notification. A notification this
     /// client read (``expectNotificationRead()``) shows read before the
     /// daemon's echo.
@@ -199,7 +230,7 @@ public final class TabModel: Identifiable {
 
     /// Whether the tab shows as unread: an unread notification or the manual mark.
     /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
-    public var showsUnread: Bool { hasUnread || markedUnread }
+    public var showsUnread: Bool { hasUnread || markedUnread || attention != nil }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -316,6 +347,11 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if recordAttention != record.attention { attentionGeneration &+= 1 }
+        recordAttention = record.attention
+        if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
+        let shownAttention = pendingAttentionClear == nil ? record.attention : nil
+        if attention != shownAttention { attention = shownAttention }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()

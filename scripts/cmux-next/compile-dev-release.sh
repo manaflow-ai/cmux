@@ -29,7 +29,20 @@
 # per runner instance from the checkout (release-derived-data-path.sh, still
 # with the cache). Nothing waits for another job and no host is reserved.
 #
-# CMUX_NEXT_DEV_COMPILE_REPORT, when set, gets mode=, derived_data= and, in host
+# The Swift compilation mode follows the build mode when
+# CMUX_NEXT_SWIFT_COMPILATION_MODE is auto (the workflow's default; a repo
+# variable naming wholemodule or singlefile wins). A host build compiles
+# singlefile: that is what the host cache holds and replays (509/509 hits,
+# about 130 s), and a first build in a new host tree compiles singlefile too:
+# it can install the fleet seed (dev_cas_seed.py, keyed by this mode, so it
+# runs after the mode is chosen) and it fills the cache the next landing
+# replays (a whole-module first build would leave no singlefile entries, and
+# the next one would be cold again). Any
+# other build (lock busy, setup failed, cache off, not a mini) has no cache to
+# replay and never fills the host's, so it compiles whole-module: 0/509 hits
+# singlefile took about 808 s, whole-module about 545 s.
+#
+# CMUX_NEXT_DEV_COMPILE_REPORT, when set, gets mode=, swift_mode=, derived_data= and, in host
 # mode, previous_sha= (the commit the host tree held before this build, the
 # newest build its cache holds) before the compile starts. A host build also
 # prints `compilation cache source sha: <sha>` for the per-landing harness.
@@ -116,19 +129,39 @@ if [[ "$mode" == host ]]; then
 else
   derived_data="$("$here/release-derived-data-path.sh" dev-daily-release Release)"
 fi
+case "${CMUX_NEXT_SWIFT_COMPILATION_MODE:-auto}" in
+  auto)
+    if [[ "$mode" == host && "$previous_sha" =~ ^[0-9a-f]{40}$ ]]; then
+      swift_mode=singlefile swift_why="host cache from $previous_sha"
+    elif [[ "$mode" == host ]]; then
+      swift_mode=singlefile swift_why="no host cache yet: singlefile, so the fleet seed applies and this build fills the cache"
+    else
+      swift_mode=wholemodule swift_why="cache cold: $reason"
+    fi
+    ;;
+  wholemodule|singlefile)
+    swift_mode="$CMUX_NEXT_SWIFT_COMPILATION_MODE" swift_why="set by CMUX_NEXT_SWIFT_COMPILATION_MODE"
+    ;;
+  *)
+    echo "compile-dev-release: unsupported CMUX_NEXT_SWIFT_COMPILATION_MODE '$CMUX_NEXT_SWIFT_COMPILATION_MODE'" >&2
+    exit 2
+    ;;
+esac
+export CMUX_NEXT_SWIFT_COMPILATION_MODE="$swift_mode"
 if [[ -n "${CMUX_NEXT_DEV_COMPILE_REPORT:-}" ]]; then
   { mkdir -p "$(dirname "$CMUX_NEXT_DEV_COMPILE_REPORT")" &&
-    printf 'mode=%s\nderived_data=%s\nprevious_sha=%s\n' "$mode" "$derived_data" "$previous_sha" \
+    printf 'mode=%s\nswift_mode=%s\nderived_data=%s\nprevious_sha=%s\n' "$mode" "$swift_mode" "$derived_data" "$previous_sha" \
       > "$CMUX_NEXT_DEV_COMPILE_REPORT"; } || true
 fi
 echo "compile-dev-release: $mode build root${reason:+ ($reason)}: $build_root, DerivedData $derived_data"
+echo "compile-dev-release: $swift_why -> $swift_mode"
 # The per-landing harness (measure_next_build.py) reads this line for the commit gap.
 [[ ! "$previous_sha" =~ ^[0-9a-f]{40}$ ]] || echo "compilation cache source sha: $previous_sha"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  printf 'build_mode=%s\nbuild_root=%s\nderived_data=%s\n' "$mode" "$build_root" "$derived_data" >> "$GITHUB_OUTPUT" || true
+  printf 'build_mode=%s\nswift_mode=%s\nbuild_root=%s\nderived_data=%s\n' "$mode" "$swift_mode" "$build_root" "$derived_data" >> "$GITHUB_OUTPUT" || true
 fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  echo "DEV Release compile: $mode build root${reason:+ ($reason)}" >> "$GITHUB_STEP_SUMMARY" || true
+  echo "DEV Release compile: $mode build root${reason:+ ($reason)}, $swift_mode ($swift_why)" >> "$GITHUB_STEP_SUMMARY" || true
 fi
 
 if [[ "$mode" == host && -f "$here/dev_cas_seed.py" ]]; then

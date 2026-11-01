@@ -81,7 +81,19 @@ public struct SettingsSchemaExport {
             if spec.devOnly { entry["dev_only"] = true }
             return entry
         }
-        return ["default_category": SettingsPageLayout.defaultCategory, "categories": categories]
+        // The sidebar's titled runs of categories; the untitled lead run has a null title.
+        let sidebarSections: [[String: Any]] = SettingsPageLayout.sidebarSections.map { section in
+            [
+                "id": section.id,
+                "title": section.title.map { text($0.text, $0.key) as Any } ?? NSNull(),
+                "categories": section.categories.map(\.id),
+            ]
+        }
+        return [
+            "default_category": SettingsPageLayout.defaultCategory,
+            "categories": categories,
+            "sidebar_sections": sidebarSections,
+        ]
     }
 
     nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
@@ -102,6 +114,7 @@ public struct SettingsSchemaExport {
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
             "consumers": descriptor.consumers.sorted().map(\.rawValue),
             "page_hidden": descriptor.page != .shown,
+            "surfaces": descriptor.surfacePlan.exportObject,
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)

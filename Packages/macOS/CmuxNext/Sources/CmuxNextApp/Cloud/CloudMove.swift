@@ -138,7 +138,7 @@ struct CloudMove {
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
-        let machine = try await self.machine(invocation)
+        let machine = try await self.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
         // leaves Retry pinned to it, and the relaunched app finishes the move there.
@@ -233,8 +233,13 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
+        throw Self.failure(syncing: last, machine: machine, retry: retry)
+    }
+
+    /// A failed copy's failure: an outdated machine's Retry updates it first.
+    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
+        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -255,8 +260,8 @@ struct CloudMove {
         return (chats + tabs).lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
     }
 
-    /// The machine the chat moves to, connected.
-    private func machine(_ invocation: ActionInvocation) async throws -> CloudMachineSession {
+    /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`).
+    func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let machines = services.machines
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
@@ -267,7 +272,8 @@ struct CloudMove {
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
             return try await connected(live, invocation)
         }
-        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
+        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                                                             request: CloudChatPick.request(sizedFor: await pick()))
         return try await connected(created, invocation)
     }
 
@@ -276,8 +282,10 @@ struct CloudMove {
         guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let daemon = session.daemon

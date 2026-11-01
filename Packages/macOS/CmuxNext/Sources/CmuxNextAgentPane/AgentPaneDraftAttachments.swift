@@ -10,6 +10,8 @@ public import Foundation
 /// again (reopen, archive and restore, delete and restore, a relaunch or a crash) gets them back.
 /// The page writes its chat's chips once they settle (`chat.draftAttachments`) and reads them when
 /// the chat shows (`chat.draftAttachments.get`); sending or removing the last chip forgets them.
+/// A chat's chips are kept whatever their size: attachments take arbitrarily large files of any
+/// type (Leo 2026-10-26).
 @MainActor
 public final class AgentPaneDraftAttachments {
     public static let directoryName = "agent-draft-attachments"
@@ -18,8 +20,6 @@ public final class AgentPaneDraftAttachments {
     public static var shared: AgentPaneDraftAttachments?
     /// The most recently written chats are kept.
     nonisolated static let limit = 100
-    /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.
-    public var maximumBytes = 64 * 1024 * 1024
     let directory: URL?
     /// Each chat's last queued read or write: the next one waits for it, so they run in the order
     /// the page asked, a later small write never overtaking an earlier large one.
@@ -32,8 +32,7 @@ public final class AgentPaneDraftAttachments {
     /// The chips chat `sessionId` was left with, contents read back; empty when it holds none.
     public func attachments(for sessionId: String) async -> [AgentPaneWakeState.Attachment] {
         guard let folder = folder(for: sessionId) else { return [] }
-        let limit = maximumBytes
-        return await queued(sessionId) { Self.read(folder, limit: limit) }
+        return await queued(sessionId) { Self.read(folder) }
     }
 
     /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them. A
@@ -42,10 +41,9 @@ public final class AgentPaneDraftAttachments {
     /// not a list of chips. The list is decoded in the chat's queue, off the main actor.
     public func keep(_ list: JSONValue, for sessionId: String) async -> [String]? {
         guard let directory, let folder = folder(for: sessionId) else { return [] }
-        let limit = maximumBytes
         return await queued(sessionId) { () -> [String]? in
             guard let attachments = Self.decode(list) else { return nil }
-            return Self.write(attachments, to: folder, in: directory, limit: limit)
+            return Self.write(attachments, to: folder, in: directory)
         }
     }
 
@@ -85,10 +83,14 @@ public final class AgentPaneDraftAttachments {
         return directory?.appending(path: String(digest.prefix(32)), directoryHint: .isDirectory)
     }
 
-    /// One chat's kept list: the chips without their contents, and their files by attachment id.
+    /// One chat's kept list: the chips without their contents, and their files by attachment id. A
+    /// list an older build wrote has no `texts`: its chips' text is inline and comes back as it is.
     nonisolated struct Saved: Codable {
         var attachments: [AgentPaneWakeState.Attachment]
+        /// The file holding each chip's bytes (`data`), by attachment id.
         var files: [String: String]?
+        /// The file holding each chip's text (a pasted chip's, a text file's), by attachment id.
+        var texts: [String: String]?
     }
 
     private nonisolated static func saved(in folder: URL) -> Saved? {
@@ -97,36 +99,39 @@ public final class AgentPaneDraftAttachments {
         return try? JSONDecoder().decode(Saved.self, from: data)
     }
 
-    private nonisolated static func read(_ folder: URL, limit: Int) -> [AgentPaneWakeState.Attachment] {
+    private nonisolated static func read(_ folder: URL) -> [AgentPaneWakeState.Attachment] {
         guard let saved = saved(in: folder) else { return [] }
-        var budget = limit
-        return AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
+        let bytes = AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder)
+        return AgentPaneAttachmentFiles.readBack(bytes, .text, files: saved.texts ?? [:], in: folder)
     }
 
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL, limit: Int) -> [String] {
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) -> [String] {
         let manager = FileManager.default
-        let kept = saved(in: folder)?.files ?? [:]
-        // A chat past the limit keeps nothing rather than some of its chips.
-        guard !attachments.isEmpty, let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
-              !moved.attachments.isEmpty else {
+        let kept = saved(in: folder)
+        // A chat whose files can't be written keeps nothing rather than some of its chips. Bytes and
+        // text alike go to files of their own, so the list holds only the chips' names and kinds.
+        guard !attachments.isEmpty, let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:]),
+              let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:]),
+              !texts.attachments.isEmpty else {
             try? manager.removeItem(at: folder)
             return []
         }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-            let list = try JSONEncoder().encode(Saved(attachments: moved.attachments, files: moved.files.isEmpty ? nil : moved.files))
+            let list = try JSONEncoder().encode(Saved(attachments: texts.attachments, files: bytes.files.isEmpty ? nil : bytes.files,
+                                                      texts: texts.files.isEmpty ? nil : texts.files))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)
             return []
         }
         // Files no chip names any more (a chip taken out) go.
-        let named = Set(moved.files.values).union([listName])
+        let named = Set(bytes.files.values).union(texts.files.values).union([listName])
         for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !named.contains(name) {
             try? manager.removeItem(at: folder.appending(path: name))
         }
         prune(directory)
-        return moved.files.keys.sorted()
+        return Set(bytes.files.keys).union(texts.files.keys).sorted()
     }
 
     /// Only the ``limit`` most recently written chats stay.

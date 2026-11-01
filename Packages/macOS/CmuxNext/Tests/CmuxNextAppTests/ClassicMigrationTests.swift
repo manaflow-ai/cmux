@@ -17,7 +17,7 @@ import Testing
 /// run cut off midway, then Import Workspaces from Classic cmux. A later
 /// launch is the launch's own run again (`migrateClassic(.automatic)`) on the
 /// same daemon tree, which is what a relaunch restores.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicMigrationTests {
     private static let fixture = ClassicMigrationPlannerTests.fixture
 
@@ -96,6 +96,8 @@ struct ClassicMigrationTests {
         do {
             try await Self.awaitMigration(services)
             try await after(services)
+            // The run queues its sidebar placements; read the tree once they have landed.
+            await services.placementsSettled()
             result = .success(Self.read(services))
         } catch { result = .failure(error) }
         if let connection = services.daemon.connection {

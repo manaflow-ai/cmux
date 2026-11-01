@@ -13,14 +13,24 @@ type Props = {
   chat?: boolean;
   fast?: boolean;
   many?: boolean;
-  placement?: "left" | "top" | "compact";
+  placement?: "symbols" | "left" | "top" | "compact";
   stress?: boolean;
+  /** Opt in to the inline effort segments used by the focused layout fixture. */
+  inlineEffort?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
   routeLayout?: QuickMenu["routeLayout"];
 };
 
-const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
+const models = (family: string, names: string[]) =>
+  names.map((name) => ({
+    id: `${family}/${name}`,
+    name,
+    family,
+    // The inline-effort layout variant opts into these declared model choices; ordinary gallery
+    // variants leave inlineEffort false and retain their standalone Effort row.
+    efforts: ["low", "medium", "high"],
+  }));
 
 const families: QuickFamily[] = [
   {
@@ -79,7 +89,8 @@ export default componentEntry<Props>({
   height: 480,
   widths: { normal: 520 },
   covers: ["agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu"],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
+  // The pane's Tailwind too, as the app loads it (build-agent-pane-web.sh).
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./tailwind.css")]),
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
@@ -91,14 +102,16 @@ export default componentEntry<Props>({
           many,
           anchorTop,
           anchorMiddle,
-          placement = "left",
+          placement,
           stress,
+          inlineEffort = false,
           routeLayout,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
           const [selection, setSelection] = useState("");
+          const [stars, setStars] = useState<ReadonlySet<string>>(() => new Set(["claude/Opus 5.5"]));
           const available = many
             ? [
                 ...families,
@@ -135,7 +148,11 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
-                    harnessPlacement: placement,
+                    ...(extras.effort
+                      ? { effort: { ...extras.effort, onPick: (value: string) => setSelection(`effort:${value}`) } }
+                      : {}),
+                    inlineEffort,
+                    ...(placement ? { harnessPlacement: placement } : {}),
                     routeLayout,
                     search: {
                       find: (query) =>
@@ -166,9 +183,19 @@ export default componentEntry<Props>({
                     families: {
                       list,
                       current: tab ?? "claude",
-                      onPick: () => undefined,
+                      onPick: (model) =>
+                        setSelection(JSON.stringify({ family: model.family, model: model.id, effort: model.effort })),
                       onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
+                      stars: {
+                        has: (model) => stars.has(model.id),
+                        toggle: (model) =>
+                          setStars((current) => {
+                            const next = new Set(current);
+                            if (!next.delete(model.id)) next.add(model.id);
+                            return next;
+                          }),
+                      },
                     },
                   }}
                   onMore={() => undefined}
@@ -185,7 +212,7 @@ export default componentEntry<Props>({
       props: { chat: true, routeLayout: "submenu" },
       play: async (ctx) => {
         await open(ctx);
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
       },
     },
@@ -194,7 +221,7 @@ export default componentEntry<Props>({
       props: { chat: true, routeLayout: "grouped" },
       play: async (ctx) => {
         await open(ctx);
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
       },
     },
@@ -217,8 +244,13 @@ export default componentEntry<Props>({
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
+    "claude-many-harnesses-inline-effort": { props: { many: true, inlineEffort: true }, play: open },
+    // As a chat's composer opens it: each row's effort dropdown on (ModelPicker passes inlineEffort).
+    "in-chat": { props: { chat: true, inlineEffort: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
+    "harness-symbols": { props: { placement: "symbols" }, play: open },
+    "harness-symbols-many": { props: { placement: "symbols", many: true }, play: open },
     "harness-left": { props: { placement: "left" }, play: open },
     "harness-top": { props: { placement: "top" }, play: open },
     "harness-compact": { props: { placement: "compact" }, play: open },

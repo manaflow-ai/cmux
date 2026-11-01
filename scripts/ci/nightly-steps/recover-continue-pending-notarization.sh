@@ -32,6 +32,9 @@ while IFS=$'\t' read -r run_id artifact; do
     echo "::notice::run $run_id: build $BUILD is no longer above both feeds; skipping"
     echo "::endgroup::"; continue
   fi
+  # Visual coverage is advisory. Keep recovery gated by the signed/provenance
+  # manifest, lineage and feed checks above; a recorded visual failure never
+  # rejects an otherwise valid notarization continuation.
   mkdir -p "$dir/cmux-nightly-notarization-recovery-app"
   tar -C "$dir/cmux-nightly-notarization-recovery-app" -xzf "$dir/cmux-nightly-notarization-recovery-app.tar.gz"
   pending="$dir/github-output"

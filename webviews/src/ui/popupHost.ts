@@ -41,7 +41,10 @@ export type PopupKind = "menu" | "list" | "tooltip";
 /** What a menu opened from: an element or a virtual anchor. */
 export type AnchorBox = { getBoundingClientRect(): { left: number; top: number; right: number; bottom: number } };
 
-export type PopupEvent = { type: "pick"; id: string } | { type: "highlight"; id: string } | { type: "dismiss" };
+export type PopupEvent =
+  | { type: "pick"; id: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }
+  | { type: "highlight"; id: string }
+  | { type: "dismiss" };
 
 /**
  * One panel per page: the surface that showed it (`owner`) updates and hides it; another surface
@@ -145,6 +148,9 @@ export function popupItems(
     copy
       .querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"],[data-popup-skip]')
       .forEach((node) => node.remove());
+    // A row's muted description (`data-popup-detail`) follows its title after a dash: the host draws
+    // one line of text, and the two ran together ("PlanPlan reads and p…", Leo 2026-10-31).
+    copy.querySelectorAll("[data-popup-detail]").forEach((node) => node.prepend(" — "));
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
     return {
       id,
@@ -362,9 +368,17 @@ export function useEscapingPopup(
       stopListening = host.listen((event) => {
         if (event.type === "pick") {
           const target = row(event.id);
-          if (kind === "list" && pick === "mousedown")
-            target?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
-          else target?.click();
+          target?.dispatchEvent(
+            new MouseEvent(kind === "list" && pick === "mousedown" ? "mousedown" : "click", {
+              bubbles: true,
+              cancelable: true,
+              button: 0,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+            }),
+          );
         } else if (event.type === "highlight") {
           // A hover there moves the page's highlight, so Return picks the row under the pointer.
           const target = row(event.id);

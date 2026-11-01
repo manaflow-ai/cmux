@@ -5,6 +5,7 @@
 /// A local path a link points at: absolute (`/Users/…/README.md`), from home (`~/…`), a `file://`
 /// URL, or relative (`./notes.md`, `docs/a.md`), which the host resolves from the session's folder.
 export function linkPath(href: string): string | undefined {
+  if (isTemplatePath(safeDecode(href))) return undefined;
   if (/^file:\/\//i.test(href)) {
     try {
       const url = new URL(href);
@@ -104,7 +105,15 @@ function lineOf(value: string): number | undefined {
 const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
 
 export function isImagePath(path: string): boolean {
-  return IMAGE_FILE.test(path);
+  return IMAGE_FILE.test(path) && !isTemplatePath(path);
+}
+
+/// A path that is a template or placeholder, not a file: it holds `${`, `{{`, `<` or `>`, or a glob
+/// `*` (`/src/${variant}-320.png`, `{{name}}.md`, `<file>.png`, `out/*.png`), as code or a command
+/// line spells one. It stays plain text: no chip, no thumbnail, no Open (Leo, 2026-10-31: "THE OPEN
+/// BUTTON DOESN'T WORK" on `${variant}-320.png`).
+export function isTemplatePath(path: string): boolean {
+  return /\$\{|\{\{|[<>*]/.test(path);
 }
 
 /// An https address of a raster image (its path ends in an image extension), such as a PR's media

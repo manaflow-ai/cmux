@@ -9,14 +9,15 @@
 //! turns auto-memory and CLAUDE.md files off (its system prompt carries the
 //! instructions), and this directory's project settings turn hooks off, so
 //! the user's own ~/.claude/CLAUDE.md, hooks and project memory never reach
-//! a turn. What stays outside our control: Claude Code's own system prompt
+//! a turn, except the hooks and skills the user names in cmux.json
+//! (`chief.turnHooks`, `chief.turnSkills`: turn_user_extras.rs). What stays outside our control: Claude Code's own system prompt
 //! (with its date and environment lines), the user's other settings and
 //! any machine-wide managed settings.
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
-//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux
+//! and agent memory, `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -199,7 +200,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
         // project settings are the ones a turn is sure to read.
         "autoMemoryEnabled": false,
         "disableAllHooks": true,
-        "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays` here (PROJECT_SETTINGS_RETENTION_FREE):
+        // Claude Code's retention sweep reads the merged settings and walks
+        // every project of the store it runs on, and turns and subagents run
+        // on the user's own ~/.claude, so a short value here deleted the
+        // user's other chats' transcripts. The host's TurnRetention prunes
+        // exactly the Chief's own projects instead.
     })
 }
 
@@ -227,7 +233,7 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 25] = [
+pub const TURN_DENIED_TOOLS: [&str; 24] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -246,7 +252,6 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "ReportFindings",
     "ScheduleWakeup",
     "SendMessage",
-    "Skill",
     "TaskCreate",
     "TaskGet",
     "TaskList",
@@ -292,7 +297,11 @@ pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
 /// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
 /// use and secret servers' 43 tool names and instructions came after the
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
+/// The agent memory server (`cmux-agent-memory`, acpmux
+/// `MEMORY_SERVER_NAME`) stays too: acpmux adds it only when cmux.json sets
+/// `agents.memory.enabled`, and its three tools wait behind ToolSearch
+/// (measured 2026-10-31: 158 tokens).
+pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,cmux-agent-memory");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
@@ -520,9 +529,19 @@ fn pending_denials(dir: &Path) -> Option<Vec<String>> {
 /// calls spawn first (cx-7ssql: ToolSearch before spawn cost 2.5 s).
 pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "true")];
 
-/// Days Claude Code keeps a turn session's transcript in the isolated
-/// configuration (the memory is the record; these only help debugging).
+/// Days a turn session's transcript is kept (the memory is the record;
+/// these only help debugging): Claude Code's retention in the isolated
+/// configuration, and the host's own TurnRetention of the turn project in
+/// the user's Claude home.
 pub const TURN_TRANSCRIPT_DAYS: u64 = 2;
+
+/// Settings keys no Chief project settings file (turn, subagent, compactor
+/// slot) may carry: Claude Code applies them to the whole store the
+/// session runs on, which is the user's own Claude home, so they would
+/// reach every other project in it. `cleanupPeriodDays` in a Chief turn's
+/// project settings deleted the user's other chats' transcripts after 2
+/// days (cmux#27740's investigation, 110 of 213 acpmux Claude chats).
+pub const PROJECT_SETTINGS_STORE_WIDE_KEYS: [&str; 1] = ["cleanupPeriodDays"];
 
 /// `bin/chief`: runs this executable with the host's env baked in, because
 /// the harness runs tools in the acpmux daemon's environment, not the host's.
@@ -626,6 +645,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         settings["env"][key] = json!(value);
     }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
+    // The hooks and skills the user names in cmux.json, bundled skills off.
+    crate::turn_user_extras::apply(&mut settings, &paths.session);
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),

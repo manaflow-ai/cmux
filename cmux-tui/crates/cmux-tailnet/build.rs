@@ -9,6 +9,9 @@
 //!
 //! The pin is the only place the Tailscale version is chosen; bump it on
 //! purpose, never float it. `patches/*.patch` are applied in name order.
+//! Building from source needs Go: `go-version` beside this file names the
+//! version the pinned go.mod requires, and CI installs exactly that one.
+//! Bump it with the pin.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -121,7 +124,17 @@ fn build(source: &Path, out: &Path) -> PathBuf {
         .args(["build", "-trimpath", "-buildmode=c-archive", "-o"])
         .arg(&archive);
     configure_target(&mut go);
-    run(&mut go);
+    match go.status() {
+        Ok(status) => assert!(status.success(), "{go:?} failed: {status}"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => panic!(
+            "cmux-tailnet needs Go {} to build libtailscale, and `{}` was not found: \
+             install it (CI: actions/setup-go with crates/cmux-tailnet/go-version), \
+             set GO to its path, or set LIBTAILSCALE_A to a prebuilt archive",
+            include_str!("go-version").trim(),
+            go.get_program().to_string_lossy(),
+        ),
+        Err(error) => panic!("{go:?}: {error}"),
+    }
     archive
 }
 

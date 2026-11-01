@@ -9,6 +9,7 @@
 //! reply and exits when the Chief's turn ends. On a terminal it opens the
 //! chat (`tui`).
 
+mod acp;
 mod adapter;
 mod avatar;
 mod backend;
@@ -39,6 +40,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_conversation::agent_sender::AgentSender;
 use link::{Link, LinkError};
 use messages::messages;
 
@@ -79,6 +81,29 @@ pub(super) struct Args {
     pub no_wait_agents: bool,
     /// `--chat`, `--cloud` and the cloud lease flags (script.rs).
     pub target: script::TargetArgs,
+    /// `--from NAME`: the acpmux session that sends `-p` (default:
+    /// `ACPMUX_SESSION_NAME`, set in every acpmux agent's environment).
+    pub from: Option<String>,
+    /// `--class C`: what the sender asks (`acpmux send --class`).
+    pub class: Option<String>,
+    /// `--thread T`: the sender's thread.
+    pub thread: Option<String>,
+}
+
+impl Args {
+    /// Who sends the `-p` message: `--from`, else the acpmux session this
+    /// runs in; None for the person at a terminal.
+    pub(super) fn sender(&self, env_session: Option<&str>) -> Option<AgentSender> {
+        let name = self.from.as_deref().or(env_session.filter(|n| !n.trim().is_empty()))?;
+        AgentSender::new(name, self.class.as_deref(), self.thread.as_deref())
+    }
+}
+
+/// The acpmux session this CLI runs in (`ACPMUX_SESSION_NAME`, which acpmux
+/// sets for every agent it runs), so an agent's message to the Chief is read
+/// as that agent's even when it names no `--from`.
+pub(super) fn acpmux_session() -> Option<String> {
+    std::env::var("ACPMUX_SESSION_NAME").ok().filter(|name| !name.trim().is_empty())
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -142,6 +167,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "-h" | "--help" | "help" => parsed.help = true,
             "-p" | "--prompt" => parsed.prompt = Some(value()?),
+            "--from" => parsed.from = Some(value()?),
+            "--class" => parsed.class = Some(value()?),
+            "--thread" => parsed.thread = Some(value()?),
             "--timeout" => {
                 let text = value()?;
                 let secs: u64 =
@@ -190,6 +218,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);
+    }
+    if args.first().is_some_and(|word| word == "acp") {
+        return acp::run(&global, args.get(1..).unwrap_or_default());
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);
@@ -305,6 +336,9 @@ struct Session {
     rx: Receiver<Input>,
     /// Ends the current event stream when replaced or dropped.
     _events: Option<link::EventsHandle>,
+    /// The agent this CLI sends for (`--from`, the acpmux session it runs
+    /// in, or `chief acp`'s prompt sender); None: the person.
+    sender: Option<AgentSender>,
 }
 
 impl Session {
@@ -360,6 +394,7 @@ impl Session {
             tx,
             rx,
             _events: None,
+            sender: None,
         })
     }
 
@@ -426,10 +461,26 @@ impl Session {
         reply_to: Option<Value>,
         thread_root: Option<&str>,
     ) -> Result<(u64, String), LinkError> {
+        // Another agent's message carries its name, class and thread in its
+        // `client_msg_id` and shows as `[from NAME] text`, so the Chief reads
+        // it as that agent's words (no owner trust) and Home does not show it
+        // as the owner's (`cmux_conversation::agent_sender`).
+        let mut parts = parts;
+        if let Some(sender) = &self.sender {
+            let fields = parts.iter_mut().filter_map(Value::as_object_mut);
+            if let Some(text) = fields.into_iter().find_map(|part| part.get_mut("text"))
+                && let Some(words) = text.as_str()
+            {
+                *text = json!(sender.labelled(words));
+            }
+        }
         let message = match self.client.owner {
             // `conversation.send` takes no thread root: a thread reply is the op.
             backend::Owner::Local if thread_root.is_none() => {
-                let key = link::new_message_id();
+                let key = match &self.sender {
+                    Some(sender) => sender.client_msg_id(&link::new_message_id().replace('-', "")),
+                    None => link::new_message_id(),
+                };
                 let params = link::send_parts_params(&self.conversation, parts, reply_to);
                 let result = self.client.link.call("conversation.send", params, Some(&key))?;
                 result.pointer("/value/message").cloned().unwrap_or(Value::Null)

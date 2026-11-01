@@ -113,7 +113,7 @@ final class ComposeInlineAttachmentView: NSView {
         addSubview(icon)
         let name = NSTextField(labelWithString: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, bounds.width - 60))
         name.font = ComposeAttachmentStrip.nameFont
-        name.textColor = Fixture.incomingText
+        name.textColor = Fixture.composeText
         let kind = NSTextField(labelWithString: ComposeAttachmentStrip.fit(ComposeAttachmentStrip.kindText(a), ComposeAttachmentStrip.kindFont, bounds.width - 60))
         kind.font = ComposeAttachmentStrip.kindFont
         kind.textColor = Fixture.secondaryText

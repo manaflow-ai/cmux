@@ -880,7 +880,6 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `sidebar.sections.showHidden` | Show Hidden Sections |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.spaces.hide` | Hide Spaces |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.spaces.show` | Show Spaces |  | b. standard | its section, catalog order |
-| Sidebar | `sidebar.workspaceTabs.toggle` | Show Tabs Under Workspaces |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToDock` | Show Dock |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToFeed` | Show Feed in Right Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `switchRightSidebarToFiles` | Show Files |  | b. standard | its section, catalog order |
@@ -945,9 +944,9 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentPane.searchFiles` | Search Files… |  | b. standard | its section, catalog order |
 | Agents | `agentPane.switchModel` | Switch Model… | ⌃⌘M | b. standard | its section, catalog order |
 | Agents | `agentPane.toggleInspector` | Show ACP Inspector |  | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | ⌘= | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | ⌘- | b. standard | its section, catalog order |
-| Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | ⌘0 | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | — | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | — | b. standard | its section, catalog order |
+| Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | — | b. standard | its section, catalog order |
 | Agents | `chief.moveTo` | Move Chief To… |  | b. standard | its section, catalog order |
 | Agents | `chief.openMemoryInspector` | Chief: Open Memory Inspector |  | b. standard | its section, catalog order |
 | Agents | `chief.openUsage` | Chief Usage |  | b. standard | its section, catalog order |

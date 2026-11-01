@@ -267,6 +267,9 @@ final class ScrollPrefetcher {
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
         guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
+        PaletteScope.with(PaletteScope.palette(of: r)) { updateScoped(r) } // cmux: in its view's palette
+    }
+    private func updateScoped(_ r: RowRecycler) {
         let y = r.bounds.minY, t = r.clock()
         if t < r.pageJumpUntil {
             // A track-click page: the jump is no velocity, and the page code prepares its rows.

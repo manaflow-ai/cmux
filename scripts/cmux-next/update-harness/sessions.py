@@ -12,7 +12,7 @@ the same terminal and the same process kept counting through the swap. `Agent` s
 turn that waits on a FIFO (acpmux's own test agent), and checks after the relaunch that the same
 agent process was adopted and its turn completes once released.
 """
-import json, os, re, select, socket, stat, subprocess, threading, time
+import json, os, re, select, signal, socket, stat, subprocess, threading, time
 
 HEX = "0123456789abcdef"
 
@@ -75,6 +75,41 @@ def wait_path(path, predicate, timeout):
         os.close(fd)
 
 
+class Owned:
+    """The session processes this run started (agent harnesses and hosts, terminal counters), each by pid and identity
+    (start time and command, from `table`: TagTeardown._table). The cleanup ends exactly these, also when every daemon
+    that knew them has exited (a cancellation during the handoff), and never a reused pid."""
+
+    def __init__(self, table):
+        self.table = table
+        self.identities = {}
+
+    def add(self, pid):
+        row = self.table().get(pid) if pid else None
+        if row:
+            self.identities[pid] = row[1:]
+
+    def alive(self):
+        rows = self.table()
+        return sorted(pid for pid, identity in self.identities.items() if pid in rows and rows[pid][1:] == identity)
+
+    def end(self, log, grace=5):
+        """TERM, then KILL, each recorded process that still runs, by its exact pid. Returns the pids left."""
+        for signum in (signal.SIGTERM, signal.SIGKILL):
+            for pid in self.alive():
+                log("stopping session process", pid, signal.Signals(signum).name)
+                try:
+                    os.kill(pid, signum)  # an exact pid this run started, never a pattern
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + grace
+            while self.alive() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if not self.alive():
+                break
+        return self.alive()
+
+
 def alive(pid):
     try:
         os.kill(pid, 0)
@@ -89,7 +124,7 @@ class Terminal:
     """A counter in one terminal of the tag's cmux-tui session."""
 
     COUNTER = ("$|=1; use Time::HiRes qw(time); while (1) { open(my $f, '>>', $ARGV[0]) or die; "
-               "printf $f \"%.3f\\n\", time; close $f; select(undef, undef, undef, 0.1) }")
+               "printf $f \"%.3f %d\\n\", time, $$; close $f; select(undef, undef, undef, 0.1) }")
 
     def __init__(self, app, work, log, session):
         # The app's own session (`cmux-app-<tag slug>`); Chief sessions run beside it.
@@ -106,22 +141,32 @@ class Terminal:
 
     @staticmethod
     def daemons(root):
-        """(pid, command) of the tag's headless cmux-tui daemons."""
-        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        """(pid, command, start) of the tag's headless cmux-tui daemons; `start` (ps lstart) tells a reused pid apart."""
+        out = subprocess.run(["ps", "-axo", "pid=,lstart=,command="], capture_output=True, text=True).stdout
         found = []
         for line in out.splitlines():
-            pid, _, command = line.strip().partition(" ")
+            parts = line.strip().split(None, 6)
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            command = parts[6]
             if command.startswith(root) and "/cmux-tui " in command and "--headless" in command:
-                found.append((int(pid), command))
+                found.append((int(parts[0]), command, " ".join(parts[1:6])))
         return found
+
+    def session_daemon(self, root, exclude=()):
+        """((pid, start), socket) of the daemon that serves this session (`--socket <path>` on its command line), not
+        one whose (pid, start) is in `exclude`; or None. The socket path is the same for every daemon of the session,
+        so only the identity tells a replacement daemon from the original one."""
+        for pid, command, start in self.daemons(root):
+            words = command.split()
+            if (pid, start) not in exclude and "--socket" in words and self.session_name in words:
+                return (pid, start), words[words.index("--socket") + 1]
+        return None
 
     def daemon_socket(self, root, exclude=()):
         """The tag daemon's socket, from its command line (`--socket <path>`)."""
-        for pid, command in self.daemons(root):
-            words = command.split()
-            if pid not in exclude and "--socket" in words and self.session_name in words:
-                return words[words.index("--socket") + 1]
-        return None
+        found = self.session_daemon(root, exclude)
+        return found[1] if found else None
 
     def run(self, *args):
         done = subprocess.run([self.cli, "--socket", self.socket, "--json", *args], capture_output=True, text=True, timeout=30)
@@ -142,7 +187,9 @@ class Terminal:
         if not wait_path(self.file, lambda p: os.path.exists(p) and os.path.getsize(p) > 0, 30):
             raise SystemExit("the counter did not start")
         self.pid = self.process_pid()
-        self.daemon_pids = [pid for pid, _ in self.daemons(root)]
+        daemons = self.daemons(root)
+        self.daemon_pids = [pid for pid, _, _ in daemons]
+        self.daemon_ids = {(pid, start) for pid, _, start in daemons}
         self.log("terminal", self.term, "counter pid", self.pid, "daemons", self.daemon_pids)
 
     def list_quietly(self):
@@ -152,31 +199,40 @@ class Terminal:
             return str(error)
 
     def process_pid(self):
-        """The counter's pid: the terminal's foreground process."""
-        shown = json.loads(self.run("terminal", self.term, "process", "show"))
-        text = json.dumps(shown)
-        pids = [int(p) for p in re.findall(r'"(?:foreground_)?pid"\s*:\s*(\d+)', text)]
-        return pids[0] if pids else None
+        """The counter records its own PID; the terminal API may name only its shell."""
+        with open(self.file) as f:
+            rows = [line.split() for line in f if line.strip()]
+        return int(rows[-1][1]) if rows else None
 
     def samples(self):
         with open(self.file) as f:
-            return [float(line) for line in f if line.strip()]
+            return [float(line.split()[0]) for line in f if line.strip()]
 
-    def check(self, root, click_unix, relaunched_unix):
+    def check(self, root, click_unix, relaunched_unix, handoff=True):
         """After the relaunch: the same terminal, the same process, counting through the swap."""
-        # The handed-off daemon exits; the new one adopts the terminal hosts after it starts.
-        self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60) or self.socket
-        listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
+        # The handed-off daemon exits; the new one adopts the terminal hosts after it starts. A handoff passes only
+        # through a replacement daemon, told by its identity (pid and start time): it binds the same socket path, and
+        # a daemon that never handed off would still list the terminal there.
+        socket_before = self.socket
+        replacement = None
+        if handoff:
+            replacement = wait_path("/", lambda _: self.session_daemon(root, exclude=self.daemon_ids), 60)
+            self.socket = replacement[1] if replacement else None
+        listed = None
+        if self.socket:
+            listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
         same_terminal = listed is not None
-        listed = listed or self.list_quietly()
+        listed = listed or (self.list_quietly() if self.socket else "no replacement terminal daemon")
         pid_after = self.process_pid() if same_terminal else None
         values = self.samples()
         window = [v for v in values if click_unix - 1 <= v <= relaunched_unix + 1]
         gaps = [b - a for a, b in zip(window, window[1:])]
         return {
             "terminal": self.term, "same_terminal_listed": same_terminal,
-            "daemons_before": self.daemon_pids, "daemons_after": [pid for pid, _ in self.daemons(root)],
-            "socket_after": self.socket, "list_after": listed[:2000],
+            "daemons_before": self.daemon_pids, "daemons_after": [pid for pid, _, _ in self.daemons(root)],
+            "socket_before": socket_before, "socket_after": self.socket,
+            "replacement_daemon": bool(replacement), "replacement_daemon_pid": replacement[0][0] if replacement else None,
+            "list_after": listed[:2000],
             "pid_before": self.pid, "pid_after": pid_after, "pid_alive": bool(self.pid and alive(self.pid)),
             "samples_during_swap": len(window), "max_gap_s": round(max(gaps), 3) if gaps else None,
             "last_sample_after_relaunch": bool(values and values[-1] > relaunched_unix),
@@ -186,7 +242,7 @@ class Terminal:
 class Agent:
     """One agent turn on acpmux's test agent that waits on a FIFO across the update."""
 
-    def __init__(self, acp_home, fake_agent, work, log):
+    def __init__(self, acp_home, fake_agent, work, log, configure=True):
         self.home = acp_home
         self.socket = os.path.join(acp_home, "acpmux.sock")
         self.gate = os.path.join(work, "agent-gate")
@@ -195,6 +251,8 @@ class Agent:
         self.harness_pid = None
         self.conn = None
         os.makedirs(acp_home, exist_ok=True)
+        if not configure:
+            return
         config = os.path.join(acp_home, "config.json")
         if os.path.exists(config):
             raise SystemExit(f"{config} exists: use a fresh tag")
@@ -245,21 +303,39 @@ class Agent:
         self.conn = conn
         if not self.wait_event(lambda e: "before-gate" in json.dumps(e) and e.get("kind") != "prompt", 30):
             raise SystemExit("the agent turn did not start")
-        self.harness_pid = self.host_record().get("harness_pid")
+        self.host_before = self.identity()
+        self.events_before = self.events()
+        self.harness_pid = self.host_before.get("harness_pid")
+        with open(os.path.join(self.home, "daemon.pid")) as f:
+            self.daemon_pid = int(f.read().strip())
         self.log("agent session", self.session, "harness pid", self.harness_pid)
 
-    def check(self, timeout=90):
+    def identity(self):
+        # The host record also contains controller credentials: never publish those.
+        record = self.host_record()
+        return {key: record.get(key) for key in ("session_id", "incarnation", "start_nonce", "host_pid", "harness_pid")}
+
+    def check(self, timeout=90, handoff=True):
         """After the relaunch: the same agent was adopted; released, its turn completes once."""
         alive_after = bool(self.harness_pid and alive(self.harness_pid))
-        adopted = self.wait_event(lambda e: e.get("kind") == "host_adopted", timeout)
+        adopted = self.wait_event(lambda e: e.get("kind") == "host_adopted", timeout) if handoff else None
+        host_after = self.identity()
+        with open(os.path.join(self.home, "daemon.pid")) as f:
+            daemon_after = int(f.read().strip())
         # The FIFO open blocks until the agent reads it: write from a thread with a deadline.
         writer = threading.Thread(target=lambda: open(self.gate, "w").write("go"), daemon=True)
         writer.start()
         writer.join(timeout)
         result = self.wait_event(lambda e: e.get("kind") == "turn_result", timeout)
         events = self.events()
+        if self.conn:
+            self.conn.close()
         return {
             "session": self.session, "harness_pid": self.harness_pid, "harness_alive_after_swap": alive_after,
+            "host_before": self.host_before, "host_after": host_after, "same_host": self.host_before == host_after,
+            "daemon_before": self.daemon_pid, "daemon_after": daemon_after,
+            "transcript_prefix_preserved": events[:len(self.events_before)] == self.events_before,
+            "turn_results": sum(e.get("kind") == "turn_result" for e in events),
             "host_adopted": bool(adopted), "gate_released": not writer.is_alive(),
             "turn_status": (result or {}).get("msg", {}).get("status"),
             "before_gate_chunks": sum(1 for e in events if "before-gate" in json.dumps(e) and e.get("kind") != "prompt"),

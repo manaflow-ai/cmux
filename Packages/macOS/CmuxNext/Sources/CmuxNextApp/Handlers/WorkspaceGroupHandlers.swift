@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSidebar
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
@@ -62,7 +63,7 @@ enum WorkspaceGroupHandlers {
             // Every grouped row of the selection the right-clicked row belongs to.
             let grouped = try WindowMembershipHandlers.workspaces(invocation, context).compactMap(context.services.workspace(id:))
                 .filter { (try? WorkspaceVerbHandlers.group(of: $0, context)) != nil }
-            for workspace in grouped { context.ungroupPersonal(workspace) }
+            removeFromGroups(grouped, context)
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
         ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
@@ -72,8 +73,10 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.newSubgroup", run: { invocation in
             // A document group (a nested one too) may have no personal-store row: the target's id is enough.
             let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
-            let parent = try explicit.map { CmuxNextSidebar.GroupID($0.id) } ?? sidebarID(context.group(invocation), context)
-            try newSubgroup(in: parent, byUser: invocation.origin == .user, context)
+            // A personal group's id or exact name (`cmux workspace group create --parent Fleet`) names its document item.
+            let parent = try explicit.map { ref in (try? context.sidebar())?.model.groupID(personal: context.services.machines.local.store.personal.groups.first { $0.id.rawValue == ref.id || $0.name == ref.id }?.id.rawValue ?? ref.id) ?? CmuxNextSidebar.GroupID(ref.id) } ?? sidebarID(context.group(invocation), context)
+            let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            try newSubgroup(in: parent, name: name, byUser: invocation.origin == .user, context)
         })
         registry.bind("workspaceGroup.markRead", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in try acknowledge(invocation, context) })
         registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in try acknowledge(invocation, context) })
@@ -205,7 +208,7 @@ enum WorkspaceGroupHandlers {
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
         let slot = windows.controller(for: target).flatMap { controller in
-            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, window: target, context) }
         }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
@@ -230,18 +233,23 @@ enum WorkspaceGroupHandlers {
         }
     }
 
-    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
-    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
-    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
-    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+    /// Where New Workspace in Group puts the new workspace in group `shown`. cmux.json
+    /// `workspaceGroups` (by the group's anchor folder), when it names a placement: after its first
+    /// workspace (`top`, and `afterCurrent`, whose reference is the anchor for the header's + and the
+    /// CLI), else last. Else `workspaces.newPlacement`, as for every new workspace made in a group
+    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): the group's top under the default `top`.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, window: String?,
+                                  _ context: AppActionContext) -> WorkspaceSlot {
         let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
         let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
         let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
-        switch config.placement(for: anchor) {
-        case .top, .afterCurrent:
+        switch config.configuredPlacement(for: anchor) {
+        case .top?, .afterCurrent?:
             return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
-        case .end:
+        case .end?:
             return .endOfGroup(shown)
+        case nil:
+            return NewWorkspacePlacements.rule(for: window, in: context.services.windows).slot(inGroup: shown, members: members)
         }
     }
 
@@ -253,13 +261,13 @@ enum WorkspaceGroupHandlers {
 
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
     /// next palette color; a person's new subgroup opens its name editor, as New Group does.
-    private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, byUser: Bool, _ context: AppActionContext) throws {
+    private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, name: String, byUser: Bool, _ context: AppActionContext) throws {
         guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
         let used = Set(context.services.machines.local.store.personal.groups.compactMap(\.color))
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: "", color: GroupColor.automatic(used: used) ?? .grey,
+        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: GroupColor.automatic(used: used) ?? .grey,
                                           records: store.records)
         guard let ops = plan.ops else {
             throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
@@ -269,7 +277,8 @@ enum WorkspaceGroupHandlers {
         } catch {
             throw ActionFailure.invalidTarget(error.message)
         }
-        if byUser { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
+        // A person names it in the editor; a name given by the CLI or MCP is already set.
+        if byUser, name.isEmpty { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
     /// The id the active sidebar shows `group` under (its sidebar document item on sidebar-v2).
@@ -290,6 +299,37 @@ enum WorkspaceGroupHandlers {
 
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
         try context.sidebar().groupFlow.newGroup(of: members, name: name, byUser: byUser)
+    }
+
+    /// Takes `workspaces` out of their groups as one move of their rows per section (#26382): they leave in this turn,
+    /// the way a drag out of a group does, and the same path saves them (and brings them back, saying why, when the
+    /// save fails). They go, in tree order, after the loose rows when the sidebar lists those first (before its first
+    /// unpinned group), else just below the first one's group. A workspace no sidebar shows in a machine section's
+    /// group takes the personal write alone (a row in Pinned would be pinned by a move there).
+    private static func removeFromGroups(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
+        var moves: [(sidebar: SidebarBridge, section: Int, ids: [SidebarWorkspaceID])] = []
+        for workspace in workspaces {
+            let id = SidebarWorkspaceID(workspace.id)
+            guard let sidebar = try? WorkspaceVerbHandlers.sidebar(showing: workspace, context),
+                  let at = SidebarEdits.locate(id, in: sidebar.model.sections), at.child != nil,
+                  sidebar.model.sections.dropFirst(at.section).first?.id != .pinned else {
+                context.ungroupPersonal(workspace)
+                continue
+            }
+            if let index = moves.firstIndex(where: { $0.sidebar === sidebar && $0.section == at.section }) {
+                moves[index].ids.append(id)
+            } else {
+                moves.append((sidebar, at.section, [id]))
+            }
+        }
+        for (sidebar, s, ids) in moves {
+            let sections = sidebar.model.sections
+            guard let section = sections.dropFirst(s).first, let first = SidebarEdits.treeOrder(ids, in: sections).first,
+                  let at = SidebarEdits.locate(first, in: sections) else { continue }
+            let firstUnpinnedGroup = section.nodes.firstIndex { if case let .group(group) = $0 { !group.isPinned } else { false } }
+            let index = sidebar.model.ungroupedFirst ? firstUnpinnedGroup ?? section.nodes.count : at.node + 1
+            sidebar.handle(.reorder(ids, to: DropPosition(section: section.id, index: index)))
+        }
     }
 
     /// Sends a sidebar intent for the targeted group.
