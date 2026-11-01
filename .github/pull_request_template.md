@@ -47,6 +47,29 @@ The pr-capture-check job fails a native UI change without the required evidence 
 | sidebar open p50 | 182 ms | 113 ms | -38% | https://github.com/manaflow-ai/cmux/actions/runs/... |
 -->
 
+## UI review
+
+<!-- Required for changes under webviews/ or CmuxNext UI paths. The advisory check only warns when this section or its verdict is missing; it never blocks a PR. Run the ui-review skill and paste its verdict and ranked findings here. Remove this section when the PR does not change UI. -->
+
+Verdict: blocked | approve with changes | ship it
+
+### Findings
+
+<!-- Use file:line and Before | After | Why. Rank blockers, should-fix items and nits. Write `None` when a category is clean. -->
+
+Blockers
+- None
+
+Should fix
+- None
+
+Nits
+- None
+
+### Needs a human / needs a device
+
+- None
+
 ## Checklist
 
 - [ ] Behavior changes have added or updated tests, or Testing says why not

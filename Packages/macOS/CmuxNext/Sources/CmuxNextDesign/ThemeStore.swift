@@ -99,8 +99,11 @@ public final class ThemeStore {
         configInput = input
         let changed = applyChrome(firstConfig: firstConfig)
         // Under an app theme the chrome holds still, yet readers of the config's own colors
-        // (Settings' "Use Ghostty Config" swatch) watch `generation`.
-        if !changed, appInput != nil, configInput != previousConfig { generation += 1 }
+        // (Settings' "Use Ghostty Config" swatch) watch `generation`, and the terminals draw them.
+        if !changed, appInput != nil, configInput != previousConfig {
+            generation += 1
+            root?.configDidChange()
+        }
         return changed
     }
 
@@ -118,12 +121,14 @@ public final class ThemeStore {
             // the store's observers (Settings' Ghostty preview); nothing repaints.
             if input != previous {
                 generation += 1
-                if publishesGlobally { root?.storeDidChange() }
+                root?.storeDidChange()
             }
             return false
         }
         tokens = derived
         generation += 1
+        // Only the app's store repaints every window; a test's tree (``ThemeScope/init(root:)``) recomputes.
+        if !publishesGlobally { root?.storeDidChange() }
         if publishesGlobally {
             ThemeSnapshot.store(derived)
             // Room, workspace and terminal scopes inherit from the app scope.
@@ -202,6 +207,8 @@ public final class ThemeStore {
         guard follows != accentFollowsArt else { return false }
         accentFollowsArt = follows
         generation += 1
+        // A test's tree (``ThemeScope/init(root:)``) recomputes, as for a theme change (`applyChrome`).
+        if !publishesGlobally { root?.accentSourceDidChange() }
         if publishesGlobally {
             ThemeRepaint.batch {
                 root?.accentSourceDidChange()

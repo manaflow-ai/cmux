@@ -1,5 +1,15 @@
 import AppKit
 
+/// What VoiceOver reaches on a group's header, for the one row a group draws as (`SidebarLayout+SoleMember`): the
+/// header's expanded state and its editor, menu, New Workspace and fold actions, beside the workspace's own.
+struct StandingGroupAccess {
+    var expanded: Bool
+    var toggle: () -> Void
+    var edit: () -> Void
+    var menu: () -> Void
+    var add: (() -> Void)?
+}
+
 extension WorkspaceRowView {
     /// Routes AXPress through the sidebar's shared workspace selection action.
     override func accessibilityPerformPress() -> Bool {
@@ -8,25 +18,14 @@ extension WorkspaceRowView {
         return true
     }
 
-    /// Show Tabs or Hide Tabs on every row with tabs: the chevron shows only
-    /// on hover or selection (cx-fo2t), and a hidden button leaves the
-    /// accessibility tree.
-    /// The row's menu as well: the more button shows only on hover (Lawrence 2026-10-11).
+    /// The session tree's fold and the row's menu: the more button shows only on hover
+    /// (Lawrence 2026-10-11), and a hidden button leaves the accessibility tree.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         var actions = super.accessibilityCustomActions() ?? []
         guard !isShowingPlaceholder else { return actions.isEmpty ? nil : actions }
         // VoiceOver may retain an action after the list recycles this view for another workspace.
         // Resolve the current callback only while this row still represents the action's workspace.
         let actionKey = key
-        if let disclosure, disclosure != .empty, onToggleTabs != nil {
-            let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
-            actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
-                guard let self, self.canPerformAccessibilityAction(for: actionKey), self.disclosure == disclosure,
-                      let onToggleTabs = self.onToggleTabs else { return false }
-                onToggleTabs()
-                return true
-            })
-        }
         if let treeFold, onToggleTree != nil {
             let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
             actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
@@ -42,6 +41,30 @@ extension WorkspaceRowView {
                 onMore()
                 return true
             })
+        }
+        if let group = standingGroup {
+            func groupAction(_ name: String, _ perform: @escaping (StandingGroupAccess) -> Bool) {
+                actions.append(NSAccessibilityCustomAction(name: name) { [weak self] in
+                    guard let self, self.canPerformAccessibilityAction(for: actionKey),
+                          let current = self.standingGroup else { return false }
+                    return perform(current)
+                })
+            }
+            groupAction(GroupEditorStrings.editor) { $0.edit(); return true }
+            groupAction(GroupEditorStrings.moreActions) { $0.menu(); return true }
+            if group.add != nil {
+                groupAction(GroupEditorStrings.newWorkspace) { current in
+                    guard let add = current.add else { return false }
+                    add()
+                    return true
+                }
+            }
+            let fold = group.expanded ? GroupEditorStrings.collapse : GroupEditorStrings.expand
+            groupAction(fold) { current in
+                guard current.expanded == group.expanded else { return false }
+                current.toggle()
+                return true
+            }
         }
         return actions.isEmpty ? nil : actions
     }
