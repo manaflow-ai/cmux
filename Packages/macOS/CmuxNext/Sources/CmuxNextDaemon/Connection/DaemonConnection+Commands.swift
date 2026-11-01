@@ -67,9 +67,23 @@ extension DaemonConnection {
     @discardableResult
     public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false,
                                reason: CloseReason? = nil, ifEmpty: Bool = false) async throws -> WorkspaceMutationResult {
-        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals,
-                                                reason: endTerminals ? reason : nil,
-                                                ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation()))
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty))
+    }
+
+    /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, or the
+    /// connection's end (``LineTransport`` fails every pending request on close), never the 2 s client deadline. A busy
+    /// daemon still commits a close it answers late (a batch of 50 under load took 11.7 s), so a close that gave up on
+    /// the client clock called a closed workspace refused: its row came back, "The workspace could not be closed."
+    /// showed, and Undo missed it. Sent once: a close waiting on a slow daemon adds no re-sends to its load.
+    @discardableResult
+    public func closeWorkspaceAwaitingReply(_ key: WorkspaceKey, endTerminals: Bool = false,
+                                            reason: CloseReason? = nil, ifEmpty: Bool = false) async throws -> WorkspaceMutationResult {
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty), timeout: nil)
+    }
+
+    private func closeWorkspaceRequest(_ key: WorkspaceKey, endTerminals: Bool, reason: CloseReason?, ifEmpty: Bool) -> CloseWorkspaceRequest {
+        CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals, reason: endTerminals ? reason : nil,
+                              ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation())
     }
 
     /// Whether this daemon takes `if_empty` on `close-workspace`.

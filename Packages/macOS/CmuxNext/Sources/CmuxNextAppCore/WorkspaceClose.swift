@@ -35,15 +35,28 @@ public struct WorkspaceClose {
     /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not start, kept out of Recently
     /// Closed (`close-reason-v1`). `ifEmpty`: only while it has no tab (`close-workspace-if-empty-v1`; else `workspace_not_empty`).
     /// A workspace the daemon no longer has counts as closed (`isAlreadyClosed`).
+    ///
+    /// The close ends when the daemon answers it (its reply or refusal) or the connection ends, never on the 2 s client
+    /// deadline (`DaemonConnection.closeWorkspaceAwaitingReply`): a busy daemon commits a close it answers late, and a
+    /// close that gave up first listed the row again as refused and left it out of Undo. `waitsForReply` false keeps the
+    /// control deadline for a caller that must end on time and ignores the outcome (quit's incognito closes).
     public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
-                      reason: CloseReason? = nil, ifEmpty: Bool = false) async throws {
+                      reason: CloseReason? = nil, ifEmpty: Bool = false, waitsForReply: Bool = true) async throws {
         do {
             if await connection.supportsBatchClose {
-                _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+                if waitsForReply {
+                    _ = try await connection.closeWorkspaceAwaitingReply(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+                } else {
+                    _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+                }
                 return
             }
             for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }
-            _ = try await connection.closeWorkspace(key, ifEmpty: ifEmpty)
+            if waitsForReply {
+                _ = try await connection.closeWorkspaceAwaitingReply(key, ifEmpty: ifEmpty)
+            } else {
+                _ = try await connection.closeWorkspace(key, ifEmpty: ifEmpty)
+            }
         } catch where isAlreadyClosed(error) {
             return
         }
