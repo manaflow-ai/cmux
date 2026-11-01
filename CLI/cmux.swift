@@ -4979,11 +4979,6 @@ struct CMUXCLI {
     /// override, so the CLI and the socket package cannot drift apart.
     private static let restoreSocketStartupTimeoutSeconds: TimeInterval =
         SocketClient.appStartupWaitTimeoutSeconds
-    // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
-    // both the backend create idempotency key and the local daemon slot so every open,
-    // reconnect, session restore, and mobile attach targets the same provider VM once
-    // creation succeeds. Do not rotate it without a migration.
-    private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
     // Machines are requested by kind (`desktop` / `base`, VMMachineKind); the
     // backend maps the kind to whichever image its deployment supports. The CLI
@@ -5022,7 +5017,6 @@ struct CMUXCLI {
         }
         return VMMachineKind.defaultKind
     }
-    private static let cloudVMDesktopPort = 6901
     /// Opens the machine shell through cmux-tui, honoring explicit background attachment.
     func openVMWorkspaceShell(
         vmId: String,
@@ -5391,12 +5385,6 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "freestyle" else {
-            throw CLIError(message: String(
-                localized: "cli.vm.unsupportedProviderOverride",
-                defaultValue: "vm: unsupported Cloud VM service override. Omit --provider and retry the same command."
-            ))
-        }
         return normalized
     }
     private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
@@ -14260,7 +14248,7 @@ struct CMUXCLI {
             sshOptions.skipDaemonBootstrap &&
             sshOptions.pinWorkspaceToTop &&
             vmIDForSplitAttach != nil
-        let persistentDaemonSlot = usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil
+        let persistentDaemonSlot = usesPersistentFreestyleCloud ? ManagedCloudVMConstants.persistentDaemonSlot : nil
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -15616,7 +15604,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.open",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? ManagedCloudVMConstants.legacyProviderID,
             startedAt: vmCreateStartedAt
         )
 
@@ -15626,7 +15614,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? ManagedCloudVMConstants.legacyProviderID
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
@@ -15708,7 +15696,7 @@ struct CMUXCLI {
         logVMTiming(
             "base.reset",
             vmID: (response["id"] as? String) ?? "?",
-            provider: (response["provider"] as? String) ?? "freestyle",
+            provider: (response["provider"] as? String) ?? ManagedCloudVMConstants.legacyProviderID,
             startedAt: vmCreateStartedAt
         )
 
@@ -15718,7 +15706,7 @@ struct CMUXCLI {
         }
 
         let id = (response["id"] as? String) ?? "?"
-        let provider = (response["provider"] as? String) ?? "freestyle"
+        let provider = (response["provider"] as? String) ?? ManagedCloudVMConstants.legacyProviderID
         let image = (response["image"] as? String) ?? "?"
         let base = response["base"] as? [String: Any]
         let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue

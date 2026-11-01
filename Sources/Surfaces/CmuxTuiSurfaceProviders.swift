@@ -258,6 +258,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
         let previousPrivateAddress = info.privateAddress
+        let previousDesktopPort = self.summary.desktopPort
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
         if self.summary.id != summary.id || self.summary.provider != summary.provider
@@ -266,6 +267,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
+        if previousDesktopPort != summary.runtime?.desktopPort {
+            portsCache = nil
+            portDiscovery.invalidate()
+        }
         if summary.status == "running", notificationSync == nil {
             installNotificationSync()
         }
@@ -277,6 +282,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !supportsPortPreviews {
             portsCache = nil
         }
+        let desktopPortChanged = previousDesktopPort != summary.runtime?.desktopPort
         let shouldMarkStale = summary.status != "running" && cloudState != nil
         let linkState: SurfaceLinkState = shouldMarkStale ? .asleep : info.linkState
         let linkError: String? = shouldMarkStale ? nil : info.linkError
@@ -293,7 +299,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else {
             catalog.updateMachine(info, from: self)
         }
-        if previousPrivateAddress != info.privateAddress {
+        if desktopPortChanged, summary.resolvedKind.hasDesktop {
+            // The accepted VM summary owns the desktop listener identity. Rebuild
+            // display rows first so active browser panes can validate and adopt
+            // the new port through the catalog's current resource.
+            publishDisplays()
+        }
+        if desktopPortChanged || previousPrivateAddress != info.privateAddress {
             refreshCloudBrowserRoutes()
         }
     }
@@ -388,11 +400,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 let parsed = CmuxTuiSnapshotParser.mergingDisplays(
                     pool: hasDesktop ? displayResources : [],
                     parsed: CmuxTuiSnapshotParser.resources(from: cloudState)
-                ) + Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop)
+                ) + Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop, desktopPort: summary.desktopPort)
                 resources = resourcesWithPendingCreations(parsed, state: cloudState)
             } else {
                 var fallback = hasDesktop ? displayResources : []
-                fallback.append(contentsOf: Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop))
+                fallback.append(contentsOf: Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop, desktopPort: summary.desktopPort))
                 appendMissingResources(preservedNonPortResources, to: &fallback)
                 resources = resourcesWithPendingCreations(fallback, state: nil)
             }
@@ -444,8 +456,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // scan runs a guest command and took most of a second on a machine
             // that had just resumed, which held New Machine's first terminal
             // back for nothing (it only feeds port-preview rows).
+            let desktopPort = summary.desktopPort
             portScan = Task { [weak self] in
-                await self?.ports(link: link, socketPath: connected.socketPath, force: force, lifecycle: lifecycle, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
+                await self?.ports(link: link, socketPath: connected.socketPath, force: force, lifecycle: lifecycle, privateAddress: privateAddress, displayPortsOwned: hasDesktop, desktopPort: desktopPort)
             }
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             watchChanges(link: link, generation: lifecycle)
@@ -985,7 +998,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the Freestyle attach path. Keeping this derivation in one place avoids
     /// losing the route when a cached or unavailable snapshot is published.
     private func portResources(_ ports: [Int]) -> [SurfaceResource] {
-        Self.portResources(machine: machine, scannedPorts: ports, previousResources: catalog.authoritativeSnapshot.resources(on: machine), privateAddress: summary.preferredPrivateAddress, displayPortsOwned: summary.resolvedKind.hasDesktop)
+        Self.portResources(machine: machine, scannedPorts: ports, previousResources: catalog.authoritativeSnapshot.resources(on: machine), privateAddress: summary.preferredPrivateAddress, displayPortsOwned: summary.resolvedKind.hasDesktop, desktopPort: summary.desktopPort)
     }
 
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
@@ -1561,7 +1574,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             || catalog.projections.contains { $0.resource.machine == machine && $0.resource.isForwardedPort }
     }
 
-    private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
+    private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool, desktopPort: Int?) async -> [Int]? {
 #if DEBUG
         cmuxDebugLog("cloud.portScan.begin machine=\(machineID) requested=\(portDiscovery.wasRequested) force=\(force)")
 #endif
@@ -1572,7 +1585,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             if portDiscovery.state != previousState { publishPortDiscovery() }
             return cached.ports.filter {
                 !CmuxTuiSnapshotParser.internalPorts.contains($0)
-                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts(forDesktopPort: desktopPort ?? CmuxTuiSnapshotParser.desktopPort).contains($0))
             }
         }
         // The request id, not the refresh generation, fences this scan: routine
@@ -1596,7 +1609,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentLifecycleGeneration(lifecycle) else { return nil }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)
+        let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned, desktopPort: desktopPort)
 #if DEBUG
         cmuxDebugLog("cloud.portScan.result machine=\(machineID) ports=\(scan?.ports.map(String.init).joined(separator: ",") ?? "nil") bytes=\(stdout.utf8.count)")
 #endif

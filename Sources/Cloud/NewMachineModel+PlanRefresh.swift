@@ -9,6 +9,8 @@ extension NewMachineModel {
             || memoryUpgradePlanId != updated.memoryUpgradePlanId
             || memoryUpgradePlansByMb != updated.memoryUpgradePlansByMb
             || vcpusByMemoryMb != updated.vcpusByMemoryMb
+            || diskByMemoryMb != updated.diskByMemoryMb
+            || maxDiskMb != updated.maxDiskMb
             || hasNoAllowedMemoryOptions != updated.hasNoAllowedMemoryOptions
             || planIsLoading
             || planLoadError != nil
