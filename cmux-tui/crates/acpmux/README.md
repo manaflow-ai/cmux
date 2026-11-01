@@ -237,7 +237,7 @@ Five everyday commands, three groups for the rest:
 | `daemon shutdown [--end-agents]` (also `daemon stop`) | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux status`) still work but are hidden from
-help, as do the old names for machines: `acpmux host …` (and `hosts`, `peer`), `host place`
+help, as do the old names for machines: `acpmux host` (and `hosts`, `peer`), `host place`
 (now `machine pick`), `host vm-host` (now `machine dedicated`) and the `--host` flag (now
 `--machine`).
 

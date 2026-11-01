@@ -242,7 +242,7 @@ acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=
 acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
-- **Old spellings.** `acpmux host …` (and `hosts`, `peer`), `host place`, `host vm-host` and
+- **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a
   machine fails. Don't guess from a timeout. It names the next command for a machine it cannot reach
