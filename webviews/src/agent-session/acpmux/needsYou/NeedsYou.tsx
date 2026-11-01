@@ -10,37 +10,24 @@ import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
 import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { HeaderIcon } from "../header/HeaderIcon";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
+import { askText, needsYouModeCapabilities, sideQuestionPrompt, type NeedsYouActions, type NeedsYouMode } from "./ask";
 import "./needsYou.css";
 
-/// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
-/// also writes `off` while the App Store's Needs You item is not installed
-/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
-export type NeedsYouMode = "pinned" | "compact" | "off";
-
-export function needsYouMode(
-  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
-): NeedsYouMode {
-  const value = root?.dataset.needsYou;
-  return value === "off" || value === "compact" ? value : "pinned";
-}
-
-export type NeedsYouActions = {
-  /// Sends a one-click answer; rejects when acpmux refused it.
-  answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the chat the ask is in, at the ask.
-  goTo(item: NeedsYouItem): void;
-  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
-  /// question seeded with the ask; rejects when it could not.
-  ask(item: NeedsYouItem, question: string): Promise<unknown>;
-};
+export {
+  askText,
+  needsYouMode,
+  needsYouModeCapabilities,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+  type NeedsYouMode,
+} from "./ask";
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
   approval: "needsYou.kind.approval",
@@ -242,7 +229,7 @@ function NeedsYouRow({
       onRefused();
     });
   };
-  const compact = mode === "compact";
+  const capabilities = needsYouModeCapabilities(mode);
   const age = shortAge(item.at, now, t);
   return (
     <li ref={row} className="acpmux-needs-you-item" data-kind={item.kind} data-focused={focused ? "" : undefined}>
@@ -256,7 +243,7 @@ function NeedsYouRow({
         <span className="acpmux-needs-you-end">
           {age && <span className="acpmux-needs-you-age">{age}</span>}
           <span className="acpmux-needs-you-tools">
-            {!compact && (
+            {capabilities.askAbout && (
               <button
                 type="button"
                 className="acpmux-needs-you-ask-about"
@@ -281,12 +268,12 @@ function NeedsYouRow({
         </span>
       </div>
       <p className="acpmux-needs-you-ask">{askText(item, t)}</p>
-      {!compact && item.detail && (
+      {capabilities.detail && item.detail && (
         <p className="acpmux-needs-you-detail" data-code={item.command ? "" : undefined}>
           {item.detail}
         </p>
       )}
-      {!compact && item.answers.length > 0 && (
+      {capabilities.answers && item.answers.length > 0 && (
         <div className="acpmux-needs-you-actions">
           {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
           <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
@@ -309,7 +296,9 @@ function NeedsYouRow({
         </div>
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
-      {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
+      {asking && capabilities.askAbout && (
+        <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />
+      )}
     </li>
   );
 }
@@ -381,28 +370,4 @@ function Avatar({ item }: { item: NeedsYouItem }) {
       <AgentMark agent={item.who.harness} size={14} reserve />
     </span>
   );
-}
-
-/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
-/// else for an answer).
-export function askText(item: NeedsYouItem, t: Translate): string {
-  if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
-}
-
-/// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
-/// side session answers about this ask from the chat's conversation without the chat re-reading.
-export function sideQuestionPrompt(item: NeedsYouItem, question: string): string {
-  // l10n-allow: a prompt to the agent, never shown to the person
-  const lines = [
-    "I am about to answer an open ask from this chat and want to understand it first.",
-    `The ask (${item.kind}): ${item.ask || "waiting for my answer"}`,
-    ...(item.detail ? [`Details: ${item.detail}`] : []),
-    ...(item.question?.items[0]?.options.length
-      ? [`Choices: ${item.question.items[0].options.map((option) => option.label).join(" / ")}`]
-      : []),
-    `My question: ${question}`,
-    "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
-  ];
-  return lines.join("\n");
 }

@@ -7,7 +7,8 @@
 import { useEffect, useRef } from "react";
 import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
-import type { HeaderPullRequest } from "./headerState";
+import type { PullRequestOps } from "./pullRequestOps";
+export { readyToMerge } from "./pullRequestOps";
 
 export type Merging =
   | { step: "idle" | "confirm" | "merging" | "merged" | "queued" }
@@ -15,29 +16,9 @@ export type Merging =
 /// What the App's merge answered: merged, or taken into a merge queue.
 export type MergeResult = { queued: boolean };
 
-/// Whether the page offers Merge for `pullRequest`.
-export function readyToMerge(pullRequest: HeaderPullRequest) {
-  return (
-    pullRequest.state === "open" &&
-    pullRequest.mergeable === "mergeable" &&
-    pullRequest.review !== "changes_requested" &&
-    pullRequest.review !== "review_required" &&
-    (pullRequest.checks.state === "passing" || pullRequest.checks.state === "none")
-  );
-}
-
-export function PullRequestMerge({
-  pullRequest,
-  merging,
-  setMerging,
-  merge,
-}: {
-  pullRequest: HeaderPullRequest;
-  merging: Merging;
-  setMerging: (merging: Merging) => void;
-  merge: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
-}) {
+export function PullRequestMerge({ ops }: { ops: PullRequestOps }) {
   const t = useT();
+  const { merging, start, confirm, cancel, question, messages } = ops;
   const box = useRef<HTMLDivElement>(null);
   // The control the reader pressed is replaced; the next one takes focus, when focus was here.
   useEffect(() => {
@@ -45,62 +26,42 @@ export function PullRequestMerge({
     if (!box.current || (active && active !== document.body && !box.current.contains(active))) return;
     box.current.querySelector<HTMLElement>("[data-focus-next]")?.focus();
   }, [merging.step]);
-  // A merge under way or done stays in view, though the pull request is no longer ready.
-  if (merging.step === "idle" && !readyToMerge(pullRequest)) return null;
-  const run = () => {
-    setMerging({ step: "merging" });
-    merge({ number: pullRequest.number, url: pullRequest.url }).then(
-      (result) => setMerging({ step: result.queued ? "queued" : "merged" }),
-      (error: unknown) =>
-        setMerging({
-          step: "failed",
-          message: error instanceof Error && error.message ? error.message : t("header.prMergeFailed"),
-        }),
-    );
-  };
+  if (!start && !confirm && !messages.length) return null;
   return (
     <div ref={box} className="acpmux-pr-merge" data-step={merging.step}>
       {merging.step === "merged" || merging.step === "queued" ? (
         // A status region: it says the result, and focus stays with the popover.
-        <output>{t(merging.step === "merged" ? "header.prMerged" : "header.prMergeQueued")}</output>
+        <output>{messages[0]}</output>
       ) : merging.step === "confirm" || merging.step === "merging" ? (
         <>
-          <span className="acpmux-pr-merge-question">
-            {t("header.prMergeQuestion", { number: pullRequest.number })}
-          </span>
+          <span className="acpmux-pr-merge-question">{question}</span>
           <div className="acpmux-pr-merge-buttons">
             <button
               type="button"
               className="acpmux-pr-merge-cancel"
               data-focus-next=""
               aria-disabled={merging.step === "merging" ? true : undefined}
-              onClick={() => merging.step === "confirm" && setMerging({ step: "idle" })}
+              onClick={cancel?.run}
             >
-              {t("header.prMergeCancel")}
+              {cancel?.label}
             </button>
             <button
               type="button"
               className="acpmux-pr-merge-confirm"
               aria-disabled={merging.step === "merging" ? true : undefined}
-              onClick={() => merging.step === "confirm" && run()}
+              onClick={confirm?.run}
             >
-              <StableLabel
-                label={merging.step === "merging" ? t("header.prMerging") : t("header.prMergeConfirm")}
-                alternatives={[t("header.prMergeConfirm"), t("header.prMerging")]}
-              />
+              {confirm && (
+                <StableLabel label={confirm.label} alternatives={[t("header.prMergeConfirm"), t("header.prMerging")]} />
+              )}
             </button>
           </div>
         </>
       ) : (
         <>
           {merging.step === "failed" && <output role="alert">{merging.message}</output>}
-          <button
-            type="button"
-            className="acpmux-pr-merge-start"
-            data-focus-next=""
-            onClick={() => setMerging({ step: "confirm" })}
-          >
-            {t("header.prMerge")}
+          <button type="button" className="acpmux-pr-merge-start" data-focus-next="" onClick={start?.run}>
+            {start?.label}
           </button>
         </>
       )}
