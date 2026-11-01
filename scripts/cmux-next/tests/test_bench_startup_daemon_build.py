@@ -82,10 +82,118 @@ class Hosts(unittest.TestCase):
         self.assertEqual(v["verdict"], "not_run")
         self.assertIn("terminal-host", v["reasons"][0])
 
+    def test_an_older_host_of_the_build_still_counts(self):
+        # Restart adopts hosts and warm keeps the prime's: hosts are judged by binary only (review of #29878).
+        old_host = self.host(self.new)
+        old_host["started_wall"] = 10.0
+        self.assertEqual(bench_startup.daemon_verdict(self.app, [self.owner(), old_host], 1000.0)["verdict"], "run")
+
+    def test_a_host_command_is_recognized(self):
+        self.assertTrue(bench_startup.is_host_command("cmux-tui __terminal-host --owner a:b@1"))
+        self.assertTrue(bench_startup.is_host_command("cmux-holder --socket /tmp/x.sock"))
+        self.assertTrue(bench_startup.is_host_command("/x/acpmux __agent-host --id 1"))
+        self.assertFalse(bench_startup.is_host_command("/x/cmux-tui --headless --session s"))
+
     def test_an_agent_host_outside_the_bundle_is_not_run(self):
         agent = {"name": "agent-host", "pid": 3, "build_id": None, "started_wall": 1000.6,
                  "exe": "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux"}
         self.assertEqual(bench_startup.daemon_verdict(self.app, [self.owner(), agent], 1000.0)["verdict"], "not_run")
+
+
+class FloorOrder(unittest.TestCase):
+    """Review of #29878, finding 1: the warm and restart floor must be taken before the run starts any daemon (reset,
+    seed, stop, prime), so the daemon these modes keep on purpose is not called left over."""
+
+    def test_the_floor_is_taken_before_the_prime_launch(self):
+        events = []
+        bench_startup.STEP_STARTED_WALL.clear()
+
+        class Prime:
+            def __init__(self, *a, **k):
+                events.append(("prime", time.time()))
+
+            def wait_for(self, *a, **k):
+                return True
+
+            def quit(self):
+                pass
+
+        class Stop(Exception):
+            pass
+
+        def measured(*a, **k):
+            raise Stop()  # the measured launch: the order up to here is what is tested
+
+        launches = iter([Prime, measured])
+        patches = {"app_pids": lambda tag: [], "tag_pids": lambda tag: [], "stop": lambda pids, timeout=10: None,
+                   "tag_daemon_pids": lambda tag: [], "other_copy_apps": lambda tag: [],
+                   "Launch": lambda *a, **k: next(launches)(*a, **k)}
+        saved = {k: getattr(bench_startup, k, None) for k in patches}
+        try:
+            for k, v in patches.items():
+                setattr(bench_startup, k, v)
+            with self.assertRaises(Stop):
+                bench_startup.one_run("floortest", "warm", 5, None)
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    setattr(bench_startup, k, v)
+        floor = bench_startup.STEP_STARTED_WALL.get("floortest")
+        self.assertIsNotNone(floor, "no floor taken")
+        self.assertLessEqual(floor, events[0][1], "the floor was taken after the prime launch started its daemon")
+
+
+class NotRunIsNeverCounted(unittest.TestCase):
+    """Review finding 2: a not-run round is never a pass or a fail: it stays out of the table, budgets, orders and A/B."""
+
+    def runs(self):
+        good = {"first_terminal_frame": 700.0, "daemons": {"verdict": "run"}}
+        stale = {"first_terminal_frame": 99999.0, "daemons": {"verdict": "not_run", "reasons": ["old daemon"]}}
+        return {"t": {"cold": [good, stale]}}
+
+    def test_budgets_ignore_a_not_run_round(self):
+        results = self.runs()
+        counted = {t: {m: [r for r in rs if bench_startup.counts(r)] for m, rs in ms.items()} for t, ms in results.items()}
+        self.assertEqual(bench_startup.check_budgets(counted, ["first_terminal_frame=1000"]), [])
+
+    def test_bench_ab_takes_no_sample_from_a_not_run_round(self):
+        spec2 = importlib.util.spec_from_file_location(
+            "bench_ab", os.path.join(HERE, "..", "..", "measure", "bench-ab", "bench_ab.py"))
+        bench_ab = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(bench_ab)
+        out = bench_ab.samples_launch(self.runs())
+        self.assertEqual(out["cold"]["first_terminal_frame"], [700.0])
+        self.assertEqual(out["cold"]["not_run"], [1.0])
+
+
+class Helpers(unittest.TestCase):
+    def test_etime_has_no_time_zone(self):
+        self.assertEqual(bench_startup.wall_from_etime("01:02", 1000.0), 1000.0 - 62)
+        self.assertEqual(bench_startup.wall_from_etime("1-02:03:04", 100000.0), 100000.0 - (86400 + 7384))
+        self.assertIsNone(bench_startup.wall_from_etime("garbage", 1.0))
+
+    def test_a_reported_build_that_differs_is_not_run(self):
+        app = APP
+        d = daemon("cmux-tui", app, 1000.5)
+        d["build_id"] = "old-build"
+        v = bench_startup.daemon_verdict(app, [d], 1000.0, {"cmux-tui": "new-build"})
+        self.assertEqual(v["verdict"], "not_run")
+        self.assertIn("reports build old-build", " ".join(v["reasons"]))
+
+    def test_the_exec_path_is_not_argv0(self):
+        # Hosts set argv[0] to "cmux-tui" and holders to "cmux-holder" (host_exe.rs, holder_runtime/service.rs); the
+        # verdict needs the real exec path. On this host, our own process's exec path is the python binary.
+        exe = bench_startup.process_exe(os.getpid())
+        if sys.platform == "darwin":
+            self.assertEqual(os.path.realpath(exe), os.path.realpath(sys.executable))
+        src = open(spec.origin).read()
+        body = src[src.index("def process_exe("):src.index("def process_exe(") + 900]
+        self.assertNotIn('"comm="', body)
+
+    def test_pgrep_is_this_users_only(self):
+        src = open(spec.origin).read()
+        body = src[src.index("def pgrep("):src.index("def pgrep(") + 500]
+        self.assertIn('"-U"', body)
 
 
 class StopEveryCopy(unittest.TestCase):
@@ -121,6 +229,28 @@ class StopEveryCopy(unittest.TestCase):
         # stop() itself waits with kqueue (macOS only); the selection is what decides whether a stale daemon survives.
         select_pids = getattr(bench_startup, "tag_daemon_pids", None) or bench_startup.tag_pids
         self.assertIn(old.pid, select_pids(self.tag), "an earlier copy's daemon of this tag is not stopped")
+
+    def test_a_longer_tag_is_never_selected(self):
+        longer = os.path.join(self.root, "job-d", f"DerivedData/cmux-{self.tag}-spring/Build/Products/Release",
+                              f"cmux DEV {self.tag}-spring.app", "Contents/Resources/bin")
+        os.makedirs(longer)
+        shutil.copy(shutil.which("sleep"), os.path.join(longer, "cmux-tui"))
+        p = subprocess.Popen([os.path.join(longer, "cmux-tui"), "30"])
+        self.procs.append(p)
+        time.sleep(0.3)
+        select_pids = getattr(bench_startup, "tag_daemon_pids", None) or bench_startup.tag_pids
+        self.assertNotIn(p.pid, select_pids(self.tag))
+
+    def test_another_copys_app_is_never_selected_but_reported(self):
+        macos = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(self.bins["job-a"]))), "MacOS")
+        os.makedirs(macos)
+        app_bin = os.path.join(macos, f"cmux DEV {self.tag}")
+        shutil.copy(shutil.which("sleep"), app_bin)
+        p = subprocess.Popen([app_bin, "30"])
+        self.procs.append(p)
+        time.sleep(0.3)
+        self.assertNotIn(p.pid, bench_startup.tag_daemon_pids(self.tag))
+        self.assertIn(p.pid, bench_startup.other_copy_apps(self.tag))
 
     def test_another_tag_is_never_selected(self):
         other = os.path.join(self.root, "job-c", "DerivedData/cmux-othertag/Build/Products/Release",
