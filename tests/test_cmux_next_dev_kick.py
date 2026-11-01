@@ -29,6 +29,12 @@ check('gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref 
 check(text.count("gh workflow run") == 1 and "cmux-next.yml" not in text.replace("cmux-next-dev-", ""),
       "the kick starts no DEV build itself")
 
+check("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||" in text and
+      "|| vars.LINUX_RUNNER ||" not in text and
+      "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404'" in text and
+      "'ubuntu-24.04'" in text,
+      "DEV kick honors a non-Blacksmith LINUX_RUNNER, else the 2-vCPU Blacksmith size (4 while overflow is saved)")
+
 if failures:
     print("FAIL: cmux NEXT DEV kick\n  " + "\n  ".join(failures))
     sys.exit(1)

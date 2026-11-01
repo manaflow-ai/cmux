@@ -1,4 +1,5 @@
-//! `cmux cloud client-session create|exec --target machine:VM_ID`: a Freestyle
+//! `cmux machine access new|exec --target machine:VM_ID` (old spelling:
+//! `cmux cloud client-session create|exec`): a Freestyle
 //! client session (freestyle.sh/docs/vms/client-sessions) on one of your own
 //! Cloud machines.
 //!
@@ -24,7 +25,7 @@ use serde_json::{Value, json};
 
 use super::{OutputMode, UsageError};
 
-const USAGE: &str = "usage: cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux cloud client-session exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
+const USAGE: &str = "usage: cmux machine access new --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux machine access exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const IDENTITY_HEADER: &str = "x-freestyle-identity-access-token";
@@ -50,31 +51,39 @@ pub(super) struct Command {
     pub team: Option<String>,
 }
 
-/// `Some(exit code)` when `args` is `cloud client-session …`.
+/// `Some(exit code)` when `args` is `cloud client-session …`, the old
+/// spelling of `machine access new|exec --target …` (vm.rs routes that here
+/// through [`run_words`]).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let [cloud, noun, rest @ ..] = command_args.as_slice() else { return None };
     if cloud != "cloud" || noun != "client-session" {
         return None;
     }
+    Some(run_words(&global, rest))
+}
+
+/// Runs `create …` or `exec …` (the words after `client-session`, or after
+/// `machine access` with `new` as `create`) and answers the exit code.
+pub(super) fn run_words(global: &super::GlobalArgs, rest: &[String]) -> i32 {
     let fail = |code: &str, message: &str, exit: i32| {
         super::app::failure(code, &format!("cmux: {message}"), global.output, exit)
     };
     let command = match parse(rest) {
         Ok(command) => command,
-        Err(error) => return Some(fail("usage.invalid", &error.0, 2)),
+        Err(error) => return fail("usage.invalid", &error.0, 2),
     };
     let resolved = resolve(&command, |key| std::env::var(key).ok());
     let (api, credential) = match resolved {
         Ok(pair) => pair,
-        Err(message) => return Some(fail("usage.invalid", &message, 2)),
+        Err(message) => return fail("usage.invalid", &message, 2),
     };
     let stdout = &mut std::io::stdout();
     let stderr = &mut std::io::stderr();
-    Some(match run(&command, &api, &credential, global.output, stdout, stderr) {
+    match run(&command, &api, &credential, global.output, stdout, stderr) {
         Ok(code) => code,
         Err(message) => fail("cloud_client_session.failed", &message, 1),
-    })
+    }
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
