@@ -205,14 +205,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
-    // Every write under the home checks it is still this folder (`config::refuse_lost_home`).
+    // Record the held home before any startup write, and start its watcher immediately. The
+    // watcher marks a replacement before the later startup and shutdown paths can write there.
     crate::config::hold_home();
+    let startup_home_gone =
+        tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
+    let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
     // Gone already (removed between taking the lock and here): stop before the startup makes
     // anything there. A relative home is never watched (it reads as missing from the home cwd),
     // and there is no watch off Unix (`Owned::now` is always `None` there).
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
+    // Deterministic startup replacement seam for the daemon lifecycle test. The held-home
+    // identity fence rejects writes even before the asynchronous watcher receives its event.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_HOLD_AFTER_LOCK").is_some() {
+        println!("acpmux-test-lock-held");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    crate::config::refuse_lost_home(&home())?;
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -600,6 +612,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
+            // An agent the previous daemon left, started from a profile changed since, restarts
+            // on the new one between turns (`hub/profile_respawn.rs`).
+            hub.spawn_profile_respawns();
             // After the login env import: it names harness homes.
             let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
             if let Some(sources) = sources
@@ -662,6 +677,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A home loss must request forced agent cleanup before the shutdown fence refuses changes
+    // to the plan. A restart handoff keeps durable provider retries for the next daemon.
+    recheck_home();
+    let home_lost = crate::config::home_lost();
+    if home_lost {
+        let _ = hub.end_agents_at_shutdown(Default::default());
+    }
+    // Fence automatic continuations before any transport or metadata drain can yield to them.
+    hub.begin_shutdown();
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
@@ -670,11 +694,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
-    recheck_home();
-    let home_lost = crate::config::home_lost();
-    if home_lost {
-        let _ = hub.end_agents_at_shutdown(Default::default());
-    }
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
@@ -683,7 +702,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
-    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
+    if restarting {
         ws_shutdown.restart();
     } else {
         ws_shutdown.normal_shutdown();
@@ -734,7 +754,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // A signal can arrive while metadata loads. Snapshot every stored session before
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
-        hub.shutdown_all().await
+        if restarting {
+            hub.shutdown_all_with_auto_resume(true).await
+        } else {
+            hub.shutdown_all().await
+        }
     })
     .await
     {
@@ -742,6 +766,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
             hub.flush();
+            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
+            hub.seal();
             usize::MAX
         }
     };

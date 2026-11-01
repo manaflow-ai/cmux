@@ -1,0 +1,87 @@
+name: cmux-next chromium staleness
+
+# Warns (an annotation and one issue, never a red check) when the Chromium that cmux-next ships
+# (scripts/cmux-next/cef-manifest.json "chromium", the CEF fork manaflow-ai/cef) is more than one
+# Chrome stable release behind (scripts/cmux-next/chromium_staleness.py). Most Chromium security
+# fixes ship only on the newest stable major, so a pin two majors back misses them (the 154 pin
+# missed Chrome 155's CVE-2026-106378 fix and every 155/156 fix). No secrets, no builds.
+#
+# On feat-cmux-next it keeps ONE open issue with the label chromium-stale up to date (the body is
+# replaced) and closes it on the first run that finds the pin current again. The fix is a fork
+# rebase on the newest CEF branch and a new pin (plans/cmux-next/browser.md "Chromium security
+# updates"), never a change here.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/chromium_staleness.py
+      - .github/workflows/cmux-next-chromium-staleness.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-chromium-staleness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staleness:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Compare the pinned Chromium with Chrome stable
+        id: staleness
+        run: |
+          set -o pipefail
+          set +e
+          python3 -I scripts/cmux-next/chromium_staleness.py | tee "$RUNNER_TEMP/chromium-staleness.txt"
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0) ;;
+            1) echo "::warning title=Chromium is stale::$(cat "$RUNNER_TEMP/chromium-staleness.txt")" ;;
+            *) echo "::notice title=Chromium staleness: no verdict::$(cat "$RUNNER_TEMP/chromium-staleness.txt")" ;;
+          esac
+      - name: Open, update, or close the chromium-stale issue
+        if: github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && steps.staleness.outputs.code != '3'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CODE: ${{ steps.staleness.outputs.code }}
+          HEAD_SHA: ${{ github.sha }}
+          REPORT: ${{ runner.temp }}/chromium-staleness.txt
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'chromium-stale';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync(process.env.REPORT) ? fs.readFileSync(process.env.REPORT, 'utf8').trim() : '(no report)';
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (process.env.CODE === '0') {
+              if (open.data.length > 0) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `The pinned Chromium is current again at ${process.env.HEAD_SHA} (${runUrl}): ${report}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `${report}\n\nSeen at ${process.env.HEAD_SHA} (${runUrl}).\n\nFix: merge the newest upstream CEF branch (chromiumembedded/cef) into the fork (manaflow-ai/cef), build arm64 and x86_64 on the fleet (\`cmux-ci build cef --release-version\`), publish the release and R2 objects, and pin it in scripts/cmux-next/cef-manifest.json with the license and credits pages (plans/cmux-next/browser.md "Chromium security updates"). This issue is updated in place and closes itself on the first run that finds the pin current.`;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'cmux-next ships a Chromium more than one stable release behind Chrome' });
+            }
+            if (open.data.length > 0) await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+            else await github.rest.issues.create({ owner, repo, title: 'cmux-next Chromium is more than one stable release behind Chrome', labels: [label], body });

@@ -24,6 +24,8 @@ import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import { EnvironmentSection } from "../inspector/EnvironmentSection";
+import type { ComponentProps } from "react";
 import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -33,9 +35,10 @@ const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
-/// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
-/// with the subagents' live counts. The summary is read from the transcript only while the card is
-/// open, so a live turn pays nothing for it otherwise.
+/// uses a popover that dismisses on outside click or Escape. The popover starts with Environment,
+/// with live counts in Subagents and no title row; folded, its header line keeps those counts.
+/// The summary is read from the transcript only while the card is open, so a live turn pays
+/// nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
@@ -45,6 +48,7 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
+  environment,
   rows,
   cwd,
   onOpenOutput,
@@ -62,8 +66,10 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenInspector,
 }: {
   card: SummaryCardControl;
+  environment?: ComponentProps<typeof EnvironmentSection>;
   rows: readonly AcpmuxRow[];
   /// The chat's project folder; Outputs excludes files outside it.
   cwd?: string;
@@ -105,6 +111,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens a complete Session Info section beside the chat.
+  onOpenInspector?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -210,6 +218,8 @@ export function SummaryCard({
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
   const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
+  // SummaryBody draws its own Subagents fallback only when the list above is not on screen.
+  const subagentList = hasSubagents || (!card.column && counts.length > 0);
   return (
     <>
       <aside
@@ -278,16 +288,17 @@ export function SummaryCard({
           ) : (
             <button
               type="button"
-              className="acpmux-summary-card__fold"
+              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
               aria-expanded={!card.collapsed}
+              aria-label={foldLabel}
               onClick={() => card.fold(!card.collapsed)}
             >
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-              <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-              {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
             </button>
           )}
-          {!tab && card.column && counts.length > 0 && (
+          {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
+              carries them, is gone). */}
+          {!tab && (card.column || card.collapsed) && counts.length > 0 && (
             <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
           )}
           {!card.column && (
@@ -308,48 +319,66 @@ export function SummaryCard({
         </div>
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            {!card.column && (
+              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+                {environment && <EnvironmentSection {...environment} />}
+              </section>
+            )}
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
-        {summary && !onSubagents && (
+        {open && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            {!card.column && (
+              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+                {environment && <EnvironmentSection {...environment} />}
+              </section>
+            )}
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
-            {hasSubagents && (
+            {subagentList && (
               <SubagentStatusList
                 agents={agents}
+                counts={!card.column ? counts.join(" · ") : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
+                // The popover has no title row, so this title is its one way into the tab too.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onOpenInPane={onOpenInspector ? () => onOpenInspector("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
-                stack={agents.length === 0 ? summary.subagents : undefined}
+                stack={agents.length === 0 ? summary?.subagents : undefined}
               />
             )}
-            <SummaryBody
-              summary={summary}
-              galleryCount={galleryCount}
-              onOpenGallery={() => {
-                galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-                setGallery(true);
-              }}
-              changes={changes}
-              onOpenChanges={onOpenChanges}
-              subagents={hasSubagents ? <></> : undefined}
-              onOpenOutput={onOpenOutput}
-              onAttach={onAttach}
-              tools={tools}
-              commands={commands}
-              onStopCommand={background?.onStop}
-              workflow={workflow}
-              workflowActions={workflowActions}
-              workflows={workflows}
-              workflowActionsFor={workflowActionsFor}
-              workflowCapacity={workflowCapacity}
-            />
+            {summary && (
+              <SummaryBody
+                summary={summary}
+                galleryCount={galleryCount}
+                onOpenGallery={() => {
+                  galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                  setGallery(true);
+                }}
+                changes={changes}
+                onOpenChanges={onOpenChanges}
+                subagents={subagentList ? <></> : undefined}
+                onOpenOutput={onOpenOutput}
+                onAttach={onAttach}
+                tools={tools}
+                commands={commands}
+                onStopCommand={background?.onStop}
+                onOpenTasksInPane={onOpenInspector ? () => onOpenInspector("tasks") : undefined}
+                workflow={workflow}
+                workflowActions={workflowActions}
+                workflows={workflows}
+                workflowActionsFor={workflowActionsFor}
+                workflowCapacity={workflowCapacity}
+              />
+            )}
           </div>
         )}
       </aside>

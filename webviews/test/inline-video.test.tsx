@@ -1,6 +1,6 @@
 // Videos in agent replies (Leo 2026-10-21: "id like to be able to watch .mp4s direclty in cmux next
 // somehow"): which sources are video and how each opens in a tab, and the thumbnail a video draws
-// before it plays (poster frame, play button, length, the pointing hand), then click-to-play.
+// before it plays (poster frame, play button, length, the arrow), then click-to-play.
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act } from "react";
@@ -472,15 +472,15 @@ describe("the inline player", () => {
     expect(container.querySelector("button.cv-media__poster")?.closest("[data-path]")).not.toBeNull();
   });
 
-  test("every control a click lands on shows the pointing hand", () => {
+  test("every control a click lands on shows the arrow", () => {
     const css = readFileSync(new URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
     const rule = (selector: string) => {
       const start = css.indexOf(`\n${selector} {`);
       expect(start).toBeGreaterThan(-1);
       return css.slice(start, css.indexOf("}", start));
     };
-    expect(rule(".cv-media__poster")).toContain("cursor: pointer;");
-    expect(rule(".cv-media__action")).toContain("cursor: pointer;");
-    expect(css).toMatch(/\.cv-media__frame\.is-playing video,[^{]*\{\s*cursor: pointer;/);
+    expect(rule(".cv-media__poster")).toContain("cursor: default;");
+    expect(rule(".cv-media__action")).toContain("cursor: default;");
+    expect(css).toMatch(/\.cv-media__frame\.is-playing video,[^{]*\{\s*cursor: default;/);
   });
 });

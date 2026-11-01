@@ -18,12 +18,15 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
     public var infoFeedURL: String?
     /// Whether `SUPublicEDKey` holds a real key.
     public var hasPublicKey: Bool
+    /// The source commit this bundle was built from (`CMUXCommit`), when stamped by CI.
+    public var sourceCommit: String?
 
     public init(bundleIdentifier: String?, shortVersion: String, build: String, minimumSystemVersion: SystemVersion?,
-                infoFeedURL: String?, hasPublicKey: Bool) {
+                infoFeedURL: String?, hasPublicKey: Bool, sourceCommit: String? = nil) {
         self.bundleIdentifier = bundleIdentifier
         self.shortVersion = shortVersion
         self.build = build
+        self.sourceCommit = Self.normalizedCommit(sourceCommit)
         self.minimumSystemVersion = minimumSystemVersion
         self.infoFeedURL = infoFeedURL
         self.hasPublicKey = hasPublicKey
@@ -38,8 +41,16 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
             minimumSystemVersion: (info["LSMinimumSystemVersion"] as? String).flatMap(SystemVersion.init),
             infoFeedURL: info["SUFeedURL"] as? String,
             // An unsubstituted `$(SPARKLE_PUBLIC_KEY)` is not a key.
-            hasPublicKey: !key.isEmpty && !key.hasPrefix("$(")
+            hasPublicKey: !key.isEmpty && !key.hasPrefix("$("),
+            sourceCommit: Self.normalizedCommit(info["CMUXCommit"] as? String)
         )
+    }
+
+    static func normalizedCommit(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let commit = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard (7...40).contains(commit.count), commit.allSatisfy(\.isHexDigit) else { return nil }
+        return commit
     }
 
     /// The running app.
@@ -64,7 +75,8 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         if UpdateTrack.isDevelopmentBundle(bundleIdentifier), !isTipBuild { return .development }
         switch UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel {
         case .stable: return .stable
-        case .nightly, .nightlyNext: return .nightly
+        case .nightly: return .nightly
+        case .nightlyNext: return .nightlyNext
         case .rc: return .rc
         }
     }
@@ -75,6 +87,25 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         UpdateFeedResolver(hostArchitecture: architecture).resolve(infoFeedURL: infoFeedURL)
     }
 
+    /// The other cmux NEXT feed. DEV (`tip`) and NIGHTLY (`next`) share the
+    /// signing key, but publish independently so each app normally reads only
+    /// its own feed. Cross-channel checks opt into this counterpart explicitly.
+    public func counterpartFeed(architecture: UpdateHostArchitecture = .current) -> String? {
+        let current = feed(architecture: architecture)
+        guard current.channel == .nightlyNext, let url = URL(string: current.url) else { return nil }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let path = components?.path ?? ""
+        guard path.contains("/nightly-next/next/") || path.contains("/nightly-next/tip/") else { return nil }
+        if path.contains("/nightly-next/next/") {
+            components?.host = "files.cmux.com"
+            components?.path = path.replacingOccurrences(of: "/nightly-next/next/", with: "/nightly-next/tip/")
+        } else {
+            components?.host = "files-next.cmux.com"
+            components?.path = path.replacingOccurrences(of: "/nightly-next/tip/", with: "/nightly-next/next/")
+        }
+        return components?.url?.absoluteString
+    }
+
     /// Why Sparkle must not run, or nil when it may.
     public func sparkleDisabledReason(managedPolicyDisablesUpdates: Bool) -> UpdateDisabledReason? {
         if track == .development { return .developmentBuild }
@@ -83,8 +114,11 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         return nil
     }
 
-    /// The other release app this one can switch to (stable <-> NIGHTLY);
-    /// nil for DEV, staging and RC builds.
+    /// The other release app this one can switch to (stable <-> NIGHTLY), by bundle id;
+    /// nil for DEV, staging and RC builds. cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`)
+    /// and the tip app have none; the legacy NEXT build signed as cmux NIGHTLY
+    /// (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable counterpart
+    /// (`UpdateTrackMatrixTests` pins each).
     public var channelSwitchTarget: AppChannelSwitchTarget? {
         AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
     }

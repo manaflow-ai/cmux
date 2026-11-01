@@ -19,6 +19,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -78,6 +79,8 @@ type Line = {
   agent?: Subagent;
   name: string;
   detail?: string;
+  /// The kind of agent it is, for the hover card.
+  kind?: string;
   progress?: string;
   status: SubagentStatus;
   state: string;
@@ -177,8 +180,11 @@ export function SubagentsSection({
       identity: agent.id,
       agent,
       name: agent.name,
-      progress: subagentProgress(t, language, agent).join(" · "),
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
+      // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
+      // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
+      detail: live(status) ? agent.action : undefined,
+      kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
       state: subagentStateText(t, agent, waiting),
       working: Boolean(retrying(agent)),
@@ -248,6 +254,7 @@ export function SubagentsSection({
               {[
                 item.state,
                 item.time,
+                item.kind,
                 item.progress,
                 item.status === "running" || item.status === "waiting" ? item.detail : undefined,
               ]

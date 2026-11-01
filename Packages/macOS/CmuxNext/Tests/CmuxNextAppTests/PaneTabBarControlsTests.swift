@@ -6,6 +6,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import QuartzCore
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
 /// keeps only "⋮", whose menu holds the creation rows.
 /// Leo's "+ (v)" adds a separate pane-type chooser beside the pane's + without changing that plain-plus action.
-@MainActor @Suite(.serialized) struct PaneTabBarControlsTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
@@ -55,7 +56,7 @@ import Testing
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.syncFromModel()
         let chooser = try #require(strip.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
             .first { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" }, "pane types have their own visible chevron")
@@ -109,7 +110,7 @@ import Testing
         strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 40)
         let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
         let plus = try #require(strip.newTabButton.layer)
         let chooser = try #require(strip.newTabMenuButton.layer)
@@ -183,7 +184,10 @@ import Testing
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         let menu = NSMenu()
@@ -261,15 +265,18 @@ import Testing
     /// right-click menu still opens the chooser.
     @Test func theSidebarChevronHidesBeforeItReachesTheLeadingReserve() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "a roomy sidebar shows the chevron")
         let leftmost = { ([sidebar.newButton, sidebar.newWorkspaceOptionsButton, sidebar.priorityButton] as [NSView])
             .filter { !$0.isHidden }.map(\.frame.minX).min() ?? .infinity }
         let roomy = leftmost()
-        // Room for exactly what sat beside the + before the chevron existed, and not one point more.
-        sidebar.titlebarLeadingReserve = roomy + Metrics.space1 + SidebarStyle.toolbarButtonSize
+        // One point less room than the + and its chevron segment need together.
+        sidebar.titlebarLeadingReserve = roomy + 1
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "the chevron gives way on a narrow sidebar")
         #expect(leftmost() >= sidebar.titlebarLeadingReserve, "no titlebar control enters the reserve")

@@ -59,11 +59,33 @@ import Testing
         #expect(Set(MachineKind.allCases.map(\.icon)).count == MachineKind.allCases.count)
     }
 
+    /// A paused Cloud machine is not connecting (cloud dogfood: three paused machines spun forever): its
+    /// row writes "Paused" with no spinner even while its daemon retries the link. A resume keeps a
+    /// spinner, read as "Resuming…"; a failed or deleted machine reads its state; a connected link wins.
+    @Test func aCloudMachinesServerStateReplacesTheConnectingSpinner() {
+        func row(_ state: MachineServerState?, connected: Bool = false, connecting: Bool = true) -> MachineSectionRow {
+            MachineSectionRow(id: "c", name: "c", isConnected: connected, isLocal: false, kind: .cloud, isConnecting: connecting,
+                              serverState: state)
+        }
+        let paused = row(.paused)
+        #expect(!paused.isConnecting && paused.stateText == AddMachineStrings.paused)
+        let resuming = row(.resuming, connecting: false)
+        #expect(resuming.isConnecting && resuming.stateText == AddMachineStrings.resuming)
+        #expect(!row(.failed).isConnecting && row(.failed).stateText == AddMachineStrings.failed)
+        #expect(!row(.deleted).isConnecting && row(.deleted).stateText == AddMachineStrings.deleted)
+        let connected = row(.paused, connected: true)
+        #expect(connected.serverState == nil && !connected.isConnecting && connected.stateText == AddMachineStrings.connected)
+        // A running machine follows its link.
+        #expect(row(nil).isConnecting && row(nil).stateText == AddMachineStrings.connecting)
+        #expect(Set(MachineServerState.allCases.map(\.text)).count == MachineServerState.allCases.count)
+    }
+
     @Test func theFixtureHasEveryRemoteKindAndState() {
         let fixture = MachineSectionRow.fixtures
         #expect(Set(fixture.map(\.kind)) == [.cloud, .ssh, .server])
         #expect(fixture.contains { $0.isConnecting })
         #expect(fixture.contains { !$0.isConnected && !$0.isConnecting })
+        #expect(fixture.contains { $0.serverState == .paused && !$0.isConnecting })
         #expect(Set(fixture.map(\.id)).count == fixture.count)
         #expect(!fixture.contains { $0.isLocal })
     }
@@ -97,6 +119,19 @@ import Testing
         #expect(view.shownLines == ["This Mac · \(AddMachineStrings.connected)", "atlas-web · \(AddMachineStrings.connected)",
                                     "gpu-box · \(AddMachineStrings.connecting)", "build-host · \(AddMachineStrings.offline)",
                                     AddMachineStrings.addMachine])
+    }
+
+    /// The compact row of a paused Cloud machine shows "Paused" at its trailing edge and no spinner; a
+    /// connecting one shows the spinner and no word.
+    @Test func aPausedCloudRowShowsPausedAndNoSpinner() throws {
+        let view = Self.section()
+        let paused = MachineSectionRow(id: "c3", name: "night-batch", isConnected: false, isLocal: false, kind: .cloud,
+                                       isConnecting: true, serverState: .paused)
+        view.update(Self.rows + [paused], style: .compact)
+        let pausedRow = try #require(view.rowViews["c3"]), connectingRow = try #require(view.rowViews["c2"])
+        #expect(!pausedRow.showsSpinner && pausedRow.shownText == "night-batch · \(AddMachineStrings.paused)")
+        #expect(connectingRow.showsSpinner && connectingRow.shownText == "gpu-box")
+        #expect(!pausedRow.newButton.isEnabled)
     }
 
     @Test func rowsFollowTheModelAndKeepTheirViews() {
