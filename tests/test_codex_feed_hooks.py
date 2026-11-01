@@ -5,8 +5,9 @@ Regression tests for Codex Feed hook wiring and decision output.
 
 from __future__ import annotations
 
-import json
+import base64
 import hashlib
+import json
 import os
 import shutil
 import socket
@@ -14,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1002,6 +1004,73 @@ def codex_hook_commands(hooks: dict) -> list[str]:
                 if isinstance(command, str):
                     commands.append(command)
     return commands
+
+
+def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
+    cases = [(True, None), (False, None), (None, None), (1, None), ("true", None), (True, False)]
+    for index, (recorded_network, explicit_network) in enumerate(cases):
+        case = root / f"codex-network-policy-{index}"
+        home, state, codex_home = case / "home", case / "state", case / "codex"
+        for directory in (home, state, codex_home):
+            directory.mkdir(parents=True)
+        session_id = f"00000000-0000-4000-8000-{index:012d}"
+        captured_at = time.time() - 10
+        timestamp = datetime.fromtimestamp(captured_at - 1, timezone.utc).isoformat(
+            timespec="milliseconds"
+        ).replace("+00:00", "Z")
+        sandbox = {"type": "workspace-write"}
+        if recorded_network is not None:
+            sandbox["network_access"] = recorded_network
+        transcript = case / "rollout.jsonl"
+        transcript.write_text("\n".join(json.dumps(value) for value in [
+            {"type": "session_meta", "payload": {"id": session_id, "source": "cli", "originator": "codex-tui"}},
+            {"timestamp": timestamp, "type": "turn_context", "payload": {"approval_policy": "never", "sandbox_policy": sandbox}},
+        ]) + "\n", encoding="utf-8")
+        arguments = ["codex", "resume", session_id]
+        if explicit_network is not None:
+            arguments += ["-c", f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"]
+        record = {
+            "sessionId": session_id, "workspaceId": FAKE_WORKSPACE_ID, "surfaceId": FAKE_SURFACE_ID,
+            "cwd": str(case), "transcriptPath": str(transcript), "startedAt": captured_at,
+            "updatedAt": captured_at, "launchCommand": {
+                "launcher": "codex", "arguments": arguments, "environment": {"CODEX_HOME": str(codex_home)},
+                "capturedAt": captured_at, "source": "process",
+            },
+        }
+        (state / "codex-hook-sessions.json").write_text(
+            json.dumps({"version": 1, "sessions": {session_id: record}}), encoding="utf-8"
+        )
+        env = {key: value for key, value in os.environ.items() if not key.startswith(("CMUX_", "GHOSTTY_"))}
+        env.update({
+            "HOME": str(home), "CFFIXED_USER_HOME": str(home), "CODEX_HOME": str(codex_home),
+            "CMUX_WORKSPACE_ID": FAKE_WORKSPACE_ID, "CMUX_SURFACE_ID": FAKE_SURFACE_ID,
+            "CMUX_AGENT_HOOK_STATE_DIR": str(state), "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CODEX_HOOK_PID": "2", "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude", "CMUX_AGENT_LAUNCH_CWD": str(case),
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64.b64encode(b"/usr/local/bin/claude\0--resume\0wrong\0").decode(),
+        })
+        socket_path = case / "c.sock"
+        with FakeCmuxSocket(socket_path, None, surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)) as fake:
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+                input=json.dumps({"session_id": session_id, "turn_id": "turn-network-policy", "cwd": str(case),
+                                  "transcript_path": str(transcript), "hook_event_name": "UserPromptSubmit", "prompt": "continue"}),
+                env=env, capture_output=True, text=True, timeout=15,
+            )
+        if result.returncode:
+            raise AssertionError(f"network-policy hook failed: {result.stderr}")
+        publications = [frame["params"] for frame in fake.frames if frame.get("method") == "surface.resume.set"]
+        if not publications:
+            raise AssertionError("network-policy fixture published no resume binding")
+        published = publications[-1]
+        actual = published.get("launch_command", {}).get("arguments", [])
+        network_args = [arg for arg in actual if arg.startswith("sandbox_workspace_write.network_access=")]
+        effective = explicit_network if explicit_network is not None else recorded_network
+        expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
+        if network_args != expected:
+            raise AssertionError(f"recorded network policy {recorded_network!r}, explicit {explicit_network!r}: expected {expected}, got {network_args}")
+        if expected and expected[0] not in published.get("command", ""):
+            raise AssertionError("network override missing from rendered resume command")
 
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
@@ -4204,6 +4273,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
+            test_codex_resume_retains_recorded_network_policy(cli_path, root)
             test_feed_completion_preserves_full_text(cli_path, root)
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
