@@ -751,6 +751,16 @@
       "owner": "cloud-ux-flows",
       "receipt": "Review (codex gpt-6-astra high via router-review): SHIP at c11edce515cad9c92dc27832f162b82f6125e044",
       "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-11-01",
+      "row": "app_lines",
+      "allow": 32,
+      "why": "The tab-to-space action is a native forwarding seam: AppActionContext target resolution, TabMoves promotion, WindowProfiles and WindowManager ownership must be composed before the local pin RPC. No existing domain API spans these app-owned operations; extracting this binding would add host protocol plumbing without moving policy out of Swift. Limited to this action binding.",
+      "author": "ux-cli-spaces",
+      "owner": "ux-cli-spaces",
+      "receipt": "Review (codex gpt-6-astra high): SHIP at db7a5ffc6d169f9d14309ff1956a1e307b139196",
+      "expiry": "2026-11-15"
     }
   ],
   "escape_reviews": [
