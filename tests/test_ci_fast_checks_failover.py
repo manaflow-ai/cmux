@@ -83,6 +83,14 @@ class FastChecksFailoverTests(unittest.TestCase):
             rest = BLACKSMITH_LINUX.sub("", FORK_BRANCH.sub("", bad, count=1))
             self.assertRegex(rest, HOSTED, bad)
 
+    def test_display_commands_skip_with_a_success_receipt(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("import json, os, pathlib, shlex, signal, subprocess, time", text)
+        self.assertIn("if '--display' in command_words:", text)
+        self.assertIn("skipped_display=True", text)
+        self.assertIn("display checks are advisory and skipped on the fast-checks gating path", text)
+        self.assertIn("raise SystemExit(0)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

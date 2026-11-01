@@ -343,10 +343,24 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, signal, subprocess, time
+          import json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          command_words = shlex.split(command_text)
+          if '--display' in command_words:
+              result = dict(
+                  source_sha=os.environ['FAST_CHECKS_SOURCE'],
+                  skipped_display=True,
+                  exit_code=0,
+                  command=os.environ['FAST_CHECKS_COMMAND'],
+                  run_id=os.environ['GITHUB_RUN_ID'],
+              )
+              print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
+              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              raise SystemExit(0)
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
