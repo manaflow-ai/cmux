@@ -44,6 +44,7 @@ enum EphemeralWorkspaces {
                     manager.reconcileMembership(); return manager.registry.members(of: windowID) }) else { return } // past its bound: this window's
                 if let space, let key = workspace.key { try await manager.pinToIncognitoSpace(key, space, on: daemon) }
                 manager.claimNew(workspaceID: workspace.id, window: windowID)
+                manager.recordIncognitoWorkspaces() // phones hide it now, not at the next membership sync
                 guard let pane = daemon.store.pane(containing: tab.surface) else { return }
                 _ = try await browserTabs.open(choice, in: pane.handle, on: daemon, url: address, incognito: true)
                 try await connection.closeTab(tab.surface)
@@ -72,6 +73,8 @@ enum EphemeralWorkspaces {
             _ = manager.incognitoProfile()
             result[id] = window
         }
+        // A workspace another client made ephemeral: phones hide it as soon as the app knows the flag.
+        if !result.isEmpty { manager.recordIncognitoWorkspaces() }
         return result
     }
 

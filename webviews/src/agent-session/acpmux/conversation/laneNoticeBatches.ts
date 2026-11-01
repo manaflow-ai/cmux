@@ -24,6 +24,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(thread.label ? { label: thread.label } : {}),
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
       ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+      ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
       count: thread.count,
     };
   });
@@ -140,6 +141,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 count: thread.count ?? 1,
                 promptIds: thread.promptIds ?? [],
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+                ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
               },
             }
           : {}),
@@ -152,6 +154,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
             ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
+            ...(thread.fromHarness && delivery.sender === thread.sender ? { harness: thread.fromHarness } : {}),
           },
         },
       });

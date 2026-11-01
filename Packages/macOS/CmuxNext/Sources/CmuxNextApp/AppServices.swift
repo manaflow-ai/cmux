@@ -56,6 +56,8 @@ final class AppServices {
     let activeLook = ActiveLookScope()
     /// The batch closes of selected sidebar rows under way, read by every batch close and Close Workspace.
     let selectionCloses = WorkspaceSelectionCloseFlow.Running()
+    /// The incognito workspaces' chat purges under way (``IncognitoChats``); the quit drains them.
+    let incognitoChats = IncognitoChats()
     /// The recovery-draft backstop of unsaved documents (R96).
     let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
@@ -719,7 +721,7 @@ final class AppServices {
         _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
+        WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every

@@ -34,12 +34,13 @@ extension StateResourceClient {
     /// Sends one state mutation and returns its `value`. `key`: its idempotency key; a mutation sent again passes
     /// the first send's key, so the daemon replays it (`ResourceMutationResult.replayed`) instead of doing it twice.
     @discardableResult
-    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self, key: String = StateResourceClient.stateKey(),
+    /// `timeout` replaces the control deadline (nil: the connection's).
+    func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue], as type: R.Type = JSONValue.self,
+                                                 key: String = StateResourceClient.stateKey(), timeout: Duration? = nil,
                                                  requiring capability: String? = nil) async throws -> R {
         try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self, requiring: capability).value
+        }, as: ResourceMutationResult<R>.self, timeout: timeout, requiring: capability).value
     }
 
     static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }

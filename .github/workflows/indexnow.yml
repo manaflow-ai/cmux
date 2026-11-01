@@ -1,39 +1,61 @@
 name: Notify IndexNow
 
+# Hourly, not on deployment_status. deployment_status has no branch or
+# environment filter at the trigger, so every Vercel preview status of every PR
+# started a run here that the job gate then skipped (about 2,500 skipped runs an
+# hour on 2026-10-31). The notifier reads the live production sitemap, so a
+# schedule submits only what is deployed, and the state marker below keeps an
+# hourly run from resubmitting URLs IndexNow has already been sent.
 on:
-  deployment_status:
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: indexnow-notify
+  cancel-in-progress: false
+
 jobs:
   notify:
     name: Notify IndexNow
-    # deployment_status has no native branch/path filters. Keep the admission
-    # gate exact so only the production deployment on main can submit URLs.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'deployment_status' &&
-       github.event.deployment_status.state == 'success' &&
-       github.event.deployment.environment == 'Production – cmux' &&
-       github.event.deployment.ref == 'main' &&
-       github.event.deployment.task == 'deploy')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Only the canonical repository on main submits URLs; forks never do.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 6
     steps:
       # Only public inputs are needed. Read the live sitemap, so a newer main
       # commit cannot cause us to submit URLs that have not been deployed yet.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.deployment.sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
+      # The (url, lastmod) pairs submitted last time. A missing or evicted
+      # entry costs one resubmission of the lookback window, as before.
+      - name: Restore submitted URLs
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .indexnow-state
+          key: indexnow-state-${{ github.run_id }}
+          restore-keys: indexnow-state-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.4"
+          bun-version: "1.3.14"
       - name: Submit changed URLs
+        id: submit
+        # bash -eo pipefail, so a failed submission is not hidden by tee.
+        shell: bash
         run: |
           bun -e '
             import { indexNowKey, indexNowEndpoint, indexNowLookbackHours } from "./web/app/lib/indexnow.ts";
             console.log(JSON.stringify({ key: indexNowKey, endpoint: indexNowEndpoint, lookbackHours: indexNowLookbackHours }));
-          ' | python3 scripts/ci/notify-indexnow.py
+          ' | python3 scripts/ci/notify-indexnow.py --state .indexnow-state/submitted.json | tee "$RUNNER_TEMP/indexnow-result.json"
+          python3 -c 'import json, sys; print("state_changed=" + str(bool(json.load(open(sys.argv[1])).get("stateChanged"))).lower())' "$RUNNER_TEMP/indexnow-result.json" >> "$GITHUB_OUTPUT"
+      - name: Save submitted URLs
+        if: steps.submit.outputs.state_changed == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .indexnow-state
+          key: indexnow-state-${{ github.run_id }}
