@@ -73,6 +73,7 @@ import Testing
         defer { window.close() }
         var workspace = SidebarWorkspace(id: SidebarRowCloseSpotTests.shown, title: "Chief task")
         workspace.activity = .working
+        workspace.agentWorking = true
         workspace.chiefAvatar = .text("SC")
         model.sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(workspace)])]
         model.rowBadgeStyle = .trailing
