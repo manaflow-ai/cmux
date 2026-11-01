@@ -202,11 +202,39 @@ class Decide(unittest.TestCase):
             with self.subTest(runners=runners, snapshot=snap):
                 result = placement.decide(config, runners, snap, NOW)
                 self.assertEqual((result.linux_runner, result.linux_jobs, result.mini_jobs), ("", (), ()))
-        result = placement.decide(config, [live], snapshot(), NOW)
+        # An absent Linux entry in macos-pool-load says nothing about Linux queue depth.
+        # The former test treated it as a zero-queue proof; it must now fail closed.
+        no_linux_queue = placement.decide(config, [live], snapshot(), NOW)
+        self.assertEqual((no_linux_queue.linux_runner, no_linux_queue.linux_jobs), ("", ()))
+        result = placement.decide(config, [live], snapshot({"cmux-fleet-linux-x64": {"queued": 0}}), NOW)
         self.assertEqual((result.linux_runner, result.linux_jobs), ("cmux-fleet-linux-x64", ("legacy-identity-target",)))
         for label in ("macos-26", "glaeda-std-xcode-26.6", "ubuntu-24.04", "blacksmith-32vcpu-ubuntu-2404"):
             result = placement.decide({**config, "FLEET_LINUX": label}, [live], snapshot(), NOW)
             self.assertEqual((result.linux_runner, result.mini_jobs), ("", ()))
+
+    def test_linux_queue_absence_or_malformed_count_is_unknown_even_with_idle_linux(self):
+        config = env(JOBS="legacy-identity-target", LINUX_ONLY="legacy-identity-target",
+                     FLEET_LINUX="cmux-fleet-linux-x64", NIGHTLY="1",
+                     NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
+        live = {"name": "gcp", "status": "online", "busy": False, "os": "linux",
+                "labels": [{"name": "cmux-fleet-linux-x64"}]}
+        # A fresh macOS-only snapshot has no entry for Linux demand. Do not
+        # assume a free Linux runner has an empty queue; the job may wait behind it.
+        for pools in ({}, {"cmux-fleet-linux-x64": {}},
+                      {"cmux-fleet-linux-x64": {"queued": None}},
+                      {"cmux-fleet-linux-x64": {"queued": -1}},
+                      {"cmux-fleet-linux-x64": {"queued": "0"}},
+                      {"cmux-fleet-linux-x64": {"queued": True}}):
+            with self.subTest(pools=pools):
+                placed = placement.decide(config, [live], snapshot(pools), NOW)
+                self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
+                self.assertIn("Blacksmith", placed.why)
+        for queued in (0, 1, 2):
+            with self.subTest(queued=queued):
+                placed = placement.decide(config, [live],
+                                          snapshot({"cmux-fleet-linux-x64": {"queued": queued}}), NOW)
+                expected = ("cmux-fleet-linux-x64", ("legacy-identity-target",)) if queued == 0 else ("", ())
+                self.assertEqual((placed.linux_runner, placed.linux_jobs), expected)
 
     def test_linux_only_no_start_wait_is_bounded_and_can_admit_before_deadline(self):
         config = env(JOBS="legacy-identity-target", LINUX_ONLY="legacy-identity-target",
@@ -214,9 +242,10 @@ class Decide(unittest.TestCase):
                      NIGHTLY_WAIT_FOR_FLEET="1", REQUIRE_LIVE_CAPACITY="1")
         live = {"status": "online", "busy": False, "os": "linux",
                 "labels": [{"name": "cmux-fleet-linux-x64"}]}
+        known_linux = snapshot({"cmux-fleet-linux-x64": {"queued": 0}})
         for second, expected in (([], ""), ([live], "cmux-fleet-linux-x64")):
             with self.subTest(second=second), \
-                 mock.patch.object(placement, "read", side_effect=[([], snapshot()), (second, snapshot())]) as read, \
+                 mock.patch.object(placement, "read", side_effect=[([], known_linux), (second, known_linux)]) as read, \
                  mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
                  mock.patch.object(placement.time, "monotonic", side_effect=[0, 150, 180]), \
                  mock.patch.object(placement.time, "sleep") as sleep, \
