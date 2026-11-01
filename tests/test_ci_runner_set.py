@@ -224,6 +224,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("inputs.runner", runs_on)
         self.assertNotRegex(runs_on.split("inputs.runner ||")[-1], r"'blacksmith-")
 
+    def test_ci_changes_reads_the_linux_pool(self) -> None:
+        runs_on = {(path, name): value for path, name, value in jobs()}[("ci.yml", "changes")]
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("CI_CLOUD_OVERFLOW", runs_on)
+
     def test_no_job_names_only_literal_labels(self) -> None:
         pinned = {(path, job) for path, (_, names) in PINNED.items() for job in names}
         failing = {(path, name) for path, name, value in jobs() if not runs_on_is_live(value)}
