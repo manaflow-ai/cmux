@@ -94,6 +94,7 @@ class Clock:
     def __init__(self, at: float):
         self.at = at
         self.slept: list[float] = []
+        self.during_wait = lambda: None  # landings or dispatches that happen while a kick waits
 
     def now(self) -> float:
         return self.at
@@ -101,6 +102,7 @@ class Clock:
     def sleep(self, seconds: float) -> None:
         self.slept.append(seconds)
         self.at += seconds
+        self.during_wait()
 
 
 def kick(api: FakeApi, clock: Clock, patterns: list[str] | None = None):
@@ -212,11 +214,9 @@ class Kick(unittest.TestCase):
     def test_a_landing_inside_the_window_waits_once_and_takes_the_tip_then(self):
         api, clock = FakeApi([(OLD, T0)], MID), Clock(T0 + 5 * 60)
 
-        def sleep(seconds: float) -> None:
-            Clock.sleep(clock, seconds)
-            api.tip = TIP  # landings during the wait
+        clock.during_wait = lambda: setattr(api, "tip", TIP)  # landings during the wait
 
-        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=sleep, log=lambda _: None), TIP)
+        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None), TIP)
         self.assertEqual(clock.slept[0], 10 * 60)
         self.assertEqual(len(api.dispatched), 1)
 
@@ -228,12 +228,10 @@ class Kick(unittest.TestCase):
         api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
 
-        def sleep(seconds: float) -> None:
-            Clock.sleep(clock, seconds)
-            api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
+        clock.during_wait = lambda: api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
 
         self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now,
-                                    sleep=sleep, log=lambda _: None))
+                                    sleep=clock.sleep, log=lambda _: None))
         self.assertEqual(clock.slept, [10 * 60])
         self.assertEqual(api.dispatched, [])
         self.assertEqual(api.cancelled, [11])
