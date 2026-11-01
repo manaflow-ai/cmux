@@ -213,6 +213,11 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         import yaml
         document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         jobs = document["jobs"]
+        dedicated = ("github.repository == 'manaflow-ai/cmux' && "
+                     "needs.decide.outputs.track == 'nightly-next' && "
+                     "github.run_attempt == 1 && "
+                     "vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && "
+                     "vars.CI_NIGHTLY_ONLY_RUNNER || ")
         light = ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
                  "contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {job} ') && "
                  "needs.build-nightly-app.outputs.light_mini_runner || ")
@@ -220,7 +225,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                  "'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}")
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                        + light.replace("{job}", name))
+                        + dedicated + light.replace("{job}", name))
             if name == "prepare-nightly-variant":
                 expected += ("needs.prepare-nightly-variant-primary.result == 'success' && "
                              "(vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "

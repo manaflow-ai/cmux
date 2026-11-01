@@ -1402,6 +1402,9 @@ check_no_self_hosted_fleet_runners() {
   # owned-pool predicates; retries fall through to Blacksmith.
   local nightly_main_trusted_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL"
   local nightly_next_side_selector="github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/nightly-next' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER"
+  # Explicit all-nightly M4 Pro reservation: only the exact repository, NEXT
+  # track, first-attempt predicate may admit this managed label.
+  local nightly_only_selector="github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
   # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
   # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
   # or on a fork pull request (its branch comes first), they take Blacksmith.
@@ -1434,6 +1437,7 @@ check_no_self_hosted_fleet_runners() {
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
+      content="${content/"$nightly_only_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
       content="${content/"$nightly_main_trusted_selector"/}"
