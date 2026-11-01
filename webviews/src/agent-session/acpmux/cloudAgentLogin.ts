@@ -177,7 +177,10 @@ export function cloudAgentLogin(options: {
         if (!started) {
           // A page this Mac will not open: stop the login acpmux started, so it holds nothing.
           const loginId = (reply as { loginId?: unknown } | undefined)?.loginId;
-          if (typeof loginId === "string" && loginId) void currentClient()?.agentLoginCancel(loginId).catch(() => undefined);
+          if (typeof loginId === "string" && loginId)
+            void currentClient()
+              ?.agentLoginCancel(loginId)
+              .catch(() => undefined);
           throw new LoginStepError("failed");
         }
         return started;
