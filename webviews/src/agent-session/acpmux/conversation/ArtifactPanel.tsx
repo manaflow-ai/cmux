@@ -24,7 +24,7 @@ import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
-import { inertDocument, INLINE_PREVIEW_SANDBOX, previewFrameDocument, previewNonce } from "./previewDocument";
+import { INLINE_PREVIEW_SANDBOX, passiveDocument, previewFrameDocument, previewNonce } from "./previewDocument";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -255,8 +255,12 @@ function ArtifactFrame({
   const [allowed, setAllowed] = useState(() => ranRenders.has(html));
   // The passive frame left its document (the gallery's frame counts its loads): show the source.
   const [left, setLeft] = useState(false);
-  if (left) return <CodeBlock code={code} lang={lang} />;
-  if (!requiresRun) return <PassiveFrame html={html} title={title} onLeave={() => setLeft(true)} />;
+  // Markup with no script, made inert; nil when the rewrite left it needing Run after all
+  // (previewDocument.ts passiveDocument), which shows the source rather than offer Run on markup that
+  // carried no script as written.
+  const inert = useMemo(() => (requiresRun ? undefined : passiveDocument(html)), [requiresRun, html]);
+  if (left || (!requiresRun && inert === undefined)) return <CodeBlock code={code} lang={lang} />;
+  if (inert !== undefined) return <PassiveFrame html={inert} title={title} onLeave={() => setLeft(true)} />;
   if (!allowed)
     return (
       <div className="acpmux-artifact-run">
@@ -279,16 +283,15 @@ function ArtifactFrame({
   );
 }
 
-/// Script-free markup, made inert. In the app it goes to the native artifact frame, which writes it
-/// into itself under its own policy and whose host delegate refuses every navigation after its own
-/// first request (a `srcdoc` frame there would take the pane's policy, so no frame script could run).
+/// Script-free markup, already made inert (`passiveDocument`). In the app it goes to the native
+/// artifact frame, which writes it into itself under its own policy and whose host delegate refuses
+/// every navigation after its own first request (a `srcdoc` frame there would take the pane's policy, so no frame script could run).
 function PassiveFrame({ html, title, onLeave }: { html: string; title: string; onLeave(): void }) {
-  const inert = useMemo(() => inertDocument(html), [html]);
   const url = artifactFrameURL();
   return url ? (
-    <NativePassiveFrame html={inert} title={title} url={url} />
+    <NativePassiveFrame html={html} title={title} url={url} />
   ) : (
-    <GalleryPassiveFrame html={inert} title={title} onLeave={onLeave} />
+    <GalleryPassiveFrame html={html} title={title} onLeave={onLeave} />
   );
 }
 

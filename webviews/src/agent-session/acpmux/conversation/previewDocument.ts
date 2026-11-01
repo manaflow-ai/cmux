@@ -7,7 +7,7 @@
 // A document that carries script never previews inline (InlinePreview.tsx): it opens in the side
 // panel, where Run is.
 // leo-workspace design/artifacts.md.
-import { ARTIFACT_POLICY } from "./artifactSandbox";
+import { ARTIFACT_POLICY, artifactNeedsRun } from "./artifactSandbox";
 import { artifactKind, type ArtifactKind } from "./artifactPreview";
 
 /// The frame's sandbox: scripts for the height reporter, and nothing else (no same-origin, top
@@ -77,8 +77,18 @@ export function inertDocument(html: string): string {
     .replace(LINK_ATTRIBUTE, (whole, name: string, equals: string, value: string) => {
       const target = value.replace(/^["']|["']$/g, "");
       if (target.startsWith("#") || /^(?:data|blob):/i.test(target)) return whole;
-      return `data-${name}${equals}${value} ${name}="#"`;
+      // `#` unquoted: the rewrite may sit inside another attribute's value (`title="href='x' …"`),
+      // and a quote it added would close that value and expose what follows as live attributes.
+      return `data-${name}${equals}${value} ${name}=#`;
     });
+}
+
+/// The inert document of script-free markup, or nil when the rewrite left it needing Run after all
+/// (`artifactNeedsRun` of the result, parsed as the frame would): only then may it go to a frame
+/// that allows inline script (the native artifact frame), since the rewrite is text, not a parse.
+export function passiveDocument(html: string): string | undefined {
+  const inert = inertDocument(html);
+  return artifactNeedsRun(html) || artifactNeedsRun(inert) ? undefined : inert;
 }
 
 /// Turns off the browser's own DNS prefetch of the document's link targets.
