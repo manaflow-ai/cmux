@@ -231,3 +231,29 @@ test("a command word draws blue where it counts as one; others stay plain", asyn
   await composer(chat(), "/compact now");
   expect(blue()).toEqual(["/compact"]);
 });
+
+/// A Codex chat: codex-acp lists its skills as `$name`.
+function codexChat(): AcpmuxSnapshot {
+  const sessionId = `midprompt-codex-${++chats}`;
+  return noChat([], {
+    sessionId,
+    summary: { sessionId, harness: "codex", family: "codex", cwd: "/Users/you/src/app", turnCount: 1 },
+    rows: [user("Add retries", 1)],
+    commands: [
+      { name: "init", description: "Create an AGENTS.md file", source: "agent" },
+      { name: "$emil-color", description: "Colour in CSS", source: "skill" },
+      { name: "$emil-design-foundations", description: "Design judgment", source: "skill" },
+    ],
+  });
+}
+
+test("a Codex skill lists, writes and colours without its `$`, and goes to Codex as `/$name`", async () => {
+  const { field, prompt, sent } = await composer(codexChat(), "Use /emil-d");
+  expect(names()).toEqual(["/emil-design-foundations"]);
+  await press(field, "Enter");
+  expect(prompt.plainText()).toBe("Use /emil-design-foundations ");
+  expect(blue()).toEqual(["/emil-design-foundations"]);
+  await act(async () => prompt.insertTyped("in src/emil-color"));
+  await press(field, "Enter");
+  expect(sent).toEqual(["Use /$emil-design-foundations in src/emil-color"]);
+});

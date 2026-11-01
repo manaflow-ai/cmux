@@ -51,6 +51,27 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
   return commands;
 }
 
+/// The name the prompt and the menu use: a Codex skill's without its `$` (codex-acp lists one as
+/// `$name`). The person reads and types `/emil-color`; send writes `/$emil-color` back
+/// (`withSkillDollars`), which Codex needs to take it as a skill.
+export const shownName = (command: SlashCommand) => command.name.replace(/^\$(?=.)/, "");
+
+/// The prompt as sent: each `/name` in a command position (the prompt's start, or after a space,
+/// a line break or an attachment, running to the next) that names a `$` skill without its `$` is
+/// written `/$name`, as codex-acp needs. A name a command also has without `$` stays as typed, and
+/// so does every other character. One pass over the text.
+export function withSkillDollars(text: string, commands: readonly SlashCommand[] | undefined): string {
+  const dollar = new Set<string>();
+  const plain = new Set<string>();
+  for (const command of commands ?? [])
+    if (command.name.length > 1 && command.name.startsWith("$")) dollar.add(command.name.slice(1));
+    else plain.add(command.name);
+  if (!dollar.size || !text.includes("/")) return text;
+  return text.replace(/(^|[\s\uFFFC])\/([^\s\uFFFC]+)(?=[\s\uFFFC]|$)/g, (whole, lead: string, name: string) =>
+    dollar.has(name) && !plain.has(name) ? `${lead}/$${name}` : whole,
+  );
+}
+
 /// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
 /// `/` menu draws it as ChatGPT does (Leo 2026-10-22): the bolt, the plain name Fast, and what
 /// picking it does in the chat's current state (fastModeState).
@@ -119,10 +140,9 @@ export type SlashNames = { leading: ReadonlySet<string>; anywhere: ReadonlySet<s
 
 export function slashNames(commands: readonly SlashCommand[] | undefined): SlashNames {
   const list = commands ?? [];
-  return {
-    leading: new Set(list.map((command) => command.name)),
-    anywhere: new Set(list.filter(goesAsText).map((command) => command.name)),
-  };
+  // A `$` skill by the name the prompt shows (`/emil-color`) and by its own (`/$emil-color`).
+  const names = (each: readonly SlashCommand[]) => each.flatMap((command) => [command.name, shownName(command)]);
+  return { leading: new Set(names(list)), anywhere: new Set(names(list.filter(goesAsText))) };
 }
 
 /// `slashNames` kept while the list's names and kinds are the same: a chat's snapshot rebuilds its
@@ -172,12 +192,14 @@ export function slashTokens(
 }
 
 /// Commands matching `query`, best first: a name prefix, then a word start
-/// inside the name, then any in-order subsequence; ties keep the agent's order.
+/// inside the name, then any in-order subsequence; ties keep the agent's order. Names are read as
+/// the menu shows them (`shownName`, a Codex skill without its `$`), and the ranges index that name;
+/// a `$` typed first is skipped too.
 export function matchCommands(commands: SlashCommand[], query: string): SlashMatch[] {
-  const needle = query.toLowerCase();
+  const needle = query.replace(/^\$/, "").toLowerCase();
   const scored: { match: SlashMatch; score: number; index: number }[] = [];
   commands.forEach((command, index) => {
-    const name = command.name.toLowerCase();
+    const name = shownName(command).toLowerCase();
     if (!needle) return scored.push({ match: { command, ranges: [] }, score: 0, index });
     if (name.startsWith(needle))
       return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: 0, index });
@@ -233,7 +255,7 @@ export function commandSplice(
 /// The prompt after picking `command` with no editor to edit in place: `/name ` replacing a
 /// leading `/word`.
 export function applyCommand(text: string, caret: number, command: SlashCommand): { text: string; caret: number } {
-  const inserted = `/${command.name} `;
+  const inserted = `/${shownName(command)} `;
   const rest = text.slice(caret).replace(/^\S*\s?/, "");
   return { text: inserted + rest, caret: inserted.length };
 }

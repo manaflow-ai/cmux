@@ -423,6 +423,23 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
   ]);
 });
 
+test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [{ name: "$emil-color", description: "", source: "skill" }] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("Use /emil-color in src/emil-color");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(asks.length).toBe(1);
+  expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];

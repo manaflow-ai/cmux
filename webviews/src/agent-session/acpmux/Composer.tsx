@@ -57,8 +57,10 @@ import {
   applyCommand,
   fastModeState,
   isFastCommand,
+  shownName,
   slashMatches,
   useSlashNames,
+  withSkillDollars,
   type SlashCommand,
   type SlashMatch,
   type SlashTrigger,
@@ -1226,7 +1228,7 @@ export function Composer({
   const pick = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(command.name)) {
+    if (field.current?.insertCommand(shownName(command))) {
       field.current.focus();
       return;
     }
@@ -1238,7 +1240,7 @@ export function Composer({
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
-    const next = `/${command.name} ${existing}`;
+    const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
     edit(next, next.length);
     field.current?.focus();
@@ -1289,7 +1291,9 @@ export function Composer({
     const draftText = unwrapped();
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
-    const inText = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
+    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
+    const typedText = withSkillDollars(field.current?.agentText(draftText) ?? draftText, commands);
+    const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
     // A slash command reads from the words' start, wherever the attachments sit: it goes first and
@@ -1573,7 +1577,7 @@ export function Composer({
   // command or a pasted path), or on a command already typed in full that takes no arguments.
   const returnSends = () => {
     const typedInFull =
-      matches[selected]?.command.name === query &&
+      (matches[selected] ? shownName(matches[selected].command) : undefined) === query &&
       (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
     return !open || matches.length === 0 || typedInFull;
   };
@@ -2563,7 +2567,7 @@ function SlashMenu({
                 )
               ) : (
                 <>
-                  /<Highlighted name={match.command.name} ranges={match.ranges} />
+                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
                 </>
               )}
             </span>

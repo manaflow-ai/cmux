@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyCommand,
   commandSplice,
+  matchCommands,
+  shownName,
   slashMatches,
   slashNames,
   slashTokens,
   slashTrigger,
   SLASH_WORD_MAX,
+  withSkillDollars,
   type SlashCommand,
 } from "./slashCommands";
 
@@ -153,5 +157,51 @@ describe("slashTokens: which `/name` words draw blue", () => {
     // A word cut by the window's edge is not read.
     expect(slashTokens("review-pr", names, { cutStart: true }).tokens).toEqual([]);
     expect(slashTokens("/review-p", names, { cutEnd: true }).tokens).toEqual([]);
+  });
+});
+
+describe("Codex skills read without their `$`", () => {
+  const codex: SlashCommand[] = [
+    { name: "init", description: "", source: "agent" },
+    { name: "$emil-color", description: "Colour in CSS", source: "skill" },
+    { name: "$emil-design-foundations", description: "", source: "skill" },
+  ];
+
+  test("the list shows and matches the name without `$`, a typed `$` included", () => {
+    const shown = (query: string) =>
+      matchCommands(codex, query).map((match) => [shownName(match.command), match.ranges]);
+    expect(shownName(codex[1]!)).toBe("emil-color");
+    expect(shown("emil-c")).toEqual([["emil-color", [[0, 6]]]]);
+    expect(shown("$emil-d")).toEqual([["emil-design-foundations", [[0, 6]]]]);
+  });
+
+  test("a pick writes the name without `$`", () => {
+    const trigger = slashTrigger("use /emil-c", 0)!;
+    expect(commandSplice("", trigger, shownName(codex[1]!)).text).toBe("/emil-color ");
+    expect(applyCommand("/emil", 5, codex[2]!).text).toBe("/emil-design-foundations ");
+  });
+
+  test("the name without `$` is a command word, the name with it too", () => {
+    const names = slashNames(codex);
+    const words = (text: string) => slashTokens(text, names, { lead: 0 }).tokens.map(([a, b]) => text.slice(a, b));
+    expect(words("use /emil-color and /$emil-design-foundations")).toEqual([
+      "/emil-color",
+      "/$emil-design-foundations",
+    ]);
+  });
+
+  test("send writes `/$name` for a `$` skill in a command position, nothing else", () => {
+    expect(withSkillDollars("/emil-color fix it", codex)).toBe("/$emil-color fix it");
+    expect(withSkillDollars("Use /emil-design-foundations here", codex)).toBe("Use /$emil-design-foundations here");
+    expect(withSkillDollars("a\n/emil-color", codex)).toBe("a\n/$emil-color");
+    expect(withSkillDollars("see \uFFFCid\uFFFC/emil-color", codex)).toBe("see \uFFFCid\uFFFC/$emil-color");
+    // A path, the name inside a word, a longer word, an unknown name and a built-in stay as typed.
+    expect(withSkillDollars("src/emil-color", codex)).toBe("src/emil-color");
+    expect(withSkillDollars("x/emil-color /emil-colors", codex)).toBe("x/emil-color /emil-colors");
+    expect(withSkillDollars("/init then /nope", codex)).toBe("/init then /nope");
+    // Already written with `$`: unchanged.
+    expect(withSkillDollars("/$emil-color", codex)).toBe("/$emil-color");
+    // A name a command also has without `$` is that command's.
+    expect(withSkillDollars("/emil-color", [...codex, { name: "emil-color", description: "" }])).toBe("/emil-color");
   });
 });

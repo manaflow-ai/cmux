@@ -108,7 +108,15 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
-import { applyCommand, slashMatches, useSlashNames, type SlashCommand, type SlashTrigger } from "../slashCommands";
+import {
+  applyCommand,
+  shownName,
+  slashMatches,
+  useSlashNames,
+  withSkillDollars,
+  type SlashCommand,
+  type SlashTrigger,
+} from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
@@ -639,7 +647,8 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    const inText = placeInline(prompt, attachments, {
+    // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
+    const inText = placeInline(withSkillDollars(prompt, snapshot.commands), attachments, {
       dropped: (id) => reading.some((chip) => chip.id === id),
     });
     // As in chat, slash commands lead with their words and carry files after the command.
@@ -768,7 +777,7 @@ export function NewTabScreen(props: Props) {
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
-    if (field.current?.insertCommand(command.name)) {
+    if (field.current?.insertCommand(shownName(command))) {
       requestAnimationFrame(() => field.current?.focus());
       return;
     }
