@@ -64,6 +64,9 @@ struct WriterState {
     /// The newest version a failed commit covered, and its error: the requests for versions up
     /// to it that are not durable fail.
     failed: Option<(u64, String)>,
+    /// The versions requests wait for (`Wait::Durable`), with how many wait for each: the writer
+    /// hands the next commit to one of them once its own is durable.
+    waiting: std::collections::BTreeMap<u64, usize>,
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -89,7 +92,13 @@ impl MetaWriter {
     /// answer of a request that changed nothing, because an earlier change made it so already
     /// (`markUnread` on an unread chat), must not come before that change is on disk.
     pub(super) fn barrier(&self, write: &dyn Fn() -> Result<()>) -> Result<()> {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The last commit failed and nothing newer was committed since: this request commits
+        // again, as a new version, instead of failing until some other change comes.
+        let failed = state.failed.as_ref().is_some_and(|(upto, _)| *upto >= state.requested);
+        if failed && state.durable < state.requested {
+            state.requested += 1;
+        }
         let version = state.requested;
         self.reach(state, version, Wait::Durable, write)
     }
@@ -115,7 +124,11 @@ impl MetaWriter {
             if !state.writing {
                 state.writing = true;
                 drop(state);
-                self.run(write);
+                // A write that panicked: its requests fail, the newer changes were committed,
+                // and the panic goes on to this caller.
+                if let Some(panic) = self.run(version, write) {
+                    std::panic::resume_unwind(panic);
+                }
                 state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 continue;
             }
@@ -123,12 +136,29 @@ impl MetaWriter {
                 return Ok(());
             }
             // The writer runs no task of this runtime: it copies, writes and wakes.
+            *state.waiting.entry(version).or_default() += 1;
             state = self.done.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let std::collections::btree_map::Entry::Occupied(mut n) =
+                state.waiting.entry(version)
+            {
+                *n.get_mut() -= 1;
+                if *n.get() == 0 {
+                    n.remove();
+                }
+            }
         }
     }
 
-    /// The writer: commits until nothing newer waits or a commit fails, then hands the role back.
-    fn run(&self, write: &dyn Fn() -> Result<()>) {
+    /// The writer, for its own version `own`: commits until nothing newer waits, then hands the
+    /// role back. Once `own` is durable, it hands the next commit to a request that waits for one
+    /// (so no request waits for more than the commit under way and its own), and goes on itself
+    /// only for changes nobody waits for. A write that panics counts as a failed commit; its
+    /// payload is returned for the caller to resume once the newer changes are committed.
+    fn run(
+        &self,
+        own: u64,
+        write: &dyn Fn() -> Result<()>,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
         // A writer that unwinds hands the role back, so no waiter waits for it forever.
         struct Unwind<'a>(&'a MetaWriter);
         impl Drop for Unwind<'_> {
@@ -143,19 +173,28 @@ impl MetaWriter {
             }
         }
         let _unwind = Unwind(self);
+        let mut panicked = None;
         loop {
             let target = {
                 let mut state =
                     self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                if state.requested <= state.durable {
+                let done = state.durable >= own;
+                let waiter = state.waiting.range(state.durable + 1..).next().is_some();
+                if state.requested <= state.durable || (done && waiter) {
                     state.writing = false;
                     self.done.notify_all();
-                    return;
+                    return panicked;
                 }
                 state.requested
             };
             // Copied after the target is read: the copy holds every change up to it.
-            let written = write();
+            let written = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(write)) {
+                Ok(written) => written,
+                Err(panic) => {
+                    panicked = Some(panic);
+                    Err(anyhow::anyhow!("the metadata write panicked"))
+                }
+            };
             let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match written {
                 Ok(()) => {
@@ -176,7 +215,7 @@ impl MetaWriter {
                         continue;
                     }
                     state.writing = false;
-                    return;
+                    return panicked;
                 }
             }
         }
