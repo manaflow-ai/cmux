@@ -29,7 +29,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
-import { foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
+import { backgroundTurnRowId, foldBackgroundTurns, openBackgroundTurns } from "./backgroundTurns";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1303,7 +1303,11 @@ const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483
 /// The turn's one "Worked for" fold, keyed by its original prompt. Steers and received reports
 /// already related to that turn walk back to the same anchor. An unrelated incoming prompt still
 /// opens its own turn, and a pending or failed prompt opens nothing unless it is the first one.
+/// A row of a turn the agent ran on its own is behind that turn's line (backgroundTurns.ts), not
+/// the "Worked for" before it: Find and a link open the line.
 export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
+  const background = rows[index]?.inBackground;
+  if (background !== undefined) return backgroundTurnRowId(background);
   // With no accepted prompt before it, the turn is the first one turnView draws, which starts at
   // the first user row (a prompt not sent or refused, or a landed steer a history page starts at,
   // its temporary prompt until the older one is loaded): the earliest one walking back.
