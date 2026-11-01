@@ -5259,7 +5259,7 @@ jobs:
   signer-build:
     needs: [decide, pick-nightly-sign-runner]
     if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
-    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
+    runs-on: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux || needs.pick-nightly-sign-runner.outputs.linux_alternate || needs.pick-nightly-sign-runner.outputs.linux || (contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]')[0]) }}
     timeout-minutes: 20
     permissions:
       contents: read

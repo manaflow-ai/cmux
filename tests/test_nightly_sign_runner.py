@@ -65,6 +65,10 @@ def snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
             "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait} for label, wait in waits.items()}}
 
 
+def linux_snapshot(waits: dict[str, int], age_minutes: int = 2) -> dict:
+    return snapshot({**{label: 0 for label in picker.LINUX_LABELS}, **waits}, age_minutes)
+
+
 class Pick(unittest.TestCase):
     def test_the_variable_comes_first_while_it_moves(self) -> None:
         self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 3}), NOW)[0], LARGE)
@@ -154,14 +158,18 @@ class LinuxPick(unittest.TestCase):
     """Release-pool signer jobs stay on the trusted Blacksmith Linux set."""
 
     def test_linux_picker_rotates_a_stalled_size(self) -> None:
-        snap = snapshot({LINUX4: 4, LINUX16: 2}, age_minutes=0)
+        snap = linux_snapshot({LINUX4: 4, LINUX16: 2}, age_minutes=0)
         self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
 
     def test_linux_picker_counts_snapshot_age_toward_stall(self) -> None:
         # A queue that was two minutes old in a fourteen-minute-old snapshot
         # has long passed the three-minute overflow threshold.
-        snap = snapshot({LINUX4: 2}, age_minutes=14)
+        snap = linux_snapshot({LINUX4: 2}, age_minutes=14)
         self.assertEqual(picker.linux_place(LINUX4, snap, NOW, 1)[:2], (LINUX16, LINUX32))
+
+    def test_linux_picker_does_not_claim_a_mac_only_snapshot_is_verified(self) -> None:
+        label, alternate, _, verified = picker.linux_place(LINUX4, snapshot({}), NOW, 1)
+        self.assertEqual((label, alternate, verified), (LINUX4, LINUX16, False))
 
     def test_linux_picker_never_uses_a_hosted_or_unlisted_label(self) -> None:
         for variable in ("", "ubuntu-24.04", "glaeda-side-std-xcode-26.6"):
@@ -174,7 +182,7 @@ class LinuxPick(unittest.TestCase):
             output = Path(tmp) / "out"
             env = {"PLATFORM": "linux", "CANDIDATE": LINUX32, "SNAPSHOT_TOKEN": "t",
                    "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
-            self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LINUX32: 90}), now=NOW), 0)
+            self.assertEqual(picker.main(env, read=lambda t, r: linux_snapshot({LINUX32: 90}), now=NOW), 0)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertIn(values["runner"], picker.LINUX_LABELS)
             self.assertIn(values["alternate"], picker.LINUX_LABELS)

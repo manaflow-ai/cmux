@@ -97,6 +97,12 @@ def linux_stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt
     if fresh is None:
         return None
     age, pools = fresh
+    # macos-pool-load is currently produced from the macOS queue janitor and
+    # therefore may contain no Linux labels at all.  Treat an incomplete Linux
+    # view as unverified instead of claiming an absent label is moving; the
+    # caller then rotates to its alternate on a stalled retry.
+    if not all(label in pools for label in labels):
+        return None
     # `oldest_queued_minutes` is measured when the snapshot was generated.  A
     # queued job therefore keeps aging while the picker is reading the
     # snapshot; ignoring that age can keep selecting a label that has already

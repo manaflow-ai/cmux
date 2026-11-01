@@ -141,6 +141,8 @@ class Wiring(unittest.TestCase):
 
     def test_signer_compiler_uses_the_blacksmith_linux_set(self):
         runs_on = JOBS["signer-build"]["runs-on"]
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt", runs_on)
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.linux_alternate", runs_on)
         self.assertIn("needs.pick-nightly-sign-runner.outputs.linux", runs_on)
         self.assertIn("contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]')", runs_on)
         self.assertIn("pick-nightly-sign-runner", needs(JOBS["signer-build"]))
