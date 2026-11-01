@@ -619,7 +619,9 @@ final class NotificationCenterService {
             if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
             return
         }
-        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
+        // An incognito tab's terminal is also withheld, so its item stays local even once its window closed (#31210).
+        let incognito = services?.windows.isIncognito(workspace: located.workspace.id) == true
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts && !incognito)
         feedDriver?.run()
         soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
         if decision.desktop {

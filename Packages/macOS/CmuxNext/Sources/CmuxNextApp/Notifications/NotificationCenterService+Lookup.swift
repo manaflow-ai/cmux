@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
@@ -115,13 +116,21 @@ extension NotificationCenterService {
     }
 
     /// The handoff rules under the current settings. Muted workspaces are
-    /// matched by durable key and by public id (`ws_…`, an item's context).
+    /// matched by durable key and by public id (`ws_…`, an item's context);
+    /// incognito windows' workspaces (`WindowManager.isIncognito`) also by
+    /// their terminals' public ids, so none of their items leaves the Mac.
     func feedHandoffPolicy() -> FeedHandoffPolicy {
-        var muted = preferences.mutedWorkspaces
-        for workspace in services?.daemon.store.workspaces ?? [] where muted.contains(workspace.id) {
-            if let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+        var muted = preferences.mutedWorkspaces, incognito = Set<String>()
+        for workspace in services?.daemon.store.workspaces ?? [] {
+            if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+            guard services?.windows.isIncognito(workspace: workspace.id) == true else { continue }
+            incognito.insert(workspace.id)
+            if let resource = workspace.resourceID { incognito.insert(resource.rawValue) }
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
+                if let terminal = tab.terminalResourceID { incognito.insert(terminal.rawValue) }
+            }
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted)
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, incognito: incognito)
     }
 
     static func seconds(_ duration: Duration) -> Double {
