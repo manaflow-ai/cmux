@@ -85,6 +85,7 @@ first; do not invent keys the schema does not list.
 
 - Appearance: `appearance.theme`, `appearance.appTheme`, `appearance.accent`, `appearance.backgroundOpacity`, `appearance.backgroundBlur`.
 - Terminal: `terminal.fontFamily`, `terminal.fontSize` (default from Ghostty config).
+- Terminal output and scrollback (read by the cmux daemon): `terminal.persistence.mode` (`memory | snapshot | full`, default `snapshot`), `terminal.persistence.maxBytesPerTerminal` (bytes; Snapshot 1 MiB to 4 MiB, default 4 MiB; Full Scrollback 1 MiB to 100 GiB, default 100 MiB), `terminal.persistence.maxTotalBytes` (bytes, 1 MiB to 100 GiB; absent uses the mode's limit: 50 MiB Snapshot, 2 GiB Full Scrollback), `terminal.scrollback.maxTotalMemoryBytes` (bytes, default 256 MiB, at least 16 MiB). The three `terminal.persistence.*` keys are user-only (privacy); `terminal.scrollback.maxTotalMemoryBytes` is user-only (destructive: a lower value drops scrollback).
 - Sidebar: `sidebar.density`, `sidebar.groupBy`, `sidebar.minimalMode` (`off | bottom | top | both`).
 - Notifications: `notifications.dockBadge`, `notifications.desktop`, `notifications.attention.*`.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.
