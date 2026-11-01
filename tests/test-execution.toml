@@ -2187,6 +2187,10 @@ path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_verify_stable_feed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_capture_provision.py"
 lane = "manual"
 reason = "Run by hand before changing the Cloud capture provision scripts (docs/ci-sealed-secrets.md); it needs the system libsodium for the sealing round trip."
