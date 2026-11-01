@@ -40,7 +40,7 @@ export type SubagentSidebarProps = {
   depth: number;
   /** Columns that show in full (Mac columns layout). */
   visibleColumns?: number;
-  /** The focused session's limits (width, depth); default 50 and 10. */
+  /** The focused session's limits (width, depth); default 1000 and 10. */
   limitWidth?: number;
   limitDepth?: number;
   limitsOpen?: boolean;

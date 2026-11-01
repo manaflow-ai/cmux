@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery prototype (sample labels), not shipped UI.
-// Limits of a session's subagents: how many children one agent may start (width, default 50) and
+// Limits of a session's subagents: how many children one agent may start (width, default 1000) and
 // how deep the family may go (depth, default 10). The header line shows the use against the limit;
 // the panel raises it for this session; the settings group holds the defaults for new sessions.
 import { useState } from "react";
