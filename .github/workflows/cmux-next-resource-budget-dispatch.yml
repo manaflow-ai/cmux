@@ -5,9 +5,11 @@ name: cmux NEXT resource budget dispatcher
 # (scripts/perf-bench/budget.py, limits in scripts/perf-bench/budgets.json), run on a fleet bench mini
 # by cmux-next-perf-bench.yml ("cmux-next perf bench"). That workflow's own nightly cron never fired:
 # scheduled workflows run only from the default branch, and it lives only on feat-cmux-next. Once a day
-# this file on main starts it on feat-cmux-next with just the cmux-budget session, unless a run is
-# already queued or running. The run reports every budget row (PERF-BUDGET lines in its summary) and
-# fails only on an enforced budget the tip breaks; nothing else reads its result.
+# this file on main starts it on feat-cmux-next with just the cmux-budget session (no baseline gate,
+# which fails closed on the cross-browser rows a budget-only run doesn't measure; no tab switch matrix
+# or palette timing, so no Debug build), unless a run is already pending. The run reports every budget
+# row (PERF-BUDGET lines in its summary) and fails only on an enforced budget the tip breaks; nothing
+# else reads its result. The gate, tabswitch and palette inputs came with #31199.
 on:
   schedule:
     - cron: "17 9 * * *"
@@ -35,7 +37,7 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'cmux-next-perf-bench.yml';
-            for (const status of ['queued', 'in_progress']) {
+            for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
               });
@@ -48,6 +50,6 @@ jobs:
               owner, repo, workflow_id: workflow,
               // Fully qualified: a tag named feat-cmux-next must never be picked.
               ref: `refs/heads/${source}`,
-              inputs: { browsers: 'cmux-budget', rounds: '3' },
+              inputs: { browsers: 'cmux-budget', rounds: '3', gate: '0', tabswitch: 'off', palette: 'off' },
             });
             core.notice(`Started the cmux-budget resource bench on ${source}`);
