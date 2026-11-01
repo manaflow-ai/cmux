@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::{Keys, StartCopy, import, pin, plan, remote_name, valid_key, valid_workspace};
+use super::{
+    Ensure, Flags, Keys, StartCopy, ensure_answer, github_repo, import, percent_segment, pin, plan,
+    remote_name, valid_environment, valid_key, valid_repo, valid_workspace,
+};
 
 const ME: &str = "user-leo";
 const TEAMMATE: &str = "user-austin";
@@ -973,4 +976,166 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     let kept = Ledger::update(&path, |pins| pins.clone()).unwrap();
     assert_eq!(kept.workspace_machine("ws-first", ACCOUNT), None);
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
+}
+
+const ENV: &str = "env_0123456789abcdef01234567";
+
+#[test]
+fn the_folders_github_remote_is_the_repo() {
+    for url in [
+        "https://github.com/manaflow-ai/cmux.git",
+        "https://github.com/manaflow-ai/cmux",
+        "https://github.com/manaflow-ai/cmux/",
+        "git@github.com:manaflow-ai/cmux.git",
+        "ssh://git@github.com/manaflow-ai/cmux.git",
+    ] {
+        assert_eq!(github_repo(url).as_deref(), Some("manaflow-ai/cmux"), "{url}");
+    }
+    for url in [
+        "https://gitlab.com/manaflow-ai/cmux.git",
+        "https://github.com/manaflow-ai",
+        "https://github.com/a/b/c",
+        "https://github.com/../x",
+        "/srv/git/cmux.git",
+        "",
+    ] {
+        assert_eq!(github_repo(url), None, "{url}");
+    }
+    assert!(valid_repo("a.b/c_d-e"));
+    assert!(!valid_repo(&format!("o/{}", "n".repeat(140))));
+    assert!(valid_environment(ENV));
+    for bad in ["env_0123", "env_0123456789ABCDEF01234567", "abc_0123456789abcdef01234567"] {
+        assert!(!valid_environment(bad), "{bad}");
+    }
+}
+
+#[test]
+fn plan_answers_the_folders_repo_and_echoes_the_environment() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(&folder).unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&folder)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("git")
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    let request = |environment: Value| {
+        json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true, "machines": [],
+               "local": folder.to_str().unwrap(), "environment": environment})
+        .to_string()
+    };
+    // No origin: no repo, and the send still plans.
+    let answer = plan(&path, &request(Value::Null));
+    assert_eq!(answer["ok"], json!(true), "{answer}");
+    assert_eq!(answer["repo"], Value::Null);
+    assert_eq!(answer["environment"], Value::Null);
+    git(&["remote", "add", "origin", "git@github.com:manaflow-ai/cmux.git"]);
+    let answer = plan(&path, &request(json!(ENV)));
+    assert_eq!(answer["repo"], json!("manaflow-ai/cmux"), "{answer}");
+    assert_eq!(answer["environment"], json!(ENV));
+    assert_eq!(plan(&path, &request(json!("env_nope")))["error_code"], json!("bad_request"));
+    // A folder that is not there answers no repo.
+    let gone =
+        json!({"key": key(), "account": ACCOUNT, "local": "/nonexistent/cmux-test"}).to_string();
+    assert_eq!(plan(&path, &gone)["repo"], Value::Null);
+}
+
+fn flags(args: &[&str]) -> Flags {
+    Flags::parse(&args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>()).expect("flags")
+}
+
+#[test]
+fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
+    let key = key();
+    let ensure = Ensure::of(&flags(&[
+        "--workspace",
+        "ws-1",
+        "--key",
+        &key,
+        "--repo",
+        "manaflow-ai/cmux",
+        "--environment",
+        ENV,
+    ]))
+    .expect("ensure");
+    assert_eq!(
+        ensure.body(),
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
+    );
+    let with_ref = Ensure::of(&flags(&[
+        "--workspace",
+        "ws-1",
+        "--key",
+        &key,
+        "--repo",
+        "a/b",
+        "--ref",
+        "main",
+    ]))
+    .unwrap();
+    assert_eq!(
+        with_ref.body(),
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+    );
+    for bad in [
+        vec!["--key", key.as_str(), "--repo", "a/b"],
+        vec!["--workspace", "ws-1", "--repo", "a/b"],
+        vec!["--workspace", "ws-1", "--key", key.as_str()],
+        vec!["--workspace", "ws-1", "--key", key.as_str(), "--repo", "not-a-repo"],
+        vec![
+            "--workspace",
+            "ws-1",
+            "--key",
+            key.as_str(),
+            "--repo",
+            "a/b",
+            "--environment",
+            "env_x",
+        ],
+        vec!["--workspace", "ws-1", "--key", key.as_str(), "--repo", "a/b", "--ref", ""],
+    ] {
+        assert!(Ensure::of(&flags(&bad)).is_none(), "{bad:?}");
+    }
+    assert_eq!(percent_segment("ws 1/ä"), "ws%201%2F%C3%A4");
+}
+
+#[test]
+fn ensures_line_names_the_machine_or_the_platforms_code() {
+    use crate::cli::PlatformCallError as E;
+    let made = ensure_answer(Ok(json!({
+        "workspace": "ws-1", "machine": {"id": "vm-1", "provider": "freestyle"}, "team": "team_p",
+        "snapshot": "snap_x", "environment": {"id": "denv_1", "status": "ready"}, "created": true, "boundAt": 1,
+    })));
+    assert_eq!(
+        made,
+        json!({"ok": true, "machine": "vm-1", "team": "team_p", "created": true, "snapshot": "snap_x",
+               "environment": {"id": "denv_1", "status": "ready"}})
+    );
+    let bound = ensure_answer(Ok(json!({"machine": {"id": "vm-1"}, "created": false})));
+    assert_eq!(
+        (bound["created"].clone(), bound["environment"].clone()),
+        (json!(false), Value::Null)
+    );
+    assert_eq!(ensure_answer(Ok(json!({"created": true})))["error_code"], json!("bad_answer"));
+    let not_found =
+        ensure_answer(Err(E::Status { status: 404, code: "cloud_environment.not_found" }));
+    assert_eq!(not_found["error_code"], json!("cloud_environment.not_found"));
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 404, code: "" }))["error_code"],
+        json!("unavailable")
+    );
+    assert_eq!(
+        ensure_answer(Err(E::Status { status: 500, code: "" }))["error_code"],
+        json!("refused")
+    );
+    assert_eq!(ensure_answer(Err(E::Unreachable("x".into())))["error_code"], json!("unreachable"));
 }
