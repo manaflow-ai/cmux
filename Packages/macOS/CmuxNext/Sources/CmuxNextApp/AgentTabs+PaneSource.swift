@@ -13,8 +13,8 @@ import Foundation
     /// bundled pane's origin, so even a dev server page reaches LocalApp and
     /// the app starts the daemon with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
-    /// browser dev slot, with no host, still needs both (dev-slot.sh).
-    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, peerApprover: AgentPanePeerApprover?)
+    /// browser dev slot, with no host, still needs both (dev-slot.sh). `daemons`: the app's local daemons.
+    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, daemons: AcpmuxLocalDaemons, peerApprover: AgentPanePeerApprover?)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsDevServer = true
@@ -64,7 +64,7 @@ import Foundation
                 .recordRefusal(surface: surface)
         }
         let upstream = computerUse.upstream
-        let host = AcpmuxHost(resolve: resolve,
+        let host = AcpmuxHost(daemons: daemons, resolve: resolve,
                               computerUse: { computerUse.childEnvironment },
                               daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) }, peerApprover: peerApprover)
         // A replaced agent token reaches the running acpmux now, not when a pane reconnects.

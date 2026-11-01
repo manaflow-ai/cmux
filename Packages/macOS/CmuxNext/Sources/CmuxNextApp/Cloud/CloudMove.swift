@@ -218,12 +218,11 @@ struct CloudMove {
     }
 
     /// Syncs `folder` under the first of the machine's work roots it can write.
-    /// `place`: a folder under the work root the copy goes in (a Cloud start's own, ``AgentPaneCloudStart/remotePlace``).
-    func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
-                      retry: CloudMoveRetries.Retry, place: String? = nil) async throws -> (folder: String, chat: String) {
+    private func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
+                      retry: CloudMoveRetries.Retry) async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: place.map { (root.hasSuffix("/") ? root : root + "/") + $0 } ?? root)
+            let remote = folder.remote(under: root)
             do {
                 last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -234,8 +233,13 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
+        throw Self.failure(syncing: last, machine: machine, retry: retry)
+    }
+
+    /// A failed copy's failure: an outdated machine's Retry updates it first.
+    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
+        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -278,8 +282,10 @@ struct CloudMove {
         guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let daemon = session.daemon

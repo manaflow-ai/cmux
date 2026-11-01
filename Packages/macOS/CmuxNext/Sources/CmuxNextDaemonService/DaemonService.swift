@@ -198,15 +198,23 @@ public final class DaemonService {
         }
         // After an update the daemon may still be the previous build's: hand
         // it off to the bundled build before attaching; terminals survive
-        // (their hosts are adopted by the new daemon). The bundled build's
-        // commit is read while the first connect runs, off its path.
+        // (their hosts are adopted by the new daemon). The bundled build
+        // (`--version --json`) is read while the first connect runs, off its path.
         let logger = logger
-        // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
+        // task-owner: one `--version --json` run per start; the handoff check awaits it
+        let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
-            let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)
-            guard case .restart(let running, let target) = decision else { return false }
+            let bundled = await bundledBuild.value
+            var decision = DaemonService.launchVersionCheck(identity: identity, bundled: bundled)
+            if case .restart = decision {
+                decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
+            }
+            guard case .restart(let running, let target) = decision else {
+                if case .keep(let reason) = decision, reason != "same build" {
+                    logger.notice("daemon \(identity.pid) kept: \(reason, privacy: .public)")
+                }
+                return false
+            }
             DaemonService.launchMark("daemon_version_handoff")
             logger.info("daemon handoff \(running, privacy: .public) -> \(target, privacy: .public)")
             return true
@@ -346,7 +354,7 @@ public final class DaemonService {
                     await connection.closeAndWait()
                     return
                 }
-                await connection.observePaneNotReady(self.paneNotReadyReporter)
+                await self.observeRemote(connection)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
