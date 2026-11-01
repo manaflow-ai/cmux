@@ -1,0 +1,22 @@
+name: Notify IndexNow legacy (retire after hourly cutover)
+
+# Keep this original workflow path registered as an active, manual-only
+# placeholder until an operator verifies indexnow-hourly.yml on main and
+# disables original workflow ID 315117949 repository-wide. Deleting this path
+# first can mark its ID deleted and prevent the explicit disable operation,
+# leaving historical deployment_status refs still able to create runs.
+#
+# The real production notifier, with the same sitemap and (URL,lastmod)
+# dedupe, lives in indexnow-hourly.yml. This placeholder never executes a job.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  retired:
+    name: Legacy IndexNow (do not run)
+    if: false
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Use the Notify IndexNow hourly workflow on main."
