@@ -175,7 +175,7 @@ extension AgentPaneImageCopies {
     /// folder for its path in `folder`. An agent may write the SVG; outside the pane's `<img>` its
     /// script and links would count (media-safety R7). An `.svgz` goes out as on base: the rebuild
     /// reads plain XML only. The folder is named by 16 bytes of the path's hash, so no two paths share it.
-    static func handedOut(_ file: URL, in folder: URL) -> URL {
+    nonisolated static func handedOut(_ file: URL, in folder: URL) -> URL {
         guard !file.hasDirectoryPath, file.pathExtension.lowercased() == "svg" else { return file }
         let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)
