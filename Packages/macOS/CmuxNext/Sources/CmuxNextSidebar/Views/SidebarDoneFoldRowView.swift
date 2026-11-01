@@ -29,6 +29,8 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         switch row.key {
         case .showMore:
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
+        case let .doneFold(fold) where fold.kind == .archive:
+            name.setString(Strings.archiveSection(row.childCount))
         case let .doneFold(fold) where fold.kind == .archived:
             name.setString(Strings.archivedFold(row.childCount))
         default:

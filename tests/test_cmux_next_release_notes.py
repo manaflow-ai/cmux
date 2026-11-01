@@ -74,6 +74,24 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(notes["highlights"], [])
         self.assertEqual(notes["changes"], ["sidebar: tidy"])
 
+    def test_added_then_reverted_highlight_is_absent_from_notes_and_digest(self):
+        path = "release-notes/next/highlights/reverted-tray.md"
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Reverted tray\naction: palette.checkForUpdates | Try it\n\nA reverted feature.\n")
+        git(self.repo, "add", path)
+        git(self.repo, "commit", "-q", "-m", "feat: Add tray highlight")
+        git(self.repo, "revert", "--no-edit", "HEAD")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        # The checkout can contain an untracked stale copy; the source tree wins.
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Stale tray\n\nDo not publish this.\n")
+        for since in (self.base, ""):
+            with self.subTest(since=since):
+                notes = self.build(since)
+                self.assertEqual([h["id"] for h in notes["highlights"]], ["update-card"])
+                self.assertEqual([e["id"] for e in notes["whatsNew"]["entries"]], ["update-card"])
+                self.assert_valid_digest(notes["whatsNew"])
+
     def test_a_long_summary_line_without_a_clause_stays_out_of_the_digest(self):
         since = self.head
         git(self.repo, "commit", "-q", "--allow-empty", "-m",

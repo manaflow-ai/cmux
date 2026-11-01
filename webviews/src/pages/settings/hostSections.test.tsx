@@ -267,11 +267,11 @@ test("each Full access switch stays disabled for its own in-flight request, whic
   // One scalar "setting" id let the second row's click re-enable the first row, and let either
   // completion clear the other's guard, so a third click sent a duplicate request.
   const page = await renderPage({ path: "/settings/machines" });
-  const calls: { id: string; settle: () => void }[] = [];
+  const calls: { id: string; settle: () => void; reject: () => void }[] = [];
   const original = page.store.setDeviceFullAccess.bind(page.store);
   page.store.setDeviceFullAccess = (id, on) => {
     const done = Promise.withResolvers<void>();
-    calls.push({ id, settle: () => done.resolve() });
+    calls.push({ id, settle: () => done.resolve(), reject: () => done.reject(new Error("offline")) });
     return done.promise.then(() => original(id, on));
   };
   const toggle = (id: string) =>
@@ -292,6 +292,10 @@ test("each Full access switch stays disabled for its own in-flight request, whic
   await click("phone:p1");
   expect(calls.filter((call) => call.id === "phone:p1").length).toBe(1);
   await settleCall("phone:p1");
+  expect(toggle("phone:p1").disabled).toBe(false);
+  await click("phone:p1");
+  await act(async () => calls.at(-1)!.reject());
+  await settle();
   expect(toggle("phone:p1").disabled).toBe(false);
   page.unmount();
 });

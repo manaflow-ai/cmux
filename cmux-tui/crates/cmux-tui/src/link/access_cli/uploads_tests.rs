@@ -34,7 +34,11 @@ fn fake_machine(socket: &Path, root: &str) -> JoinHandle<Seen> {
     fake_machine_with_files(socket, root, BTreeMap::new())
 }
 
-fn fake_machine_with_files(socket: &Path, root: &str, files: BTreeMap<String, u64>) -> JoinHandle<Seen> {
+fn fake_machine_with_files(
+    socket: &Path,
+    root: &str,
+    files: BTreeMap<String, u64>,
+) -> JoinHandle<Seen> {
     let listener = UnixListener::bind(socket).unwrap();
     let root = root.to_string();
     std::thread::spawn(move || {
@@ -71,7 +75,8 @@ fn fake_machine_with_files(socket: &Path, root: &str, files: BTreeMap<String, u6
                 "fs.delete" => {
                     for path in request["paths"].as_array().unwrap() {
                         let path = path.as_str().unwrap();
-                        seen.files.retain(|at, _| at != path && !at.starts_with(&format!("{path}/")));
+                        seen.files
+                            .retain(|at, _| at != path && !at.starts_with(&format!("{path}/")));
                     }
                     Ok(json!({}))
                 }
@@ -127,10 +132,18 @@ fn a_sparse_file_over_1_gib_uploads_in_bounded_parts() {
 /// ids before opening the socket or reading the source.
 #[test]
 fn upload_cancel_refuses_ids_outside_its_random_directory() {
-    for id in ["", "../other", "/work", "ABCDEF0123456789abcdef0123456789", "0123456789abcdef0123456789abcde/"] {
+    for id in [
+        "",
+        "../other",
+        "/work",
+        "ABCDEF0123456789abcdef0123456789",
+        "0123456789abcdef0123456789abcde/",
+    ] {
         let failure = cancel(Path::new("/absent.sock"), "/work", id).unwrap_err();
         assert_eq!(failure.code, "upload_refused");
-        let failure = upload_with_id(Path::new("/absent.sock"), "/work", &["/absent.bin".into()], Some(id)).unwrap_err();
+        let failure =
+            upload_with_id(Path::new("/absent.sock"), "/work", &["/absent.bin".into()], Some(id))
+                .unwrap_err();
         assert_eq!(failure.code, "upload_refused");
     }
 }
