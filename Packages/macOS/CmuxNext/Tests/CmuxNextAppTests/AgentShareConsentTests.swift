@@ -32,6 +32,13 @@ struct AgentShareConsentTests {
         }
         func shareCopy(_ text: String) {}
         func shareNotice(_ message: String) {}
+        /// The owner's answer to the consent sheet; nil leaves the protocol's default (no).
+        var answer: Bool?
+        var asks: [AgentShareConsentAsk] = []
+        func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool {
+            asks.append(ask)
+            return answer ?? false
+        }
     }
 
     static func run(_ registry: ActionRegistry, origin: ActionOrigin, viaSocket: Bool = false) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
@@ -68,6 +75,45 @@ struct AgentShareConsentTests {
         AgentShareActions(host: host).bind(into: registry)
         let result = await Self.run(registry, origin: .user)
         #expect(host.tokenAsked, "the owner's own run did not reach the daemon")
+        #expect(host.asks.isEmpty, "the owner's own run asked them")
         if case .failure(let failure) = result { #expect(failure.code != "share.declined") }
+    }
+
+    /// The owner's Allow lets an agent's run go on to the daemon, and the sheet names the chat, how
+    /// long the link lasts and how many times it works.
+    @Test func theOwnersAllowLetsAnAgentsRunGoOn() async {
+        let f = AgentShareTests.fixture()
+        let host = Host(f.services)
+        host.answer = true
+        let registry = ActionRegistry.standard()
+        AgentShareActions(host: host).bind(into: registry)
+        var invocation = ActionInvocation(target: nil, arguments: ["surface": .int(1), "ttl": .string("2h"), "uses": .int(3)], origin: .mcp)
+        invocation.viaControlSocket = true
+        let run = registry.capturingRun { _ = registry.perform(AgentShareActions.share, invocation: invocation) }
+        let result = await run.results.first?.value
+        #expect(host.tokenAsked, "the owner allowed it, but the run stopped before the daemon")
+        if case .failure(let failure)? = result { #expect(failure.code != "share.declined") }
+        #expect(host.asks == [AgentShareConsentAsk(chat: "Fix the build", ttlSecs: 7200, uses: 3)])
+        let ask = AgentShareConsentAsk(chat: "Fix the build", ttlSecs: nil, uses: nil)
+        #expect(ask.title.contains("Fix the build"))
+        #expect(ask.lines.count == 2)
+    }
+
+    /// The sheet is a cmux dialog whose Return presses nothing: Allow is a deliberate click.
+    @Test func theSheetsAllowIsNotTheReturnKey() {
+        let spec = AgentShareConsentSheet.spec(AgentShareConsentAsk(chat: "Fix the build", ttlSecs: nil, uses: nil))
+        #expect(spec.buttons.map(\.id) == ["cancel", "allow"])
+        #expect(spec.buttons.allSatisfy { $0.role != .default })
+    }
+
+    /// A run the agent made from its own chat asks, even when it claims the `user` origin.
+    @Test func anAgentsOwnChatRunAsks() {
+        var invocation = ActionInvocation(target: nil, arguments: [:], origin: .user)
+        #expect(AgentShareActions.ownerStarted(invocation))
+        invocation.callerAgentSession = AgentShareTests.session
+        #expect(!AgentShareActions.ownerStarted(invocation))
+        invocation.callerAgentSession = nil
+        invocation.viaControlSocket = true
+        #expect(!AgentShareActions.ownerStarted(invocation))
     }
 }

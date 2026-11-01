@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDesign
 
 // Share with Guest (design chat-multiplayer.md 6): one-line forwards to the App's owners.
 extension AppServices: AgentShareHost {
@@ -14,4 +16,40 @@ extension AppServices: AgentShareHost {
     func shareOwnerToken() async -> String? { try? await cloud.installIdentity.installToken() }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
+    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask) }
+}
+
+/// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux
+/// dialog, drawn natively above every page so no script can answer it. Unanswered, it closes as a
+/// decline before the caller's person deadline, so the waiting CLI or agent always gets an answer.
+@MainActor
+enum AgentShareConsentSheet {
+    static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
+
+    static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: ask.title, lines: ask.lines,
+                       buttons: [.cancel(ask.declineTitle), CmuxDialogButton(id: "allow", title: ask.allowTitle)],
+                       identifier: "cmux.dialog.agentShareConsent")
+    }
+
+    static func ask(_ ask: AgentShareConsentAsk, center: CmuxDialogCenter = .shared, within limit: Duration = answerWithin) async -> Bool {
+        let timeout = Timeout()
+        return await withCheckedContinuation { continuation in
+            // The center calls this once: the owner's press, or the dismissal below.
+            let id = center.present(spec(ask), in: .app) { answer in
+                timeout.task?.cancel()
+                continuation.resume(returning: answer.button == "allow")
+            }
+            // task-owner: one-shot; cancelled by the answer, else ends the dialog at `limit` as a decline.
+            timeout.task = Task { @MainActor in
+                guard (try? await Task.sleep(for: limit)) != nil else { return }
+                center.dismiss(id)
+            }
+        }
+    }
+
+    /// The unanswered sheet's timer, cancelled when the owner answers.
+    @MainActor private final class Timeout {
+        var task: Task<Void, Never>?
+    }
 }

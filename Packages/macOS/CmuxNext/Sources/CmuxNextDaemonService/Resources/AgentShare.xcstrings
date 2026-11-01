@@ -2620,6 +2620,419 @@
           }
         }
       }
+    },
+    "agentShare.consent.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share “%@” with a guest?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ mit einem Gast teilen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager « %@ » avec un invité ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد مشاركة “%@” مع ضيف؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Compartir «%@» con un invitado?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要與訪客分享「%@」嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要与访客共享“%@”吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’을(를) 게스트와 공유할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をゲストと共有しますか？"
+          }
+        }
+      }
+    },
+    "agentShare.consent.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent or script asked for a guest link to this chat. Anyone with the link sees the chat as you do, including command output and the agent’s reasoning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent oder Skript hat einen Gastlink zu diesem Chat angefordert. Wer den Link hat, sieht den Chat wie du, einschließlich Befehlsausgaben und der Überlegungen des Agenten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent ou un script a demandé un lien invité vers cette conversation. Toute personne disposant du lien la voit comme vous, y compris la sortie des commandes et le raisonnement de l’agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب وكيل أو برنامج نصي رابط ضيف لهذه الدردشة. يرى أي شخص لديه الرابط الدردشة كما تراها، بما في ذلك مخرجات الأوامر وتفكير الوكيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente o un script pidió un enlace de invitado a este chat. Cualquiera con el enlace ve el chat como tú, incluida la salida de los comandos y el razonamiento del agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有代理程式或指令碼要求此聊天的訪客連結。任何擁有連結的人都會看到和你一樣的聊天內容，包括命令輸出和代理程式的推理。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有代理或脚本请求此聊天的访客链接。任何拥有链接的人都会看到与你相同的聊天内容，包括命令输出和代理的推理过程。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트나 스크립트가 이 채팅의 게스트 링크를 요청했습니다. 링크가 있는 사람은 명령 출력과 에이전트의 추론을 포함해 채팅을 나와 똑같이 볼 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントまたはスクリプトがこのチャットのゲストリンクを求めました。リンクを持つ人は、コマンドの出力やエージェントの推論を含め、あなたと同じようにチャットを見られます。"
+          }
+        }
+      }
+    },
+    "agentShare.consent.termsOnce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link lasts %@ and works once."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link gilt %@ und funktioniert einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien dure %@ et fonctionne une fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقى الرابط صالحًا لمدة %@ ويعمل مرة واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace dura %@ y funciona una vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結有效期為 %@，可使用一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接有效期为 %@，可使用一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크는 %@ 동안 유효하며 한 번 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの有効期間は %@ で、1 回使えます。"
+          }
+        }
+      }
+    },
+    "agentShare.consent.terms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link lasts %1$@ and works %2$lld times."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link gilt %1$@ und funktioniert %2$lld-mal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien dure %1$@ et fonctionne %2$lld fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقى الرابط صالحًا لمدة %1$@ ويعمل %2$lld مرات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace dura %1$@ y funciona %2$lld veces."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結有效期為 %1$@，可使用 %2$lld 次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接有效期为 %1$@，可使用 %2$lld 次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크는 %1$@ 동안 유효하며 %2$lld번 사용할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの有効期間は %1$@ で、%2$lld 回使えます。"
+          }
+        }
+      }
+    },
+    "agentShare.consent.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make Link"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer le lien"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنشاء الرابط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear enlace"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크 만들기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを作成"
+          }
+        }
+      }
+    },
+    "agentShare.consent.decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Share"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht teilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne pas partager"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدم المشاركة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No compartir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不要分享"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不共享"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 안 함"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有しない"
+          }
+        }
+      }
+    },
+    "agentShare.declined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat’s owner didn’t allow a guest link, so none was made."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Person, der der Chat gehört, hat keinen Gastlink erlaubt, daher wurde keiner erstellt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le propriétaire de la conversation n’a pas autorisé de lien invité ; aucun n’a été créé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يسمح مالك الدردشة برابط ضيف، لذا لم يُنشأ أي رابط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El dueño del chat no permitió un enlace de invitado, así que no se creó ninguno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天的擁有者未允許訪客連結，因此沒有建立連結。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天的所有者未允许访客链接，因此没有创建链接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 소유자가 게스트 링크를 허용하지 않아 링크를 만들지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの所有者がゲストリンクを許可しなかったため、リンクは作成されませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

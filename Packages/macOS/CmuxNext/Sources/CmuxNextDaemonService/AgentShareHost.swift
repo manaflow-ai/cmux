@@ -25,4 +25,35 @@ public protocol AgentShareHost: AnyObject {
     func shareCopy(_ text: String)
     /// Shows a person's run `message` as a notice in the active window.
     func shareNotice(_ message: String)
+    /// Asks the owner in the app whether a run they did not start (an agent's, a script's, the CLI's)
+    /// may make a guest link to `ask.chat` (#30263); answers whether they allowed it. A host that
+    /// cannot ask answers no.
+    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool
+}
+
+public extension AgentShareHost {
+    /// Fail closed: a host with no consent sheet never lets automation make a link.
+    func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
+}
+
+/// What the owner is asked before a run they did not start makes a guest link: the chat, how long the
+/// link lasts and how many times it works. Its sentences are the consent sheet's (AgentShare.xcstrings).
+public struct AgentShareConsentAsk: Sendable, Hashable {
+    /// The chat's tab title.
+    public var chat: String
+    /// The link's lifetime in seconds; nil is the daemon's default (24 hours).
+    public var ttlSecs: UInt64?
+    /// How many times the link works; nil is the daemon's default (once).
+    public var uses: UInt32?
+
+    public init(chat: String, ttlSecs: UInt64?, uses: UInt32?) {
+        self.chat = chat
+        self.ttlSecs = ttlSecs
+        self.uses = uses
+    }
+
+    public var title: String { AgentShareStrings.consentTitle(chat) }
+    public var lines: [String] { [AgentShareStrings.consentDetail, AgentShareStrings.consentTerms(ttlSecs: ttlSecs ?? 86400, uses: uses ?? 1)] }
+    public var allowTitle: String { AgentShareStrings.consentAllow }
+    public var declineTitle: String { AgentShareStrings.consentDecline }
 }
