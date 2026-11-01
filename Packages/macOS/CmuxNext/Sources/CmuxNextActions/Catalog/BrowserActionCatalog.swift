@@ -318,6 +318,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser toggle-word-wrap"
             ),
+            // The Monaco editor's minimap (`editor.minimap.enabled`), as VS Code's Toggle Minimap; the
+            // page toolbar's Minimap button writes the same setting. No default key: a default needs a design call.
+            ActionDescriptor(
+                id: "toggleFileEditorMinimap",
+                title: String(localized: "action.toggleFileEditorMinimap", defaultValue: "Toggle Editor Minimap", bundle: .module),
+                keywords: ["file", "editor", "code", "minimap", "overview", "vscode", "monaco"],
+                category: .browser, symbol: "sidebar.squares.right", surfaces: [.keyboard], requires: [.codeEditorFocused],
+                targets: [.pane], cliName: "browser toggle-minimap"
+            ),
             ActionDescriptor(
                 id: "filePreviewOpenWith",
                 title: String(localized: "action.filePreviewOpenWith", defaultValue: "Open File With…", bundle: .module),
