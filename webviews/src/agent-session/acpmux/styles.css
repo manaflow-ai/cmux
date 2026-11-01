@@ -298,6 +298,11 @@
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* Details: acpmux's own words behind the plain line (hostLine.ts), a quiet text button; the text it
+   opens sits under the line at the same inset, never red. */
+.acpmux-host-line .acpmux-host-line-details{padding:0 4px;background:transparent;color:var(--agent-muted)}
+.acpmux-host-line .acpmux-host-line-details:hover:not(:disabled){background:transparent;color:var(--agent-text)}
+.acpmux-host-line-detail{margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
 .acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
