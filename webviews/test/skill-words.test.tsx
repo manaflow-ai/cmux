@@ -146,3 +146,42 @@ test("a queued prompt draws its skill words as the bubble does", async () => {
   await act(async () => queue.unmount());
   box.remove();
 });
+
+test("never inside code: tilde fences, double-backtick spans with a backtick inside, inline and fenced code", async () => {
+  // Literal prompt (a tilde fence is not Markdown the bubble renders): the shared code reading decides.
+  let words = await bubble("~~~\nuse /review-pr\n~~~\nthen /review-pr");
+  expect(words.map((word) => word.textContent)).toEqual(["/review-pr"]);
+  expect(host.querySelector(".cv-user__bubble")!.textContent).toContain("use /review-pr");
+  // Markdown prompt: a skill that also sits in code is left plain; another outside code is lit.
+  words = await bubble("use `` a ` /review-pr `` now\n- and /$emil-design-vocabulary then");
+  expect(words.map((word) => word.textContent)).toEqual(["/emil-design-vocabulary"]);
+  // A tilde fence in a Markdown prompt: the renderer draws it as prose, the skill stays plain.
+  words = await bubble("~~~\n/review-pr\n~~~\n- then /review-pr");
+  expect(words.map((word) => word.textContent)).toEqual(["/review-pr"]);
+  expect(host.querySelectorAll(".cv-skill-word").length).toBe(1);
+
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
+  const box = dom.window.document.createElement("div");
+  dom.window.document.body.append(box);
+  const queue = createRoot(box);
+  await act(async () =>
+    queue.render(
+      <ComposerQueue
+        queue={[
+          { id: "q-1", prompt: "use `/review-pr` and\n```\n/review-pr\n```\nthen /review-pr" },
+          { id: "q-2", prompt: "~~~\n/review-pr\n~~~ and `` a ` /review-pr ``" },
+        ]}
+        chat="c"
+        t={((key: string) => key) as never}
+        commands={COMMANDS}
+      />,
+    ),
+  );
+  const lit = (id: string) =>
+    [...box.querySelectorAll(`[data-prompt-id="${id}"] .cv-skill-word`)].map((word) => word.textContent);
+  expect(lit("q-1")).toEqual(["/review-pr"]);
+  expect(lit("q-2")).toEqual([]);
+  await act(async () => queue.unmount());
+  box.remove();
+});

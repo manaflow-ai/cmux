@@ -74,32 +74,67 @@ const catalogOf = (commands: readonly SlashCommand[] | SkillCatalog | undefined)
   commands && !Array.isArray(commands) ? (commands as SkillCatalog) : skillCatalog(commands as SlashCommand[]);
 
 /// A fenced code block's opening line at a line start: up to three spaces, then three or more
-/// backticks or tildes.
-const FENCE_OPEN = /( {0,3})(`{3,}|~{3,})[^\n]*/y;
+/// backticks or tildes, to the line's end (`\n`, `\r\n` or a lone `\r`).
+const FENCE_OPEN = /( {0,3})(`{3,}|~{3,})[^\r\n]*/y;
 
-/// `text` with each `/word` in a command position (the text's start, or after a space, a line
-/// break or an attachment, running to the next) that `visit` rewrites replaced, the rest as it is.
-/// Markdown code is never read: a fenced block (to its closing fence, or the end) and an inline code
-/// span of any backtick run (closed by a run of the same length; an unclosed run is literal). One
-/// pass: a run length with no closer further on is remembered, so no span is searched for twice.
-function mapCommandWords(text: string, visit: (word: string) => string | undefined): string {
-  if (!text.includes("/")) return text;
-  let out = "";
-  let copied = 0;
+/// A `/word` of a prompt in a command position: where it starts and ends in the text, the word
+/// without its `/`, and whether it sits in Markdown code. `region` says which code: a fence of
+/// backticks (`loose` when its info string holds a backtick, which the transcript's renderer opens no
+/// fence for), of tildes, or an inline span of one backtick or of more.
+export type CommandWord = {
+  start: number;
+  end: number;
+  word: string;
+  code: boolean;
+  region?: "backticks" | "loose" | "tildes" | "span" | "spans";
+};
+
+/// A `/word` inside a stretch of code, for `commandWords`' `inCode`.
+const CODE_WORD = /(^|[\s\uFFFC`])\/([^\s\uFFFC`]+)(?=[\s\uFFFC`]|$)/g;
+
+/// The `/word`s of `text` in a command position (the text's start, or after a space, a line break
+/// or an attachment, running to the next), in order. The one reading of Markdown code that the
+/// send mapping, the display mapping and the skill highlights share: a fenced block (backticks or
+/// tildes, to its closing fence after `\n`, `\r\n` or `\r`, or the end) and an inline code span of
+/// any backtick run (closed by a run of the same length; an unclosed run is literal) are code. Their
+/// words come only with `inCode` (`code` true). One pass: a run length with no closer further on is
+/// remembered, so no span is searched for twice.
+export function commandWords(text: string, inCode = false): CommandWord[] {
+  const words: CommandWord[] = [];
+  if (!text.includes("/")) return words;
+  const codeWords = (from: number, to: number, region: NonNullable<CommandWord["region"]>) => {
+    if (!inCode || to <= from) return;
+    for (const found of text.slice(from, to).matchAll(CODE_WORD)) {
+      const start = from + found.index! + found[1]!.length;
+      words.push({ start, end: start + found[2]!.length + 1, word: found[2]!, code: true, region });
+    }
+  };
   const unclosed = new Set<number>();
   const length = text.length;
   let at = 0;
   while (at < length) {
     const char = text[at]!;
-    if ((at === 0 || text[at - 1] === "\n") && (char === " " || char === "`" || char === "~")) {
+    const lineStart = at === 0 || text[at - 1] === "\n" || text[at - 1] === "\r";
+    if (lineStart && (char === " " || char === "`" || char === "~")) {
       FENCE_OPEN.lastIndex = at;
       const fence = FENCE_OPEN.exec(text);
       if (fence) {
         const mark = fence[2]!;
-        const close = new RegExp(`\\n {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*(?=\\n|$)`, "g");
+        const close = new RegExp(
+          `(?:\\r\\n|\\r|\\n) {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*(?=\\r|\\n|$)`,
+          "g",
+        );
         close.lastIndex = at + fence[0].length;
         const found = close.exec(text);
-        at = found ? found.index + found[0].length : length;
+        const end = found ? found.index + found[0].length : length;
+        const region =
+          mark[0] === "~"
+            ? "tildes"
+            : fence[0].slice(fence[1]!.length + mark.length).includes("`")
+              ? "loose"
+              : "backticks";
+        codeWords(at + fence[0].length, found ? found.index : length, region);
+        at = end;
         continue;
       }
     }
@@ -119,6 +154,7 @@ function mapCommandWords(text: string, visit: (word: string) => string | undefin
         let stop = next;
         while (text[stop] === "`") stop++;
         if (stop - next === run && text[next - 1] !== "`") {
+          codeWords(end, next, run === 1 ? "span" : "spans");
           at = stop;
           break;
         }
@@ -129,17 +165,26 @@ function mapCommandWords(text: string, visit: (word: string) => string | undefin
     if (char === "/" && (at === 0 || isSlashBoundary(text[at - 1]))) {
       let end = at + 1;
       while (end < length && !isSlashBoundary(text[end]) && text[end] !== "`") end++;
-      if (end > at + 1 && (end === length || isSlashBoundary(text[end]))) {
-        const written = visit(text.slice(at + 1, end));
-        if (written !== undefined) {
-          out += text.slice(copied, at) + written;
-          copied = end;
-        }
-      }
+      if (end > at + 1 && (end === length || isSlashBoundary(text[end])))
+        words.push({ start: at, end, word: text.slice(at + 1, end), code: false });
       at = end;
       continue;
     }
     at++;
+  }
+  return words;
+}
+
+/// `text` with each `/word` outside code (`commandWords`) that `visit` rewrites replaced, the rest
+/// as it is.
+function mapCommandWords(text: string, visit: (word: string) => string | undefined): string {
+  let out = "";
+  let copied = 0;
+  for (const { start, end, word } of commandWords(text)) {
+    const written = visit(word);
+    if (written === undefined) continue;
+    out += text.slice(copied, start) + written;
+    copied = end;
   }
   return copied ? out + text.slice(copied) : text;
 }

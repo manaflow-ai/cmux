@@ -28,7 +28,7 @@ import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
-import { SkillWordsContext } from "./skillWords";
+import { guardCodeSkills, SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
 
 export function PromptText({
@@ -240,10 +240,14 @@ export function PromptTyped({
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
+  const markdown = !plain && !isHugePrompt(text) && isPromptMarkdown(text);
+  // Drawn as Markdown, a skill in code the renderer would read as prose is kept from lighting
+  // (guardCodeSkills), so the highlights follow the code reading send uses.
+  const source = useMemo(() => (markdown ? guardCodeSkills(shown, skills) : shown), [markdown, shown, skills]);
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
-  return isPromptMarkdown(text) ? (
+  return markdown ? (
     <Markdown className="cv-user__markdown" thumbnails={false} skills={skills}>
-      {shown}
+      {source}
     </Markdown>
   ) : (
     <span className="cv-user__typed">

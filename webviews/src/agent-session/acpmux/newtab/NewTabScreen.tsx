@@ -776,6 +776,8 @@ export function NewTabScreen(props: Props) {
   const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
+  // A draft cleared (emptied, sent, replaced by an empty one) has no picks: the next starts fresh.
+  if (!text.trim() && pickedSkills.current.size) pickedSkills.current = new Set();
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);

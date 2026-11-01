@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyCommand,
   commandSplice,
+  commandWords,
   matchCommands,
   shownName,
   pickedSkillsOf,
@@ -274,5 +275,28 @@ describe("a sent prompt reads its Codex skills as typed", () => {
     expect(withSkillDollars("use /emil-color", both, new Set(["emil-color"]))).toBe("use /$emil-color");
     const sent = "use /$emil-color";
     expect(withSkillDollars(withoutSkillDollars(sent, both), both, pickedSkillsOf(sent, both))).toBe(sent);
+  });
+});
+
+describe("the code reading send, display and highlights share", () => {
+  const codex: SlashCommand[] = [{ name: "$emil-color", description: "", source: "skill" }];
+
+  test("a fence closed after `\r\n` or a lone `\r` ends there, the text kept as it is", () => {
+    for (const eol of ["\r\n", "\r"]) {
+      const typed = `\`\`\`${eol}/emil-color${eol}\`\`\`${eol}then /emil-color`;
+      expect(withSkillDollars(typed, codex)).toBe(`\`\`\`${eol}/emil-color${eol}\`\`\`${eol}then /$emil-color`);
+      const sent = `~~~${eol}/$emil-color${eol}~~~${eol}then /$emil-color`;
+      expect(withoutSkillDollars(sent, codex)).toBe(`~~~${eol}/$emil-color${eol}~~~${eol}then /emil-color`);
+    }
+  });
+
+  test("commandWords marks words in code only when asked", () => {
+    const text = "use `` a ` /x `` and\n~~~\n/y\n~~~\n/z";
+    expect(commandWords(text).map((word) => word.word)).toEqual(["z"]);
+    expect(commandWords(text, true).map((word) => [word.word, word.code])).toEqual([
+      ["x", true],
+      ["y", true],
+      ["z", false],
+    ]);
   });
 });

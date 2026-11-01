@@ -291,3 +291,23 @@ test("a skill word in the prompt carries the skill's description as its tooltip;
   ]);
   expect(tokens[1]!.getAttribute("aria-description")).toBe("Colour in CSS");
 });
+
+test("a recalled prompt brings its own skill picks: an older one without the skill sends as typed", async () => {
+  const snapshot = codexChat();
+  const both: AcpmuxSnapshot = {
+    ...snapshot,
+    commands: [{ name: "emil-color", description: "", source: "agent" }, ...snapshot.commands!],
+    rows: [user("old /emil-color", 3), user("new /$emil-color", 2)],
+  };
+  const { field, prompt, sent } = await composer(both, "");
+  const up = async () =>
+    act(async () => {
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    });
+  await up();
+  expect(prompt.plainText()).toBe("new /emil-color");
+  await up();
+  expect(prompt.plainText()).toBe("old /emil-color");
+  await press(field, "Enter");
+  expect(sent).toEqual(["old /emil-color"]);
+});

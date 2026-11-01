@@ -440,6 +440,31 @@ test("a Codex skill typed without its `$` goes to the agent as `/$name`, other t
   expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
 });
 
+test("a skill picked into a draft that is then cleared does not reach the next one", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], {
+          commands: [
+            { name: "$emil-color", description: "", source: "skill" },
+            { name: "emil-color", description: "", source: "agent" },
+          ],
+        })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  const field = await typePrompt("/emil-c");
+  await press(field, "Enter");
+  expect(promptValue()).toBe("/emil-color ");
+  await typePrompt("");
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /emil-color now");
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];

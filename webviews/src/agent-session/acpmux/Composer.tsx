@@ -826,8 +826,11 @@ export function Composer({
       },
       restore(restoredText, restoredAttachments) {
         // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
-        // as `/$name`: it is typed `/name` here, and send writes the `$` again.
-        for (const name of pickedSkillsOf(restoredText, commandsNow.current)) pickedSkills.current.add(name);
+        // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
+        // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
+        const picks = pickedSkillsOf(restoredText, commandsNow.current);
+        if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
+        else for (const name of picks) pickedSkills.current.add(name);
         const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
@@ -1246,8 +1249,9 @@ export function Composer({
   const notePicked = (command: SlashCommand) => {
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
   };
+  /// A recalled prompt replaces the draft: its skills are the draft's picks, the old ones gone.
   const notePickedIn = (sent: string) => {
-    for (const name of pickedSkillsOf(sent, commands)) pickedSkills.current.add(name);
+    pickedSkills.current = pickedSkillsOf(sent, commands);
   };
   // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
@@ -1728,8 +1732,7 @@ export function Composer({
         if (recalled === null) return;
         pendingCaret.current = recalled.length;
         edit(recalled, recalled.length);
-        const raw = prompts.recalledRaw();
-        if (raw) notePickedIn(raw);
+        notePickedIn(prompts.recalledRaw() ?? "");
         return;
       }
     }
