@@ -4,6 +4,18 @@ import { makeHarness } from "../support/harness.ts";
 import { Schema } from "effect";
 import { Mesh } from "../../src/api/mesh.ts";
 
+it.each(["service", "selected"])("refuses unkeyed legacy mesh creation outside a %s credential's resource scope", async (kind) => {
+  const h = await makeHarness();
+  try {
+    const key = kind === "service"
+      ? await h.addServiceKey({ scopes: ["mesh:write"], labels: { role: "cloud" } })
+      : await h.addKey("team_alpha", ["mesh:write"], { allowlist: [] });
+    const reply = await h.request("/v1/meshes", { ...bearer(key), "x-cmux-team-id": "team_alpha" }, { method: "POST", body: {} });
+    expect(reply.status).toBe(403);
+    expect(h.upstreamRequests).toHaveLength(0);
+  } finally { await h.dispose(); }
+});
+
 it("allows the Cloud service to create and replay only a mesh carrying its required labels", async () => {
   const h = await makeHarness();
   try {
