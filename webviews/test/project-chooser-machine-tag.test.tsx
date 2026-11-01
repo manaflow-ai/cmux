@@ -69,7 +69,9 @@ test("each machine's projects carry that machine's own colored computer; this Ma
     { cwd: "/home/you/src/relay", label: "relay", peer: "big-red", host: "big-red" },
     { cwd: "/home/you/src/ml-train", label: "ml-train", peer: "gpu-box", host: "gpu-box" },
   ];
-  await act(async () => root!.render(<ProjectChooser projects={projects} icon={null} onPick={() => {}} side="bottom" />));
+  await act(async () =>
+    root!.render(<ProjectChooser projects={projects} icon={null} onPick={() => {}} side="bottom" />),
+  );
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   const tags = [...document.querySelectorAll<HTMLElement>(".acpmux-project-host")];
   expect(tags.map((tag) => tag.textContent)).toEqual(["big-red", "gpu-box"]);

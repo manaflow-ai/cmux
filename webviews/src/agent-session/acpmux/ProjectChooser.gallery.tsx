@@ -237,7 +237,7 @@ export default componentEntry<Props>({
       },
     },
     "machine-tags": {
-      note: 'Projects on three machines (Leo, "we can have them be delineated rather than just this is a computer symbol"): each other machine\'s projects carry its computer in that machine\'s own color and its name, and this Mac\'s carry none.',
+      note: "Projects on three machines (Leo, \"we can have them be delineated rather than just this is a computer symbol\"): each other machine's projects carry its computer in that machine's own color and its name, and this Mac's carry none.",
       props: {
         projects: [
           { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
