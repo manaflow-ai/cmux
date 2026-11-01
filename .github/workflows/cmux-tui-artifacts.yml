@@ -305,21 +305,9 @@ jobs:
           SNAPSHOT_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
-      # The artifact daemon is Linux-only. Read the approved GCP runner group
-      # through the routing App and emit its label only when a live member is
-      # present; an empty output keeps the measured Blacksmith fallback.
-      - name: Mint the Linux fleet routing token
-        id: linux-route-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-
+      # The artifact daemon is Linux-only. Reuse the existing routing App token
+      # and emit its label only when a live member is present; an empty output
+      # keeps the measured Blacksmith fallback.
       - name: Pick a live Linux runner for the artifact daemon
         id: linux-placement
         continue-on-error: true
@@ -332,7 +320,7 @@ jobs:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          ROUTE_TOKEN: ${{ steps.linux-route-token.outputs.token || steps.read-token.outputs.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.read-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ github.token }}
           SNAPSHOT_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
         run: python3 scripts/ci/portable_job_placement.py
