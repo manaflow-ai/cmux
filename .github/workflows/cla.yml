@@ -39,7 +39,7 @@ jobs:
     # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
     # owned host, so either provider can carry this check while the other is
     # down. validate-cla-policy.rb pins these exact bytes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
@@ -61,7 +61,7 @@ jobs:
       # Blacksmith reports itself as self-hosted. Refuse any runner that is
       # neither GitHub-hosted nor a Blacksmith VM for the labels above.
       - name: Require GitHub-hosted or Blacksmith runner
-        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-8vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
         run: |
           set -euo pipefail
           echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
