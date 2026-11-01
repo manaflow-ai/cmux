@@ -1,0 +1,140 @@
+@testable import CmuxNextApp
+import CmuxNextCompat
+import CmuxNextDaemon
+import CmuxNextHibernation
+import CmuxNextSettings
+import Foundation
+import Testing
+
+/// Hidden-space hibernation (leo-workspace design/spaces.md "Hibernation and the perf plan", cmux
+/// plans/cmux-next/workspace-hibernation-DESIGN.md): a space no window shows is hidden, and its idle
+/// workspaces hibernate on the shorter hidden-space clock with the same exemptions; a workspace of a
+/// shown space keeps the normal clock.
+@Suite struct HiddenSpaceHibernationTests {
+    nonisolated static let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    nonisolated static func ws(_ id: String, idleMinutes: Double?, hiddenSpace: Bool, shown: Bool = false, pinned: Bool = false,
+                               running: Bool = false, attention: Bool = false, keptAwake: Bool = false,
+                               hibernated: Bool = false) -> WorkspaceHibernationPlanner.Candidate {
+        WorkspaceHibernationPlanner.Candidate(
+            workspace: id, lastActive: idleMinutes.map { now.addingTimeInterval(-$0 * 60) }, shown: shown, pinned: pinned,
+            running: running, needsAttention: attention, keptAwake: keptAwake, hibernated: hibernated, inHiddenSpace: hiddenSpace)
+    }
+
+    nonisolated static func plan(_ list: [WorkspaceHibernationPlanner.Candidate], minutes: Double = 60, hiddenSpaceMinutes: Double = 15,
+                                 enabled: Bool = true, pressure: MemoryPressureLevel = .normal) -> WorkspaceHibernationPlanner.Plan {
+        WorkspaceHibernationPlanner().plan(
+            list, policy: .init(enabled: enabled, idleMinutes: minutes, hiddenSpaceIdleMinutes: hiddenSpaceMinutes),
+            pressure: pressure, now: now)
+    }
+
+    @Test func aHiddenSpaceWorkspacePastTheHiddenThresholdHibernatesAShownSpaceOneDoesNot() {
+        let list = [Self.ws("hidden-space", idleMinutes: 20, hiddenSpace: true), Self.ws("shown-space", idleMinutes: 20, hiddenSpace: false)]
+        #expect(Self.plan(list).due == ["hidden-space"])
+        // Both clocks still run: the shown space's workspace goes at the normal setting.
+        #expect(Self.plan(list, minutes: 15).due.sorted() == ["hidden-space", "shown-space"])
+        // Not yet past the hidden threshold.
+        #expect(Self.plan([Self.ws("fresh", idleMinutes: 10, hiddenSpace: true)]).due.isEmpty)
+    }
+
+    @Test func theExemptionsHoldInAHiddenSpace() {
+        let list = [
+            Self.ws("shown", idleMinutes: 999, hiddenSpace: true, shown: true),
+            Self.ws("pinned", idleMinutes: 999, hiddenSpace: true, pinned: true),
+            Self.ws("running", idleMinutes: 999, hiddenSpace: true, running: true),
+            Self.ws("asks", idleMinutes: 999, hiddenSpace: true, attention: true),
+            Self.ws("kept", idleMinutes: 999, hiddenSpace: true, keptAwake: true),
+            Self.ws("asleep", idleMinutes: 999, hiddenSpace: true, hibernated: true),
+            Self.ws("never-seen", idleMinutes: nil, hiddenSpace: true),
+        ]
+        #expect(Self.plan(list).due.isEmpty)
+        #expect(Self.plan(list, pressure: .critical).due.isEmpty)
+        #expect(Self.plan([Self.ws("old", idleMinutes: 999, hiddenSpace: true)], enabled: false) == WorkspaceHibernationPlanner.Plan())
+    }
+
+    @Test func theShorterOfTheTwoSettingsAndMemoryPressureWin() {
+        // A hidden-space setting longer than the normal one never keeps a hidden space's workspace longer.
+        #expect(Self.plan([Self.ws("a", idleMinutes: 40, hiddenSpace: true)], minutes: 30, hiddenSpaceMinutes: 120).due == ["a"])
+        // Critical pressure shortens the hidden clock too.
+        #expect(Self.plan([Self.ws("a", idleMinutes: 2, hiddenSpace: true)], pressure: .critical).due == ["a"])
+    }
+
+    @Test func theNextCheckIsTheHiddenSpaceDeadline() throws {
+        let plan = Self.plan([Self.ws("shown-space", idleMinutes: 10, hiddenSpace: false), Self.ws("hidden-space", idleMinutes: 10, hiddenSpace: true)])
+        #expect(plan.due.isEmpty)
+        #expect(try #require(plan.nextCheck) == Self.now.addingTimeInterval(5 * 60))
+    }
+
+    @Test func cmuxJSONSetsTheHiddenSpaceMinutes() throws {
+        func parse(_ json: String) throws -> (WorkspaceHibernationSettings, Int) {
+            let snapshot = CmuxConfigSnapshot.parse(try JSONValue.parse(Data(json.utf8)), validDensities: [], validMetrics: [])
+            return (snapshot.workspaceHibernation, snapshot.diagnostics.filter { $0.path.hasPrefix("workspaces.hibernation") }.count)
+        }
+        let defaults = try parse("{}")
+        #expect(defaults.0.hiddenSpaceMinutes == WorkspaceHibernationSettings.hiddenSpaceMinutesDefault && defaults.1 == 0)
+        #expect(WorkspaceHibernationPlanner.Policy(defaults.0).hiddenSpaceIdleMinutes == WorkspaceHibernationSettings.hiddenSpaceMinutesDefault)
+        let set = try parse(#"{"workspaces":{"hibernation":{"hiddenSpaceMinutes":30}}}"#)
+        #expect(set.0.hiddenSpaceMinutes == 30 && set.1 == 0)
+        let bad = try parse(#"{"workspaces":{"hibernation":{"hiddenSpaceMinutes":1}}}"#)
+        #expect(bad.0.hiddenSpaceMinutes == 5 && bad.1 == 1)
+    }
+
+    @Test func aSpaceIsHiddenWhenNoWindowShowsAnyRoomOfTheWorkspace() {
+        let work: ProfileID = "work", play: ProfileID = "play"
+        let pinned = RoomMembership.Workspace(session: "home", key: "pinned-to-work")
+        let followed = RoomMembership.Workspace(session: "laptop", key: "w1")
+        let loose = RoomMembership.Workspace(session: "other", key: "w2")
+        let membership = RoomMembership(follows: [work: ["laptop"], play: ["laptop"]], pins: ["home": ["pinned-to-work": work]])
+        #expect(membership.isHidden(pinned, shown: [play, .defaultProfile]))
+        #expect(!membership.isHidden(pinned, shown: [work]))
+        // Followed by two spaces: hidden only when neither shows.
+        #expect(!membership.isHidden(followed, shown: [play]))
+        #expect(membership.isHidden(followed, shown: [.defaultProfile]))
+        // In no space: it shows in default.
+        #expect(!membership.isHidden(loose, shown: [.defaultProfile]))
+        #expect(membership.isHidden(loose, shown: [work]))
+    }
+}
+
+/// The coordinator hands the hidden-space flag from its host to the planner.
+@MainActor @Suite struct HiddenSpaceHibernationCoordinatorTests {
+    final class Host: WorkspaceHibernationHost {
+        var residents: [WorkspaceHibernationResident]
+        var policy = WorkspaceHibernationPlanner.Policy(enabled: true, idleMinutes: 60, hiddenSpaceIdleMinutes: 15)
+        var hibernatedCalls: [String] = []
+        init(_ residents: [WorkspaceHibernationResident]) { self.residents = residents }
+        func hibernationResidents() -> [WorkspaceHibernationResident] { residents }
+        func hibernationShownWorkspaces() -> Set<String> { [] }
+        func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { policy }
+        func hibernate(workspace: String) {
+            hibernatedCalls.append(workspace)
+            residents.removeAll { $0.workspace == workspace }
+        }
+    }
+
+    final class Deadline: WorkspaceHibernationDeadline, @unchecked Sendable { // test-only; touched on the main actor alone
+        var isScheduled = false
+        func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) { isScheduled = true }
+        func cancel() { isScheduled = false }
+    }
+
+    final class Clock {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+    }
+
+    @Test func aHiddenSpacesIdleWorkspaceHibernatesOnTheHiddenClock() {
+        let clock = Clock()
+        let host = Host([WorkspaceHibernationResident(workspace: "hidden", inHiddenSpace: true),
+                         WorkspaceHibernationResident(workspace: "shown-space")])
+        let defaults = UserDefaults(suiteName: "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)")!
+        let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
+                                               now: { clock.now })
+        hibernation.pass() // first sight starts both clocks
+        clock.now = clock.now.addingTimeInterval(16 * 60)
+        hibernation.pass()
+        #expect(host.hibernatedCalls == ["hidden"])
+        clock.now = clock.now.addingTimeInterval(45 * 60)
+        hibernation.pass()
+        #expect(host.hibernatedCalls == ["hidden", "shown-space"])
+    }
+}
