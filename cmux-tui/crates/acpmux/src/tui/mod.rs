@@ -536,6 +536,8 @@ impl App {
         });
     }
 
+    /// Asks for the page of records before the oldest one shown once the selected
+    /// transcript is scrolled to its top, one page at a time, until the log has no more.
     pub(super) fn load_older_if_needed(&mut self) {
         let Some(id) = self.selected_id() else { return };
         let Some(v) = self.viewport.get(&id) else { return };
@@ -553,8 +555,9 @@ impl App {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             match client
+                // A read of the log, not a second attach: the view is already subscribed.
                 .request(
-                    method::MUX_ATTACH,
+                    method::MUX_EVENTS,
                     json!({"sessionId": id, "limit": 3000, "beforeSeq": before}),
                 )
                 .await

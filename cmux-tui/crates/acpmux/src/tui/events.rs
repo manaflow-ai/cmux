@@ -239,13 +239,25 @@ impl App {
             }
             AppMsg::Older { id, events, has_more } => {
                 self.history_in_flight.remove(&id);
+                // An empty page has nothing older to give: stop asking.
+                let has_more = has_more && !events.is_empty();
                 self.history_more.insert(id.clone(), has_more);
                 if let Some(t) = self.transcripts.get_mut(&id) {
                     let added = t.prepend_events(&events);
-                    if let Some(v) = self.viewport.get_mut(&id) {
-                        v.offset = v.offset.saturating_add(added);
+                    self.shift_folds(&id, added);
+                    // `offset` counts rows: keep the rows on screen where they are by keeping
+                    // the distance to the end, which the prepended rows do not change.
+                    if let Some(v) = self.viewport.get_mut(&id)
+                        && !v.follow
+                    {
+                        v.keep_below = Some(v.total.saturating_sub(v.offset));
                     }
-                    self.follow_removed_rows(&id);
+                    if self.transcript_anchor.as_ref().is_some_and(|(a, _, _)| *a == id) {
+                        self.transcript_anchor = None;
+                    }
+                    if self.selection.as_ref().is_some_and(|s| s.session == id) {
+                        self.selection = None;
+                    }
                     self.status = if has_more {
                         "loaded earlier history; scroll up for more".into()
                     } else {
