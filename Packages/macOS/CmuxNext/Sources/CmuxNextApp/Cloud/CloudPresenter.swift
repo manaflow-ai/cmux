@@ -132,9 +132,13 @@ enum CloudPresenter {
               currentTab === tab,
               (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
 
+        // DEV and dogfood builds (cloud.startChat's own gate) let the creator's team machine take the
+        // login here too; production keeps requiring an owner guest.
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
+            allowsCreatorTeamGuest: CloudStartChat.passesHarnessLogin(
+                isDebugBuild: DevTools.isDebugBuild, optedIn: UserDefaults.standard.bool(forKey: CloudStartChat.passHarnessLoginKey)),
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })
