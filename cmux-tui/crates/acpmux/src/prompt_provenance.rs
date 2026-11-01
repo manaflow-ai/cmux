@@ -74,6 +74,8 @@ pub fn withdraw_origin_refused() -> RpcError {
 pub enum Sender {
     /// The unix socket: any provenance.
     Local,
+    /// A connection admitted by the dedicated Cloud trigger gate.
+    Trigger,
     /// Anything else: none.
     Other,
 }
@@ -87,11 +89,53 @@ pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
         Some(Value::Object(raw)) => raw,
         Some(_) => return Err(refusal("provenance.value_refused", "provenance must be an object")),
     };
-    if sender != Sender::Local {
+    if !matches!(sender, Sender::Local | Sender::Trigger) {
         return Err(origin_refused());
     }
-    if raw.get("kind").and_then(Value::as_str) != Some("agent_message") {
-        return Err(refusal("provenance.value_refused", "provenance kind must be agent_message"));
+    let kind = raw.get("kind").and_then(Value::as_str);
+    // Trigger prompts are issued by a Cloud machine's short-lived trigger
+    // principal. The platform has already bound that principal to one owner,
+    // machine, chat and delivery before the guest reaches this local socket.
+    // Keep only the bounded, non-secret binding in the transcript; the token
+    // itself is never accepted as provenance or persisted in a record.
+    if kind == Some("trigger") {
+        if sender != Sender::Trigger {
+            return Err(refusal(
+                "provenance.trigger_refused",
+                "trigger provenance requires a verified trigger connection",
+            ));
+        }
+        const TRIGGER_FIELDS: &[(&str, bool)] = &[
+            ("triggerId", true),
+            ("deliveryId", true),
+            ("owner", true),
+            ("team", true),
+            ("machine", true),
+            ("workspace", false),
+            ("session", false),
+        ];
+        let mut out = Map::new();
+        out.insert("kind".to_owned(), json!("trigger"));
+        for &(key, required) in TRIGGER_FIELDS {
+            let value = match raw.get(key) {
+                None | Some(Value::Null) if !required => continue,
+                Some(Value::String(value)) if valid(key, value) => value,
+                _ => {
+                    let message = format!(
+                        "trigger provenance {key} must be one line of 1 to {MAX_FIELD_BYTES} bytes"
+                    );
+                    return Err(refusal("provenance.value_refused", &message));
+                }
+            };
+            out.insert(key.to_owned(), json!(value));
+        }
+        return Ok(Some(Value::Object(out)));
+    }
+    if kind != Some("agent_message") {
+        return Err(refusal(
+            "provenance.value_refused",
+            "provenance kind must be agent_message or trigger",
+        ));
     }
     let mut out = Map::new();
     out.insert("kind".to_owned(), json!("agent_message"));
@@ -112,6 +156,13 @@ pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
         out.insert(key.to_owned(), json!(value));
     }
     Ok(Some(Value::Object(out)))
+}
+
+/// Whether a prompt was admitted by the Cloud trigger principal. Trigger turns
+/// are work performed on behalf of a configured automation, so they do not set
+/// the person's unread marker when they complete normally.
+pub fn is_trigger(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("trigger")
 }
 
 fn valid(key: &str, value: &str) -> bool {
@@ -503,5 +554,45 @@ mod sender_tests {
         let mut params = json!({"_meta": {"acpmux": {"fromSessionId": "x", "fromHarness": "y", "promptId": "p"}}});
         drop_sender_fields(&mut params);
         assert_eq!(params, json!({"_meta": {"acpmux": {"promptId": "p"}}}));
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    fn params(provenance: Value) -> Value {
+        json!({"_meta": {"acpmux": {"provenance": provenance}}})
+    }
+
+    #[test]
+    fn trigger_provenance_is_bounded_and_is_not_a_person_message() {
+        let value = params(json!({
+            "kind": "trigger",
+            "triggerId": "tr_1",
+            "deliveryId": "gh-123",
+            "owner": "user_1",
+            "team": "team_1",
+            "machine": "machine_1",
+            "workspace": "workspace_1",
+            "session": "session_1"
+        }));
+        assert!(of(&value, Sender::Local).is_err());
+        let parsed = of(&value, Sender::Trigger).unwrap().unwrap();
+        assert_eq!(parsed["kind"], "trigger");
+        assert!(is_trigger(Some(&parsed)));
+        assert!(!crate::author::of_provenance(Some(&parsed)).is_some());
+    }
+
+    #[test]
+    fn trigger_provenance_cannot_arrive_from_a_remote_or_carry_newlines() {
+        let remote = params(
+            json!({"kind": "trigger", "triggerId": "tr", "deliveryId": "d", "owner": "o", "team": "t", "machine": "m"}),
+        );
+        assert!(of(&remote, Sender::Other).is_err());
+        let malformed = params(
+            json!({"kind": "trigger", "triggerId": "tr\n", "deliveryId": "d", "owner": "o", "team": "t", "machine": "m"}),
+        );
+        assert!(of(&malformed, Sender::Local).is_err());
     }
 }

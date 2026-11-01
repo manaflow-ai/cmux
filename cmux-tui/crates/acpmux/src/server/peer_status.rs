@@ -43,7 +43,7 @@ const PRESSURE_KEYS: [&str; 9] = [
 pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
-        "build": crate::hub::BUILD,
+        "build": crate::hub::build(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
@@ -157,7 +157,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::BUILD)));
+            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {
