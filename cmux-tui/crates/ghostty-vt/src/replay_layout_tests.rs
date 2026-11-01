@@ -8,8 +8,12 @@ fn layouts() -> u64 {
     REPLAY_TEXT_LAYOUTS.with(std::cell::Cell::get)
 }
 
+/// Scrollback in bytes, the daemon's default (`DEFAULT_SCROLLBACK_LIMIT_BYTES`),
+/// so the 10,000 lines of history stay in the terminal.
+const SCROLLBACK_BYTES: usize = 10_000_000;
+
 fn terminal_with(cols: u16, rows: u16, bytes: &[u8]) -> Terminal {
-    let mut term = Terminal::new(cols, rows, 10_000, Callbacks::default()).unwrap();
+    let mut term = Terminal::new(cols, rows, SCROLLBACK_BYTES, Callbacks::default()).unwrap();
     term.resize(cols, rows, 8, 16).unwrap();
     term.vt_write(bytes);
     term
