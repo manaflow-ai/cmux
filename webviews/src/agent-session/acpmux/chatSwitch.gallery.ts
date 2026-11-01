@@ -70,11 +70,13 @@ const toSecond: Play = async (ctx) => {
 };
 
 const backMidway: Play = async (ctx) => {
-  deliver(ctx, secondChat());
-  // Back to the first chat while the second is still moving in: each part starts from where it is.
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  // From the second chat (step 1) back to the first, then to the second again while the first is
+  // still moving in: each part of the new switch starts from where it is drawn.
   deliver(ctx, first);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title")?.textContent?.startsWith("Why"));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  deliver(ctx, secondChat());
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title")?.textContent?.startsWith("Profile"));
 };
 
 export default agentPaneEntry({
@@ -102,7 +104,7 @@ export default agentPaneEntry({
     setup: openSessionInfo,
     script: [
       { name: "Open the second chat", run: toSecond },
-      { name: "Back mid-switch", run: backMidway },
+      { name: "Back, then again mid-switch", run: backMidway },
     ],
   },
 });

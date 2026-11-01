@@ -145,7 +145,13 @@ export function playChatSwitch(
   }
   const parts = chatSwitchParts(scroller, arm, mode === "reduced");
   // Read where a part still moving is drawn before anything is cancelled (no write between reads).
-  const moving = new Set(previous?.animations.map((animation) => (animation.effect as KeyframeEffect)?.target));
+  // Only a part still in flight starts from its drawn value; one whose motion finished (or never
+  // started) is drawn at rest, so reading it would animate between equal values: no motion.
+  const moving = new Set(
+    previous?.animations
+      .filter((animation) => animation.playState === "running" || animation.playState === "paused")
+      .map((animation) => (animation.effect as KeyframeEffect | null)?.target),
+  );
   const starts = parts.map((part) => (moving.has(part.element) ? current(part.element, part.from) : part.from));
   previous?.stop();
   const animations = parts.map((part, index) =>

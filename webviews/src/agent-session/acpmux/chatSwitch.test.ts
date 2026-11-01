@@ -66,3 +66,45 @@ test("off, and motion off, play nothing", () => {
   doc.documentElement.dataset.cmuxMotion = "off";
   expect(playChatSwitch(scroller, "stagger")).toBeUndefined();
 });
+
+/** Web Animations as far as playChatSwitch uses them (jsdom has none): each call records its
+ *  keyframes and returns an animation whose play state the test sets. */
+function recordAnimations(doc: Document) {
+  type Fake = { playState: AnimationPlayState; effect: { target: Element }; keyframes: Keyframe[]; cancel(): void };
+  const made: Fake[] = [];
+  const proto = doc.defaultView!.Element.prototype as unknown as { animate: (frames: Keyframe[]) => Fake };
+  proto.animate = function (this: Element, keyframes: Keyframe[]) {
+    const fake: Fake = { playState: "running", effect: { target: this }, keyframes, cancel: () => undefined };
+    made.push(fake);
+    return fake;
+  };
+  return made;
+}
+
+test("a second switch after the first finished moves again from the start", () => {
+  const { doc, scroller } = pane([0, 60, 120]);
+  const made = recordAnimations(doc);
+  const first = playChatSwitch(scroller, "fade")!;
+  expect(first.animations.length).toBeGreaterThan(0);
+  // Finished: every part is drawn at rest, fully shown.
+  for (const animation of made) {
+    animation.playState = "finished";
+    (animation.effect.target as HTMLElement).style.opacity = "1";
+  }
+  made.length = 0;
+  playChatSwitch(scroller, "fade", first);
+  // Every part fades from 0 again, not from its resting value (1), which would show no motion.
+  expect(made.length).toBeGreaterThan(0);
+  for (const animation of made) expect(animation.keyframes[0]).toEqual({ opacity: 0 });
+});
+
+test("a switch during a switch starts each moving part from where it is drawn", () => {
+  const { doc, scroller } = pane([0, 60, 120]);
+  const made = recordAnimations(doc);
+  const first = playChatSwitch(scroller, "fade")!;
+  // Mid-motion: the parts are drawn half faded in.
+  for (const animation of made) (animation.effect.target as HTMLElement).style.opacity = "0.5";
+  made.length = 0;
+  playChatSwitch(scroller, "fade", first);
+  for (const animation of made) expect(animation.keyframes[0]).toEqual({ opacity: 0.5 });
+});
