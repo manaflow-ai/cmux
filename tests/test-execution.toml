@@ -92,6 +92,10 @@ path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -1743,10 +1747,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]

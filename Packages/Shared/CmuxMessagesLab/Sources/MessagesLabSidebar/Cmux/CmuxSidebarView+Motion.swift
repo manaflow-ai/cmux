@@ -35,6 +35,24 @@ extension CmuxSidebarView {
     /// host's gate allows it. When false the change applies in one frame.
     static var animatesMovement: Bool { !reducesMotion && (movementGate?() ?? true) }
 
+    /// The host's gate for a Chief's avatar loop (cmux-next: `Motion.home.animatesLoops`, so calm
+    /// mode, the animation speed `off` and Home's motion switch also apply); nil: only Reduce Motion
+    /// decides. A change applies when `reduceMotionDidChange` posts.
+    public var avatarLoopGate: (@MainActor () -> Bool)? {
+        get { controller.avatarMotion.gate }
+        set { controller.avatarMotion.gate = newValue }
+    }
+
+    /// How a Chief's avatar moves (the host's Debug setting); a change restyles every avatar at once.
+    public var avatarMotionStyle: CmuxSidebarAvatarMotionStyle {
+        get { controller.avatarMotion.style }
+        set {
+            guard newValue != controller.avatarMotion.style else { return }
+            controller.avatarMotion.style = newValue
+            controller.refreshAvatarMotion()
+        }
+    }
+
     /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at
     /// once on the main thread (a test's pin change applies before it returns), else on the main
     /// queue's next turn.
@@ -55,12 +73,15 @@ extension CmuxSidebarView {
         ]
     }
 
-    /// Stills (or restarts) every typing bubble in the list.
+    /// Stills (or restarts) every typing bubble and Chief avatar loop in the list.
     func applyReduceMotion() {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
             if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
             layers += layer.sublayers ?? []
         }
+        // From the controller's own rows and tiles: this view's `layer` is nil until an ancestor
+        // makes it layer-backed, so the walk above may not reach them.
+        controller.refreshAvatarMotion()
     }
 }

@@ -17,6 +17,12 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 /// it leaves the pinned column alone instead of being refused.
 pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 
+/// Split Down (`split` / `pane.split` toward `down`) of a pane in the agent
+/// chat dock adds a pane below it in the dock, as classic cmux's Cmd-Shift-D
+/// does (#29848); every other new pane there is still refused with
+/// `dock-column-agent-chat`.
+pub const DOCK_COLUMN_SPLIT_DOWN_CAPABILITY: &str = "dock-column-split-down-v1";
+
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
@@ -85,6 +91,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -220,6 +227,7 @@ pub(super) fn advertised_capabilities(
         PERMANENT_DOCK_CAPABILITY,
         PINNED_DOCK_CAPABILITY,
         PINNED_DOCK_ALONE_CAPABILITY,
+        DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
