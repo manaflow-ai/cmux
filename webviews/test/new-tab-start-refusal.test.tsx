@@ -106,6 +106,33 @@ async function until(check: () => boolean, what: string, within = 10_000) {
   expect(check(), what).toBe(true);
 }
 
+const machineButton = () =>
+  host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+/// Picks the SSH machine devbox. The machine chip's main list is This Mac and Cloud; every machine is
+/// in Machines… on its right-click menu (#28999).
+async function pickDevbox() {
+  await until(() => machineButton() !== null, "the machine chip");
+  await act(async () =>
+    machineButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const machinesItem = () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (candidate) => candidate.textContent === t("composer.machinesList"),
+    );
+  await until(() => !!machinesItem(), "Machines… on the machine chip's right-click menu");
+  await act(async () => machinesItem()!.click());
+  await until(
+    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    "devbox pick",
+  );
+  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  await act(async () => remote.click());
+}
+
 for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
   [true, false, false],
   [false, false, false],
@@ -201,20 +228,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       const start = actions["chat.new"];
       actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "claude" });
     }
-    const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-    const pickRemote = async () => {
-      await act(async () => machine()!.click());
-      await until(
-        () =>
-          [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-        "devbox pick",
-      );
-      const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-        (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-      )!;
-      await act(async () => remote.click());
-    };
-    if (remoteStart) await pickRemote();
+    if (remoteStart) await pickDevbox();
     const { field, editor } = await writePrompt("inspect the failed build");
     await act(async () =>
       editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
@@ -272,7 +286,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
     }
     expect(host.querySelector(".nt-field")).toBe(field);
     expect(promptValue()).toBe("inspect the failed build");
-    expect(machine()?.textContent).toContain("devbox");
+    expect(machineButton()?.textContent).toContain("devbox");
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
@@ -366,16 +380,7 @@ test("Return twice while a start has not answered asks once", async () => {
   root = createRoot(host);
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
-  const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-  await act(async () => machine()!.click());
-  await until(
-    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-    "devbox pick",
-  );
-  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-  )!;
-  await act(async () => remote.click());
+  await pickDevbox();
   const { editor } = await writePrompt("fix the flaky upload test");
   for (let press = 0; press < 2; press++) {
     await act(async () =>
