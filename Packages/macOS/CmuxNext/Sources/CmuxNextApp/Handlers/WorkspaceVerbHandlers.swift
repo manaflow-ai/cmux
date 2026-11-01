@@ -60,14 +60,15 @@ enum WorkspaceVerbHandlers {
         }
         // Move Workspace Above/Below: next to the anchor row, in its group or loose, by the `.reorder` a row drag sends.
         for (id, below) in [("workspace.moveAbove", false), ("workspace.moveBelow", true)] as [(ActionID, Bool)] {
-            registry.bindEffect(id) { invocation in
-                guard let workspace = try? context.workspace(invocation).model, let ref = invocation["anchor"]?.targetValue,
-                      let anchor = context.services.workspace(id: ref.id), let bridge = try? sidebar(showing: anchor, context),
-                      let position = WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections,
-                                                          onDocument: SidebarDocWiring.isActive)
-                else { return .refused(WorkspaceVerbStrings.anchorElsewhere) }
-                bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
-                return .done
+            registry.bindEffect(id, requires: nil) { invocation in
+                let workspace = try context.workspace(invocation).model, ref = invocation["anchor"]?.targetValue
+                guard let anchor = ref.flatMap({ context.services.workspace(id: $0.id) }) else { throw ActionFailure.notFound(RefusalStrings.noWorkspace(ref?.id ?? "")) }
+                let bridge = try sidebar(showing: anchor, context)
+                switch WorkspaceSlot.beside(anchor.id, below: below, moving: workspace.id, in: bridge.model.sections, onDocument: SidebarDocWiring.isActive) {
+                case .success(let position): bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position)); return .done
+                case .failure(.needsDocument): throw ActionFailure.invalidTarget(context.services.sidebarLayout.unavailableReason ?? RefusalStrings.workspaceNotInSidebar)
+                case .failure(.elsewhere): throw ActionFailure.invalidTarget(WorkspaceVerbStrings.anchorElsewhere)
+                }
             }
         }
         registry.bind("workspace.moveToNewGroup", run: { invocation in
@@ -287,10 +288,8 @@ enum WorkspaceVerbHandlers {
 
     private static func setAllCollapsed(_ collapsed: Bool, _ context: AppActionContext) throws {
         let bridge = try context.sidebar()
-        for section in bridge.model.sections {
-            for case let .group(group) in section.nodes where group.isCollapsed != collapsed {
-                bridge.handle(.toggleCollapse(.group(group.id)))
-            }
+        for case let .group(group) in bridge.model.sections.flatMap(\.nodes) where group.isCollapsed != collapsed {
+            bridge.handle(.toggleCollapse(.group(group.id)))
         }
     }
 }

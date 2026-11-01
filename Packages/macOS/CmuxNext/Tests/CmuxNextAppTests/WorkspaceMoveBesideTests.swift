@@ -41,18 +41,18 @@ import Testing
     }
 
     @Test func aboveALooseRowReordersTheLooseRows() throws {
-        let position = try #require(WorkspaceSlot.beside("a", below: false, moving: "c", in: Self.sections(), onDocument: false))
+        let position = try WorkspaceSlot.beside("a", below: false, moving: "c", in: Self.sections(), onDocument: false).get()
         #expect(position == DropPosition(section: .machine(.local), index: 0))
         #expect(Self.loose(Self.apply("c", position)) == ["c", "a", "b"])
     }
 
     @Test func belowALooseRowCountsWithoutTheMovingRow() throws {
-        let position = try #require(WorkspaceSlot.beside("b", below: true, moving: "a", in: Self.sections(), onDocument: false))
+        let position = try WorkspaceSlot.beside("b", below: true, moving: "a", in: Self.sections(), onDocument: false).get()
         #expect(Self.loose(Self.apply("a", position)) == ["b", "a", "c"])
     }
 
     @Test func nextToAGroupedRowMovesIntoTheGroupThere() throws {
-        let position = try #require(WorkspaceSlot.beside("y", below: false, moving: "b", in: Self.sections(), onDocument: false))
+        let position = try WorkspaceSlot.beside("y", below: false, moving: "b", in: Self.sections(), onDocument: false).get()
         #expect(position == DropPosition(section: .machine(.local), group: Self.group, index: 1))
         let after = Self.apply("b", position)
         #expect(Self.grouped(after) == ["x", "b", "y"])
@@ -60,7 +60,7 @@ import Testing
     }
 
     @Test func nextToALooseRowTakesAGroupedRowOutOfItsGroup() throws {
-        let position = try #require(WorkspaceSlot.beside("a", below: true, moving: "x", in: Self.sections(), onDocument: false))
+        let position = try WorkspaceSlot.beside("a", below: true, moving: "x", in: Self.sections(), onDocument: false).get()
         let after = Self.apply("x", position)
         #expect(Self.loose(after) == ["a", "x", "b", "c"])
         #expect(Self.grouped(after) == ["y"])
@@ -69,15 +69,15 @@ import Testing
     @Test func aCustomSectionReordersOnlyOnTheSidebarDocument() {
         var sections = Self.sections()
         sections[1].nodes.append(.workspace(Self.row("v")))
-        #expect(WorkspaceSlot.beside("w", below: false, moving: "v", in: sections, onDocument: false) == nil)
+        #expect(WorkspaceSlot.beside("w", below: false, moving: "v", in: sections, onDocument: false) == .failure(.needsDocument))
         #expect(WorkspaceSlot.beside("w", below: false, moving: "v", in: sections, onDocument: true)
-            == DropPosition(section: .custom("sec_work"), index: 0))
+            == .success(DropPosition(section: .custom("sec_work"), index: 0)))
     }
 
     @Test func refusesItselfAnotherSectionAndUnlistedRows() {
-        #expect(WorkspaceSlot.beside("a", below: false, moving: "a", in: Self.sections(), onDocument: false) == nil)
-        #expect(WorkspaceSlot.beside("w", below: false, moving: "a", in: Self.sections(), onDocument: false) == nil)
-        #expect(WorkspaceSlot.beside("a", below: false, moving: "gone", in: Self.sections(), onDocument: false) == nil)
-        #expect(WorkspaceSlot.beside("gone", below: false, moving: "a", in: Self.sections(), onDocument: false) == nil)
+        #expect(WorkspaceSlot.beside("a", below: false, moving: "a", in: Self.sections(), onDocument: false) == .failure(.elsewhere))
+        #expect(WorkspaceSlot.beside("w", below: false, moving: "a", in: Self.sections(), onDocument: false) == .failure(.elsewhere))
+        #expect(WorkspaceSlot.beside("a", below: false, moving: "gone", in: Self.sections(), onDocument: false) == .failure(.elsewhere))
+        #expect(WorkspaceSlot.beside("gone", below: false, moving: "a", in: Self.sections(), onDocument: false) == .failure(.elsewhere))
     }
 }

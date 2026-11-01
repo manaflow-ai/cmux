@@ -73,20 +73,27 @@ public enum WorkspaceSlot: Hashable, Sendable {
         return position(moving: moving, section: home, in: sections)
     }
 
+    /// Why Move Workspace Above/Below cannot drop a row (``beside(_:below:moving:in:onDocument:)``).
+    public enum BesideRefusal: Error, Equatable {
+        /// `moving` is `anchor`, or the sidebar does not list both in one section (a move across
+        /// sections is a pin or a section change, which have their own verbs).
+        case elsewhere
+        /// Both are in Pinned or a custom section, which reorder only on the sidebar document
+        /// (off it, a reorder there would pin the rows).
+        case needsDocument
+    }
+
     /// Move Workspace Above/Below (cmux#29907): where `moving` drops right before
     /// (`below` false) or after `anchor`, in the anchor's container (its group, else
-    /// the loose rows), as a row drag drops it. Nil when `moving` is `anchor`, the
-    /// sidebar does not list both in one section (a move across sections is a pin or
-    /// a section change, which have their own verbs), or that section is Pinned or a
-    /// custom one while the sidebar document is off (a reorder there would pin the rows).
+    /// the loose rows), as a row drag drops it.
     public static func beside(_ anchor: String, below: Bool, moving: String, in sections: [SidebarRowSection],
-                              onDocument: Bool) -> DropPosition? {
+                              onDocument: Bool) -> Result<DropPosition, BesideRefusal> {
         guard moving != anchor,
               let home = section(listing: anchor, in: sections), section(listing: moving, in: sections) == home
-        else { return nil }
-        if case .machine = home {} else if !onDocument { return nil }
+        else { return .failure(.elsewhere) }
+        if case .machine = home {} else if !onDocument { return .failure(.needsDocument) }
         let slot: WorkspaceSlot = below ? .below(anchor) : .above(anchor)
-        return slot.position(moving: [moving], section: home, in: sections)
+        return slot.position(moving: [moving], section: home, in: sections).map { .success($0) } ?? .failure(.elsewhere)
     }
 
     /// The Move Workspace verbs' reorder: `ids` (rows of `anchor`'s section, in sidebar
