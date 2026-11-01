@@ -55,6 +55,7 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
   composerCommand,
   harnessTakesToo,
   type CmuxCommand,
@@ -1368,9 +1369,10 @@ export function Composer({
               if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
-            () => {
+            (reason: unknown) => {
               sending.current = false;
-              setAttachError(t("composer.cmuxUnavailable"));
+              // A command may refuse with its own sentence (`/cd` to a path that is no folder).
+              setAttachError(reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable"));
             },
           );
           return true;
