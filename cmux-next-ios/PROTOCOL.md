@@ -546,6 +546,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+- `cloud-directory` (link protocol 2): no arguments; one JSON data frame
+  `{"machines":[{"machine_id","team_id","name"}]}` followed by `eof`.
+  Hostd obtains this list from the signed-in Mac app's authenticated owner
+  CloudLinkSession objects. Carrier paths and ownership markers are never sent
+  to the phone; conflicting duplicate machine/team entries are omitted.
+- `cloud-acpmux` (link protocol 2): `{"machine_id","team_id"}`. Hostd
+  resolves exactly one current owner link from the app, performs the normal
+  `link.dial` handshake for the Cloud machine's daemon, and forwards ACP JSON
+  frames to the machine adapter. VM-side policy maps supported chat calls to
+  scoped agent-session operations and retains remote-origin asking and approval
+  checks; this service never opens a phone-supplied socket or arbitrary service.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
   Any size: data frames until `eof`, up to the size the file had when it was opened. A host
   before 2026-10-28 refuses a file over 64 MiB with `too_large`.
@@ -735,6 +746,8 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
   `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+  `cloud-directory-v1` and `cloud-acpmux-v1` (2026-11-01): the host can list
+  and drive authenticated owner Cloud machines through the Mac carrier.
 - `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
   string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
   then `[::1]`. Data frames are the connection's bytes in each direction;
