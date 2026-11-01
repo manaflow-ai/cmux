@@ -471,3 +471,44 @@ fn an_incognito_shell_without_integration_reads_no_startup_files() {
     // A shell started for a command is left alone.
     assert_eq!(args(&["bash", "-c", "true"], Shell::Bash), ["bash", "-c", "true"]);
 }
+
+/// `zsh -il` is as interactive as `zsh -i -l`: it is integrated too.
+#[test]
+fn an_incognito_shell_with_combined_flags_is_integrated() {
+    if !scripts_available() {
+        eprintln!("skipped: the integration scripts could not be written here");
+        return;
+    }
+    let mut env = vec![("HOME".to_string(), "/home/user".to_string())];
+    keep_no_history(&mut env);
+    let launched = shell_launch(Some(vec!["/bin/zsh".to_string(), "-il".to_string()]), env);
+    assert!(
+        launched.env.iter().any(|(key, _)| key == "ZDOTDIR"),
+        "an incognito zsh -il must be integrated: {:?}",
+        launched.env
+    );
+}
+
+/// A startup file that only names the incognito marker is not the hook: the
+/// shell is still integrated.
+#[test]
+fn a_forged_startup_file_does_not_skip_incognito_integration() {
+    if !scripts_available() {
+        eprintln!("skipped: the integration scripts could not be written here");
+        return;
+    }
+    let base = temp_base("forged-zdotdir");
+    fs::create_dir_all(&base).unwrap();
+    fs::write(base.join(".zshenv"), "# CMUX_TUI_INCOGNITO\nHISTFILE=$HOME/.zsh_history\n").unwrap();
+    fs::write(base.join("ghostty-integration"), "# CMUX_TUI_INCOGNITO\n").unwrap();
+    let forged = base.to_string_lossy().into_owned();
+    let mut env = vec![
+        ("HOME".to_string(), "/home/user".to_string()),
+        ("ZDOTDIR".to_string(), forged.clone()),
+    ];
+    keep_no_history(&mut env);
+    let launched = shell_launch(Some(vec!["/bin/zsh".to_string()]), env);
+    let zdotdir =
+        launched.env.iter().rev().find(|(key, _)| key == "ZDOTDIR").map(|(_, value)| value.clone());
+    assert_ne!(zdotdir, Some(forged), "a forged ZDOTDIR must not skip the integration");
+}

@@ -340,3 +340,16 @@ fn an_adopted_incognito_terminal_closed_at_start_stores_no_screen() {
     drop(registry);
     mux.shutdown();
 }
+
+/// A terminal the registry has no row for (yet) is not known normal: it
+/// reads as incognito, so its screen stays off the disk until the registry
+/// knows it.
+#[test]
+fn a_terminal_with_no_registry_row_reads_as_incognito() {
+    let session = Session::new("incognito-no-row");
+    let mux = session.open();
+    let unknown = crate::resource::TerminalPublicId::parse(format!("term_{:032x}", 0xb02)).unwrap();
+    assert!(mux.output_store.is_private(&mux, &unknown), "an unclassified terminal reads as incognito");
+    assert!(!mux.output_store.keeps_screen(&mux, &unknown));
+    mux.shutdown();
+}
