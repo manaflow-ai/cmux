@@ -1,5 +1,5 @@
 // chief-vm: the Cloud Chief's own sandbox VMs (apps/api/src/chief-brain-cc/sandbox.ts), through this turn's
-// runner on 127.0.0.1:4018 (run.mjs). They outlive the turn (12 h by default, paused when idle; at most your cap).
+// runner on 127.0.0.1:4018 (run.mjs). They outlive the turn (12 h by default; never paused when idle unless --idle-seconds; at most your cap).
 // Only VMs you made are reachable; the Freestyle key never leaves the Worker. Parity plan:
 // plans/cmux-next/chief-vm-freestyle-parity.md.
 //
@@ -81,14 +81,14 @@ if (verb === "list" || verb === undefined) {
 } else if (verb === "get") {
   const v = (await call({ action: "get", id: idOf(rest) })).vm
   console.log(line(v))
-  console.log(`made ${new Date(v.created_at).toISOString()}; pauses after ${v.idle_timeout_seconds ?? "?"} s idle; deleted ${v.ttl_seconds ?? "?"} s after it was made`)
+  console.log(`made ${new Date(v.created_at).toISOString()}; ${v.idle_timeout_seconds === -1 ? "never pauses when idle" : `pauses after ${v.idle_timeout_seconds ?? "?"} s idle`}; deleted ${v.ttl_seconds ?? "?"} s after it was made`)
   if (v.metadata && Object.keys(v.metadata).length) console.log(`metadata: ${JSON.stringify(v.metadata)}`)
 } else if (verb === "cap") {
   const j = await call({ action: "cap" })
   console.log(`${j.live} of ${j.cap} sandboxes live; Freestyle ${j.plan.name} plan: at most ${size(j.plan.max)} per VM`)
 } else if (verb === "create") {
   const j = await call({ action: "create", ...flags(rest, { size: true, settings: true, snapshot: true }) })
-  console.log(`${j.vm.id}\t${j.vm.name}\t(${j.ttl_seconds / 3600} h, pauses after ${j.idle_pause_seconds / 60} min idle)`)
+  console.log(`${j.vm.id}\t${j.vm.name}\t(${j.ttl_seconds / 3600} h, ${j.idle_pause_seconds > 0 ? `pauses after ${j.idle_pause_seconds / 60} min idle` : "never pauses when idle"})`)
   console.log(`size: ${size(j.resources)}; ${cost(j.cost)}${j.df ? `\ndf: ${j.df}` : ""}`)
   if (j.resize_error) console.error(`chief-vm: made, but not resized: ${j.resize_error}`)
 } else if (verb === "update") {
