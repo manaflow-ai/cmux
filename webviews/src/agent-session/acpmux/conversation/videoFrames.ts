@@ -40,7 +40,7 @@ export const MAX_VIDEO_FRAMES = 32;
 const MAX_FRAME_CHARS = 8 * 1024 * 1024;
 const VIDEO_PATH = /(?:^|[\s"'`(=:])(\/[^\s"'`()<>[\]]+\.(?:mov|mp4|m4v|webm|mkv|avi))(?![\w-])/i;
 const KEYED_PATH = /^(?:video|file|path|source)\s*:\s*((?:\/|file:\/\/).+\.(?:mov|mp4|m4v|webm|mkv|avi))\s*$/i;
-const TOOL_NAME =/(?:^|[._\s:/-])video[_-]?frames$/i;
+const TOOL_NAME = /(?:^|[._\s:/-])video[_-]?frames$/i;
 
 /// Whether `tool` is a call of the `video_frames` tool (any MCP server's, by Claude Code's
 /// `mcp__<server>__video_frames` or Codex's `{server, tool}`).
@@ -222,7 +222,9 @@ function readFacts(text: string): Facts {
       }
     }
     // A frame's line: "frame 3 at 0:04.0", "#3 0:04.0", "3. 0:04.0", "- 0:04.0".
-    const frame = /^(?:[-*•]\s*)?(?:frame\s*#?\s*\d+\b|#\d+\b|\d+[.)])\s*[:\-–—@]?\s*(?:at\s+|t\s*=\s*)?(.*)$/i.exec(line);
+    const frame = /^(?:[-*•]\s*)?(?:frame\s*#?\s*\d+\b|#\d+\b|\d+[.)])\s*[:\-–—@]?\s*(?:at\s+|t\s*=\s*)?(.*)$/i.exec(
+      line,
+    );
     const bullet = !frame && /^[-*•]\s+(?:at\s+|t\s*=\s*)?(.*)$/i.exec(line);
     const rest = frame?.[1] ?? (bullet ? bullet[1] : undefined);
     if (rest !== undefined && !/\b(duration|length)\b/.test(lower)) {
@@ -278,7 +280,9 @@ export function frameLabel(ms: number, tenths: boolean): string {
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  const seconds = tenths ? (Math.floor(s * 10) / 10).toFixed(1).padStart(4, "0") : String(Math.floor(s)).padStart(2, "0");
+  const seconds = tenths
+    ? (Math.floor(s * 10) / 10).toFixed(1).padStart(4, "0")
+    : String(Math.floor(s)).padStart(2, "0");
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${seconds}` : `${m}:${seconds}`;
 }
 

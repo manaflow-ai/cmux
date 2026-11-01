@@ -51,7 +51,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
     const className = `cv-video-frames__frame${lead ? " is-lead" : ""}`;
     if (!openImage)
       return (
-        <span key={index} className={className} role="listitem">
+        <span key={index} className={className}>
           {image}
           {badge}
         </span>
@@ -60,7 +60,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
       <button
         key={index}
         type="button"
-        role="listitem"
+
         className={className}
         data-open-image
         title={alt(frame) || t("image.view")}
@@ -104,13 +104,9 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
     const [lead, ...rest] = video.frames;
     return (
       <div className="cv-video-frames is-poster" style={style}>
-        <div className="cv-video-frames__poster" role="list">
-          {lead && frameButton(lead, 0, true)}
-        </div>
+        <div className="cv-video-frames__poster">{lead && frameButton(lead, 0, true)}</div>
         {rest.length > 0 && (
-          <div className="cv-video-frames__strip" role="list">
-            {rest.map((frame, index) => frameButton(frame, index + 1))}
-          </div>
+          <div className="cv-video-frames__strip">{rest.map((frame, index) => frameButton(frame, index + 1))}</div>
         )}
         {head}
       </div>
@@ -119,7 +115,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
   return (
     <div className={`cv-video-frames is-${layout}`} style={style}>
       {head}
-      <div className={layout === "grid" ? "cv-video-frames__grid" : "cv-video-frames__strip"} role="list">
+      <div className={layout === "grid" ? "cv-video-frames__grid" : "cv-video-frames__strip"}>
         {video.frames.map((frame, index) => frameButton(frame, index))}
       </div>
     </div>

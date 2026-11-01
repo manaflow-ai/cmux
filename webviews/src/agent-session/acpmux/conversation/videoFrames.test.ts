@@ -107,6 +107,16 @@ test("times parse and print", () => {
   expect(frameLabel(62_500, false)).toBe("1:02");
   expect(frameLabel(62_500, true)).toBe("1:02.5");
   expect(frameLabel(3_725_000, false)).toBe("1:02:05");
-  expect(needsTenths([{ src: "a", atMs: 1_000 }, { src: "b", atMs: 1_500 }])).toBe(true);
-  expect(needsTenths([{ src: "a", atMs: 1_000 }, { src: "b", atMs: 2_500 }])).toBe(false);
+  expect(
+    needsTenths([
+      { src: "a", atMs: 1_000 },
+      { src: "b", atMs: 1_500 },
+    ]),
+  ).toBe(true);
+  expect(
+    needsTenths([
+      { src: "a", atMs: 1_000 },
+      { src: "b", atMs: 2_500 },
+    ]),
+  ).toBe(false);
 });

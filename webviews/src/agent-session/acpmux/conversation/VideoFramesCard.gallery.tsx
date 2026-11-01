@@ -72,7 +72,10 @@ function framesItem(count: number, named: boolean) {
   ].join("\n");
   const images = times.map((_, index) => {
     const data = paint(index, count);
-    return { type: "content", content: { type: "image", mimeType: "image/jpeg", data: data.slice(data.indexOf(",") + 1) } };
+    return {
+      type: "content",
+      content: { type: "image", mimeType: "image/jpeg", data: data.slice(data.indexOf(",") + 1) },
+    };
   });
   const content = [{ type: "content", content: { type: "text", text: note } }, ...images];
   // The pane passes the update's text as the call's output (direct.ts), its images as its images.
@@ -107,8 +110,8 @@ export default componentEntry<Props>({
   pane: true,
   height: 420,
   covers: [
-    "agent-session/acpmux/conversation/videoFrames.ts#videoFrames",
     "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesCard",
+    "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesLayoutContext",
   ],
   load: async () => {
     const [{ McpCallRows }, { VideoFramesLayoutContext }] = await Promise.all([
@@ -137,7 +140,7 @@ export default componentEntry<Props>({
       props: { layout: "strip", frames: 16, named: true },
     },
     "strip-unnamed": {
-      note: "A call that named no file: the row counts video frames and draws no play control.",
+      note: "A call that named no file: the card draws its length and frames, with no name to play.",
       props: { layout: "strip", frames: 4, named: false },
     },
   },

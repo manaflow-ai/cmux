@@ -121,15 +121,13 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
   // The machine name stays at hand as the opened call's first line (no tooltip: the line's text
   // already shows, test/tooltip-rules.ts).
   const raw = mcpRawName(tool, call);
-  // A look at a video's frames draws as its filmstrip, named by what it looked at (videoFrames.ts);
-  // opened, the call's response is the tool's note without the frames.
+  // A look at a video's frames reads as one ("Looked at 8 video frames") over its filmstrip, which
+  // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
   const video = useMemo(() => videoFrames(tool), [tool]);
   const label = useMemo(
     () =>
       video
-        ? video.name
-          ? t("tools.videoFrames", { n: video.frames.length, name: video.name })
-          : t("tools.videoFramesUnnamed", { n: video.frames.length })
+        ? t("tools.videoFrames", { n: video.frames.length })
         : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
     [t, video, call, tool, names],
   );

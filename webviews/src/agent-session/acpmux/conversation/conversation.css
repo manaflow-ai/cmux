@@ -2380,14 +2380,16 @@ pre.cv-math-source {
 
 /* A look at a video's frames (VideoFramesCard.tsx): the video's name and length, then its frames
  * in one row that scrolls sideways, each in a box of the video's shape with its time in a corner.
- * `grid` and `poster` are the gallery's alternatives. */
+ * It hangs from the row's words, as any line under a row does. `grid` and `poster` are the
+ * gallery's alternatives. */
 .cv-video-frames {
   --cv-video-frame-width: 112px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: 100%;
-  margin: 4px 0 8px;
+  min-width: 0;
+  max-width: calc(100% - var(--cv-tool-text-inset));
+  margin: 4px 0 8px var(--cv-tool-text-inset);
 }
 .cv-video-frames__head {
   display: flex;
@@ -2426,7 +2428,7 @@ button.cv-video-frames__name:focus-visible {
 }
 .cv-video-frames__play {
   flex: none;
-  color: var(--cv-text-muted);
+  color: inherit;
 }
 .cv-video-frames__label {
   overflow: hidden;
