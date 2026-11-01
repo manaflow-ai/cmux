@@ -3310,6 +3310,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace move-above",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.moveAbove",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Above…",
+      "title_key" : "action.workspace.moveAbove",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace move-below",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.moveBelow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Below…",
+      "title_key" : "action.workspace.moveBelow",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace move-to-new-group",
       "context_menu" : "offered",
       "context_menus" : [
@@ -21539,34 +21595,6 @@
       "palette_suggested" : null,
       "title" : "Show Notifications",
       "title_key" : "action.showNotifications",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "focusMove",
-      "cli_name" : "action agent-jump-to-next-needing-input",
-      "context_menu" : "focusMove",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "agent.jumpToNextNeedingInput",
-      "main_menu" : "window",
-      "mcp" : "focusMove",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.notifications",
-        "order" : 108,
-        "title" : "Notifications",
-        "title_key" : "category.notifications",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Go to Next Agent Needing Input",
-      "title_key" : "action.agent.jumpToNextNeedingInput",
       "title_table" : "ActionCatalog"
     },
     {

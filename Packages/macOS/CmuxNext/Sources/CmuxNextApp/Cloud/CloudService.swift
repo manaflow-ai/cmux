@@ -147,7 +147,7 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, authCaptureFixture: Bool = false) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
@@ -164,15 +164,18 @@ final class CloudService {
         let identity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
             transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         installIdentity = identity
+        let sessions = paths.root.appendingPathComponent("client-sessions", isDirectory: true)
         machineAPI = configuration.linkSource == .appServer
             ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
-                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                            // Exec and files go through the bundled cmux-tui, direct to the provider when it can.
+                                            machineIO: LocalServerSource.bundledCLI().map { CloudMachineIO(binary: $0, cacheDirectory: sessions) })
             : api
         let api = api, machineAPI = machineAPI
         let build = LaunchIdentity.current().build

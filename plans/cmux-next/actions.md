@@ -36,22 +36,22 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 ## Catalog counts
 
 - `window`: 119
-- `workspace`: 186
+- `workspace`: 188
 - `pane`: 88
 - `screen`: 65
 - `tab`: 105
 - `terminal`: 37
 - `browser`: 245
 - `sidebar`: 90
-- `notifications`: 28
+- `notifications`: 27
 - `agents`: 122
 - `cloud`: 70
 - `remote`: 21
 - `settings`: 134
 
-## Counts (1310 actions)
+## Counts (1311 actions)
 
-Palette 1254, CLI verbs 786, right-click 573, MCP tools 702.
+Palette 1255, CLI verbs 788, right-click 573, MCP tools 704.
 
 ## Menus
 
@@ -113,7 +113,7 @@ Palette 1254, CLI verbs 786, right-click 573, MCP tools 702.
 
 **devOnly** (11): `home.saveFlightRecording`, `remote.openBrowserTab`, `remote.openLocalBrowserTab`, `openDebugSettings`, `appearance.glass.lens.toggle`, `debug.actionLatencyHUD`, `debug.blockingCalls.reset`, `debug.autoArchive.age`, `server.makeThisMacAServer`, `server.stopServing`, `server.showHealth`
 
-**focusMove** (58): `showHideAllWindows`, `goToWorkspace`, `search.chats`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `focusPaneByNumber`, `canvasRevealFocusedPane`, `focusLocation`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `home.show`, `home.previousConversation`, `home.nextConversation`, `home.selectConversationByNumber`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `browser.focusSearch`, `focusSidebar`, `focusRightSidebar`, `vaultFocusSession`, `agent.jumpToNextNeedingInput`, `jumpToUnread`, `jumpToLastPrompt`, `markOldestUnreadAndJumpNext`, `notificationOpen`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `chief.openSubagent`, `sidebar.section.toggleCollapsed`
+**focusMove** (57): `showHideAllWindows`, `goToWorkspace`, `search.chats`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `focusPaneByNumber`, `canvasRevealFocusedPane`, `focusLocation`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `home.show`, `home.previousConversation`, `home.nextConversation`, `home.selectConversationByNumber`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `browser.focusSearch`, `focusSidebar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `jumpToLastPrompt`, `markOldestUnreadAndJumpNext`, `notificationOpen`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `chief.openSubagent`, `sidebar.section.toggleCollapsed`
 
 **stepAdjust** (37): `resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`, `increaseWorkspaceTerminalFontSize`, `decreaseWorkspaceTerminalFontSize`, `resetWorkspaceTerminalFontSize`, `canvasZoomIn`, `canvasZoomOut`, `canvasZoomReset`, `home.zoomIn`, `home.zoomOut`, `home.zoomReset`, `browserZoomIn`, `browserZoomOut`, `browserZoomReset`, `markdownZoomIn`, `markdownZoomOut`, `markdownZoomReset`, `fileEditorZoomIn`, `fileEditorZoomOut`, `fileEditorZoomReset`, `appearance.interfaceSize.increase`, `appearance.interfaceSize.decrease`, `appearance.interfaceSize.reset`, `appearance.uiScale.increase`, `appearance.uiScale.decrease`, `appearance.uiScale.reset`, `column.cycleWidth`, `column.cycleWidthBack`, `terminal.increaseFontSize`, `terminal.decreaseFontSize`, `terminal.resetFontSize`, `terminal.scrollPageUp`, `terminal.scrollPageDown`, `terminal.scrollToTop`, `terminal.scrollToBottom`
 
@@ -135,7 +135,7 @@ Palette 1254, CLI verbs 786, right-click 573, MCP tools 702.
 
 **devOnly** (1): `openDebugSettings`
 
-**focusMove** (63): `showHideAllWindows`, `goToWorkspace`, `search.chats`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `focusPaneByNumber`, `canvasRevealFocusedPane`, `focusLocation`, `tab.focus`, `pane.focus`, `screen.focus`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `home.previousConversation`, `home.nextConversation`, `home.selectConversationByNumber`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `browser.focusSearch`, `focusSidebar`, `focusRightSidebar`, `vaultFocusSession`, `agent.jumpToNextNeedingInput`, `jumpToUnread`, `jumpToLastPrompt`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `chief.openSubagent`
+**focusMove** (62): `showHideAllWindows`, `goToWorkspace`, `search.chats`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `nextWorkspaceGroup`, `prevWorkspaceGroup`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `focusPaneByNumber`, `canvasRevealFocusedPane`, `focusLocation`, `tab.focus`, `pane.focus`, `screen.focus`, `navigate.next`, `navigate.previous`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `home.previousConversation`, `home.nextConversation`, `home.selectConversationByNumber`, `home.openConversation`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `browser.focusSearch`, `focusSidebar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `jumpToLastPrompt`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`, `history.goTo`, `chief.openSubagent`
 
 **stepAdjust** (37): `resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`, `increaseWorkspaceTerminalFontSize`, `decreaseWorkspaceTerminalFontSize`, `resetWorkspaceTerminalFontSize`, `canvasZoomIn`, `canvasZoomOut`, `canvasZoomReset`, `home.zoomIn`, `home.zoomOut`, `home.zoomReset`, `browserZoomIn`, `browserZoomOut`, `browserZoomReset`, `markdownZoomIn`, `markdownZoomOut`, `markdownZoomReset`, `fileEditorZoomIn`, `fileEditorZoomOut`, `fileEditorZoomReset`, `appearance.interfaceSize.increase`, `appearance.interfaceSize.decrease`, `appearance.interfaceSize.reset`, `appearance.uiScale.increase`, `appearance.uiScale.decrease`, `appearance.uiScale.reset`, `column.cycleWidth`, `column.cycleWidthBack`, `terminal.increaseFontSize`, `terminal.decreaseFontSize`, `terminal.resetFontSize`, `terminal.scrollPageUp`, `terminal.scrollPageDown`, `terminal.scrollToTop`, `terminal.scrollToBottom`
 
@@ -149,7 +149,7 @@ Palette 1254, CLI verbs 786, right-click 573, MCP tools 702.
 
 **familyMember** (69): `cycleWorkspaceStatus`, `workspaceGroup.collapse`, `workspaceGroup.expand`, `openBrowser`, `tab.muteAudio`, `tab.unmuteAudio`, `tabGroup.collapse`, `tabGroup.expand`, `screenGroup.collapse`, `screenGroup.expand`, `devtools.openDocked`, `devtools.openDockedRight`, `devtools.openInWindow`, `devtools.close`, `devtools.showElements`, `devtools.showSources`, `devtools.showNetwork`, `devtools.showPerformance`, `devtools.showMemory`, `devtools.showApplication`, `devtools.showLighthouse`, `devtools.showLayers`, `devtools.showRendering`, `devtools.showSensors`, `devtools.showSecurity`, `devtools.showAnimations`, `devtools.pauseScript`, `devtools.resumeScript`, `devtools.clearConsole`, `devtools.copyConsoleLog`, `devtools.toggleCache`, `devtools.throttleOffline`, `devtools.throttleSlow3G`, `devtools.throttleFast3G`, `devtools.throttleOff`, `devtools.emptyCacheAndHardReload`, `devtools.clearSiteData`, `devtools.toggleJavaScript`, `devtools.toggleCSS`, `devtools.toggleReducedMotion`, `devtools.toggleFocusEmulation`, `devtools.togglePaintFlashing`, `devtools.toggleLayoutShiftRegions`, `devtools.toggleLayerBorders`, `devtools.toggleFPSMeter`, `devtools.togglePerformanceRecording`, `devtools.takeHeapSnapshot`, `devtools.captureScreenshot`, `devtools.captureFullPageScreenshot`, `devtools.captureNodeScreenshot`, `devtools.viewPageSource`, `browserStop`, `browser.findPrevious`, `browser.extension.run`, `browser.extension.options`, `browser.extension.pin`, `browser.extension.unpin`, `browser.extension.enable`, `browser.extension.disable`, `browser.extension.reload`, `browser.extension.remove`, `browser.extension.command`, `agent.share.list`, `agent.share.revoke`, `agent.share.kick`, `palette.attemptUpdate`, `appearance.set`, `appearance.reset`, `sidebar.home.remove`
 
-**dragGesture** (7): `space.moveLeft`, `space.moveRight`, `space.moveToStart`, `space.moveToEnd`, `space.move`, `browser.extension.move`, `bookmark.move`
+**dragGesture** (9): `workspace.moveAbove`, `workspace.moveBelow`, `space.moveLeft`, `space.moveRight`, `space.moveToStart`, `space.moveToEnd`, `space.move`, `browser.extension.move`, `bookmark.move`
 
 **unimplemented** (1): `palette.browserToggleOmnibar`
 
