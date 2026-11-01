@@ -455,7 +455,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await openMachineList(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="listbox"] [role="option"]').length > 20);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
       },
     },
     "model-picker-open": {
