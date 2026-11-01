@@ -27,8 +27,11 @@ public struct CloudMachineIO: Sendable {
         var route: String
     }
 
-    /// The child gave no answer line (it is missing, crashed or too old): the caller takes the HTTP route.
-    struct NoAnswer: Error {}
+    /// The child gave no answer line. `dispatched` false: it never started (no binary, a cancel first) or
+    /// said it took nothing (route `none`), so nothing ran and the caller may take the HTTP route.
+    /// `dispatched` true: it started and then crashed, timed out or printed nothing usable, so the
+    /// operation may have run and a change must not be sent a second time.
+    struct NoAnswer: Error { var dispatched: Bool }
 
     func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
         var request = request
@@ -37,8 +40,8 @@ public struct CloudMachineIO: Sendable {
         let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout)
         guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-              let status = object["status"] as? Int, let route = object["route"] as? String,
-              route == "direct" || route == "proxy" else { throw NoAnswer() }
+              let status = object["status"] as? Int, let route = object["route"] as? String else { throw NoAnswer(dispatched: true) }
+        guard route == "direct" || route == "proxy" else { throw NoAnswer(dispatched: route != "none") }
         let body = object["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
         return Answer(status: status, code: object["code"] as? String, body: body ?? Data(), route: route)
     }
@@ -68,9 +71,11 @@ public struct CloudMachineIO: Sendable {
                 group.addTask {
                     await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
                         child.process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-                        do { try child.launch() } catch {
+                        // Not started (cancelled first, or it could not start): nothing ran.
+                        guard (try? child.launch()) == true else {
                             child.process.terminationHandler = nil
                             continuation.resume(returning: nil)
+                            return
                         }
                     }
                 }
@@ -94,30 +99,40 @@ public struct CloudMachineIO: Sendable {
             child.kill()
         }
         try? input.fileHandleForReading.close()
+        guard child.started else { throw NoAnswer(dispatched: false) }
         try Task.checkCancellation()
-        guard status != nil else { throw NoAnswer() }
+        guard status != nil else { throw NoAnswer(dispatched: true) }
         return output.contents()
     }
 }
 
-/// `Process` is not Sendable; it is only launched once and killed while it runs.
+/// `Process` is not Sendable; it is only launched once and killed while it runs. Launch and kill
+/// exclude each other under one lock, and a kill that comes first is remembered (as ProcessBox does),
+/// so a cancel or a deadline before launch means no child ever starts.
 private final class Child: @unchecked Sendable {
     let process: Process
-    private let launched = Mutex<Bool>(false)
+    private struct State { var launched = false, killed = false }
+    private let state = Mutex<State>(State())
 
     init(_ process: Process) { self.process = process }
 
-    func launch() throws {
-        try launched.withLock { launched in
+    /// Starts the child unless a kill came first; true when it started.
+    func launch() throws -> Bool {
+        try state.withLock { state in
+            if state.killed { return false }
             try process.run()
-            launched = true
+            state.launched = true
+            return true
         }
     }
 
+    var started: Bool { state.withLock { $0.launched } }
+
     /// SIGKILL to this child only, and only while it runs (never a pid that may be another's by now).
     func kill() {
-        launched.withLock { launched in
-            guard launched, process.isRunning else { return }
+        state.withLock { state in
+            state.killed = true
+            guard state.launched, process.isRunning else { return }
             let pid = process.processIdentifier
             if pid > 0 { _ = Darwin.kill(pid, SIGKILL) }
         }
@@ -131,12 +146,13 @@ private struct TemporaryOutput {
     init() throws {
         var template = Array((NSTemporaryDirectory() + "cmux-machine-io.XXXXXX").utf8CString)
         let fd = mkstemp(&template)
-        guard fd >= 0 else { throw CloudMachineIO.NoAnswer() }
+        guard fd >= 0 else { throw CloudMachineIO.NoAnswer(dispatched: false) }
         template.withUnsafeBufferPointer { buffer in if let base = buffer.baseAddress { _ = unlink(base) } }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
     func contents() -> Data {
+        // concurrency-allow: a local temp file read once after the child exited, from a nonisolated async caller (never the main actor)
         (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.readToEnd() } ?? Data()
     }
 }

@@ -109,8 +109,11 @@ extension CloudAPIClient {
         do {
             // The child's own HTTP deadlines end first; this one only bounds a child that hangs.
             answer = try await machineIO.perform(request, timeout: timeout + .seconds(30))
-        } catch is CloudMachineIO.NoAnswer {
-            return try await http()
+        } catch let noAnswer as CloudMachineIO.NoAnswer {
+            // Only what cannot have changed the machine goes again over HTTP: a call cmux never took,
+            // or a read. An exec or a change that may have run is reported, never made twice.
+            guard noAnswer.dispatched, !["dir", "read", "stat"].contains(op) else { return try await http() }
+            throw CloudAPIError.transport("cmux did not answer; the \(op) may have run")
         }
         let path = "\(machinePath)/\(id)/\(op == "exec" ? "exec" : "fs/\(op)")"
         switch answer.status {

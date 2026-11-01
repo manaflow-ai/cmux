@@ -90,4 +90,20 @@ struct CloudMachineIOTests {
             #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/stat"])
         }
     }
+
+    @Test func aChangeThatMayHaveRunIsNeverSentAgain() async throws {
+        let (binary, folder) = try fakeCLI(printing: "not json")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        Route.paths = []
+        do {
+            try await client(binary, folder).makeDirectory("vm_abcdefghij0123456789", path: "/a")
+            Issue.record("expected the unanswered change to be reported")
+        } catch CloudAPIError.transport {}
+        #expect(Route.paths.isEmpty, "a change cmux may have made is not replayed over HTTP")
+
+        let (refusing, other) = try fakeCLI(printing: #"{"route":"none","status":400,"code":"validation.invalid","body":null}"#)
+        defer { try? FileManager.default.removeItem(at: other) }
+        try await client(refusing, other).makeDirectory("vm_abcdefghij0123456789", path: "/a")
+        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"], "a change cmux never took goes over HTTP")
+    }
 }
