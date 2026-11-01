@@ -234,13 +234,13 @@ public final class NativePopupHost {
             guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
             // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
             nonisolated(unsafe) let menu = tracked
-            MainActor.assumeIsolated { self?.menuBegan(menu) }
+            MainActor.assumeIsolated { self?.menuBegan(menu) } // main-proof: guarded by Thread.isMainThread above
         })
         observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
             guard Thread.isMainThread, let tracked = note.object as? NSMenu else { return } // main-proof: returns off the main thread
             // crash-allow: read only inside the assumeIsolated below, on this same main-thread delivery, so it never crosses actors.
             nonisolated(unsafe) let menu = tracked
-            MainActor.assumeIsolated { self?.menuEnded(menu) }
+            MainActor.assumeIsolated { self?.menuEnded(menu) } // main-proof: guarded by Thread.isMainThread above
         })
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
