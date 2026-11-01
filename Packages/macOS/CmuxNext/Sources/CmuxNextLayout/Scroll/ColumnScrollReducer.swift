@@ -153,9 +153,13 @@ nonisolated extension ColumnScrollState {
 
         // A removed column cannot leave the camera past the new strip. The view carries the
         // panes horizontally from where they showed; row cameras keep their vertical spring.
+        // Only a velocity out of the strip stops: one back into it (a center or fling that was
+        // already coming back) goes on, so the close takes the camera at the speed it shows.
         if new.axis == .horizontal, !removed.isEmpty {
             let clamped = new.clamp(spring.value)
-            if clamped != spring.value { spring.velocity = 0 }
+            if (clamped < spring.value && spring.velocity > 0) || (clamped > spring.value && spring.velocity < 0) {
+                spring.velocity = 0
+            }
             spring.value = clamped
             spring.target = new.clamp(spring.target)
             if var live = gesture {
