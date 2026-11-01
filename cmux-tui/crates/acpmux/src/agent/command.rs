@@ -139,6 +139,9 @@ pub(crate) fn harness_command(
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
+    // The app the daemon follows is not the agent's: a daemon its commands start must not
+    // follow it too (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
