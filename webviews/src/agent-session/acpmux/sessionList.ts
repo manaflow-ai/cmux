@@ -3,6 +3,7 @@
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
@@ -101,6 +102,8 @@ export type AcpmuxSessionEntry = {
   /** Why its failed or lost turn failed, as acpmux's lane says it (`lane.error`, secrets masked):
    *  a retry acpmux refused before its turn started leaves it failed with this. */
   laneError?: string;
+  /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
+  usageStats?: SessionUsageStats;
 };
 
 export type LifecycleReceipt = {
@@ -283,6 +286,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     retry: readRetry(session.retry) ?? undefined,
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
+    usageStats: usageStatsOf(session.usageStats),
   };
 }
 

@@ -231,15 +231,18 @@ impl Hub {
             // Waiting for the owner, and approved at the revision it waits with.
             let (mut held, mut approved_waiting) = (Vec::new(), Vec::new());
             for q in waiting.into_records() {
-                if q.msg.get("awaitingOwner").and_then(Value::as_bool) != Some(true) {
+                // A link guest's record waits whatever it says (`author::awaits_owner`), as a
+                // restore here holds it; an older target reads only `awaitingOwner`.
+                if q.msg.get("awaitingOwner").and_then(Value::as_bool) != Some(true)
+                    && !crate::author::awaits_owner(q.msg.pointer("/_meta/provenance"))
+                {
                     continue;
                 }
                 let Some(id) = q.msg.get("promptId").and_then(Value::as_str) else { continue };
                 let is_approved = q.msg.get("turnId").and_then(Value::as_str).is_some_and(|turn| {
-                    q.msg
-                        .get("revision")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|revision| approved.get(turn) == Some(&revision))
+                    // A record from before revisions is revision 0, as a restore reads it.
+                    let revision = q.msg.get("revision").and_then(Value::as_u64);
+                    approved.get(turn) == Some(&revision.unwrap_or(0))
                 });
                 if is_approved { &mut approved_waiting } else { &mut held }.push(id.to_owned());
             }
@@ -257,6 +260,30 @@ impl Hub {
             return Err(refused(-32000, "transfer.held_prompts", msg, json!({"promptIds": held})));
         }
         Ok(approved_waiting)
+    }
+
+    /// `_acpmux/queue_get`: a queued prompt whole, as it would run now (an edit since it was
+    /// queued included), for the owner to read before answering it; `queue.not_found` (with
+    /// `decided`) once it left the queue.
+    pub fn queued_get(&self, session: &Arc<Session>, prompt_id: &str) -> Result<Value, RpcError> {
+        let found = session.queue().into_iter().find(|q| q.prompt_id == prompt_id);
+        let Some(q) = found else { return Err(self.not_waiting(session, prompt_id)) };
+        let blocks = &q.run.blocks;
+        let display_parts = q.run.display_parts.as_ref();
+        let images = super::prompt_images::named_sourced(blocks, display_parts);
+        let parts = super::prompt_images::inline_parts(blocks, &images, display_parts);
+        Ok(json!({
+            "sessionId": session.id,
+            "promptId": q.prompt_id,
+            "turnId": q.turn_id,
+            "revision": q.revision,
+            "text": prompt_text(blocks),
+            "prompt": blocks,
+            "inlineParts": parts,
+            "author": crate::author::listed(q.run.provenance.as_ref()),
+            "provenance": q.run.provenance,
+            "awaitingOwner": q.awaiting_owner,
+        }))
     }
 
     /// `queue.not_found` for an answer to a prompt that does not wait for the owner, with how its

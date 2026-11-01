@@ -52,6 +52,7 @@ export function usePresentation(conversation?: string): Presentation {
 export function PresentationToggle({ conversation, strings }: { conversation: string; strings: Strings }) {
   const presentation = usePresentation(conversation);
   return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div className="lg-presentation" role="group" aria-label={strings.t("presentation.label")}>
       {(["messages", "transcript"] as const).map((value) => (
         <button
