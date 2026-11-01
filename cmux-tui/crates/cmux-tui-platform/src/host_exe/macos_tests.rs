@@ -8,8 +8,8 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(name: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        // Under /tmp, never under the home folder, so the root's anchor is
-        // its parent whatever HOME and TMPDIR say.
+        // Under /tmp, not under TMPDIR, so the root's anchor is its parent
+        // (the fleet's macOS HOME is /Users/..., never / or /tmp).
         let path = PathBuf::from("/tmp").join(format!(
             "cmux-host-exe-{name}-{}-{}",
             std::process::id(),
@@ -78,4 +78,15 @@ fn a_root_in_a_removed_home_is_not_made_again() {
     fs::create_dir(&home).unwrap();
     create_root(&root, Some(&home)).expect("make the root in an existing home");
     assert!(root.is_dir());
+}
+
+/// The fleet race itself: the root is removed while the install hashes the
+/// executable. The `<sha256>` folder is then made in a parent that must
+/// exist, so the removed root is not made again.
+#[test]
+fn a_copy_folder_under_a_removed_root_is_not_made_again() {
+    let scratch = Scratch::new("hash");
+    let gone = scratch.0.join("host-exe");
+    assert!(ensure_private_dir(&gone.join("0".repeat(64))).is_err());
+    assert!(!gone.exists(), "made the removed root {} again", gone.display());
 }
