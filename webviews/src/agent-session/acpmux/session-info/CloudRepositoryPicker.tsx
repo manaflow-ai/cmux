@@ -25,7 +25,6 @@ async function syncRepoCatalog(session: string): Promise<string | undefined> {
     const local = await postNative<LocalReply>("cloud.repo.local", {});
     const installUrl = local?.connect?.install_url;
     await postNative("cloud.repo.sync", {
-      session,
       repos: local?.repos ?? [],
       recent: local?.recent ?? [],
       complete: local?.complete === true,
