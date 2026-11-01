@@ -163,16 +163,24 @@ async fn measure_7828_exclude_closed_index() {
     };
 
     let baseline = scale_hub();
-    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(Snapshot::build(&baseline))));
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(Snapshot::build(&baseline));
+    }));
     eprintln!("7828 list baseline Snapshot::build: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
     let indexed = scale_hub();
-    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(Snapshot::build_live(&indexed))));
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(Snapshot::build_live(&indexed));
+    }));
     eprintln!("7828 list indexed Snapshot::build_live: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
 
     let baseline = scale_hub();
-    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(baseline.all_session_summaries())));
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(baseline.all_session_summaries());
+    }));
     eprintln!("7828 locate/wait baseline all_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
     let indexed = scale_hub();
-    let (wall, cpu) = measure(Box::new(|| std::hint::black_box(indexed.live_session_summaries())));
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(indexed.live_session_summaries());
+    }));
     eprintln!("7828 locate/wait indexed live_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
 }
