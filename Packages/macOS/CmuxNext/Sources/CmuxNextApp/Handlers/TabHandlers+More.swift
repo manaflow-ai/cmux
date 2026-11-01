@@ -67,7 +67,7 @@ extension TabHandlers {
         let services = ctx.services, home = services.machines.local
         guard let id = services.workspaceID(ofTab: tab), let workspace = services.workspace(id: id),
               let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
-        if WindowProfiles.membership(services.machines)?.pins[qualified] == room { return .refused(RoomStrings.alreadyInRoom) }
+        if WindowProfiles.membership(services.machines)?.pinned(qualified) == room { return .refused(RoomStrings.alreadyInRoom) }
         if let reason = TabPromotion.refusal(tab: tab, services: services) { return .refused(reason) }
         let alone = workspace.screens.flatMap(\.panes).flatMap(\.tabs).count == 1, session = qualified.session
         // action-wait-allow: a space pin has no store intent (Move Workspace to Space sends it the same way), so nothing local stands in.
