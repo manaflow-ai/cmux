@@ -218,13 +218,14 @@ test("the chat's room leaves out the side panel beside it, and the floating pane
   shell.append(main, side);
   container.append(shell);
   Object.defineProperty(shell, "clientWidth", { value: 1600 });
+  Object.defineProperty(shell, "clientHeight", { value: 700 });
   Object.defineProperty(side, "offsetWidth", { value: 736 });
-  expect(paneRoom(shell)).toEqual({ width: 864, side: 736 });
+  expect(paneRoom(shell)).toEqual({ width: 864, side: 736, height: 700 });
   side.remove();
-  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0 });
+  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0, height: 700 });
   // A side panel nested deeper is not beside the chat.
   main.append(side);
-  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0 });
+  expect(paneRoom(shell)).toEqual({ width: 1600, side: 0, height: 700 });
 });
 
 test("floating beside a side panel, the card's right edge is the chat's", async () => {

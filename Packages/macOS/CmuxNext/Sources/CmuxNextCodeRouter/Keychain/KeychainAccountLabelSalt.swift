@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import Security
@@ -41,7 +42,8 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // No UI: an item another signature of this bundle id made is refused, never prompted for.
+        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return data

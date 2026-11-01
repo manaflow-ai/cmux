@@ -250,6 +250,32 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         }
       });
 
+    // Leo, 2026-10-31: "sometimes the claude code/chatgpt desktop just straight up make it a popover
+    // that hides when you click away when the viewport is indeed too small". In a short pane where it
+    // lies over the chat it is a popover a click elsewhere hides; in a tall one a click leaves it open.
+    for (const height of [440, 700])
+      test(`${name}: over the chat in a ${height}px tall pane a click in the composer ${height < 520 ? "hides" : "keeps"} it`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 700, height });
+        try {
+          const { panel, toggle } = await openSessionInfo(page);
+          expect(await panel.getAttribute("data-popover")).toBe(height < 520 ? "" : null);
+          // The composer's left end: the popover may lie over the rest of it.
+          const composer = (await page.locator(".acpmux-md").first().boundingBox())!;
+          await page.mouse.click(composer.x + 16, composer.y + composer.height / 2);
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          if (height < 520) {
+            await panel.waitFor({ state: "detached", timeout: 5_000 });
+            await toggle.click();
+            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 5_000 });
+          } else {
+            expect(await panel.getAttribute("data-presence")).toBe("shown");
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
     test(`${name}: a click elsewhere in the chat leaves it open; its toggle closes it`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 1600, height: 700 });

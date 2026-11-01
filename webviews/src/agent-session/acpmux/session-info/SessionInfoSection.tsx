@@ -3,7 +3,8 @@
 // before the agent reports usage). With `icon`, the head starts with it, so a section that is one
 // line lines up with the rows above it (the rail's top block, SessionInfo.tsx `RAIL_LAYOUT`).
 // `bare` draws the body alone, with no head: rows that need no title over them. Inside the panel's
-// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel.
+// list (SessionInfoGroup.tsx) it also has the six-dot handle that moves it anywhere in the panel, at
+// the right end of its head (sessionInfo.css).
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";

@@ -124,23 +124,31 @@ function Pane({
   snapshot,
   onOpenOutput,
   sessions,
+  onPanelRender,
+  rerenderOnScroll = false,
 }: {
   snapshot: AcpmuxSnapshot;
   onOpenOutput: (path: string) => void;
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onPanelRender?: () => void;
+  rerenderOnScroll?: boolean;
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  const [scrollFrame, setScrollFrame] = useState(0);
   const sessionInfo = useSessionInfo({
     snapshot,
     machineName: "Studio",
     shell,
     onOpenOutput,
+    onRender: onPanelRender,
     sessions,
   });
   reveal = sessionInfo.reveal;
   return (
     <section
       className="acpmux-shell"
+      data-scroll-frame={scrollFrame}
+      onScroll={rerenderOnScroll ? () => setScrollFrame((frame) => frame + 1) : undefined}
       ref={(element) => {
         if (element && element !== shell) {
           Object.defineProperty(element, "clientWidth", {
@@ -283,6 +291,24 @@ test("file Sources use native editor fallback and show a transient failure", asy
 test("Session Info starts right under the header: no row for a machine and folder label", () => {
   expect(sessionInfoTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
   expect(sessionInfoTopOffset(28)).toBe("28px");
+});
+
+test("Session Info does not render when the transcript scrolls", async () => {
+  const container = installDom(true);
+  let renders = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane snapshot={localChat} onOpenOutput={noop} rerenderOnScroll onPanelRender={() => renders++} />);
+  });
+  const beforeScroll = renders;
+  const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
+  for (let frame = 0; frame < 20; frame++) {
+    await act(async () => {
+      shell.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true }));
+    });
+  }
+  expect(shell.dataset.scrollFrame).toBe("20");
+  expect(renders).toBe(beforeScroll);
 });
 
 test("Session Info opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {

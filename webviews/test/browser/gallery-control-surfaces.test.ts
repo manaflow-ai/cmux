@@ -27,6 +27,13 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
       reason: "The tray line is one full-width control; its embedded Stop shares its wash, never a second box.",
     },
     {
+      selector: ".acpmux-edited-head[data-header-toggle]",
+      kind: "hover",
+      control: ".acpmux-edited-head[data-header-toggle] > .acpmux-edited-toggle",
+      reason:
+        "The edits card's header is one full-width toggle (headerToggle.ts); its chevron is that toggle's keyboard control and shares its wash, never a second box.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",

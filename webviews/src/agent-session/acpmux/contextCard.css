@@ -129,7 +129,6 @@
   margin-top: var(--ds-space-1);
 }
 
-.acpmux-context-card-compact,
 .acpmux-context-card-details {
   height: var(--cmux-control-height);
   padding: 0 var(--ds-space-1);
@@ -156,17 +155,11 @@
 
 .acpmux-context-card-details span { margin-inline-start: auto; }
 
-.acpmux-context-card-compact:hover:not(:disabled),
 .acpmux-context-card-details:hover {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
 
-.acpmux-context-card-compact:disabled {
-  opacity: 0.5;
-}
-
-.acpmux-context-card-compact:focus-visible,
 .acpmux-context-card-details:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;

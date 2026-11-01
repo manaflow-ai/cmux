@@ -4,8 +4,11 @@
 // (`summary.contextBreakdown`) splits it by category, with the MCP tools, memory files and skills
 // it names under folds; without one, the parts are what is used and the free space. The composer's
 // context ring draws the same breakdown in its details (ComposerPickers ContextRing). Where the agent
-// lists `/compact`, Compact ends it, as the ring's card offers it (Leo, 2026-10-28: "You don't have
-// the compact session").
+// lists `/compact`, Compact session sends it, with the tokens left until the agent compacts on its
+// own beside it (Leo, 2026-10-28: "You don't have the compact session"). It stays live while a turn
+// runs: the /compact queues behind the turn, as one typed in the composer would (Leo, 2026-10-31:
+// "COMPACT BUTTON LITERALLY DOESN'T EVEN F***IN WORK"; it was disabled while working, and a chat is
+// nearly always working).
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -183,7 +186,6 @@ export function ContextSection({
   percent,
   breakdown: reported,
   onCompact,
-  working = false,
 }: {
   usage: { used: number; size: number };
   percent: number;
@@ -192,15 +194,19 @@ export function ContextSection({
   /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
   /// compact command or the chat cannot be sent to, so no Compact shows.
   onCompact?: () => void;
-  /// A turn runs: Compact is off until it ends, as the composer ring's card has it (ContextCard).
-  working?: boolean;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
   const parts = contextParts(usage);
   const breakdown = contextBreakdown(reported);
-  const label = (id: ContextPart["id"]) => t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
+  // Claude Code's free space is what is left before its autocompact buffer: the tokens until it
+  // compacts on its own. Without a buffer row the harness does not say, so no count shows.
+  const free = breakdown?.rows.some((row) => row.kind === "buffer")
+    ? breakdown.rows.find((row) => row.kind === "free")
+    : undefined;
+  const label = (id: ContextPart["id"]) =>
+    t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
   return (
     <div className="acpmux-session-info-context" data-section="context">
       <div className="acpmux-session-info-context__total">
@@ -236,8 +242,13 @@ export function ContextSection({
       )}
       {onCompact && (
         <div className="acpmux-session-info-context__actions">
-          <button type="button" className="acpmux-session-info-link" disabled={working} onClick={onCompact}>
-            {t("context.compact")}
+          {free && (
+            <span className="acpmux-session-info-context__until">
+              {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
+            </span>
+          )}
+          <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
+            {t("sessionInfo.context.compactSession")}
           </button>
         </div>
       )}

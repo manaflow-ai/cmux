@@ -104,3 +104,18 @@ test("a harness with no drawable mark (a glyph icon) keeps the toned icon, and t
   expect(late?.inner).toContain("🦊");
   expect(late?.tone).toBeUndefined();
 });
+
+test("a subagent row keeps its name and harness mark without a fork icon or usage counts", () => {
+  const html = renderToStaticMarkup(
+    <SubagentsSection
+      agents={[{ ...agent("reviewer", "codex"), tokens: 107_500, toolUses: 211 }]}
+      waiting={new Set()}
+    />,
+  );
+  expect(html).toContain("reviewer");
+  expect(icons(html)[0]?.inner).toBe(mark("codex"));
+  expect(html).not.toContain("acpmux-agent-line__kind-icon");
+  expect(html).not.toContain("acpmux-agent-line__progress");
+  expect(html).not.toContain("107.5K");
+  expect(html).not.toContain("211 tool uses");
+});

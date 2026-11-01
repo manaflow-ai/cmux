@@ -4,7 +4,6 @@
 /* The chat header's height (.acpmux-header); Session Info over the chat starts under it (session-info/sessionInfo.css). */
 .acpmux-shell{--acpmux-header-height:28px;--acpmux-glyph-slot:16px;--acpmux-glyph-line:20px;--acpmux-disclosure-slot:16px;--acpmux-row-compact:28px;--acpmux-row-expanded:40px}
 .acpmux-row-glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--acpmux-glyph-slot,16px);height:var(--acpmux-glyph-slot)}
-.acpmux-shell[data-tab-row]{background:linear-gradient(to bottom,transparent 0 var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height));}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
 .acpmux-transcript-after-latest{flex:none;min-width:0}
 

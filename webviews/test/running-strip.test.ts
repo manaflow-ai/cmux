@@ -17,6 +17,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("running-strip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -133,6 +134,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           height,
         );
         await page.waitForSelector(".acpmux-running-tray__head");
+        await openRunningTray(page);
         await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
         await page.click(".acpmux-running-tray__finished");
         await page.waitForFunction(
@@ -182,6 +184,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
       await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
       await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
+      await page.waitForSelector(".acpmux-running-tray__head");
+      await openRunningTray(page);
       await page.waitForSelector(".acpmux-running-tray__finished");
       await page.evaluate(() => {
         for (const animation of document.getAnimations())

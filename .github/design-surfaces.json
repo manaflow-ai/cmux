@@ -4,6 +4,7 @@
   "surfaces": {
     "model-picker": {
       "spec": "leo-workspace design/model-picker.md",
+      "checklist": "design/model-picker.md#checklist",
       "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
       "paths": [
         "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
