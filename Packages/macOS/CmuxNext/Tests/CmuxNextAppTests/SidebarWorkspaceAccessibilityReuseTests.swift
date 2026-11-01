@@ -63,10 +63,14 @@ struct SidebarWorkspaceAccessibilityReuseTests {
                                         menu: { menus += 1 }, add: { adds += 1 })
         row.standingGroup = group
         let actions = try #require(row.accessibilityCustomActions())
-        #expect(actions.map(\.name) == [GroupEditorStrings.editor, GroupEditorStrings.moreActions,
-                                         GroupEditorStrings.newWorkspace, GroupEditorStrings.collapse])
+        let expectedNames: [String] = [GroupEditorStrings.editor, GroupEditorStrings.moreActions,
+                                       GroupEditorStrings.newWorkspace, GroupEditorStrings.collapse]
+        #expect(actions.map(\.name) == expectedNames)
         for action in actions { #expect(action.handler?() == true) }
-        #expect([edits, menus, adds, toggles] == [1, 1, 1, 1])
+        #expect(edits == 1)
+        #expect(menus == 1)
+        #expect(adds == 1)
+        #expect(toggles == 1)
 
         group.expanded = false
         row.standingGroup = group
