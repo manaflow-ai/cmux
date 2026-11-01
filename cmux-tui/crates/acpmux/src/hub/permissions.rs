@@ -45,6 +45,8 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+mod pending;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -812,8 +814,10 @@ impl Hub {
                 }
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
-        let full_access_on =
-            full_access_mode(&session.meta()).is_some() && off.allows_full_access();
+        // Do not cache whether the mode is bypass here: a successful mode switch can drain
+        // pending asks before this request takes the lock and inserts itself. Judge its mode
+        // only under the permission lock below, so that request cannot miss the switch.
+        let full_access_on = off.allows_full_access();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
