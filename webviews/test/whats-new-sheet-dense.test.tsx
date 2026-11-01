@@ -10,7 +10,7 @@ import { act } from "react";
 import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/changelog/generated/strings.json";
 import { mergedView, titleKey } from "../src/pages/changelog/model";
-import { sheetRows } from "../src/pages/changelog/SheetPage";
+import { placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
 import { parseSheetLayout } from "../src/pages/changelog/store";
 import { dayOfNightlies } from "../src/pages/changelog/whatsNewFixtures";
 
@@ -77,6 +77,14 @@ test("a title cut inside its parentheses reads as the one line it was", () => {
     title: "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
     line: undefined,
   });
+});
+
+test("a loading day holds about the rows its index promises, three when it promises none", () => {
+  const build = (highlights: number) => ({ build: "1", shortVersion: "1", date: "2026-11-01", highlights });
+  expect(placeholderRows([build(26)])).toBe(26);
+  expect(placeholderRows([build(2), build(3)])).toBe(5);
+  expect(placeholderRows([build(0)])).toBe(3);
+  expect(placeholderRows([build(500)])).toBe(60);
 });
 
 test("titles compare without case, repeated spaces, curly quotes or a closing period", () => {
