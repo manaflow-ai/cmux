@@ -78,6 +78,12 @@ final class SidebarBridge {
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }
+        // The row the person is likely to open next: the agent chat on screen reads its chat ahead (HQ#5914).
+        container.sidebarView.onHoverTab = { [weak self] tab in
+            guard let self, let state, let shown = services.windows.controller(for: state.id)?.focusedPane?.stripModel.selectedID else { return }
+            let tabs = services.agentTabs
+            tabs.existingView(shown.rawValue)?.forwardHover(tab.flatMap { tabs.existingView($0.rawValue) == nil ? tabs.session(of: $0.rawValue) : nil })
+        }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.customization = services.sidebarCustomization
