@@ -297,6 +297,12 @@ public final class TerminalSession {
         surfaceView.applyAction(.openURL(text))
     }
 
+    /// Whether `responder` is this terminal's view or inside it: this terminal has the keyboard.
+    public func hasKeyboard(_ responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView else { return false }
+        return view === surfaceView || view.isDescendant(of: self.view)
+    }
+
     /// Sends bytes as typed, in order with this terminal's keys (they join the same queue to
     /// `io.write`): input the daemon gave back from a creation that did not take it.
     public func sendBytes(_ data: Data) {

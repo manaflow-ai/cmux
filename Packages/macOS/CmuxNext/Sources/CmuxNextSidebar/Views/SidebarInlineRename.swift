@@ -56,7 +56,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     /// baseline in the title's font and ink, and no row moves or resizes.
     func begin(_ key: SidebarRowKey, inPlace: Bool = false) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
-        if case let .group(id) = key, !inPlace { return list.groupEditing.open(id) }
+        if case let .group(id) = key, !inPlace || SidebarGroup.hostMachine(id) != nil { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
         let original: String
         switch key {
