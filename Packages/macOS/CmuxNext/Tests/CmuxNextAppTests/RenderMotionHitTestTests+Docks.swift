@@ -55,8 +55,8 @@ extension RenderMotionHitTestTests {
     }
 
     /// A docked column grows in on the right while the strip's range springs (``ScreenContentView/RenderTracks/strip``):
-    /// a press on the left overlay column's glass, off its pane, over a strip pane drawn under the glass, reaches no
-    /// strip pane (``ScreenContentView`` `stripPoint`'s overlay-cover rule).
+    /// a press on the left overlay column's glass, right of its pane, over a strip pane drawn under the glass, reaches no
+    /// strip pane and focuses none.
     ///
     /// Set-up (review of fc2cf77cfb5): an overlay gives the strip a leading inset of its width plus a gap, so a strip
     /// pane is under its glass only with the strip scrolled; and a dock arrival springs on the render server only with
@@ -65,11 +65,13 @@ extension RenderMotionHitTestTests {
     /// left edge with value and target moved together, so the camera stays at rest and the arrival goes to the render
     /// server. The column gap is pinned: the default look has no strip gap, so its glass would be its pane.
     ///
-    /// What it proves: the OUTCOME (no strip pane takes the press), not `stripPoint`'s overlay-cover rule alone. With
-    /// that rule removed the test still passed on screen minis (2026-11-01, 4f27c26fce7 and 1e5d18677f6), so another
-    /// path also stops the press. Most likely (read, not proven): the fixture has rows on, so each strip host sits in
-    /// its column's row container, and `stripChildHit` skips a clipping row container whose resting frame does not
-    /// hold the point. Keep the test; do not cite it as the only cover of the overlay-cover rule.
+    /// What stops the press (review of c09f2b0defe): the overlay column's own edge handle (`DividerHandleView`,
+    /// `.columnEdge`). Its hit band is centered half a gap past the overlay's frame and is at least the strip gap wide,
+    /// so at this gap it covers the whole glass band right of the pane; it ranks in front of the strip container and
+    /// does not spring (the overlay's frame depends only on the viewport), so `drawnHit` returns it before it reaches
+    /// the strip. `stripPoint`'s overlay-cover rule is not reached here: with that rule removed the test still passed on
+    /// screen minis (2026-11-01, red ref 1e5d18677f6 on cp/scratch-overlay-glass-red-v2212, the green ba8e3045407 with that one rule line removed). So this test guards the outcome
+    /// through the edge handle; it does not cover the overlay-cover rule (its own gap: handoff/followups.md).
     @Test func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
         try await Render.withMotion {
             let fixture = Screen(Self.overlaid, focused: "p3", columnGap: 12)
@@ -102,10 +104,10 @@ extension RenderMotionHitTestTests {
                                     y: inLayer.y - container.frame.minY + container.bounds.minY)
                 return zip(strip, hosts).first { $0.1.frame.contains(inner) }?.0.pane
             }
-            // On the glass, off its pane (right of the pane, else above it), with a strip pane drawn under it.
+            // On the glass right of its pane (the side pane fills its full height: no glass above it), with a strip pane
+            // drawn under it.
             var glass: [CGPoint] = []
             for x in stride(from: pane.maxX + 1, to: overlay.cover.maxX, by: 1) { glass.append(CGPoint(x: x, y: pane.midY)) }
-            for y in stride(from: overlay.cover.minY + 1, to: pane.minY, by: 1) { glass.append(CGPoint(x: pane.midX, y: y)) }
             let local = try #require(glass.first { point in
                 overlay.cover.contains(point) && !pane.insetBy(dx: -1, dy: -1).contains(point) && drawnPane(at: point) != nil
             }, "no point of the overlay's glass (cover \(overlay.cover), pane \(pane)) has a strip pane drawn under it: container drawn \(container.frame) bounds \(container.bounds), hosts \(hosts.map(\.frame))")
