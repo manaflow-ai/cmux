@@ -3,6 +3,8 @@ import { useChatDisplay, useChatMinimap } from "../chatDisplay";
 import { MINIMAP_EDGE, MINIMAP_WIDTH } from "../chatMinimap/paint";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
+import { experimentArm } from "../../../experiments/experiment";
+import { threadMinimapGutter } from "./gutter.experiment";
 import { railPlacement } from "./model";
 import type { RailSide } from "./railSide";
 
@@ -26,7 +28,10 @@ export function useRailPlacement(
   const display = useChatDisplay();
   const chatMinimap = useChatMinimap();
   const { width: chatWidth, scale } = useChatSizing();
-  const [placement, setPlacement] = useState(() => ({ ...railPlacement(paneWidth), reserve: 0 }));
+  /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
+  /// inset shrink to the smallest spacing step before it overlaps any text.
+  const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
+  const [placement, setPlacement] = useState(() => ({ ...railPlacement(paneWidth), reserve: 0, gutterArm }));
   // The layout effect places the rail before paint when the scroller is already attached. On a mount
   // the child effect runs before the ancestor scroller's ref is set, so the passive effect, which
   // runs after every ref is attached, measures again and subscribes to the shell's layout event.
@@ -44,11 +49,13 @@ export function useRailPlacement(
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
         ...railPlacement(paneWidth, inset - reserve, {
-          min: token("--cmux-space-2", 8),
+          min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
           max: token("--cmux-space-4", 16),
           compact: token("--cmux-space-3", 12),
+          ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
         }),
         reserve,
+        gutterArm,
       };
       setPlacement((was) =>
         was.left === next.left &&
@@ -62,7 +69,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap]);
+  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap, gutterArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);

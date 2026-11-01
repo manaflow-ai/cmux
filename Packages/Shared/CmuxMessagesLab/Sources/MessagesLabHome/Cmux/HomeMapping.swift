@@ -151,10 +151,10 @@ enum HomeMapping {
         switch row.kind {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(markdownEscaped).joined(separator: ", "))"
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(markdownEscaped), separator: ", "))"
         case let .notes(count, peers, reason, expanded):
             let label = CmuxStrings.agentNotes(reason, count)
-            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(peers.map(codeChip).joined(separator: " "))"
+            return expanded ? "*▾ \(label)*" : "*▸ \(label)* · \(HomeAgentMessageRow.peerPreview(peers.map(codeChip), separator: " "))"
         case let .note(peer, _, text):
             return "\(codeChip(peer)) *\(markdownEscaped(text))*"
         case let .message(from, to, _, text):

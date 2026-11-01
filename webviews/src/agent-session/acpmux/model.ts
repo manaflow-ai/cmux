@@ -30,7 +30,16 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import {
+  PASTE_CHIP_HEIGHT,
+  type PasteRange,
+  HUGE_PROMPT_HEAD_CHARS,
+  collapsedPromptHeight,
+  hasHugeTypedPart,
+  isHugePrompt,
+  promptHead,
+  promptParts,
+} from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
@@ -920,6 +929,12 @@ export type AcpmuxSnapshot = {
    * text) that opens a turn. Absent while unread, and for a chat with no older history.
    */
   earlierPrompts?: readonly AcpmuxRow[];
+  /**
+   * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
+   * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
+   * thread rail starts at the height that many prompts take. Absent once `earlierPrompts` is read.
+   */
+  promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -1027,6 +1042,9 @@ function activityStepHeight(item: AcpmuxActivity): number {
     // A start's card, its doing line while it starts, and its prompt (cut like a reply).
     if (subsession.tool === "start" && subsession.prompt)
       return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
+    // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
+    // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
+    if (subsession.tool === "send") return TOOL_ROW_HEIGHT;
     return 40;
   }
   switch (tool.kind) {
@@ -1043,16 +1061,53 @@ function activityStepHeight(item: AcpmuxActivity): number {
       return 26;
   }
 }
+/// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
+/// work between coordination cards folds under one summary line per stretch, and every card the run
+/// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
+/// "Sent to lane-b") is a line per entry, not the one summary line a run of plain work is, or each
+/// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
+/// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
+/// confused").
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[]): number {
+  return runStretches(row, groups).reduce(
+    (height, stretch) =>
+      height +
+      (stretch.fold ? TOOL_ROW_HEIGHT : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group), 0)),
+    0,
+  );
+}
+
+/// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
+/// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
+function foldedGroupHeight(group: ToolGroup): number {
+  if (group.type === "group" || group.type === "send") return TOOL_ROW_HEIGHT;
+  return ("items" in group ? group.items : [group.item]).reduce((sum, item) => sum + activityStepHeight(item), 0);
+}
+
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 16;
+/// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
+/// as much as claude code"): from the newest row's line (a turn footer's 24px action row, or the
+/// running turn's live line) to the top of the floating bottom stack (the running tray, else the
+/// composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
+/// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
+/// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+export const REST_GAP = 56;
+/// What the room under the last row adds over a floating stack to the last row's turn gap. The
+/// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
+export function restRoom(): number {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.restGap;
+  const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
+  return Math.max(0, gap - TURN_GAP);
+}
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
 /// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
 /// images alone.
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
+    (row.text && !row.failed && !chief ? META_GAP + META_ROW : 0) +
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
@@ -1075,9 +1130,13 @@ const USER_BUBBLE_SIDES = 24;
 const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
-/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
+/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset. An
+/// unlabeled fence has no header row (CodeHeader.tsx), only the inset above and below; a box-drawing
+/// diagram's lines are 1.15 of its font (conversation.css `.cv-codeblock--diagram`).
 const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
+const UNLABELED_CODE_CHROME = 2 * CODE_PADDING;
+const DIAGRAM_LINE_RATIO = 1.15;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
@@ -1346,9 +1405,13 @@ function fallbackRowHeight(
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return finish(14 + editedCardHeight(files.size, plain.length));
     }
-    // A folded run (Debug toggle) draws one summary line until opened.
-    if (row.foldRun && row.items && isFoldedRun(row.items))
-      return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
+    // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
+    if (row.foldRun && row.items?.length) {
+      const groups = toolGroups(row.items);
+      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups));
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    }
     const items = row.items ?? [];
     const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
@@ -1519,6 +1582,16 @@ function listHeight(
   }, 0);
 }
 
+/** A fenced code card's estimated height in a column `width` wide, without its outer margin. */
+export function codeCardHeight(text: string, lang: string | undefined, width: number): number {
+  const lines = text.split("\n");
+  const { codeCharWidth, codeLineHeight, blockCodeSize } = metrics();
+  const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
+  const chrome = isUnlabeledLang(lang) ? UNLABELED_CODE_CHROME : CODE_CHROME;
+  const lineHeight = isDiagram(text, lang) ? blockCodeSize * DIAGRAM_LINE_RATIO : codeLineHeight;
+  return chrome + lines.length * lineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
+}
+
 function blockHeight(
   block: Token,
   width: number,
@@ -1538,12 +1611,8 @@ function blockHeight(
       );
     case "hr":
       return 2;
-    case "code": {
-      const lines = (block as Tokens.Code).text.split("\n");
-      const { codeCharWidth, codeLineHeight } = metrics();
-      const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
-    }
+    case "code":
+      return codeCardHeight((block as Tokens.Code).text, (block as Tokens.Code).lang, width);
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
     case "paragraph":
@@ -1721,6 +1790,23 @@ function measuredRowHeight(
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
+  // its height is those lines and Show more, never a lex or measure of megabytes of text.
+  // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
+  if (
+    row.kind === "user" &&
+    !pasted &&
+    row.from !== "chief" &&
+    isHugePrompt(row.text) &&
+    (!row.inlineParts || hasHugeTypedPart(row.inlineParts)) &&
+    !chiefEnvelope(row.text)
+  ) {
+    const height =
+      messageBelow(beforeFooter) +
+      chromeHeight(row, actions) +
+      collapsedPromptHeight(Number.POSITIVE_INFINITY, metrics().lineHeight);
+    return finish(beforeFooter ? height : Math.max(34, height));
+  }
   const plainUser =
     row.kind === "user" &&
     !pasted &&
@@ -1755,7 +1841,17 @@ function measuredRowHeight(
         contentHeight +=
           part.kind === "paste"
             ? PASTE_CHIP_HEIGHT
-            : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+            : Math.max(
+                lineHeight,
+                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
+                // head is all there is to measure.
+                textHeight(
+                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
+                  contentWidth,
+                  entry.prepared,
+                  usedPrepared,
+                ),
+              );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
@@ -1947,6 +2043,7 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
@@ -1972,6 +2069,7 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
