@@ -116,9 +116,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         var tabKey: String
     }
 
-    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`).
-    func startChatPlan(request: String) async throws -> (Answer, StartChatPlan) {
-        let run = try await parsed(["link", "start-chat", "plan", "--request", request])
+    /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
+    func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
+        let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
         let object = run.object ?? [:]
         let plan = StartChatPlan(machine: object["machine"] as? String, newName: object["new_name"] as? String,
                                  createKey: object["create_key"] as? String ?? "", tabKey: object["tab_key"] as? String ?? "")
@@ -163,8 +163,8 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// One run's answer, with its JSON line (nil when it printed none) and exit status.
-    private func parsed(_ arguments: [String], timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
-        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
+    private func parsed(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil) async throws -> (answer: Answer, object: [String: Any]?, status: Int32) {
+        let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
                                                  timeout: timeout ?? self.timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
