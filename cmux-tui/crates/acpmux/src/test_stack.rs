@@ -11,6 +11,26 @@
 //! Before `main` (no thread exists yet), `RUST_MIN_STACK` is set to that size unless the
 //! environment already names one.
 
+#[cfg(all(unix, any(target_os = "linux", target_vendor = "apple")))]
+#[used]
+#[cfg_attr(target_os = "linux", unsafe(link_section = ".init_array"))]
+#[cfg_attr(target_vendor = "apple", unsafe(link_section = "__DATA,__mod_init_func"))]
+static TEST_THREAD_STACK: extern "C" fn() = {
+    extern "C" fn init() {
+        if std::env::var_os("RUST_MIN_STACK").is_none() {
+            // SAFETY: runs from the loader before `main`, when this process has one thread and
+            // nothing reads the environment concurrently.
+            unsafe {
+                std::env::set_var(
+                    "RUST_MIN_STACK",
+                    crate::cli::entry::WORKER_STACK_BYTES.to_string(),
+                );
+            }
+        }
+    }
+    init
+};
+
 #[cfg(test)]
 mod tests {
     /// A unit test's thread has the daemon's worker stack: a frame that needs more than std's
