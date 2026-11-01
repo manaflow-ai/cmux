@@ -129,19 +129,60 @@ struct EventSourceProcessesTests {
         #expect(fake.reads.allSatisfy { !$0.onMain })
     }
 
-    /// A pid with no process (it ended before the read) is not kept: a later event reads it again.
-    @Test func aPidWithNoProcessIsNotKept() async throws {
+    /// A process that ended between its watch and its read is not kept past its exit: the watch fires,
+    /// and a later event from that pid reads it again.
+    @Test func aProcessThatEndedBeforeItsReadIsNotKept() async throws {
         let fake = FakeProcesses()
         let table = fake.table()
         let event = try Self.event(pid: 4343)
         #expect(!AgentPanePersonInput.isPerson(event, sources: table))
         await table.settled()
         #expect(table.cached(4343) == nil)
+        fake.end(4343) // its exit watch fires
+        await table.settled()
         fake.set(4343, EventSourceProcess(start: 300, path: Self.screenSharing))
         #expect(!AgentPanePersonInput.isPerson(event, sources: table), "read again, off the main thread")
         await table.settled()
         #expect(AgentPanePersonInput.isPerson(event, sources: table))
         #expect(fake.reads.count == 2 && fake.reads.allSatisfy { !$0.onMain })
+    }
+
+    /// Review of #28065 at 072f126 (BLOCK): a process the table cannot read while its exit watch is
+    /// attached keeps the safe default until it ends, and is not read again (with a new kernel watch) for
+    /// each of its events. After its exit, its pid is read again.
+    @Test func aRefusedReadIsNotReadAgainUntilItsProcessEnds() async throws {
+        let fake = FakeProcesses()
+        let table = fake.table()
+        let event = try Self.event(pid: 4545) // alive (its watch attaches) but unreadable: no process set
+        for _ in 0..<5 {
+            #expect(!AgentPanePersonInput.isPerson(event, sources: table), "unreadable: never the person's")
+            await table.settled()
+        }
+        #expect(fake.reads.count == 1, "one read per process, never one per event")
+        fake.end(4545)
+        await table.settled()
+        fake.set(4545, EventSourceProcess(start: 500, path: Self.screenSharing))
+        #expect(!AgentPanePersonInput.isPerson(event, sources: table))
+        await table.settled()
+        #expect(AgentPanePersonInput.isPerson(event, sources: table), "the new process, read after the exit")
+        #expect(fake.reads.count == 2 && fake.reads.allSatisfy { !$0.onMain })
+    }
+
+    /// Review of #28065 at 072f126 (BLOCK): the app's real read names processes another user owns.
+    /// `proc_pidinfo(PROC_PIDTBSDINFO)` refuses them (EPERM, same-user check), so the WindowServer
+    /// (the strict check) and root Screen Sharing never counted as the person's. Runs the real
+    /// ``EventSourceProcesses/system`` on launchd (pid 1, root) and the WindowServer.
+    @Test func theRealReadNamesProcessesOtherUsersOwn() async throws {
+        let windowServer = try #require(await Task.detached(priority: .userInitiated) {
+            Self.launchdPID("com.apple.WindowServer")
+        }.value, "no WindowServer on this Mac")
+        for (name, pid, path) in [("launchd", pid_t(1), "/sbin/launchd"),
+                                  ("WindowServer", windowServer, PersonInputCheck.windowServer)] {
+            let process = await Task.detached(priority: .userInitiated) { EventSourceProcesses.system(pid) }.value
+            print("real-read-proof: \(name) pid \(pid) as uid \(getuid()): \(process.map { "start \($0.start) path \($0.path)" } ?? "nil")")
+            #expect(process?.path == path, "\(name): \(String(describing: process))")
+            #expect((process?.start ?? 0) > 0, "\(name): no start time")
+        }
     }
 
     /// The strict check (the join consent sheet) reads the same table: the WindowServer's event counts
