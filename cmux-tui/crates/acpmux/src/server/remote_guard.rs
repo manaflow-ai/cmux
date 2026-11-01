@@ -574,7 +574,7 @@ async fn mode_asks(
     cloud_mobile: bool,
 ) -> bool {
     if cloud_mobile {
-        return crate::hub::web_control::cloud_mobile_mode_asks(m);
+        return hub.cloud_mobile_mode_asks(m);
     }
     hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }

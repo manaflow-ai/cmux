@@ -26,8 +26,15 @@ use super::*;
 /// queued prompt must not inherit the ordinary Web Codex any-mode exception.
 pub(super) const PHONE_MODES: &[&str] = &["default", "plan", "ask"];
 
-pub(super) fn cloud_mobile_mode_asks(meta: &SessionMeta) -> bool {
-    crate::web_modes::mode_of(meta).is_some_and(|mode| PHONE_MODES.contains(&mode.as_str()))
+pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
+    let Some(mode) = crate::web_modes::mode_of(meta) else { return false };
+    if self.any_mode_for_web(meta) {
+        return mode == "ask";
+    }
+    if crate::web_modes::family_of(meta) != "claude" {
+        return false;
+    }
+    self.web_modes().session_asks(meta) && PHONE_MODES.contains(&mode.as_str())
 }
 use crate::web_modes::WebModeTable;
 use cmux_json::JsonSet as _;
@@ -272,7 +279,7 @@ impl Hub {
                 .and_then(|()| {
                     if cloud_mobile
                         && control == Control::Web
-                        && !cloud_mobile_mode_asks(&m)
+                        && !self.cloud_mobile_mode_asks(&m)
                     {
                         return Err(RpcError::invalid_params(
                             "Cloud mobile requires an asking mode (default, plan or ask)",
@@ -606,12 +613,14 @@ mod mode_write_tests {
     /// and every later `Session::meta()` panicked with it.
     #[test]
     fn cloud_mobile_mode_requires_a_phone_asking_mode() {
+        let hub = test_hub();
         let meta = |mode: &str| -> crate::store::SessionMeta {
             serde_json::from_value(json!({
                 "schema": crate::store::META_SCHEMA,
                 "id": "cloud-mobile-test",
                 "name": "cloud mobile",
-                "harness": "codex",
+                "harness": "claude",
+                "family": "claude",
                 "cwd": "/tmp",
                 "status": "running",
                 "createdAt": 1,
@@ -621,11 +630,17 @@ mod mode_write_tests {
             .expect("session metadata")
         };
         for mode in ["default", "plan", "ask"] {
-            assert!(cloud_mobile_mode_asks(&meta(mode)), "{mode} should ask on phone");
+            assert!(hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} should ask on phone");
         }
         for mode in ["agent", "full-access", "bypassPermissions"] {
-            assert!(!cloud_mobile_mode_asks(&meta(mode)), "{mode} must be refused on phone");
+            assert!(!hub.cloud_mobile_mode_asks(&meta(mode)), "{mode} must be refused on phone");
         }
+        let codex = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "codex-test", "name": "codex",
+            "harness": "codex", "family": "codex", "cwd": "/tmp", "status": "running",
+            "createdAt": 1, "updatedAt": 2, "modes": {"currentModeId": "ask"},
+        })).expect("codex metadata");
+        assert!(!hub.cloud_mobile_mode_asks(&codex), "codex is not a Claude phone profile");
     }
 
     #[tokio::test]

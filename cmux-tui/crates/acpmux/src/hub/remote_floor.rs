@@ -127,7 +127,7 @@ impl Hub {
             return true;
         }
         if session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {
-            return super::web_control::cloud_mobile_mode_asks(meta);
+            return self.cloud_mobile_mode_asks(meta);
         }
         let table = self.web_modes();
         if !table.session_asks(meta) {
