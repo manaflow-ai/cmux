@@ -244,7 +244,7 @@ import CmuxNextCompat
         dropTickets { !$1.isFresh(at) }
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
               held.intent.sessionId == sessionId,
-              held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt.ownID(promptId))],
+              held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt(id: promptId).ownID)],
               !holdsTicket(upload: upload) else { return false }
         if held.uploads.isEmpty { held.stoppedAt = at }
         held.uploads[upload] = at

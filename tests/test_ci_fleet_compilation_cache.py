@@ -135,20 +135,24 @@ class FleetCacheTests(unittest.TestCase):
         wrapper.chmod(0o755)
         count = self.root / "build-count"
         count.unlink(missing_ok=True)
+        args_log = self.root / "xcode-args"
+        args_log.unlink(missing_ok=True)
         xcode = self.root / "xcodebuild"
         xcode.write_text(
             "#!/bin/bash\n"
             f"count=0; [[ -f '{count}' ]] && count=$(cat '{count}'); count=$((count + 1)); echo $count > '{count}'\n"
+            f"printf '%s\\n' --- >> '{args_log}'; printf '%s\\n' \"$@\" >> '{args_log}'\n"
             f"if [[ $count -eq 1 ]]; then echo {diagnostic!r}; exit 65; fi\n"
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
                "RUNNER_TEMP": str(self.root), "CHANNEL_ICON_NAME": "AppIcon-Nightly"}
         command = self._nightly_release_command()
-        return subprocess.run(
+        result = subprocess.run(
             ["bash", "-euc", 'archs=arm64; only_active=YES; notary_test_flags=(build)\n' + command],
             cwd=self.root, env=env, text=True, capture_output=True, check=False,
-        ), count
+        )
+        return result, count, args_log
 
     def test_nightly_release_retries_only_on_runtime_cas_diagnostic(self):
         for diagnostic in (
@@ -157,11 +161,20 @@ class FleetCacheTests(unittest.TestCase):
             "error: remote service unavailable",
             "error: cache plugin failed",
         ):
-            result, count = self._run_nightly_release_stub(diagnostic)
+            result, count, args_log = self._run_nightly_release_stub(diagnostic)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(count.read_text().strip(), "2")
+            attempts = args_log.read_text().split("---\n")[1:]
+            self.assertIn("SWIFT_ENABLE_PREFIX_MAPPING=YES\n", attempts[0])
+            self.assertIn("COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES\n", attempts[0])
+            self.assertIn("COMPILATION_CACHE_CAS_PATH=", attempts[0])
+            self.assertIn("SWIFT_ENABLE_PREFIX_MAPPING=YES\n", attempts[1])
+            self.assertIn("COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES\n", attempts[1])
+            self.assertNotIn("COMPILATION_CACHE_CAS_PATH=", attempts[1])
+            self.assertNotIn("COMPILATION_CACHE_ENABLE_PLUGIN=YES", attempts[1])
+            self.assertNotIn("COMPILATION_CACHE_REMOTE_SERVICE_PATH=", attempts[1])
 
-        result, count = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
+        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "1")
 
@@ -171,6 +184,9 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("run_release_build()", step)
         self.assertIn("release_status=${PIPESTATUS[0]}", step)
         self.assertIn("cmux_next_runtime_cas_failed \"$RUNNER_TEMP/nightly-release-build.log\"", step)
+        self.assertIn("local_cache_settings=()", step)
+        self.assertIn("local_cache_settings+=(\"$setting\")", step)
+        self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
         self.assertIn('run_release_build 1', step)
         self.assertIn("retrying the Release build with the local cache", step)

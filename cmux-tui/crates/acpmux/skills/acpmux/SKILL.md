@@ -26,7 +26,7 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message`,
 `stop_session` and `retry_session` (a child's failed turn or subagent, again now). Prefer
 them when you have them; this CLI is the fallback (`acpmux retry NAME`).
-At most `maxRunning` of your sub-sessions run at once (16 unless the user
+At most `maxRunning` of your sub-sessions run at once (1000 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
 and how many run and wait; only the user or your parent session raises them.

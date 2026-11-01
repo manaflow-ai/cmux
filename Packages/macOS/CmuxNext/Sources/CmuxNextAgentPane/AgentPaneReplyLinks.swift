@@ -32,6 +32,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// The context menu's Copy Image: replaces the general pasteboard's contents with the item
     /// (``AgentPaneImageCopies/pasteboardItem(_:data:)``); tests record it instead.
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
+    /// The composer's Copy and Cut (`composer.copy`): replaces the general pasteboard's contents
+    /// with the items, in order; tests record them instead.
+    public var copyItems: @MainActor ([NSPasteboardItem]) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
     /// A path menu's Save As…: the save panel, whose answer copies `file` only while `allowed()`
@@ -122,7 +125,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
         case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
-             .quickLookImage, .dragImage, .dragFile, .previewPath:
+             .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -221,7 +224,7 @@ extension AgentPaneModel {
             return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
-        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
+        case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)
         }
