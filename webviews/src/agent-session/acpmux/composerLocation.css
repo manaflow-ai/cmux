@@ -265,12 +265,6 @@
   padding-block: 6px;
   padding-inline: calc(var(--acpmux-row-edge) - var(--acpmux-row-inset)) var(--acpmux-row-edge);
 }
-/* Codex's look keeps this row inside the box under the prompt: + stands as far off the box's left
-   as Send off its right, and as far as both stand over the row's bottom (Leo 2026-10-31: "why is our
-   shit not vertically centered like claude's is??? applies to the send and mic buttons"). */
-.acpmux-composer[data-composer-look="codex"] .acpmux-composer-bar:not(.acpmux-composer-inner) {
-  padding-inline: var(--acpmux-row-edge);
-}
 .acpmux-mode .acpmux-mode-text { display: none; }
 .acpmux-mode .acpmux-picker-button {
   width: 30px;
@@ -347,61 +341,6 @@
   line-height: 16px;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* The allowed rules under the modes (Leo 2026-10-27, on the PR button's full-row highlight: "why are you
-   giving it the entire row when it's only this small little section? Just don't do that. Don't ever do
-   that."). A rule's row is not a control, so it takes no hover wash: only its remove x lights, on its
-   own pill. The section's heading and each rule start on the mode rows' text column, and the x
-   centers on their trailing column, where a mode's number or check sits: 16 from the menu's edge.
-   The section sits 4 in from the rows' edges (its hairline is the menu's separator inset), so a mode
-   row's 4px padding is already spent; a menu whose modes draw their shield adds the icon column
-   (16 + 8). A fieldset's own padding (0.35em 0.75em 0.625em) is cleared, never inherited: it put the
-   heading and rules on two other columns. The lead is inline-start padding, so a right-to-left menu
-   keeps the same columns from its right edge. */
-.acpmux-access-grants {
-  --acpmux-grant-lead: 0px;
-  min-inline-size: 0;
-  border: 0;
-  margin: 8px 4px 2px;
-  padding: 8px 0 0;
-  border-top: .5px solid var(--acpmux-composer-edge);
-}
-.acpmux-access-menu:has(.acpmux-access-item:not(.acpmux-access-item-iconless)) .acpmux-access-grants {
-  --acpmux-grant-lead: 24px;
-}
-.acpmux-access-grants-heading {
-  padding: 0 0 4px;
-  padding-inline-start: var(--acpmux-grant-lead);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-access-grant {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  align-items: center;
-  column-gap: 8px;
-  min-height: var(--ui-row-height);
-  padding: 0;
-  padding-inline-start: var(--acpmux-grant-lead);
-}
-.acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-access-grant-remove {
-  justify-self: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--agent-muted);
-  font-family: var(--font-ui);
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  cursor: default;
-  letter-spacing: var(--text-control--letter-spacing);
-}
-.acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
-.acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
 /* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
    so the two always match. */
@@ -453,7 +392,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: 4px;
+  gap: var(--acpmux-composer-action-gap);
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -692,8 +631,8 @@
    2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
-/* New Tab's row takes the same forms: with Codex's look its chips sit there (NewTabScreen.tsx), so
-   the model's family and short names must draw as they do in the chat's box row. */
+/* New Tab's row takes the same forms: where its chips sit there (a page with no quiet row,
+   NewTabScreen.tsx), the model's family and short names draw as they do in the chat's row. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button { position: relative; overflow: clip; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
@@ -711,8 +650,8 @@
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
-   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+/* New Tab's row: the effort always, and the model's and mode's other forms too where its chips sit
+   in this row (NewTabScreen.tsx), as the chat's row does. */
 .nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 :is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
@@ -727,8 +666,7 @@
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
-   always did. The box's own row keeps them whatever its footer look, since Codex's look puts the
-   mode, model and ring there (composerLook.ts). The guard is
+   always did. The guard is
    `:where(:not(.acpmux-composer-foot[data-footer-look="plain"]))`, never a bare `:not(...)`:
    these rules sit after the hiding rules above and must keep losing to them, so the row's measured
    fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
@@ -1340,7 +1278,9 @@
    whole pane (pane-has-restyle.browser.test.ts). */
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
+.acpmux-dock,
 :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-action-gap: 4px;
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text
@@ -1481,16 +1421,34 @@
 .acpmux-composer-foot .acpmux-context-ring { width: 22px; height: 22px; margin-inline-start: 4px; margin-inline-end: 11px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
-/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,
-   in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
-   hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
-.acpmux-env-popover { min-width: 260px; }
-/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections the same way. */
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]),
+/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's rows, as Codex's
+   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
+   its own (Machines…). No section headers and no second lines; each of the first nine machines ends
+   with its ⌥⌘ digit, then the current one's check. */
+.acpmux-env-popover { min-width: 220px; }
+/* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
+.acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+/* The right-click menu's host (ContextMenu) adds no box around the control. */
+.acpmux-location-picker > .acpmux-env-more { display: contents; }
+/* The control's looks (gallery variants): its icon alone, or a bordered chip as Codex's row above
+   its composer. The default is the icon and the short name. */
+.acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
+.acpmux-location-picker[data-face="chip"] .acpmux-location-button {
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: var(--ui-row-radius);
+  padding-inline: 8px;
+}
+/* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]),
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
-.acpmux-env-row[data-section]::before,
 .acpmux-location-name[data-section]::before {
   content: attr(data-section);
   position: absolute;
@@ -1555,18 +1513,3 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
-/* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
-.acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.acpmux-env-new .acpmux-env-detail {
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
-  line-height: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: var(--text-caption--letter-spacing);
-}

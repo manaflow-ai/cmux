@@ -5,6 +5,10 @@ import Security
 import Testing
 @testable import CmuxNextMobile
 
+/// The guard of the Keychain UI switch these tests share, as the app shares its one (`AppServices`):
+/// the switch is the process's, so two instances overlapping in parallel tests would restore it early.
+nonisolated let testLoginKeychain = LoginKeychain()
+
 /// The Mac's identity key in the Keychain never shows UI. Leo, 2026-10-31, on a rebuilt DEV app:
 /// "cmux DEV cloud-firstsend wants to use your confidential information stored in 'cmux iPhone host
 /// identity' in your keychain."
@@ -58,8 +62,8 @@ import Testing
     }
 
     @Test func theItemIsThisBundleIDsAlone() {
-        let dev = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.debug.cloud.firstsend", stateDirectory: scratch())
-        let nightly = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.nightly", stateDirectory: scratch())
+        let dev = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.debug.cloud.firstsend", stateDirectory: scratch(), loginKeychain: testLoginKeychain)
+        let nightly = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.nightly", stateDirectory: scratch(), loginKeychain: testLoginKeychain)
         #expect(dev.service == "com.cmuxterm.app.debug.cloud.firstsend.iphone-host.identity")
         #expect(nightly.service == "com.cmuxterm.app.nightly.iphone-host.identity")
         let query = MobileHostMacIdentityStore.readQuery(service: dev.service)
@@ -79,7 +83,7 @@ import Testing
         let recorder = Recorder()
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let first = try store.loadOrCreate()
         #expect(try store.loadOrCreate() == first)
         // read (not found), add, read (found)
@@ -95,7 +99,7 @@ import Testing
         let recorder = Recorder(copyStatus: errSecInteractionNotAllowed)
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let first = try store.loadOrCreate()
         #expect(FileManager.default.fileExists(atPath: store.fallbackFile.path))
         #expect(try store.loadOrCreate() == first)

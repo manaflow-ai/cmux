@@ -8,6 +8,8 @@ import Security
 /// `host:port`. Never in the tab record: records persist and travel.
 nonisolated struct RemoteVNCCredentialStore {
     static let service = "cmux-next VNC"
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
     private struct Stored: Codable {
         var username: String?
@@ -39,7 +41,7 @@ nonisolated struct RemoteVNCCredentialStore {
         var result: CFTypeRef?
         // No UI: the service is shared by every development build, so another build's item is
         // refused (and the sign-in asked for again), never prompted for.
-        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess, let data = result as? Data,
+        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess, let data = result as? Data,
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }

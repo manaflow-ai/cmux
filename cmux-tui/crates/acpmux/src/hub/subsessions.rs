@@ -94,7 +94,7 @@ pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
 pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
 /// `maxRunning`'s default and ceiling until the catalog has its row.
-const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 16, max: 1000 };
+const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 1000, max: 1000 };
 pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
@@ -410,7 +410,8 @@ impl Hub {
     /// its slot. Read over every open child, live ones too: one that hibernates between this
     /// read and the reservation still counts. A prompt that comes after this read wakes its child
     /// as one after the reservation would: past the limit, as a reopen does. Prompts a failed
-    /// turn holds (`pause_queue`) wake nothing until released, so they do not count.
+    /// turn holds (`pause_queue`) or that wait for the owner (`queue_approve.rs`) wake nothing
+    /// until released or approved, so they do not count.
     pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
         let open = self.subsessions.open_children(parent);
         let children: Vec<Arc<Session>> = {
@@ -418,7 +419,7 @@ impl Hub {
             open.iter().filter_map(|id| sessions.get(id).cloned()).collect()
         };
         let waking = |c: &Session| {
-            let held = c.queue().iter().filter(|q| q.held).count() as u64;
+            let held = c.queue().iter().filter(|q| q.aside()).count() as u64;
             c.queued() > held || c.turn_lock.try_lock().is_err()
         };
         children.iter().filter(|c| waking(c)).map(|c| c.id.clone()).collect()

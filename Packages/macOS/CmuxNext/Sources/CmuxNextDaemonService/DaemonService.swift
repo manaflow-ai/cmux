@@ -30,8 +30,19 @@ public final class DaemonService {
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool
     public let store = DaemonStore()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.creation.hold` / `debug.creation.release`: this daemon's creations whose reply a test holds.
+    public let creationHold = DebugCreationHold()
+    #endif
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
+    /// The last ordered send to each terminal surface (``sendInOrder(_:to:_:)``): the next one waits for it.
+    @ObservationIgnored var orderedSends: [SurfaceID: (serial: UInt64, work: ActionWork)] = [:]
+    @ObservationIgnored var orderedSendSerial: UInt64 = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.close.hold` / `debug.close.release`: this daemon's close warning reads that a test holds.
+    public let closeReadHold = DebugCloseReadHold()
+    #endif
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
@@ -120,6 +131,13 @@ public final class DaemonService {
     /// Times the wait for a reopened workspace to reach the mirror
     /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
+    /// How long a workspace close waits for this daemon's answer before the store decides it: the safety net for a
+    /// daemon that keeps its socket open and never answers (`WorkspaceClose`). Tests shorten it.
+    @ObservationIgnored public var closeReplyBound: Duration = DaemonConnection.closeReplyBound
+    /// How long a create with a first terminal waits for this daemon's answer before its caller decides from the store
+    /// (``createWorkspaceAwaitingReply(on:ephemeral:focus:)``): the same safety net as a close's, for a daemon that keeps
+    /// its socket open and never answers, not a deadline for a busy one. Tests shorten it.
+    @ObservationIgnored public var createReplyBound: Duration = DaemonConnection.closeReplyBound
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored private(set) var lastStartupError: DaemonError?
@@ -168,7 +186,7 @@ public final class DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {
-                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
             }
         }
@@ -250,7 +268,8 @@ public final class DaemonService {
                 }
                 await weakSelf?.noteStartupFailure(error)
             }
-            var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
+            // The first connect starts the local daemon too: it keeps trying past its budget (restore fuzz h2).
+            var connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
@@ -261,8 +280,8 @@ public final class DaemonService {
                 self?.armStartupDeadline()
                 connected = nil
                 if !Task.isCancelled {
-                    connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection,
-                                                                   onFailure: onFailure)
+                    connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock,
+                                                                   makeConnection: makeConnection, onFailure: onFailure)
                 }
             }
             guard let (connection, identity) = connected else { return }
@@ -391,13 +410,12 @@ public final class DaemonService {
         relaunchKeptLayoutIfNeeded(connection)
     }
 
-    /// Records a failed first-connect attempt. Shows as unavailable once the
-    /// deadline has passed, or at once when retrying cannot help.
-    func noteStartupFailure(_ error: DaemonError) {
+    /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
+    func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
-        store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) {
+        if startup.showsFailure(error, retries: retries) { store.markFailed(error.description) }
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) || !retries {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
@@ -417,12 +435,13 @@ public final class DaemonService {
         armStartupDeadline()
     }
 
-    private func armStartupDeadline() {
+    func armStartupDeadline() {
         startupDeadlineTimer?.cancel()
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
         }
@@ -537,8 +556,18 @@ public final class DaemonService {
     }
 
     private func showPaneNotReady(_ notReady: PaneNotReady) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        paneNotReadyCauses = Array((paneNotReadyCauses + [notReady.description]).suffix(100)) // as RefusalHUD.history
+        #endif
         onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Debug and bench builds: the command and stand-in reference of each ``PaneNotReady`` shown so far, newest last
+    /// (`debug.toast` `pane_not_ready`). The person's toast says only "still opening"; this says which request named
+    /// which pane, so a journey finds the sender. As many entries as the refusal HUD's own history.
+    @ObservationIgnored public private(set) var paneNotReadyCauses: [String] = []
+    #endif
 
     /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
     @ObservationIgnored public var paneNotReadyText: (() -> String)?

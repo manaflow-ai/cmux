@@ -137,7 +137,7 @@ pub(super) async fn wait(
         .unwrap_or_default();
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
-        for s in hub.all_session_summaries() {
+        for s in hub.live_session_summaries() {
             let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
             if (Until::Running.matches(&s) || slot)
                 && let Some(id) = s.get("sessionId").and_then(Value::as_str)

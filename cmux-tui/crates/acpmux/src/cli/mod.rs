@@ -60,6 +60,7 @@ pub mod shutdown;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
+pub mod trigger_chat;
 pub mod uniichat_agent;
 pub(crate) mod unknown_command;
 pub(crate) mod unknown_flag;

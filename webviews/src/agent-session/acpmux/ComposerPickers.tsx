@@ -45,7 +45,9 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
+import { continueTargets } from "./cmuxCommands";
 import { useModelCatalogState } from "./modelCatalogHost";
+import { backdropLayer } from "./backdropLayer";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
@@ -159,8 +161,6 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  /** Granted folder trust and chat-wide permission state, folded into the Access menu. */
-  permissionAccess?: ComposerPermissionAccess;
   onModel(modelId: string): void;
   /** A rejected promise (or a throw) means the agent refused the mode: the access chip goes back to the mode in force. */
   onMode(modeId: string): void | Promise<unknown>;
@@ -205,16 +205,6 @@ type Props = {
   startsChat?: boolean;
 };
 
-export type ComposerPermissionGrant = {
-  id: string;
-  label: string;
-  onRemove(): void;
-};
-
-export type ComposerPermissionAccess = {
-  grants: readonly ComposerPermissionGrant[];
-};
-
 /// The composer bar's controls after the + button: one model button that names the model and its
 /// effort (its tooltip says how much of the context window the chat has used; its menu holds
 /// Effort, More models, Account and Fast mode), the permission mode (in the warning color when it
@@ -223,7 +213,6 @@ export type ComposerPermissionAccess = {
 /// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
-  permissionAccess,
   onModel,
   onMode,
   onEffort,
@@ -302,7 +291,6 @@ export function ComposerPickers({
   // Plan is its own toggle, unless the harness's own menu lists it as a mode (Claude Code's does).
   const plan = modeMenu?.rows.some((row) => isPlan(row.id)) ? undefined : allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
-  const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
   const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
@@ -1014,7 +1002,17 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork ? { fork: { ready: fork.ready, to: forkTo } } : {})}
+          {...(locked && fork
+            ? {
+                fork: {
+                  ready: fork.ready,
+                  to: forkTo,
+                  targets: new Set(
+                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
+                  ),
+                },
+              }
+            : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1051,20 +1049,14 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel &&
-        modes.length === 0 &&
-        !hasGrants &&
-        startMode &&
-        startModeName &&
-        pendingAccessModes.length === 0 && (
-          <PendingMode
-            label={startModeName}
-            modeId={shownStart?.modeId}
-            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
-          />
-        )}
-      {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
-      {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
+      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingMode
+          label={startModeName}
+          modeId={shownStart?.modeId}
+          icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
+        />
+      )}
+      {(modes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
@@ -1075,7 +1067,6 @@ export function ComposerPickers({
           managedReason={t(PICKER_LABELS.fullAccessManaged)}
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
-          permissionAccess={permissionAccess}
           approvesAll={summary?.enforcement?.policy === "approve-all"}
           onMode={onMode}
           {...(pendingMenu
@@ -1147,9 +1138,11 @@ function PendingMode({ label, modeId, icon }: { label: string; modeId?: unknown;
   );
 }
 
-/** The permission control stays quiet in the footer: the mode's shield names the control (a lock
- * when the harness offers no modes and only grants remain) and the menu carries the mode title
- * and one-line explanation, each row with its own shield. Base UI owns focus, typeahead and Escape. */
+/** The permission control stays quiet in the footer: the mode's shield names the control and the
+ * menu carries the mode title and one-line explanation, each row with its own shield. The menu
+ * lists the modes alone: granted folder trust and chat allowance are revoked from the chat menu's
+ * Revoke Granted Access (header/grantsMenu.ts) and Session Info's Environment, not here (Leo,
+ * 2026-10-29). Base UI owns focus, typeahead and Escape. */
 /// Runs a mode pick; resolves false when the agent refused it (a rejected promise or a throw).
 function settle(run: () => void | Promise<unknown>): Promise<boolean> {
   try {
@@ -1172,7 +1165,6 @@ function AccessMenu({
   managedReason,
   help,
   refusedReason,
-  permissionAccess,
   approvesAll = false,
   onMode,
   heading,
@@ -1188,7 +1180,6 @@ function AccessMenu({
   managedReason: string;
   help: string;
   refusedReason: string;
-  permissionAccess?: ComposerPermissionAccess;
   /// acpmux's policy for the chat answers every permission prompt (approve-all, `enforcement`), so
   /// the chat acts without asking whatever its harness mode is (cmux#27847).
   approvesAll?: boolean;
@@ -1231,7 +1222,6 @@ function AccessMenu({
     ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
     : reportedMode;
   const fullAccess = answeredForYou || unrestricted(value);
-  const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     if (blocked(next)) return;
     setOptimistic({ sessionId, modeId: next });
@@ -1251,10 +1241,9 @@ function AccessMenu({
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
-  // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
+  // Nothing left to pick (every other mode refused): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
-    grants.length === 0 &&
     // A full-access row managed off, the current one included, keeps the menu: it stays, disabled
     // and saying why (reviews 37 and 48).
     modes.every(
@@ -1291,9 +1280,9 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+          <ModeIcon modeId={value} icon={currentMode?.icon} />
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
-            {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+            {currentMode?.name ?? label}
           </span>
           <ChevronIcon />
         </MenuButton>
@@ -1348,24 +1337,6 @@ function AccessMenu({
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
-          )}
-          {grants.length > 0 && (
-            <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
-              <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
-              {grants.map((grant) => (
-                <div className="acpmux-access-grant" key={grant.id}>
-                  <span className="acpmux-access-grant-label">{grant.label}</span>
-                  <button
-                    type="button"
-                    className="acpmux-access-grant-remove"
-                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
-                    onClick={grant.onRemove}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </fieldset>
           )}
         </MenuPopup>
       </Menu>
@@ -1619,6 +1590,7 @@ export function Picker({
   heading,
   tooltip,
   overBackdrop = false,
+  onOpen,
 }: {
   label: string;
   className: string;
@@ -1636,6 +1608,8 @@ export function Picker({
   /// Draws the menu outside every backdrop root around its button (backdropLayer), so its glass
   /// frosts what is behind the composer instead of letting it show through sharp.
   overBackdrop?: boolean;
+  /// Runs as the menu opens, before its rows draw (the + menu reads its recent commands again).
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // Where the menu draws when it must leave the composer's glass (overBackdrop): found on open.
@@ -1697,6 +1671,7 @@ export function Picker({
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setLayer(overBackdrop ? backdropLayer(root.current) : null);
+    onOpen?.();
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
@@ -1889,41 +1864,6 @@ export function Picker({
   );
 }
 
-/**
- * The element a menu draws in to leave every backdrop root around `from` (Filter Effects 2: an
- * ancestor with a backdrop-filter, filter, mask, clip-path, opacity under 1 or a blend mode). Inside
- * one, a popup's own backdrop-filter sees only that root's content: the composer's glass box is one,
- * so the + menu's glass showed the project and machine pills behind the composer through it sharp
- * (Leo, 2026-10-31: "our + button is ass"). The parent of the outermost root inside the pane's shell
- * (`.acpmux-shell`, which carries the menu's colour tokens; the body on a page without one), or null
- * when there is none (the menu then stays beside its button).
- */
-export function backdropLayer(from: Element | null): HTMLElement | null {
-  const view = from?.ownerDocument.defaultView;
-  if (!from || !view) return null;
-  const shell = from.closest(".acpmux-shell") ?? from.ownerDocument.body;
-  let outermost: Element | null = null;
-  for (let node = from.parentElement; node && node !== shell; node = node.parentElement)
-    if (isBackdropRoot(view.getComputedStyle(node))) outermost = node;
-  return outermost?.parentElement ?? null;
-}
-
-/** Whether an element with this style is a backdrop root (Filter Effects 2). */
-export function isBackdropRoot(style: CSSStyleDeclaration): boolean {
-  const set = (value: string | undefined) => !!value && value !== "none";
-  const backdrop = style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
-  const mask = style.maskImage || style.getPropertyValue("-webkit-mask-image");
-  const opacity = Number.parseFloat(style.opacity);
-  return (
-    set(backdrop) ||
-    set(style.filter) ||
-    set(mask) ||
-    set(style.clipPath) ||
-    (Number.isFinite(opacity) && opacity < 1) ||
-    (!!style.mixBlendMode && style.mixBlendMode !== "normal")
-  );
-}
-
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
 function Icon({
   children,
@@ -1977,12 +1917,6 @@ const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
 const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
   <Icon shield={shield}>
     <path d={SHIELD} />
-  </Icon>
-);
-export const LockIcon = () => (
-  <Icon>
-    <rect x="3.5" y="7" width="9" height="7" rx="1.5" />
-    <path d="M5.5 7V5.6a2.5 2.5 0 0 1 5 0V7" />
   </Icon>
 );
 /** One shield family for the permission mode, the same on the trigger and in the menu: the mark

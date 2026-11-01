@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly-next-github-names: "Install the feed order check". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the job's and step's env: still set every input.
+#
+# The step's notes, moved from nightly.yml:
+# still-newest: exit 0 while no build above this one is on the live feed. Every mutable
+# write below (rolling name, feed copy, body, tag) runs it just before writing, so an
+# older run whose uploads waited out a rate limit never writes over a newer build's.
 set -euo pipefail
 cat > "$RUNNER_TEMP/still-newest" <<'SH'
 #!/usr/bin/env bash

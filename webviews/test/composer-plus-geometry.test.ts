@@ -13,8 +13,8 @@
 // 3. Centered controls: +, the mic and Send are one size (`--acpmux-composer-control`), each glyph
 //    sits at its button's center, and every button stands the same inset off the box's edges on
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
-//    control). In Claude's look the three centers are the prompt's first line's center (a one-line
-//    prompt); in Codex's, the controls' own row under the prompt.
+//    control). The three centers are the prompt's first line's center (a one-line prompt), in both
+//    looks: Codex's lays the buttons out as Claude's (cmux #28901's row under the prompt, replaced).
 // 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
 //    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
 //    room under it as over it, and at least MIN_ROOM under its text, so it never sits on the edge.
@@ -138,6 +138,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       width: 760,
       look: "codex",
       type: "helo",
+      expect: ["foot"],
       trailing: ["mic", "send"],
     },
     {
@@ -146,6 +147,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       variant: "claude",
       width: 760,
       look: "codex",
+      // Codex's folder tray is set 22 px in from the box's sides (composerLook.css
+      // --acpmux-tray-inset), so its strip is not on +'s column; the buttons are Claude's.
       trailing: ["mic"],
     },
     {
@@ -154,6 +157,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       variant: "minimal-default",
       width: 760,
       look: "codex",
+      // The tray, as home-codex; the quiet row stands on +'s column.
+      expect: ["foot"],
       trailing: ["mic", "send"],
     },
   ];
@@ -360,7 +365,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         inline = !!prompt?.querySelector(".acpmux-md-inline");
         // The first line's text: what is typed, else the placeholder.
         if (chosen)
-          line = { top: chosen.top, center: (chosen.top + chosen.bottom) / 2, bottom: chosen.bottom, source: textSource };
+          line = {
+            top: chosen.top,
+            center: (chosen.top + chosen.bottom) / 2,
+            bottom: chosen.bottom,
+            source: textSource,
+          };
       }
       /** The leftmost drawn mark in `root`: a glyph (svg, img) or a text character, and what it is. */
       const leadingMark = (root: Element | null) => {
@@ -483,7 +493,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (!m.plus) return ["the + button is not drawn in the box"];
     const plus = m.plus.button;
     const inset = plus.left - m.box.left;
-    // In Codex's look + sits in the row under the prompt, not beside the text.
+    // Both looks put + beside the text (composerLook.ts; Leo 2026-11-01: "we already have a good
+    // version"): no layout draws + in a row of its own under the prompt (cmux #28901's, replaced).
+    if (m.bar) out.push("+ sits in a controls row under the prompt, not beside the text");
     if (!m.bar) {
       if (m.text === null) return ["the text's start is not drawn"];
       const gap = m.text - plus.right;
@@ -647,7 +659,10 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
             gap: m.plus && m.text !== null ? +(m.text - m.plus.button.right).toFixed(2) : null,
             textFromBox: m.box && m.text !== null ? +(m.text - m.box.left).toFixed(2) : null,
             lineCenterFromTop: m.box && m.line ? +(m.line.center - m.box.top).toFixed(2) : null,
-            lineRoom: m.box && m.line ? [+(m.line.top - m.box.top).toFixed(2), +(m.box.bottom - m.line.bottom).toFixed(2)] : null,
+            lineRoom:
+              m.box && m.line
+                ? [+(m.line.top - m.box.top).toFixed(2), +(m.box.bottom - m.line.bottom).toFixed(2)]
+                : null,
             caretCenterFromTop: m.box && m.caret ? +(centerY(m.caret) - m.box.top).toFixed(2) : null,
             plus: rel(m.plus),
             mic: rel(m.mic),

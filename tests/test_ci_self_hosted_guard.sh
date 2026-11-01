@@ -1053,7 +1053,7 @@ check_no_github_hosted_runners() {
   # 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS"). Until
   # 2026-10-28 macos-15/26 were stripped here, so nightly-next-train.yml's
   # `vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26'` passed this guard. Hosted
-  # Ubuntu is not exempt either (Leo, 2026-10-27: "just put it on blacksmith").
+  # Ubuntu is allowed only for centrally declared light jobs (Leo, 2026-11-01).
   local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
@@ -1145,11 +1145,20 @@ SIGNER_BUILD_ROUTE
     fi
   done
 
+  # Leo permits declared lightweight jobs to use hosted Ubuntu after live fleet.
+  # Resolve exact YAML job locations from the central table; an identical route
+  # copied into an undeclared or signing job gets no exception.
+  local light_locations
+  if ! light_locations="$(python3 "$ROOT_DIR/scripts/ci/runner_routing_table.py" hosted-light-lines)"; then
+    echo "FAIL: central hosted-light runner policy is invalid"
+    return 1
+  fi
+
   # The scan over one workflow directory: prints a FAIL line per hosted label
   # in a runner-selection position that is not an exact exception. It is run
   # on fixtures first, so a narrowed key pattern cannot pass vacuously.
   hosted_scan() {
-    local dir="$1" line file content stripped exception allowed
+    local dir="$1" line file content stripped exception allowed line_number
     # A runner selection spread over several lines (a block scalar, or a
     # plain or quoted scalar that wraps) is invisible to the line scan below.
     # YAML parses each workflow, and a multi-line value under runs-on, os or a
@@ -1190,6 +1199,8 @@ for f in sorted(root.rglob("*.y*ml")):
 PY
     while IFS= read -r line; do
       file="${line%%:*}"
+      line_number="${line#*:}"
+      line_number="${line_number%%:*}"
       content="${line#*:*:}"
       [[ "$content" =~ ^[[:space:]]*# ]] && continue
       # Nightly workflows may name the hosted Windows image (above); their
@@ -1199,6 +1210,7 @@ PY
       fi
       stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
       printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+      if grep -Fxq "$file:$line_number" <<<"$light_locations"; then continue; fi
       allowed=0
       for exception in "${exceptions[@]}"; do
         if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
@@ -1384,6 +1396,10 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # Explicit all-nightly reservation, enabled only after managed enrollment.
+  # Never exempt a bare label, another track, or an unguarded variable.
+  local nightly_only_selector="github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
+  local nightly_only_bootstrap="github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
   # Nightly native build selectors are pooled: main cache-writing builds use
   # the trusted pool, and NEXT build/prepare jobs use the controller-managed
   # side pool on attempt 1. Both are guarded by repository, event, ref, and
@@ -1397,16 +1413,14 @@ check_no_self_hosted_fleet_runners() {
   # these workflows, may name glaeda-gui-std-xcode-26.6.
   local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
   local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
-  # #22035: session jobs take glaeda-session-std-xcode-26.6 once runners carry
-  # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
-  local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
-  local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  # #22035's session jobs named glaeda-session-std-xcode-26.6 in selectors of their own;
+  # since cmux#24295's 90-minute waits only a placement output gives that label
+  # (tests/test_ci_runs_on_fallback.py), so those jobs read the gui selectors above.
   # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
   # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
   # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
   # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
   local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6'"
-  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1421,6 +1435,8 @@ check_no_self_hosted_fleet_runners() {
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$nightly_only_selector"/}"
+      content="${content/"$nightly_only_bootstrap"/}"
       content="${content/"$next_trusted_selector"/}"
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
@@ -1431,15 +1447,11 @@ check_no_self_hosted_fleet_runners() {
     # request branch comes first on the line; base autofix runs on push only.
     case "${line%%:*}" in
       "$ROOT_DIR/.github/workflows/cmux-next.yml")
-        if [[ "${content%%"$session_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_selector"/}"; fi
         if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi
-        if [[ "${content%%"$session_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_rerun_selector"/}"; fi
         if [[ "${content%%"$gui_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_rerun_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
-        if [[ "${content%%"$session_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_autofix_selector"/}"; fi
         if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
-        content="${content//"$session_autofix_selector"/}"
         content="${content//"$gui_autofix_selector"/}" ;;
       # cmux NEXT Stable: no pull_request trigger (schedule, dispatch, a push to stable-next-dry-run);
       # its UI tests, suites and dry-run signing take the gui pool on attempt 1, Blacksmith after.
