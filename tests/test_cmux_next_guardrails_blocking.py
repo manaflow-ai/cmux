@@ -312,8 +312,7 @@ class BlockingRuleTests(unittest.TestCase):
             path = f"{UI}/Big{index}.swift"
             lines = body.split("\n")
             changes.append(guardrails.FileChange(path, lines, [guardrails.Added(path, n + 1, t) for n, t in enumerate(lines)]))
-        guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
-        guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
+        guardrails.RUN_CONTEXT.values = {"threading_doc": DOC, "manifest": MANIFEST}
         started = time.process_time()
         hits = {rule.id: rule.find(changes, collections.Counter()) for rule in guardrails.BLOCKING_RULES}
         elapsed = time.process_time() - started
