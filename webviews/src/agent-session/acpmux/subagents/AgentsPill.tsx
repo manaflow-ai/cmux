@@ -24,9 +24,7 @@ export function nestAgents(agents: readonly Subagent[]): { agent: Subagent; dept
   const under = new Map<string | null, Subagent[]>();
   for (const agent of agents) {
     const parent = agent.parent !== null && ids.has(agent.parent) ? agent.parent : null;
-    const siblings = under.get(parent);
-    if (siblings) siblings.push(agent);
-    else under.set(parent, [agent]);
+    under.set(parent, [...(under.get(parent) ?? []), agent]);
   }
   const rows: { agent: Subagent; depth: number }[] = [];
   const placed = new Set<string>();
