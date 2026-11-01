@@ -1275,3 +1275,16 @@ fn harness_local_copies_every_profile_this_mac_has() {
     let _ = std::fs::remove_dir_all(&home);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Add Machine asks for `--reverse`: a host that cannot reach this machine
+/// back still adds, with the peer-back step a warning.
+#[test]
+fn a_failed_peer_back_warns_and_the_add_stays_ok() {
+    let failed = StepResult::new(Step::PeerBack, StepState::Fail, "box cannot read its peers")
+        .with_fix("Check again.");
+    let soft = optional(failed);
+    assert_eq!(soft.state, StepState::Warn);
+    assert_eq!(soft.fix.as_deref(), Some("Check again."));
+    let ok = StepResult::new(Step::Reach, StepState::Ok, "ssh ok");
+    assert!(Report::new("box", "leo@box.tail", vec![ok, soft]).ok);
+}
