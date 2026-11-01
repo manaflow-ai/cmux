@@ -68,6 +68,7 @@ struct SidebarWorkspaceTableActions {
     /// Returns the live group-to-anchor map captured at the beginning of a
     /// native drag. The table controller caches it for the whole drag so a
     /// multi-row drag does not rescan all groups for every item.
+    var completeWorkspaceDrag: ((UUID, String, NSPoint, NSDragOperation, TimeInterval) -> Void)?
     var workspaceGroupAnchorIdsForDrag: () -> [UUID: UUID] = { [:] }
     /// Resolves the identity represented by a rendered row. Empty group
     /// headers use the durable group id; grouped members keep their workspace
