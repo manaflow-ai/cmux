@@ -561,4 +561,55 @@ struct CmuxAgentChatConfigTests {
     }
 
 
+    @Test func cliTokenIsReadOnlyFromAnOwnerOnlyRegularFile() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "agent-chat-cli-token-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let token = "3VlF7XDBhnJJmcv8tyQWeuPlWch43IgFrprm7er9BQw"
+        let tokenURL = AgentChatCLIToken.fileURL(homeDirectory: root)
+        try fileManager.createDirectory(
+            at: tokenURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("\(token)\n".utf8).write(to: tokenURL)
+
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenURL.path)
+        #expect(AgentChatCLIToken.read(from: tokenURL) == token)
+
+        // Another account could have read (or planted) a group/world-readable token.
+        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tokenURL.path)
+        #expect(AgentChatCLIToken.read(from: tokenURL) == nil)
+
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenURL.path)
+        let linkURL = root.appendingPathComponent("linked-token")
+        try fileManager.createSymbolicLink(at: linkURL, withDestinationURL: tokenURL)
+        #expect(AgentChatCLIToken.read(from: linkURL) == nil)
+        #expect(AgentChatCLIToken.read(from: root.appendingPathComponent("missing")) == nil)
+    }
+
+    @Test func cliTokenRejectsValuesThatAreNotOnePathSegment() {
+        #expect(AgentChatCLIToken.parse("short") == nil)
+        #expect(AgentChatCLIToken.parse("abcdefghijklmnop/../x") == nil)
+        #expect(AgentChatCLIToken.parse(String(repeating: "a", count: 257)) == nil)
+        #expect(AgentChatCLIToken.parse("  abcdefghijklmnop_-09\n") == "abcdefghijklmnop_-09")
+    }
+
+    @Test func legacyDefaultURLOpensTheCLITokenPrefix() {
+        let base = CmuxAgentChatConfiguration.default.url
+        #expect(
+            AgentChatCLIToken.browserURL(baseURL: base, token: "abcdefghijklmnop").absoluteString
+                == "http://127.0.0.1:7739/abcdefghijklmnop/"
+        )
+        #expect(
+            AgentChatCLIToken.themeURL(baseURL: base, token: "abcdefghijklmnop").absoluteString
+                == "http://127.0.0.1:7739/abcdefghijklmnop/api/theme"
+        )
+        #expect(AgentChatCLIToken.browserURL(baseURL: base, token: nil) == base)
+    }
+
+
 }
