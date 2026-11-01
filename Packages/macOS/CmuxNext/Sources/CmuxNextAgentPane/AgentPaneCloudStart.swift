@@ -232,7 +232,9 @@ extension AgentPaneCloudStart {
         if let machineFinishedAt { value["machineFinishedAt"] = .number(machineFinishedAt) }
         if let harnessStartedAt { value["harnessStartedAt"] = .number(harnessStartedAt) }
         if let harnessFinishedAt { value["harnessFinishedAt"] = .number(harnessFinishedAt) }
-        if step == "opening" { value["harnessStartedAt"] = now; value["initialized"] = .bool(true) }
+        // The harness timing comes from the host's start response. Swift only forwards it;
+        // do not stamp Date() here because the page owns elapsed-time rendering.
+        if step == "opening" { value["initialized"] = .bool(true) }
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])

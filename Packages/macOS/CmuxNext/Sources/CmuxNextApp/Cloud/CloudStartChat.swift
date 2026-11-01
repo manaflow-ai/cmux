@@ -133,7 +133,8 @@ struct CloudStartChat {
         _ = await loginPassed
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        report(.init(name: "opening", folder: folderName, machine: name, size: size))
+        report(.init(name: "opening", folder: folderName, machine: name, size: size,
+                     harnessStartedAt: copy.0.harnessStartedAt, harnessFinishedAt: copy.0.harnessFinishedAt))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat, tabKey: plan.tabKey)
     }
 
