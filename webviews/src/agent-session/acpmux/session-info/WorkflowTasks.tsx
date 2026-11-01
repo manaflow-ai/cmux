@@ -268,7 +268,7 @@ export function WorkflowAgentRow({
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
   const modelLabel = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-  const message = agent.lastMessage ?? agent.doing;
+  const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
   const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
   const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the

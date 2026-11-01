@@ -1029,6 +1029,7 @@ export function SessionInfo({
   agent,
   layout = RAIL_LAYOUT,
   projectRowLook,
+  remoteControlIcon,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -1101,6 +1102,8 @@ export function SessionInfo({
   layout?: RailLayout;
   /// How Environment's project row reads (EnvironmentSection's `name`); the gallery shows the others.
   projectRowLook?: ProjectRowLook;
+  /// Remote Control's row icon (EnvironmentSection's REMOTE_CONTROL_ICON); the gallery shows the others.
+  remoteControlIcon?: string;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -1191,6 +1194,7 @@ export function SessionInfo({
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
         projectLook={projectRowLook}
+        remoteControlIcon={remoteControlIcon}
       />
     </SessionInfoSection>
   );

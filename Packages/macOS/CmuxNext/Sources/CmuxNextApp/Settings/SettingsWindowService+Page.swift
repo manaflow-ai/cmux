@@ -68,7 +68,7 @@ extension SettingsWindowService {
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
             "derived": .object(pageDerivedNumbers()),
         ]
     }

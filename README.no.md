@@ -384,7 +384,7 @@ Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
-cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux er gratis og åpen kildekode, og vil alltid være det.
 
 ### Jeg har en funksjonsforespørsel eller fant en feil?
 
@@ -423,19 +423,6 @@ Måter å engasjere seg:
   <strong>WeChat:</strong> Skann QR-koden for å bli med i fellesskapet.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode for å bli med i cmux-fellesskapet" width="240" />
 </p>
-
-## Grunnleggerutgaven
-
-cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer:
-
-**[Få Grunnleggerutgaven](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioriterte funksjonsforespørsler/feilrettinger**
-- **Tidlig tilgang: cmux AI som gir deg kontekst om hvert arbeidsområde, fane og panel**
-- **Tidlig tilgang: iOS-app med terminaler synkronisert mellom desktop og telefon**
-- **Tidlig tilgang: Cloud VMs**
-- **Tidlig tilgang: Stemmemodus**
-- **Min personlige iMessage/WhatsApp**
 
 ## Lisens
 

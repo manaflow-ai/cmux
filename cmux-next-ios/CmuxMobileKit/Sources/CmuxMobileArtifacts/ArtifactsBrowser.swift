@@ -18,6 +18,17 @@ public enum ArtifactFilter: String, CaseIterable, Identifiable, Sendable {
         case .links: kind == .link
         }
     }
+
+    /// Count per filter, in one pass over the artifacts (chips show them every body).
+    public static func counts(_ artifacts: [TerminalArtifact]) -> [ArtifactFilter: Int] {
+        var byKind: [TerminalArtifact.Kind: Int] = [:]
+        for artifact in artifacts { byKind[artifact.kind, default: 0] += 1 }
+        var counts: [ArtifactFilter: Int] = [:]
+        for filter in allCases {
+            counts[filter] = byKind.reduce(0) { $0 + (filter.includes($1.key) ? $1.value : 0) }
+        }
+        return counts
+    }
 }
 
 #if os(iOS)
@@ -56,16 +67,15 @@ public struct ArtifactsBrowser: View {
         self.emptyMessage = emptyMessage
     }
 
-    private var shown: [TerminalArtifact] {
-        artifacts.filter { state.filter.includes($0.kind) }.sorted { $0.order > $1.order }
-    }
-
-    private var filters: [ArtifactFilter] {
-        ArtifactFilter.allCases.filter { filter in filter == .all || artifacts.contains { filter.includes($0.kind) } }
-    }
+    /// Pauses web snapshots while the grid moves (not observed: no body work per scroll frame).
+    @State private var gridMotion = ArtifactGridMotion()
 
     public var body: some View {
-        NavigationStack(path: $state.path) {
+        // Derived once per body: the shown items, the chip counts and which chips appear.
+        let shown = artifacts.filter { state.filter.includes($0.kind) }.sorted { $0.order > $1.order }
+        let counts = ArtifactFilter.counts(artifacts)
+        let filters = ArtifactFilter.allCases.filter { $0 == .all || (counts[$0] ?? 0) > 0 }
+        return NavigationStack(path: $state.path) {
             Group {
                 if state.grid {
                     ScrollView {
@@ -78,6 +88,8 @@ public struct ArtifactsBrowser: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
                     }
+                    .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, _ in gridMotion.moved() }
+                    .onDisappear { gridMotion.stop() }
                 } else {
                     List {
                         ForEach(shown) { artifact in
@@ -96,7 +108,7 @@ public struct ArtifactsBrowser: View {
             }
             // One chip row above both layouts, so it sits at the same y in list and grid.
             .safeAreaInset(edge: .top, spacing: 0) {
-                chips.padding(.horizontal, 20).background(.bar)
+                chips(filters, counts: counts).padding(.horizontal, 20).background(.bar)
             }
             .overlay {
                 if shown.isEmpty {
@@ -104,7 +116,6 @@ public struct ArtifactsBrowser: View {
                                            description: Text(emptyMessage))
                 }
             }
-            .animation(.snappy, value: state.grid)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: TerminalArtifact.self) { artifact in
@@ -113,7 +124,7 @@ public struct ArtifactsBrowser: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(state.grid ? "List" : "Grid", systemImage: state.grid ? "list.bullet" : "square.grid.2x2") {
-                        state.grid.toggle()
+                        withAnimation(.snappy) { state.grid.toggle() }
                     }
                     .accessibilityIdentifier("artifacts.layout")
                 }
@@ -124,11 +135,11 @@ public struct ArtifactsBrowser: View {
         }
     }
 
-    private var chips: some View {
+    private func chips(_ filters: [ArtifactFilter], counts: [ArtifactFilter: Int]) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(filters) { item in
-                    let count = artifacts.filter { item.includes($0.kind) }.count
+                    let count = counts[item] ?? 0
                     Button {
                         withAnimation(.snappy) { state.filter = item }
                     } label: {
@@ -190,10 +201,42 @@ public struct ArtifactRow: View {
 }
 
 /// A 1:1 grid tile (SPEC 11.3): image thumbnails, a glyph card otherwise.
+/// Whether the thumbnail grid is moving: any offset change starts it, and the grid rests once
+/// its offset stayed still for a few frames.
+@MainActor
+final class ArtifactGridMotion {
+    private var rest: Task<Void, Never>?
+
+    func moved() {
+        HTMLSnapshotter.setPaused(true)
+        rest?.cancel()
+        // A rest threshold, not synchronization: about 6 frames without a new offset.
+        rest = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            HTMLSnapshotter.setPaused(false)
+        }
+    }
+
+    func stop() {
+        rest?.cancel()
+        rest = nil
+        HTMLSnapshotter.setPaused(false)
+    }
+}
+
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource
+    /// Starts from the cache, so a tile scrolled back into view draws its thumbnail at once.
     @State private var thumbnail: ArtifactThumbnail?
+    @Environment(\.displayScale) private var displayScale
+
+    init(artifact: TerminalArtifact, source: any ArtifactSource) {
+        self.artifact = artifact
+        self.source = source
+        _thumbnail = State(initialValue: ArtifactThumbnail.cache.cached(artifact) ?? nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -215,9 +258,15 @@ struct ArtifactTile: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .task(id: artifact) {
+        // Keyed as the cache is: a new order keeps the thumbnail, an edit makes a new one.
+        .task(id: ArtifactMemo<ArtifactThumbnail>.key(artifact) as String) {
             guard artifact.kind != .link else { return }
-            thumbnail = await ArtifactThumbnailCache.shared.thumbnail(for: artifact, source: source)
+            if let cached = ArtifactThumbnail.cache.cached(artifact) {
+                thumbnail = cached
+                return
+            }
+            let made = await ArtifactThumbnail.cache.thumbnail(for: artifact, source: source, scale: displayScale)
+            if !Task.isCancelled { thumbnail = made }
         }
     }
 

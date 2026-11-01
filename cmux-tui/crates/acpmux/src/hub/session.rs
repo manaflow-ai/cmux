@@ -329,6 +329,8 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
+    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
@@ -383,6 +385,11 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Read only the needed fields without copying large metadata payloads. The
+    /// callback must not acquire other session/hub locks or call back into this session.
+    pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
+        read(&self.meta.lock().unwrap())
+    }
     pub fn turn(&self) -> Option<TurnInfo> {
         self.turn.lock().unwrap().clone()
     }
@@ -411,6 +418,9 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    pub(crate) fn has_pending_permissions(&self) -> bool {
+        !self.permissions.lock().unwrap().pending.is_empty()
     }
     pub(super) fn status(&self) -> SessionStatus {
         self.meta.lock().unwrap().status

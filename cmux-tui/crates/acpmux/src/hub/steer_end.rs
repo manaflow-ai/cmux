@@ -218,6 +218,8 @@ impl Hub {
         // (only a line's first words run one), one with uploaded files and an inbox digest (one
         // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        let (class, provenance) = (opts.class, opts.provenance.as_ref());
+        super::prompt_sender::add_steer_sender(&mut params, sender.as_deref(), class, provenance);
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
@@ -245,6 +247,8 @@ impl Hub {
                 .is_some();
         // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
+        // A sub-session family message still goes into the person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
         let held = || {
@@ -254,6 +258,10 @@ impl Hub {
                 true
             } else if !digest && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
+            } else if !digest && !family && super::inbox::persons_turn(session) {
+                // The person's own turn (`inbox.rs`): it goes in after it. A sub-session family
+                // message still goes in (`turns.rs`).
                 true
             } else {
                 false

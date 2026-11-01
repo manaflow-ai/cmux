@@ -50,11 +50,21 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
+    /// How the conversation's own `avatar` moves: nil stands still (``SidebarAvatarMotion``).
+    public var avatarMotion: AvatarMotion?
+
+    /// A moving avatar: a Chief's slow idle loop, livelier while it works.
+    public enum AvatarMotion: Hashable, Sendable {
+        case idle
+        case working
+    }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil,
+                avatarMotion: AvatarMotion? = nil) {
         self.avatar = avatar
+        self.avatarMotion = avatarMotion
         self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
@@ -95,6 +105,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
+        s.avatarMotion = own == nil ? nil : avatarMotion.map { $0 == .working ? .working : .idle }
         return s
     }
 }
