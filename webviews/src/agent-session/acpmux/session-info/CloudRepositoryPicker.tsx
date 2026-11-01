@@ -10,6 +10,13 @@ export type CloudRepo = {
 };
 
 export type AttachedCloudRepo = { repo: string; folder?: string; head?: string };
+export type PendingCloudRepo = {
+  repo: string;
+  state?: string;
+  phase?: string;
+  progress?: { received_bytes?: number; objects?: number; total_objects?: number };
+  notes?: string[];
+};
 
 type ListReply = { repos?: CloudRepo[]; connect?: { install_url?: string } };
 type AddReply = { state?: string; repo?: string; folder?: string; head?: string };
@@ -187,10 +194,13 @@ export function CloudRepositoryPicker({
   );
 }
 
-export function loadAttachedCloudRepos(session: string): Promise<AttachedCloudRepo[]> {
-  return postNative<{ repos?: AttachedCloudRepo[] }>("cloud.repo.attached", { session }).then((reply) =>
-    Array.isArray(reply?.repos)
+export function loadAttachedCloudRepos(session: string): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
+  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", { session }).then((reply) => ({
+    repos: Array.isArray(reply?.repos)
       ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
       : [],
-  );
+    pending: Array.isArray(reply?.pending)
+      ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
+      : [],
+  }));
 }

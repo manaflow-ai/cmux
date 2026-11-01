@@ -16,7 +16,12 @@ import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 import { openCloudEnvironment } from "../cloudEnvironment";
-import { CloudRepositoryPicker, loadAttachedCloudRepos, type AttachedCloudRepo } from "./CloudRepositoryPicker";
+import {
+  CloudRepositoryPicker,
+  loadAttachedCloudRepos,
+  type AttachedCloudRepo,
+  type PendingCloudRepo,
+} from "./CloudRepositoryPicker";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -140,6 +145,7 @@ export function EnvironmentSection({
   const [failed, setFailed] = useState(false);
   const [repositoryPickerOpen, setRepositoryPickerOpen] = useState(false);
   const [attachedRepos, setAttachedRepos] = useState<AttachedCloudRepo[]>([]);
+  const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
@@ -175,15 +181,20 @@ export function EnvironmentSection({
   useEffect(() => {
     if (!cloudSession) {
       setAttachedRepos([]);
+      setPendingRepos([]);
       return;
     }
     let live = true;
     void loadAttachedCloudRepos(cloudSession)
-      .then((repos) => {
-        if (live) setAttachedRepos(repos);
+      .then(({ repos, pending }) => {
+        if (live) {
+          setAttachedRepos(repos);
+          setPendingRepos(pending);
+        }
       })
       .catch(() => {
         if (live) setAttachedRepos([]);
+        if (live) setPendingRepos([]);
       });
     return () => {
       live = false;
@@ -250,6 +261,16 @@ export function EnvironmentSection({
             <Row key={`${attached.repo}:${attached.folder ?? ""}`} icon="brand.github">
               <span className="acpmux-session-info-row__name">{attached.repo}</span>
             </Row>
+          ))}
+          {pendingRepos.map((pending) => (
+            <li key={`pending:${pending.repo}`} className="acpmux-session-info-row acpmux-cloud-repository-pending">
+              <Icon name="git.branch" size={ROW_ICON} row />
+              <span className="acpmux-session-info-row__name">{pending.repo}</span>
+              <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">
+                {pending.phase ?? "Attaching…"}
+                {pending.progress?.total_objects ? ` · ${pending.progress.objects ?? 0}/${pending.progress.total_objects}` : ""}
+              </span>
+            </li>
           ))}
         </>
       )}
