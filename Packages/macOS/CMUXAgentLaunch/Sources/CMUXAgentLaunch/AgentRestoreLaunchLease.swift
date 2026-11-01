@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CryptoKit
 import Darwin
 import Foundation
@@ -98,6 +99,12 @@ public final class AgentRestoreLaunchLease {
         // Only the lease and readiness pipe reach the watcher. A new session keeps
         // job-control signals aimed at the agent from releasing the lease early.
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID))
+        // The watcher runs from a worker thread; it must still receive SIGTERM.
+        let signalStatus = POSIXSpawnSignalPolicy().apply(to: &attributes)
+        guard signalStatus == 0 else {
+            Darwin.close(ready[1])
+            throw POSIXError(POSIXErrorCode(rawValue: signalStatus) ?? .EINVAL)
+        }
         for standard in Int32(0)...2 {
             posix_spawn_file_actions_addopen(&actions, standard, "/dev/null", standard == 0 ? O_RDONLY : O_WRONLY, 0)
         }
