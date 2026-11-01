@@ -91,7 +91,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       const geometry = await page.evaluate(() => {
         const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
         const line = document.querySelector<HTMLElement>(".acpmux-agent-line")!;
-        const stop = line.querySelector<HTMLElement>(".acpmux-chat-inspector-stop")!;
+        const stop = line.querySelector<HTMLElement>(".acpmux-session-info-stop")!;
         const box = tray.getBoundingClientRect();
         const inner = {
           left: box.left + tray.clientLeft,
@@ -111,7 +111,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       expect(geometry.stopInside).toBe(true);
       expect(geometry.cursor).toBe("default");
       // On the stop button the line keeps its one fill; the button only brightens.
-      await page.hover(".acpmux-chat-inspector-stop");
+      await page.hover(".acpmux-session-info-stop");
       expect(await filled(page)).toEqual(["acpmux-agent-line"]);
     } finally {
       await page.close();

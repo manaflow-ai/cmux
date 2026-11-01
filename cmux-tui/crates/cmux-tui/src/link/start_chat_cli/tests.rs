@@ -27,6 +27,7 @@ fn machine(id: &str, title: &str) -> Candidate {
         created_by: Some(ME.into()),
         status: "running".into(),
         connected: true,
+        ..Candidate::default()
     }
 }
 
@@ -68,6 +69,8 @@ fn a_free_machine_of_mine_is_not_reused_for_a_new_workspace() {
         machine("vm-chats", "cloud-chats"),
         offline(machine("vm-idle", "spare-2"), "paused"),
         machine("vm-lane", "fs-lane-3"),
+        machine("vm-probe", "sr2-tunnel-probe"),
+        with(machine("vm-nobody", "spare-3"), |m| m.created_by = None),
         with(machine("vm-team", "austin-box"), |m| m.created_by = Some(TEAMMATE.into())),
     ];
     let used = BTreeSet::from(["vm-free".to_string()]);
@@ -91,6 +94,35 @@ fn a_free_machine_of_mine_is_not_reused_for_a_new_workspace() {
         );
     }
     assert_eq!(pins.workspace_machine("ws-new", ACCOUNT), None);
+}
+
+#[test]
+fn fleet_vms_are_marked_by_tag_or_name() {
+    // Leo's first Cloud send (2026-10-31) opened on sr2-tunnel-probe, a probe VM fleet tooling made
+    // under his account (#29959). Such a machine is never a workspace's (see the dropped test below).
+    for name in [
+        "sr2-tunnel-probe",
+        "fs-peer-1",
+        "fs-lane-3",
+        "fs-firstsend-exercise",
+        "SR2-x",
+        "lane-vm-2",
+    ] {
+        assert!(pick::is_fleet(&machine("vm-fleet", name)), "{name}");
+    }
+    let slugged = with(machine("vm-4", "Leo's box"), |m| m.slug = Some("fs-lane-7".into()));
+    assert!(pick::is_fleet(&slugged));
+    for tag in ["fleet", "Infra"] {
+        let tagged =
+            with(machine("vm-tagged", "kind-aqua-sandpiper"), |m| m.tags = vec![tag.into()]);
+        assert!(pick::is_fleet(&tagged), "{tag}");
+    }
+    // Names that merely contain the words are not fleet ones.
+    for name in ["my-fs-notes", "leo-cloud", "cloud-chats", "fsharp-box"] {
+        assert!(!pick::is_fleet(&machine("vm-x", name)), "{name}");
+    }
+    assert!(!pick::is_lane_pool("fs-lane-notes"));
+    assert!(!pick::is_lane_pool("lane-vm-"));
 }
 
 #[test]
@@ -730,6 +762,8 @@ fn a_workspaces_gone_teammates_or_failed_machine_is_dropped_for_a_new_one() {
         // A stale link still reads as connected; the server's status says it is gone.
         vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "failed".into())],
         vec![with(machine("vm-a", "cloud-chats-2"), |m| m.status = "deleting".into())],
+        // A fleet VM under the person's own account (Leo's sr2-tunnel-probe) is no workspace's.
+        vec![machine("vm-a", "sr2-tunnel-probe")],
     ] {
         let mut pins = Ledger::default();
         pins.bind("ws-a", ACCOUNT, "vm-a");

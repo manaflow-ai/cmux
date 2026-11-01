@@ -7,8 +7,8 @@
 //! makes a new machine named for chats ([`CHATS_NAME`]), its later sends go
 //! back to it, and a machine already some workspace's is never given to
 //! another. An existing machine is never reused for a new workspace, so the
-//! team's machines (someone's busy lane VM, a teammate's box) are never
-//! taken. A retry of the same send stays on the machine its first try took
+//! team's machines (someone's busy lane VM, a teammate's box) and fleet VMs
+//! made under the person's own account ([`is_fleet`]) are never taken. A retry of the same send stays on the machine its first try took
 //! ([`destination`]), so it never opens a second chat with the prompt
 //! elsewhere. The ledger can hold many workspaces on one machine; one per
 //! machine is this file's policy, so sharing can come back here alone.
@@ -23,6 +23,8 @@ pub(crate) struct Candidate {
     pub(crate) id: String,
     #[serde(default)]
     pub(crate) title: String,
+    #[serde(default)]
+    pub(crate) slug: Option<String>,
     /// The person who created it, when the server says.
     #[serde(default)]
     pub(crate) created_by: Option<String>,
@@ -32,6 +34,9 @@ pub(crate) struct Candidate {
     /// Whether this app's link to its daemon is up.
     #[serde(default)]
     pub(crate) connected: bool,
+    /// The server's tags for it, when it names any (`fleet`, `infra`, ...).
+    #[serde(default)]
+    pub(crate) tags: Vec<String>,
 }
 
 impl Candidate {
@@ -55,10 +60,43 @@ impl Candidate {
                 || self.is_live()
                 || matches!(self.status.as_str(), "paused" | "pausing"))
     }
+
+    fn names(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.title.as_str()).chain(self.slug.as_deref())
+    }
 }
 
 /// The name a machine made for chats gets.
 pub(crate) const CHATS_NAME: &str = "cloud-chats";
+
+/// A lane-pool VM's name: `fs-lane-N` or `lane-vm-N` (leo-workspace machines/lane-vms.md).
+pub(crate) fn is_lane_pool(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["fs-lane-", "lane-vm-"].iter().any(|prefix| {
+        name.strip_prefix(prefix)
+            .is_some_and(|number| !number.is_empty() && number.chars().all(char::is_numeric))
+    })
+}
+
+/// Name prefixes of the machines fleet tooling makes (lanes, peers, probes):
+/// `fs-lane-N`, `fs-peer-N`, `fs-firstsend-...`, `sr2-tunnel-probe`, `lane-vm-N`.
+/// Until every such machine carries a fleet tag, its name marks it.
+const FLEET_PREFIXES: [&str; 3] = ["fs-", "sr2-", "lane-vm-"];
+
+/// Tags that mark a machine as fleet or infrastructure.
+const FLEET_TAGS: [&str; 2] = ["fleet", "infra"];
+
+/// A fleet or infrastructure machine: tagged `fleet` or `infra`, or named
+/// (title or slug) for the lane pool or under a fleet prefix. A chat never
+/// lands on one by itself: a fleet VM made under the person's account (Leo's
+/// `sr2-tunnel-probe`) runs fleet sign-ins, not the person's own (#29959).
+pub(crate) fn is_fleet(machine: &Candidate) -> bool {
+    machine.tags.iter().any(|tag| FLEET_TAGS.contains(&tag.trim().to_lowercase().as_str()))
+        || machine.names().any(|name| {
+            let name = name.trim().to_lowercase();
+            is_lane_pool(&name) || FLEET_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+        })
+}
 
 /// This person's: they created it, or, when the server names no creator, an
 /// earlier send of this account ran there (`used`).
@@ -150,7 +188,7 @@ pub(crate) fn claim(pins: &mut Ledger, workspace: &str, account: &str, machine: 
 /// The machine the workspace `workspace` has, while it is listed, this
 /// person's and usable (one made since, `stored`, or before the App's list is
 /// `loaded`, it is kept). Drops the workspace's machine when it is gone, a
-/// teammate's or failed, so its next send makes a new one.
+/// teammate's, a fleet VM or failed, so its next send makes a new one.
 fn workspace_machine(
     workspace: &str,
     account: &str,
@@ -164,7 +202,9 @@ fn workspace_machine(
     let keep = match candidates.iter().find(|machine| machine.id == own) {
         Some(machine) => {
             let used = pins.machines_of(account);
-            user.is_some_and(|user| is_mine(machine, user, &used)) && machine.is_usable()
+            user.is_some_and(|user| is_mine(machine, user, &used))
+                && machine.is_usable()
+                && !is_fleet(machine)
         }
         None => !loaded || stored.contains(&own),
     };

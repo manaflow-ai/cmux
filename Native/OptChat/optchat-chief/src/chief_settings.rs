@@ -27,6 +27,11 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the subagent's
     /// workspace or a new one (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
+    /// Each subagent gets a sidebar workspace when it starts
+    /// (`subagents.showWorkspaces`). Default false (#26386): subagents run
+    /// hidden, reachable from their links in the Chief's replies, and
+    /// `control show ID` / `control hide ID` add or close one's workspace.
+    pub show_subagent_workspaces: bool,
     /// The trace keeps whole texts (replies, tool arguments) for replaying
     /// real turns (`trace.full`). Default false.
     pub trace_full: bool,
@@ -84,6 +89,7 @@ impl Default for ChiefSettings {
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
+            show_subagent_workspaces: false,
             trace_full: false,
             reply_max_words: chief_kernel::replies::REPLY_MAX_WORDS,
             cloud_auto_pause_idle_secs: 60,
@@ -100,6 +106,9 @@ pub const REPLY_THREADS: &str = "replies.thread";
 
 /// The key of `ChiefSettings::show_after_report`.
 pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
+
+/// The key of `ChiefSettings::show_subagent_workspaces`.
+pub const SHOW_SUBAGENT_WORKSPACES: &str = "subagents.showWorkspaces";
 
 /// The key of `ChiefSettings::reply_max_words`.
 pub const REPLY_MAX_WORDS: &str = "replies.maxWords";
@@ -124,6 +133,9 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
+            show_subagent_workspaces: value["subagents"]["showWorkspaces"]
+                .as_bool()
+                .unwrap_or(false),
             trace_full: value["trace"]["full"].as_bool().unwrap_or(false),
             reply_max_words: value["replies"]["maxWords"]
                 .as_u64()
@@ -146,6 +158,7 @@ impl ChiefSettings {
         value["replies"] =
             json!({"thread": self.reply_threads.as_str(), "maxWords": self.reply_max_words});
         value["show"] = json!({"afterReport": self.show_after_report});
+        value["subagents"] = json!({"showWorkspaces": self.show_subagent_workspaces});
         if self.trace_full {
             value["trace"] = json!({"full": true});
         }
