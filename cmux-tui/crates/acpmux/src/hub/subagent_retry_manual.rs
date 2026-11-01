@@ -218,7 +218,7 @@ impl Hub {
             return Err(nothing_failed(subagent, "closed"));
         }
         let busy_now = session.turn().is_some()
-            || session.queue().iter().any(|q| !q.held)
+            || session.queue().iter().any(|q| !q.aside())
             || session.harness_turn.load(Ordering::SeqCst)
             || self.continuation_pending(session)
             || session.moving().is_some();
