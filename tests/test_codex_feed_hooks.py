@@ -1009,13 +1009,26 @@ def codex_hook_commands(hooks: dict) -> list[str]:
 
 def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
     cases = [
-        (True, None, False, False), (False, None, False, False),
-        (None, None, False, False), (1, None, False, False),
-        ("true", None, False, False), (True, False, False, False),
-        (True, False, True, False), (False, True, True, False),
-        (True, None, False, True), (False, None, False, True),
+        (True, None, "split", []), (False, None, "split", []),
+        (None, None, "split", []), (1, None, "split", []),
+        ("true", None, "split", []), (True, False, "split", []),
+        (True, False, "compact", []), (False, True, "compact", []),
+        (True, None, "split", ["-a", "never", "-s", "workspace-write"]),
+        (False, None, "split", ["-a", "never", "-s", "workspace-write"]),
+        (True, None, "split", ["-anever", "-sworkspace-write"]),
+        (False, None, "split", ["-anever", "-sworkspace-write"]),
+        (True, None, "split", ["-s=workspace-write"]),
+        (False, None, "split", ["-s=workspace-write"]),
+        (True, False, "split", ["-s", "workspace-write"]),
+        (True, False, "compact", ["-s", "workspace-write"]),
+        (False, True, "split", ["-s", "workspace-write"]),
+        (False, True, "compact", ["-s", "workspace-write"]),
+        (True, False, "table", ["-s", "workspace-write"]),
+        (False, True, "table", ["-s", "workspace-write"]),
+        (True, False, "table", []),
+        (False, True, "table", []),
     ]
-    for index, (recorded_network, explicit_network, compact_override, partial_permissions) in enumerate(cases):
+    for index, (recorded_network, explicit_network, override_form, permission_args) in enumerate(cases):
         case = root / f"codex-network-policy-{index}"
         home, state, codex_home = case / "home", case / "state", case / "codex"
         for directory in (home, state, codex_home):
@@ -1024,7 +1037,7 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         captured_at = time.time() - 10
         # The current turn can postdate a preserved launch record. It is still
         # earlier than the hook observation that repairs the resume binding.
-        evidence_time = captured_at + 1 if partial_permissions else captured_at - 1
+        evidence_time = captured_at + 1 if permission_args else captured_at - 1
         timestamp = datetime.fromtimestamp(evidence_time, timezone.utc).isoformat(
             timespec="milliseconds"
         ).replace("+00:00", "Z")
@@ -1037,11 +1050,12 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
             {"timestamp": timestamp, "type": "turn_context", "payload": {"approval_policy": "never", "sandbox_policy": sandbox}},
         ]) + "\n", encoding="utf-8")
         arguments = ["codex", "resume", session_id]
-        if partial_permissions:
-            arguments += ["-a", "never", "-s", "workspace-write"]
+        arguments += permission_args
         if explicit_network is not None:
             override = f"sandbox_workspace_write.network_access={str(explicit_network).lower()}"
-            arguments += [f"-c{override}"] if compact_override else ["-c", override]
+            if override_form == "table":
+                override = f"sandbox_workspace_write={{network_access={str(explicit_network).lower()}}}"
+            arguments += [f"-c{override}"] if override_form == "compact" else ["-c", override]
         record = {
             "sessionId": session_id, "workspaceId": FAKE_WORKSPACE_ID, "surfaceId": FAKE_SURFACE_ID,
             "cwd": str(case), "transcriptPath": str(transcript), "startedAt": captured_at,
@@ -1084,13 +1098,17 @@ def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path)
         actual = published.get("launch_command", {}).get("arguments", [])
         network_args = [
             arg.removeprefix("-c") for arg in actual
-            if arg.removeprefix("-c").startswith("sandbox_workspace_write.network_access=")
+            if arg.removeprefix("-c").startswith(("sandbox_workspace_write.network_access=", "sandbox_workspace_write="))
         ]
         effective = explicit_network if explicit_network is not None else recorded_network
         expected = [f"sandbox_workspace_write.network_access={str(effective).lower()}"] if type(effective) is bool else []
+        if explicit_network is not None:
+            expected = [override]
         if network_args != expected:
             raise AssertionError(f"recorded network policy {recorded_network!r}, explicit {explicit_network!r}: expected {expected}, got {network_args}")
-        if partial_permissions and (actual.count("-a") != 1 or actual.count("-s") != 1):
+        if permission_args and (
+            actual.count("-a") != arguments.count("-a") or actual.count("-s") != arguments.count("-s")
+        ):
             raise AssertionError("network recovery duplicated explicit approval or sandbox options")
         if expected and expected[0] not in published.get("command", ""):
             raise AssertionError("network override missing from rendered resume command")
