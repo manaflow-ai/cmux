@@ -417,6 +417,12 @@ impl Peer {
         }
     }
 
+    /// What its last handshake listed (`lists`): a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_features(&self, features: &[&str]) {
+        *self.features.lock_or_recover() = features.iter().map(|f| (*f).to_owned()).collect();
+    }
+
     pub(crate) fn seed_cached_link(
         &self,
         last_seen: Option<u64>,

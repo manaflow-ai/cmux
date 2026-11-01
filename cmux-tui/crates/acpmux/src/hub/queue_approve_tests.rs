@@ -415,3 +415,64 @@ async fn an_owner_held_prompt_does_not_hold_back_a_notice() {
     assert!(super::super::inbox::notice_held(&session));
     hub.shutdown_all().await;
 }
+
+/// Round-4 review of #28859: `to.host` names a peer whose handshake listed queue approval, but
+/// the daemon the move client actually hands the bundle to (`to.socket`) is an older build that
+/// ignores `queue_approved` and would run the approved prompt under its sender's rules alone. A
+/// peer record says nothing of that receiver: the move is refused unless the client vouches for
+/// the receiving connection's own `initialize` (`transfer_out.rs`, `cli/run/transfer.rs`).
+#[tokio::test]
+async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approved_prompt() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    let local = crate::server::Origin::Local;
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), rx, out_tx, local));
+    let send = |id: i64, m: &str, params: Value| Message::request(id, m, params).to_line();
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(send(1, method::SESSION_NEW, new)).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let prompt = |id: &str, text: &str| {
+        json!({"sessionId": session.id, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": id}}})
+    };
+    tx.send(send(2, method::SESSION_PROMPT, prompt("p-run", "until-cancel"))).await.unwrap();
+    until(&mut out, |v| v.pointer("/params/update/content/text") == Some(&json!("running"))).await;
+    let mut held = prompt("g-1", "guest words");
+    held["_meta"]["acpmux"]["author"] =
+        json!({"id": "guest:k3x9", "name": "Cy", "approval": "owner"});
+    tx.send(send(3, method::SESSION_PROMPT, held)).await.unwrap();
+    until(&mut out, |v| {
+        v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == "g-1"
+    })
+    .await;
+    let turn = session.queue().iter().find(|q| q.prompt_id == "g-1").unwrap().turn_id.clone();
+    hub.approve_queued(&session, "g-1", &turn, 0, &OWNER).unwrap();
+
+    // A peer that listed queue approval at its last handshake...
+    let (ptx, _prx) = mpsc::channel(8);
+    let capable = crate::peer::Peer::new("capable", "ws://127.0.0.1:9", None, None, ptx);
+    capable.seed_features(&[crate::author::QUEUE_APPROVAL_FEATURE]);
+    hub.peers.lock().unwrap().insert("capable".to_owned(), capable);
+    // ...named for a move whose bundle goes to another daemon's socket (an older build).
+    let begin = json!({"sessionId": session.id, "interrupt": true,
+                       "to": {"socket": "/tmp/acpmux-older-receiver.sock", "host": "capable"}});
+    let result = hub.transfer_request("_acpmux/transfer_begin", &begin).await;
+    if let Ok(bundle) = &result {
+        let abort = json!({"sessionId": session.id, "transferId": bundle["transferId"]});
+        hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
+    }
+    let refused = result.expect_err("a peer record vouched for the receiver it does not front");
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transfer.approved_prompts");
+    assert_eq!(refused.data.unwrap()["promptIds"], json!(["g-1"]));
+    hub.shutdown_all().await;
+}
