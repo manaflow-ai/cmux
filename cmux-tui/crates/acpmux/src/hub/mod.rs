@@ -232,6 +232,7 @@ pub(crate) mod watches;
 mod web_control;
 mod web_token;
 mod work_below;
+pub mod background_turn;
 pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
@@ -1242,6 +1243,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
