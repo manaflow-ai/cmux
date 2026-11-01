@@ -113,6 +113,9 @@ def host_facts():
 
 
 def main():
+    # perfx/close-no-flash A/B (scratch overlay, never lands): the close-flash bench on the same tagged build.
+    if "--close-flash" in sys.argv[1:]:
+        return load("close_flash_bench", "close-flash-bench.py").main(sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--app", help="a Debug `cmux DEV <tag>.app` to launch (not running)")
     parser.add_argument("--socket", help="(--scenario) the running app's debug socket")
