@@ -12,7 +12,6 @@
 
 mod attachments;
 mod contract;
-mod environments;
 mod error;
 mod host_replica;
 mod service;

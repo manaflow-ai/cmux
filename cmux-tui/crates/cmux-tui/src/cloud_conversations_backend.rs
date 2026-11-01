@@ -191,40 +191,6 @@ impl CloudBackend for RemoteCloudBackend {
         })
     }
 
-    fn platform(
-        &self,
-        method: &str,
-        url: &str,
-        bearer: &str,
-        body: &Value,
-    ) -> Result<HttpReply, TransportError> {
-        let method = match method {
-            "GET" => reqwest::Method::GET,
-            "POST" => reqwest::Method::POST,
-            "PATCH" => reqwest::Method::PATCH,
-            _ => return Err(TransportError("unsupported platform method".into())),
-        };
-        // Reuse the no-redirect transport: an install bearer never follows an upstream redirect.
-        let mut request = self
-            .files
-            .request(method.clone(), url)
-            .timeout(REQUEST_TIMEOUT)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .bearer_auth(bearer);
-        if method != reqwest::Method::GET {
-            request = request.json(body);
-        }
-        self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
-            let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
-            if bytes.len() > MAX_BODY_BYTES {
-                return Err(TransportError("platform reply exceeds the limit".into()));
-            }
-            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
-        })
-    }
-
     fn get(
         &self,
         url: &str,
@@ -576,46 +542,6 @@ mod tests {
             sender.send((head, String::from_utf8(body).unwrap())).unwrap();
         });
         (origin, receiver)
-    }
-
-    #[test]
-    fn cloud_environment_patch_sends_install_token_and_never_follows_redirects() {
-        let backend = RemoteCloudBackend::new().unwrap();
-        let patch =
-            json!({"setup_script":null,"set_secrets":[{"name":"TOKEN","value":"write-only"}]});
-        let (origin, seen) = one_http_exchange(
-            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
-        );
-        let reply = backend
-            .platform(
-                "PATCH",
-                &format!("{origin}/v1/cloud-environments/env_default"),
-                "install.jwt",
-                &patch,
-            )
-            .unwrap();
-        assert_eq!(reply.status, 200);
-        let (head, body) = seen.recv().unwrap();
-        let head = head.to_ascii_lowercase();
-        assert!(head.starts_with("patch /v1/cloud-environments/env_default "), "{head}");
-        assert!(head.contains("authorization: bearer install.jwt"), "{head}");
-        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), patch);
-
-        // Following this redirect would fail the request; returning 307 proves
-        // that no second request sends the install token to the target.
-        let (origin, seen) = one_http_exchange(
-            "HTTP/1.1 307 Temporary Redirect\r\nlocation: http://127.0.0.1:1/stolen\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-        );
-        let reply = backend
-            .platform(
-                "PATCH",
-                &format!("{origin}/v1/cloud-environments/env_default"),
-                "install.jwt",
-                &patch,
-            )
-            .unwrap();
-        assert_eq!(reply.status, 307);
-        assert!(seen.recv().unwrap().0.starts_with("PATCH "));
     }
 
     #[test]
