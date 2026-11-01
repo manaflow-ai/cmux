@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBridge
+import CmuxNextHome
+import Foundation
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -11,6 +13,14 @@ import Testing
 @MainActor @Suite(.serialized) struct SidebarChiefAvatarTests {
     private func lane(_ id: String, tags: [String: String] = [:], title: String = "Chat") throws -> AgentActivityLane {
         try #require(AgentActivityLane.of(summary: ["sessionId": id, "name": title, "tags": tags, "lane": ["state": "idle"]]))
+    }
+
+    /// "why does my sidebar have this CH thing": no chosen face, no mark on the row.
+    @Test func aChiefWithNoChosenFaceDrawsNoMonogramOnTheRow() throws {
+        #expect(SidebarChiefAvatar(home: nil) == nil)
+        #expect(SidebarChiefAvatar(home: .text("🦊")) == .text("🦊"))
+        let url = try #require(URL(string: "file:///tmp/face.png"))
+        #expect(SidebarChiefAvatar(home: .picture(url)) == .picture(url))
     }
 
     @Test func namedChiefIdentityComesFromTagsAndDisappearsWhenOwnershipIsRemoved() throws {

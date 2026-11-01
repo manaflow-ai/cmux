@@ -50,6 +50,7 @@
   keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
 
 - 2026-11-01: Leo: "they even show chief-operated chats". Chats owned by a Chief show that Chief’s profile avatar on the shared trailing column. The existing acpmux `mux.parent` / `mux.children` / `cmux.chief.participant` tags identify the operating Chief; names never do. Existing unread and status marks stay to its left, and hover controls replace the avatar as they replace other trailing marks. No Chief execution or chat ownership changes. `SidebarChiefAvatarTests` covers tag mapping, named Chiefs and the native hover layout.
+- 2026-11-01: Owner: "why does my sidebar have this CH thing, i don't like that". The operating-Chief mark draws only a face the Chief's profile chose; a Chief with none (the default CH monogram) draws no mark on the row. Home keeps its monogram. `SidebarChiefAvatarTests`.
 
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
