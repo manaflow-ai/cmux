@@ -83,7 +83,8 @@ impl<'a> Runtime<'a> {
             // A linked installation can still exclude this organization or
             // repo. Its recovery is access, not reconnecting the same account.
             let catalog = self.connector(Some(repo))?;
-            if let Some(url) = catalog.install_url {
+            if catalog.disconnected {
+                let url = catalog.install_url.ok_or_else(super::engine::install_link_required)?;
                 failure = Failure::needs_github(&url);
             } else {
                 let url = self.optional_install_url(value)?;
@@ -109,7 +110,7 @@ impl<'a> Runtime<'a> {
     fn wait_github(&self, timeout_ms: u64) -> Result<Value, Failure> {
         let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(60_000));
         loop {
-            if self.connector(None)?.install_url.is_none() {
+            if !self.connector(None)?.disconnected {
                 return Ok(json!({"connected":true}));
             }
             if Instant::now() >= deadline {
@@ -129,10 +130,6 @@ impl<'a> Runtime<'a> {
                 .filter(|url| super::engine::valid_install_url(url))
                 .map(str::to_owned)
         }))
-    }
-
-    fn install_url(&self, response: &Value) -> Result<String, Failure> {
-        self.optional_install_url(response)?.ok_or_else(super::engine::install_link_required)
     }
 }
 impl Backend for Runtime<'_> {
@@ -171,7 +168,8 @@ impl Backend for Runtime<'_> {
                     // is being read, but those rows are still valid choices.
                     return Ok(Catalog {
                         repos: catalog.repos,
-                        install_url: Some(self.install_url(error)?),
+                        install_url: self.optional_install_url(error)?,
+                        disconnected: true,
                     });
                 }
                 let mut failure = Failure::new(
@@ -190,7 +188,8 @@ impl Backend for Runtime<'_> {
                 return Err(failure);
             }
             if let Some(connect) = answer.get("connect").filter(|v| v.is_object()) {
-                catalog.install_url = Some(self.install_url(connect)?);
+                catalog.disconnected = true;
+                catalog.install_url = self.optional_install_url(connect)?;
             }
             let rows = answer.get("repos").and_then(Value::as_array).ok_or_else(transport_error)?;
             for row in rows {

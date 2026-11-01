@@ -22,6 +22,7 @@ impl Backend for Fake {
         Ok(Catalog {
             repos: self.installation.clone(),
             install_url: self.install_url.borrow().clone(),
+            disconnected: self.install_url.borrow().is_some(),
         })
     }
     fn attached(&self, _: &str) -> Result<Vec<Value>, Failure> {
@@ -262,7 +263,9 @@ fn cloud_repo_install_link_validation_and_engine_outputs_share_one_policy() {
         assert!(failure.get("install_url").is_none());
         assert!(failure["message"].as_str().unwrap().contains("Mac"));
         let fake = Fake { install_url: RefCell::new(Some((*url).into())), ..Default::default() };
-        assert_eq!(list(&fake, None).unwrap_err().0["code"], "seed.bad_request");
+        let listed = list(&fake, None).unwrap();
+        assert_eq!(listed["repos"], json!([]));
+        assert!(listed.get("connect").is_none());
         let failure = add(&fake, &args("project")).unwrap_err().0;
         assert_eq!(failure["code"], "seed.bad_request");
         assert!(failure.get("install_url").is_none());
@@ -272,4 +275,23 @@ fn cloud_repo_install_link_validation_and_engine_outputs_share_one_policy() {
             assert!(!failure["message"].as_str().unwrap().is_empty());
         }
     }
+}
+
+#[test]
+fn cloud_repo_list_keeps_local_and_installation_rows_without_an_unsafe_connect_link() {
+    let fake = Fake {
+        sources: vec![repo("local/tool", "local")],
+        installation: vec![repo("org/other", "installation")],
+        install_url: RefCell::new(Some("https://evil.example/install".into())),
+        ..Default::default()
+    };
+    let listed = list(&fake, None).unwrap();
+    assert_eq!(listed["repos"].as_array().unwrap().len(), 2);
+    assert_eq!(listed["repos"][0]["fullName"], "local/tool");
+    assert_eq!(listed["repos"][1]["fullName"], "org/other");
+    assert!(listed.get("connect").is_none());
+    assert_eq!(add(&fake, &args("other")).unwrap()["repo"], "org/other");
+    let failure = add(&fake, &args("missing")).unwrap_err().0;
+    assert_eq!(failure["code"], "seed.bad_request");
+    assert!(failure["message"].as_str().unwrap().contains("refresh"));
 }

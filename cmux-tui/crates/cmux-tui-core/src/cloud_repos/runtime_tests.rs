@@ -523,7 +523,8 @@ fn cloud_repo_runtime_add_keeps_prior_page_when_install_expires() {
         ],
     );
     let seed = fixture.server("seed.sock", vec![seed_reply(json!({"job":"page-auth"})), done()]);
-    let result = add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"tool"})).unwrap();
+    let result =
+        add(&fixture.runtime(), &json!({"session":fixture.session,"repo":"tool"})).unwrap();
     assert_eq!(result["repo"], "owner/tool");
     assert_eq!(seed.join().unwrap().len(), 2);
     let asks = agent.join().unwrap();
@@ -559,19 +560,13 @@ fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
                 match runtime.connector(None) {
                     Ok(catalog) => {
                         assert_ne!(source, "repo.no_access");
-                        assert!(expected.is_some());
+                        assert!(catalog.disconnected);
                         assert_eq!(catalog.install_url.as_deref(), expected);
                     }
                     Err(failure) => {
-                        if source == "repo.no_access" {
-                            assert_eq!(failure.0["code"], "repo.no_access");
-                            assert_eq!(failure.0["install_url"].as_str(), expected);
-                        } else {
-                            assert!(expected.is_none());
-                            assert_eq!(failure.0["code"], "seed.bad_request");
-                            assert!(failure.0.get("install_url").is_none());
-                            assert!(failure.0["message"].as_str().unwrap().contains("Mac"));
-                        }
+                        assert_eq!(source, "repo.no_access");
+                        assert_eq!(failure.0["code"], "repo.no_access");
+                        assert_eq!(failure.0["install_url"].as_str(), expected);
                     }
                 }
                 assert_eq!(agent.join().unwrap().len(), 1);
@@ -586,22 +581,58 @@ fn cloud_repo_runtime_connector_links_prefer_mac_and_reject_unsafe_fallbacks() {
 }
 
 #[test]
-fn cloud_repo_runtime_unsafe_connector_link_never_enters_list_wait_or_retry_card() {
-    let fixture = Fixture::new();
+fn cloud_repo_runtime_unsafe_connector_link_preserves_rows_and_disconnected_state() {
     let unsafe_url = "https://user:secret@github.com:444/install";
-    let reply = json!({"ok":true,"repos":[],"connect":{"install_url":unsafe_url}});
-    let agent = fixture.server("agent.sock", vec![reply.clone(), reply.clone(), reply]);
-    let runtime = fixture.runtime();
-    for failure in [
-        list(&runtime, None).unwrap_err().0,
-        runtime.wait_github(0).unwrap_err().0,
-        add(&runtime, &json!({"session":fixture.session,"repo":"tool"})).unwrap_err().0,
-    ] {
-        assert_eq!(failure["code"], "seed.bad_request");
-        assert!(!failure.to_string().contains(unsafe_url));
-        assert!(failure.get("retry").is_none());
+    for typed_error in [false, true] {
+        let fixture = Fixture::new();
+        store::sync(
+            &fixture.mux,
+            &json!({"repos":[{
+                "fullName":"local/project","private":true,"source":"local"
+            }]}),
+        )
+        .unwrap();
+        let first = json!({"ok":true,"repos":[{"fullName":"org/tool","private":true}],"next_cursor":"next"});
+        let last = if typed_error {
+            json!({"ok":false,"error":{"code":"repo.needs_github","install_url":unsafe_url}})
+        } else {
+            json!({"ok":true,"repos":[],"connect":{"install_url":unsafe_url}})
+        };
+        let agent = fixture.server(
+            "agent.sock",
+            vec![
+                first.clone(),
+                last.clone(),
+                first.clone(),
+                last.clone(),
+                first.clone(),
+                last.clone(),
+                first,
+                last,
+            ],
+        );
+        let seed = fixture.server("seed.sock", vec![json!({
+            "ok":false,"error_code":"seed.needs_github","error_details":{"install_url":unsafe_url}
+        })]);
+        let runtime = fixture.runtime();
+        let listed = list(&runtime, None).unwrap();
+        assert_eq!(listed["repos"].as_array().unwrap().len(), 2);
+        assert_eq!(listed["repos"][0]["fullName"], "local/project");
+        assert_eq!(listed["repos"][1]["fullName"], "org/tool");
+        assert!(listed.get("connect").is_none());
+        // Missing a safe URL is still disconnected, not a false success.
+        assert_eq!(runtime.wait_github(0).unwrap(), json!({"connected":false}));
+        for repo in ["missing", "org/tool"] {
+            let failure =
+                add(&runtime, &json!({"session":fixture.session,"repo":repo})).unwrap_err().0;
+            assert_eq!(failure["code"], "seed.bad_request");
+            assert!(failure["message"].as_str().unwrap().contains("refresh"));
+            assert!(!failure.to_string().contains(unsafe_url));
+            assert!(failure.get("retry").is_none());
+        }
+        assert_eq!(agent.join().unwrap().len(), 8);
+        assert_eq!(seed.join().unwrap().len(), 1);
     }
-    assert_eq!(agent.join().unwrap().len(), 3);
 }
 
 #[test]
