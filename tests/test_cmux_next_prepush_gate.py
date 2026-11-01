@@ -699,6 +699,36 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
         self.assertIn(" 2 own commit(s)", output)
 
+    def test_an_extra_upstream_bounds_nothing_on_a_push_onto_an_integration_branch(self):
+        # cmux.prepushExtraUpstream is a cut-from ref like the configured upstream: landing perf onto
+        # feat-cmux-next is judged over feat-cmux-next whatever the setting names (review of the #28493 merge).
+        self.long_lived_branch("perf/x", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+
+    def test_an_extra_upstream_that_is_not_a_ref_of_the_pushed_remote_bounds_nothing(self):
+        # A local branch nobody pushed (or another remote's ref, a URL push, a raw sha) never hides its commits.
+        self.git("checkout", "--quiet", "-b", "local-x")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("never pushed")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "local-x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "local-x")
+
+        refused = self.push_ref("task")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "a local branch's commits are the push's own")
+
     def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
         # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over
         # feat-cmux-next as before: perf's commits are what it lands.
