@@ -374,7 +374,9 @@ test("Session Info opens with a first chat: its environment, context use and out
 
 test("Session Info derives Cloud from the host handshake when the summary has no kind or peer", async () => {
   const container = installDom(true);
-  const { hostKind: _hostKind, peer: _peer, ...summaryWithoutMachineKind } = chat([]).summary!;
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
   const realCloudShape: AcpmuxSnapshot = {
     ...chat([]),
     summary: { ...summaryWithoutMachineKind, sessionId: "cloud-session", host: "cloud-01" },
@@ -404,7 +406,9 @@ test("Session Info derives Cloud from the host handshake when the summary has no
 
 test("Session Info keeps a summary without a Cloud machine id local", async () => {
   const container = installDom(true);
-  const { hostKind: _hostKind, peer: _peer, ...summaryWithoutMachineKind } = chat([]).summary!;
+  const summaryWithoutMachineKind = { ...chat([]).summary! };
+  delete summaryWithoutMachineKind.hostKind;
+  delete summaryWithoutMachineKind.peer;
   const localShape: AcpmuxSnapshot = {
     ...chat([]),
     summary: { ...summaryWithoutMachineKind, sessionId: "local-session", host: "Studio" },
