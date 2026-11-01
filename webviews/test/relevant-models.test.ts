@@ -51,7 +51,15 @@ test("a harness menu that lists older versions of a catalog family folds them, k
     { id: "plain", name: "Plain", family: "Opus" },
   ];
   const result = relevantModelSections(catalog, ids(catalog));
-  expect(ids(result.shown)).toEqual(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-5.5", "opus[1m]", "opus", "plain"]);
+  expect(ids(result.shown)).toEqual([
+    "gpt-6.1-sol",
+    "gpt-6.1-terra",
+    "gpt-6-astra",
+    "gpt-5.5",
+    "opus[1m]",
+    "opus",
+    "plain",
+  ]);
   expect(ids(result.more)).toEqual(["gpt-6-sol", "gpt-5.6-terra"]);
 });
 
@@ -65,7 +73,13 @@ test("a vendor-wide family folds within one product line only", () => {
     { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
   ];
   const result = relevantModelSections(catalog, ids(catalog));
-  expect(ids(result.shown)).toEqual(["openai/gpt-6.1-sol", "openai/gpt-6-astra", "openai/gpt-5.4-mini", "gpt-5.6", "gpt-6-sol"]);
+  expect(ids(result.shown)).toEqual([
+    "openai/gpt-6.1-sol",
+    "openai/gpt-6-astra",
+    "openai/gpt-5.4-mini",
+    "gpt-5.6",
+    "gpt-6-sol",
+  ]);
   expect(ids(result.more)).toEqual(["openai/gpt-6-sol"]);
 });
 

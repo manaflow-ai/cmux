@@ -102,7 +102,7 @@ export function relevantModelSections<T extends Model>(
       const previous = newest.get(key);
       if (!previous || olderVersion(previous, model)) newest.set(key, model);
     }
-    for (const model of [...chosen]) {
+    for (const model of chosen) {
       const lead = model.family ? newest.get(lineKey(model)) : undefined;
       if (lead && olderVersion(model, lead) && !isRunning(model)) chosen.delete(model);
     }
