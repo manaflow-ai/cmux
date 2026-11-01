@@ -108,3 +108,40 @@ describe("current Native Cloud dial permission", () => {
   })
 })
 
+
+/** A member_authority reader whose incarnation can move under an awaited read. */
+const memberRows = () => {
+  let incarnation = "generation:1:aaaaaaaaaaaaaaaaaaaaaa", generation = "1"
+  return {
+    rows: { get: (table: string, key: string) => table !== "member_authority" ? undefined : key === "@generation" ? { row: { generation } } : key === USER ? { row: { incarnation } } : undefined },
+    // Leave and rejoin with the same role: only the incarnation tells the two memberships apart.
+    rejoin: () => { generation = String(Number(generation) + 2); incarnation = `generation:${generation}:bbbbbbbbbbbbbbbbbbbbbb` }
+  }
+}
+
+describe("Native dial authority incarnations", () => {
+  it("refuses an install authority change during the Native read and after authorization", async () => {
+    const f = await fixture(); f.onRead(f.renewAuthority)
+    expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const second = await fixture(), permitted = await second.authorize()
+    if (!permitted.ok) throw new Error(permitted.code)
+    second.renewAuthority(); expect(await recheckNativeDial(second.deps, principal, permitted.permit)).toBe(false)
+  })
+
+  it("refuses a membership A to B to A during the Native read and after authorization", async () => {
+    const f = await fixture(), m = memberRows()
+    Object.assign(f.deps, { rows: m.rows }); f.onRead(m.rejoin)
+    expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const second = await fixture(), n = memberRows()
+    Object.assign(second.deps, { rows: n.rows })
+    const permitted = await second.authorize()
+    if (!permitted.ok) throw new Error(permitted.code)
+    expect(await recheckNativeDial(second.deps, principal, permitted.permit)).toBe(true)
+    n.rejoin(); expect(await recheckNativeDial(second.deps, principal, permitted.permit)).toBe(false)
+  })
+
+  it("refuses a caller whose socket authority is not the current one", async () => {
+    const f = await fixture(); f.renewAuthority()
+    expect(await f.authorize()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+})

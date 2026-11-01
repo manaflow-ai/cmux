@@ -520,6 +520,16 @@ export class UserDO extends OwnerDO<UserState> {
     return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
   }
 
+  /** A client's identity under its live read grant (host.network.target); no mutate-own needed, the same authority version. */
+  async readIdentity(entity: string, install: string, grant: string): Promise<NetworkIdentityView | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant }, Date.now())
+    if (!state.user || !inst || !held || !["mac", "ios", "cli"].includes(inst.kind) || !held.op_classes.includes("read")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
+  }
+
   /** One owner's bounded batch of networkIdentity reads; a malformed batch answers nothing. */
   async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string): Promise<Array<NetworkIdentityView | null>> {
     if (!Array.isArray(entries) || entries.length > 128 || entries.some((v) => !v || typeof v.install !== "string" || typeof v.grant !== "string" || v.install.length > 128 || v.grant.length > 128)) return []

@@ -293,7 +293,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return hostNetworkTarget({
       team: entity, project: this.env.STACK_PROJECT_ID, connection: () => vmApiConnection(this.env), revision: () => String(engine.currentSeq),
       state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
-      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).deviceKey(user, install, grant, "read")
+      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
     }, p, params)
   }
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */

@@ -9,6 +9,7 @@ import { hostNetworkTarget } from "../src/host-network-target.ts"
 import { vmReceiverPeers } from "../src/cloud-vm-receiver-peers.ts"
 import type { NetworkIdentityView } from "../src/user-do.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
+import { installPublicPoint } from "../src/install-public-point.ts"
 
 /**
  * The UserDO and TeamDO reads cmux-platform's CloudDO calls for the Native backend. Each answer is
@@ -22,6 +23,7 @@ type UserRpc = {
   networkIdentities(e: string, entries: unknown, team: string): Promise<Array<NetworkIdentityView | null>>
   vmNetworkIdentity(e: string, i: string, g: string, team: string, machine: string): Promise<NetworkIdentityView | null>
   deviceKey(e: string, i: string, g: string, opClass?: string): Promise<JsonWebKey | null>
+  readIdentity(e: string, i: string, g: string): Promise<NetworkIdentityView | null>
 }
 const inDO = runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<void> | void) => Promise<void>
 
@@ -61,6 +63,12 @@ describe("UserDO network identity RPCs", () => {
     expect(await o.rpc.deviceKey(o.user, readOnly.install, readOnly.grant)).toBeNull()
     expect(await o.rpc.deviceKey(o.user, readOnly.install, readOnly.grant, "read")).toMatchObject({ kty: "EC" })
     expect(await o.rpc.deviceKey(o.user, readOnly.install, readOnly.grant, "execute")).toBeNull()
+    expect(await o.rpc.readIdentity(o.user, readOnly.install, readOnly.grant)).toMatchObject({ kind: "cli", authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(await o.rpc.readIdentity("user_99999999999999999999", readOnly.install, readOnly.grant)).toBeNull()
+    const writeOnly = await o.add("mac", ["mutate-own"])
+    expect(await o.rpc.readIdentity(o.user, writeOnly.install, writeOnly.grant)).toBeNull()
+    const daemonRead = await o.add("daemon", ["read", "mutate-own"], { bound_team: TEAM })
+    expect(await o.rpc.readIdentity(o.user, daemonRead.install, daemonRead.grant)).toBeNull()
     await o.edit((s) => { s.grants[o.grant] = { ...s.grants[o.grant], expires_at: Date.now() - 1 } })
     expect(await o.rpc.networkIdentity(o.user, o.install, o.grant, TEAM)).toBeNull()
     await o.edit((s) => { s.grants[o.grant] = { ...s.grants[o.grant], expires_at: null }; s.installs[o.install] = { ...s.installs[o.install], revoked_at: 1 } })
@@ -160,7 +168,7 @@ describe("TeamDO Native RPCs", () => {
     let reads = 0
     const deps = { team: TEAM, project: "project", state: () => state, rows: undefined, now: Date.now, revision: () => "1",
       connection: () => { reads++; return { origin: "https://vm.example.test", key: "k" } },
-      tenant: async () => { reads++; return { team: TEAM, project: "project", tenant: "t" } }, key: async () => { reads++; return null },
+      tenant: async () => { reads++; return { team: TEAM, project: "project", tenant: "t" } }, identity: async () => { reads++; return null },
       http: async () => { reads++; return new Response(null, { status: 500 }) } }
     expect(await hostNetworkTarget(deps as never, { ...p, grant_classes: ["mutate-own"] }, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(await hostNetworkTarget(deps as never, { ...p, expires_at: Date.now() - 1 }, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
@@ -183,5 +191,85 @@ describe("TeamDO Native RPCs", () => {
     expect(await vmReceiverPeers(deps, target({ origin: "https://other.example.test" }))).toBeNull()
     expect(await vmReceiverPeers({ ...deps, tenant: async () => ({ team: OTHER_TEAM, project: "project", tenant: "t" }) }, target({}))).toBeNull()
     expect(await vmReceiverPeers(deps, target({}))).toMatchObject({ peers: [], authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) })
+  })
+})
+
+describe("TeamDO Native reads with live authority", () => {
+  const USER = "user_00000000000000000001", INSTALL = "inst_00000000000000000001", GRANT = "grant_00000000000000000001", HOST = "host_00000000000000000001"
+  const MESH = "mesh_" + "0".repeat(26), DEVICE = "dev_" + "0".repeat(26), ORIGIN = "https://vm.example.test", TENANT = "team_native"
+  const wg = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)))
+  const p: Principal = { kind: "install", identity: INSTALL, user: USER, team: TEAM, install: INSTALL, grant: GRANT, install_kind: "mac", grant_classes: ["read", "mutate-own", "execute"] }
+  const world = async () => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
+    const key = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey
+    let version = 1, incarnation = "generation:1:aaaaaaaaaaaaaaaaaaaaaa", generation = "1"
+    let state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [USER]: { user: USER, role: "owner", display_name: "O" } }, hosts: {
+      [HOST]: { id: HOST, name: "Mac", platform: "macos", owner_user: USER, enrolled_by: INSTALL, enrolled_at: 1, wg_public_key: wg,
+        network: { state: "confirmed", tenant: TENANT, mesh: MESH, device: DEVICE, confirmed_at: 1, install_grant: GRANT } } } } as unknown as TeamState
+    const identity = (): NetworkIdentityView => ({ key, kind: "mac", expires_at: null, authority_version: String(version).padStart(64, "0"), op_classes: ["read", "mutate-own", "execute"] })
+    const rows = { get: (table: string, k: string) => table !== "member_authority" ? undefined : k === "@generation" ? { row: { generation } } : k === USER ? { row: { incarnation } } : undefined } as never
+    return {
+      point: installPublicPoint(key), state: () => state, rows, identity,
+      /** The install's grant goes read -> none -> read: same classes, a new incarnation. */
+      regrant: () => { version++ },
+      /** The member leaves and rejoins with the same role. */
+      rejoin: () => { generation = String(Number(generation) + 2); incarnation = `generation:${generation}:bbbbbbbbbbbbbbbbbbbbbb` },
+      leave: () => { state = { ...state, members: {} } }
+    }
+  }
+
+  const targetDeps = (w: Awaited<ReturnType<typeof world>>, during?: () => void) => ({
+    team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, revision: () => "7",
+    connection: () => ({ origin: ORIGIN, key: "service-key" }), tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }),
+    identity: async () => w.identity(),
+    http: async (request: Request) => {
+      expect(request.url).toBe(`${ORIGIN}/v1/meshes`)
+      during?.()
+      return Response.json({ items: [{ id: MESH, ipv4Cidr: "10.128.0.0/20" }] })
+    }
+  }) as never
+
+  it("returns the team network target after a successful read", async () => {
+    const w = await world()
+    expect(await hostNetworkTarget(targetDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN, mesh: MESH, ipv4_cidr: "10.128.0.0/20" } })
+  })
+
+  it.each(["regrant", "rejoin", "leave"] as const)("refuses the target when the caller's %s happens during the mesh read", async (change) => {
+    const w = await world()
+    expect(await hostNetworkTarget(targetDeps(w, w[change]), p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+
+  it("refuses a caller whose socket authority is not the current one", async () => {
+    const w = await world()
+    expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: "f".repeat(64) }, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await hostNetworkTarget(targetDeps(w), { ...p, install_authority: w.identity().authority_version }, {})).toMatchObject({ ok: true })
+  })
+
+  const peerTarget = (w: Awaited<ReturnType<typeof world>>) => ({ creator: USER, origin: ORIGIN, deadline: Date.now() + 10_000, policy: {
+    schemaVersion: 1, tenantId: TENANT, vmId: "vm_" + "1".repeat(26), meshId: MESH, ipv4: "10.128.0.5", aclVersion: 1, checkedAt: Date.now(), expiresAt: Date.now() + 20_000,
+    policyDigest: "a".repeat(64), peers: [{ deviceId: DEVICE, wgPublicKey: wg, installPublicKey: w.point, allow: [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }] }] } }) as never
+  const peerDeps = (w: Awaited<ReturnType<typeof world>>, second?: () => void) => {
+    let calls = 0
+    return { team: TEAM, project: "project", state: w.state, rows: w.rows, now: Date.now, origin: () => ORIGIN,
+      tenant: async () => ({ team: TEAM, project: "project", tenant: TENANT }), allowed: () => ["daemon", "ssh"],
+      identity: async () => w.identity(),
+      identities: async (_user: string, entries: ReadonlyArray<unknown>) => { if (calls++ === 1) second?.(); return entries.map(() => w.identity()) } }
+  }
+
+  it("joins a live peer to its host, owner, grant and team services", async () => {
+    const w = await world()
+    const answer = await vmReceiverPeers(peerDeps(w), peerTarget(w))
+    expect(answer).toMatchObject({ peers: [{ host: HOST, user: USER, install: INSTALL, device: DEVICE, wg_public_key: wg, install_public_key: w.point, services: ["daemon", "ssh"],
+      authority_version: expect.stringMatching(/^[0-9a-f]{64}$/) }] })
+  })
+
+  it("drops a peer whose install authority changes between the two identity snapshots", async () => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w, w.regrant), peerTarget(w))).toMatchObject({ peers: [] })
+  })
+
+  it.each(["rejoin", "leave"] as const)("answers nothing when the creator's %s happens during the identity snapshots", async (change) => {
+    const w = await world()
+    expect(await vmReceiverPeers(peerDeps(w, w[change]), peerTarget(w))).toBeNull()
   })
 })
