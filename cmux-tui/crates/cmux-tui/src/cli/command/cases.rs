@@ -882,6 +882,7 @@ fn state_resource_cases<'a>(
         (vec!["tab", "group", "saved", "s", "reopen", "--pane", pane], "saved_tab_group.reopen"),
         (vec!["tab", "group", "saved", "s", "delete"], "saved_tab_group.delete"),
         (vec!["room", "list"], "room.list"),
+        (vec!["space", "list"], "room.list"),
         (
             vec![
                 "room", "create", "--name", "n", "--color", "c", "--icon", "i", "--theme", "t",

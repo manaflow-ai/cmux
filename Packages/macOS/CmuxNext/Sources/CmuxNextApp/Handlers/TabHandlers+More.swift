@@ -54,20 +54,34 @@ extension TabHandlers {
         registry.bindEffect("tab.moveToSpace", requires: DaemonCapability.profiles.rawValue,
                             daemon: ctx.services.machines.local, effect: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+                return .refused(reason)
+            }
             guard let room = try ctx.optionalRoom(invocation["space"]) else {
                 return .refused(RoomStrings.roomArgumentRequired)
             }
-            guard let workspace = ctx.services.workspaceID(ofTab: tab.id),
-                  let qualified = WindowProfiles.qualified(workspace, machines: ctx.services.machines) else {
-                return .done
+            guard let sourceWorkspace = ctx.services.workspaceID(ofTab: tab.id),
+                  let source = WindowProfiles.qualified(sourceWorkspace, machines: ctx.services.machines) else {
+                return .refused(RefusalStrings.noWorkspaceToActOn)
             }
-            let key = qualified.key, session = qualified.session
-            let daemon = ctx.services.machines.local
-            return .applied(ActionConfirmation(send: {
-                await daemon.failure("pin-workspace") {
-                    try await $0.pinWorkspace(session: session, key: key, to: room.id)
+            let services = ctx.services
+            let origin = services.windows.moveOrigin(of: sourceWorkspace)
+            let preferred = services.landingWindow(tab: tab.id, workspaceID: nil)?.state
+            // A space contains workspaces, so moving one tab means promoting that tab to a new
+            // workspace first. This preserves any sibling tabs in the source workspace; pinning
+            // the source workspace would silently move all of them into the destination space.
+            // action-wait-allow: the source daemon allocates the promoted workspace key before the home daemon can pin it.
+            return .waiting(.daemonEcho) {
+                guard let key = await TabMoves.toNewWorkspace(tab, services: services) else {
+                    return ActionWorkFailure("move-tab-to-space failed (see the app log)")
                 }
-            }))
+                // Keep the promoted tab owned by its original window even if the pin fails;
+                // automation files it away without selecting it or switching the user's space.
+                services.windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: false, select: false)
+                return await services.machines.local.failure("pin-workspace") {
+                    try await $0.pinWorkspace(session: source.session, key: key, to: room.id)
+                }
+            }
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })

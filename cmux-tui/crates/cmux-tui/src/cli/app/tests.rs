@@ -88,6 +88,15 @@ fn space_catalog_actions_keep_their_generic_cli_routes() {
     assert_eq!(params["cli"], true);
 }
 
+#[test]
+fn space_rename_options_keep_the_current_space_target() {
+    let (_, params) =
+        call(parse(&args(&["space", "rename", "--name", "Office"])).unwrap().unwrap());
+    assert_eq!(params["action"], "space rename");
+    assert_eq!(params["args"], json!({"name": "Office"}));
+    assert!(params.get("target").is_none());
+}
+
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
 /// a folder of the caller's working directory, so the app gets it absolute:
 /// the app runs elsewhere, and a space's default directory must be absolute.
