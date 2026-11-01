@@ -261,7 +261,6 @@ async fn cloud_acpmux(
         .write_all(b"{\"service\":\"daemon\"}\n")
         .await
         .map_err(|_| Refusal::new("unavailable", "Cloud carrier closed"))?;
-    let mut from_carrier = [0u8; 64 * 1024];
     // Identify the stream before forwarding the phone's ACP frames. The VM
     // daemon admits this capability only on an authenticated remote link and
     // then applies its agent-session-only Cloud chat adapter; the phone never
@@ -289,16 +288,27 @@ async fn cloud_acpmux(
     if client_info_reply.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(Refusal::new("forbidden", "Cloud carrier refused mobile chat capability"));
     }
+    let mut phone_message = MessageAssembler::default();
     loop {
         tokio::select! {
             event = receiver.recv() => match event {
-                Some(ChannelEvent::Data(bytes)) => { if write.write_all(&bytes).await.is_err() { break; } }
+                Some(ChannelEvent::Data(bytes)) => {
+                    let Some(message) = phone_message.push(&bytes)? else { continue; };
+                    if write.write_all(message.as_bytes()).await.is_err() { break; }
+                    if write.write_all(b"\n").await.is_err() { break; }
+                }
                 Some(ChannelEvent::Closed(_)) | None => break,
             },
-            result = read.read(&mut from_carrier) => {
-                let size = result.map_err(|_| Refusal::new("unavailable", "Cloud carrier read failed"))?;
+            result = async {
+                let mut line = Vec::new();
+                let size = read.read_until(b'\n', &mut line).await.map_err(|_| ())?;
+                Ok::<_, ()>((size, line))
+            } => {
+                let (size, line) = result.map_err(|_| Refusal::new("unavailable", "Cloud carrier read failed"))?;
                 if size == 0 { break; }
-                if sender.send(Bytes::copy_from_slice(&from_carrier[..size])).await.is_err() { break; }
+                let line = line.strip_suffix(b"\n").unwrap_or(&line);
+                if line.is_empty() { continue; }
+                if sender.send(Bytes::copy_from_slice(line)).await.is_err() { break; }
             }
         }
     }
