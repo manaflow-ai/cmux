@@ -99,7 +99,11 @@ import Testing
                                               // new one shows ws-1 with its pane, then the close fails.
                                               epoch.value = 2
                                               store.apply(snapshot: tree(11))
-                                              await Fixture.settle()
+                                              // Wait for the reconnect snapshot to reach the repair before
+                                              // returning the refused close. A fixed yield count can let the
+                                              // close task clear its claim first, losing the new epoch's
+                                              // evidence as a test scheduling artifact.
+                                              await Fixture.settle { repair.visited >= 2 }
                                               throw Refused()
                                           },
                                           cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
@@ -138,9 +142,9 @@ import Testing
                                               // again, then the first close fails.
                                               epoch.value = 2
                                               store.apply(snapshot: tree(11))
-                                              await Fixture.settle()
+                                              await Fixture.settle { repair.visited >= 4 }
                                               store.apply(try Fixture.paneClosed(workspace: 1))
-                                              await Fixture.settle()
+                                              await Fixture.settle { repair.visited >= 5 }
                                               throw Refused()
                                           },
                                           cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
