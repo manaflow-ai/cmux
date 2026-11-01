@@ -4937,7 +4937,8 @@ export function VirtualTranscript({
     restingDock.current = { height, sessionId, dock, space: dockSpace };
   else if (dockSpace > 0 && (restingDock.current.space <= 0 || dockSpace < restingDock.current.space))
     restingDock.current.space = dockSpace;
-  const railBox = { height, foot: height - restingDock.current.space };
+  // A stack not measured since it came (the latch's 0) reads as it is now.
+  const railBox = { height, foot: height - (restingDock.current.space || dockSpace) };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>

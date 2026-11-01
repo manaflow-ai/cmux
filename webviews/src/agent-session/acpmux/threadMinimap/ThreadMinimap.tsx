@@ -332,7 +332,8 @@ export function ThreadMinimap({
   );
   /// The rows above the held ticks that the prompts still to come take: the held ones are the chat's
   /// latest, so they sit where they will be once the rest arrive (at the end of a full list's view).
-  const lead = Math.max(0, Math.min(known, Math.floor(boxRail / ROW_PITCH)) - turns.length) * ROW_PITCH;
+  /// A full list that fits ends at its last row; one longer than the box scrolls to the box's end.
+  const lead = Math.max(0, Math.min(known * ROW_PITCH, boxRail) - turns.length * ROW_PITCH);
   /// The list's own height, under the lead (the whole box once every prompt is held).
   const height = boxRail - lead;
   const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
@@ -348,7 +349,12 @@ export function ThreadMinimap({
   const edge = placement.reserve + placement.left;
   const [cardFocus, setCardFocus] = useState(false);
   const railVisible = !placement.overlapsText || railRevealed || domFocus !== undefined || cardFocus || scrubbing;
-  const railWidth = placement.overlapsText && railVisible ? ROW_WIDTH : placement.width;
+  // A rail compressed narrower than a magnified tick and its dot (TICK_BOX + 4 px) widens over the text
+  // while it is in use (hovered, focused, scrubbed or revealed), so those ticks draw whole; at rest it
+  // keeps its gutter.
+  const inUse = railRevealed || hovered !== undefined || domFocus !== undefined || cardFocus || scrubbing;
+  const widens = (placement.overlapsText && railVisible) || (inUse && placement.width < TICK_BOX + 4);
+  const railWidth = widens ? ROW_WIDTH : placement.width;
   // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
   // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
   const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
@@ -953,6 +959,8 @@ export function ThreadMinimap({
           }
           data-hovering={hovered !== undefined || undefined}
           data-occluded={!railVisible || undefined}
+          // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
+          data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}

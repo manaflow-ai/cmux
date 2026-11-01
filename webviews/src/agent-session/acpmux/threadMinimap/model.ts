@@ -49,11 +49,13 @@ export const TICK_BOX = 26;
 export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
-  spacing = { min: 8, max: 16, compact: 12 },
+  spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const paneInset = transcriptColumn(paneWidth).inset;
   const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
-  const minimumWidth = spacing.min + spacing.compact;
+  // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
+  // resting rail fits the page edge; the inset plus that step for the edge strip.
+  const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };

@@ -6,7 +6,11 @@ import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
+// The edge-strip gutter (gutter.experiment.ts): the placement whose occluded state and strip these cover.
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+  "thread-minimap-layout": "compact",
+  "thread-minimap-gutter": "edge-strip",
+};
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

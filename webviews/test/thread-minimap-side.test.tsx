@@ -171,12 +171,15 @@ test.each(["compact", "full"])(
   },
 );
 
-// A pane too narrow for the rail beside the text hides it at rest on either edge and keeps the live
-// hover strip at that same edge (design/session-rail.md: never removed for pane width).
+// Under the edge-strip gutter (gutter.experiment.ts), a pane too narrow for the rail beside the text
+// hides it at rest on either edge and keeps the live hover strip at that same edge
+// (design/session-rail.md: never removed for pane width).
+const experiments = (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments!;
 for (const side of ["left", "right"] as const)
   test(`a ${side} rail in a narrow pane keeps its hover strip on the ${side}`, async () => {
     paneWidth = 300;
     setChatDisplay({ "agentPane.display.minimap": "compact", [RAIL_SIDE_KEY]: side });
+    experiments["thread-minimap-gutter"] = "edge-strip";
     const root = createRoot(document.getElementById("root")!);
     try {
       await act(async () =>
@@ -197,6 +200,7 @@ for (const side of ["left", "right"] as const)
       await act(async () => root.unmount());
       paneWidth = 1040;
       setChatDisplay({});
+      delete experiments["thread-minimap-gutter"];
     }
   });
 
