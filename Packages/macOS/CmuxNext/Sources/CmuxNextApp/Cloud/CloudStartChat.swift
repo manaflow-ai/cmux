@@ -178,8 +178,8 @@ struct CloudStartChat {
         if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
             for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
         }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = Started(start: start, chat: origin.chat, workspace: origin.workspace, account: origin.account,
-                                           machineID: machine.machineID)
+        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: start, chat: origin.chat, workspace: origin.workspace,
+                                                                                        account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title
     }
