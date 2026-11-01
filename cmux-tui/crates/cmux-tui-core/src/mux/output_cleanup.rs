@@ -62,7 +62,7 @@ struct OutputCleanupWorker {
     thread: Option<std::thread::JoinHandle<()>>,
     /// Disconnects when the worker thread ends (its sender drops, panics
     /// included).
-    exited: std::sync::mpsc::Receiver<()>,
+    exited: Receiver<()>,
 }
 
 impl OutputCleanupWorker {
