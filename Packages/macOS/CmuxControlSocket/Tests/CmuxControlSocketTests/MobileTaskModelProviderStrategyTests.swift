@@ -86,7 +86,7 @@ struct MobileTaskModelProviderStrategyTests {
         ))
         let commands = await probe.commands
         #expect(commands.count == 1)
-        #expect(commands[0].0.contains("claude -p"))
+        #expect(commands[0].0.contains("'claude' -p"))
         #expect(commands[0].0.contains("list_models"))
         #expect(commands[0].1 == .seconds(30))
         #expect(await probe.readPaths.isEmpty)
