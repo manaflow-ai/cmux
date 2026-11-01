@@ -11,6 +11,7 @@ import { createEditReporter } from "../shared/editReporter";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
+  MARKDOWN_UNAVAILABLE,
   MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
@@ -58,6 +59,10 @@ export interface MarkdownState {
   navigating: string | null;
   /** The last navigation that did not open its file (shown until the next one), or null. */
   navigationFailed: string | null;
+  /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
+  failure: string | null;
+  /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
+  unavailable: string | null;
 }
 
 /** One file in the page's link history, with the anchor it opened at and its scroll offset. */
@@ -123,6 +128,8 @@ export class MarkdownStore {
     canForward: false,
     navigating: null,
     navigationFailed: null,
+    failure: null,
+    unavailable: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
   /** The history state the host last heard (`cmux.markdown.history`), as `canBack:canForward`. */
@@ -209,6 +216,7 @@ export class MarkdownStore {
       console.error("cmux markdown config failed", error);
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
+        failure: isPageError(error) && error.code === MARKDOWN_UNAVAILABLE ? error.message : null,
       });
     }
     await this.loadConfig(client, config);
@@ -248,6 +256,8 @@ export class MarkdownStore {
       source: text,
       status: "saved",
       revision: this.state.revision + 1,
+      failure: null,
+      unavailable: null,
       look,
       mode,
     });
@@ -558,6 +568,11 @@ export class MarkdownStore {
         readOnly,
         readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
+        // What belongs to this file alone: the previous file's comments, table widths and
+        // remote-image grant must not carry over to the one now shown.
+        remoteImageBase: file.remoteImageBase,
+        tableWidths: file.tableWidths,
+        comments: file.comments,
       },
       readOnly,
       readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,
@@ -577,6 +592,8 @@ export class MarkdownStore {
     if (this.state.phase !== "ready") return;
     // Changes of a file the page left (its watcher may still report) are not this file's.
     if (change.path && this.state.config && change.path !== this.state.config.path) return;
+    // The file's machine went away or came back: a notice, never a change of the text.
+    if (change.unavailable !== undefined) return this.set({ unavailable: change.unavailable });
     if (this.saving) {
       this.pendingChange = change;
       return;

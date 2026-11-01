@@ -183,6 +183,18 @@
     },
     {
       "kind": "request",
+      "name": "agent-session-turn-prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent-session-turn-abandon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
@@ -1116,6 +1128,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -1282,6 +1300,30 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/api_key",
       "params": true,
       "result": true
     },
@@ -1472,6 +1514,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_notice",
       "params": true,
       "result": true
     },
@@ -2203,6 +2251,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "promptIndex": {
+          "description": "Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,\nin one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -3453,6 +3508,9 @@
             "string",
             "null"
           ]
+        },
+        "source": {
+          "description": "The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise."
         }
       },
       "required": [
@@ -3540,6 +3598,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "subagentRetry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueuedSubagentRetry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "acpmux's own ask that the chat's agent resume a subagent that failed on a transient error\n(`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that\nsubagent's resume, not as the person's prompt. Null for any other prompt, and once edited\n(an edit drops the provenance)."
+        },
         "turnId": {
           "type": "string"
         }
@@ -3557,7 +3627,37 @@
         "prompt",
         "promptId",
         "queuedAt",
+        "subagentRetry",
         "turnId"
+      ],
+      "type": "object"
+    },
+    "QueuedSubagentRetry": {
+      "description": "The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).",
+      "properties": {
+        "agentId": {
+          "description": "The Agent tool's id for it, which the agent resumes it by.",
+          "type": "string"
+        },
+        "error": {
+          "description": "The transient error it failed on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Its task or name, when acpmux knew one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "agentId",
+        "error",
+        "name"
       ],
       "type": "object"
     },
@@ -5012,10 +5112,27 @@
     },
     "SessionsResult": {
       "properties": {
+        "delta": {
+          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "nextCursor": {
           "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "removed": {
+          "description": "With `delta`: the known sessions no longer listed.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
             "null"
           ]
         },
@@ -5025,6 +5142,15 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
+        },
+        "unchanged": {
+          "description": "With `delta`: how many listed rows were left out as unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -5324,6 +5450,16 @@
           "description": "Default true: every session's changes arrive as\n`_acpmux/session_changed`.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "known": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
+          "type": [
+            "object",
             "null"
           ]
         },

@@ -205,17 +205,9 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let at = |key: &Value| key.get("at").and_then(Value::as_u64).unwrap_or_default() as usize;
-        let row = |key: &Value| -> std::borrow::Cow<'_, str> {
-            let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
-            match text {
-                Some(text) if text.len() <= budget => text.into(),
-                Some(text) => too_large_stub(key, text.len()).into(),
-                None => "null".into(),
-            }
-        };
+        let row = |key: &Value| row_text(text, spans, key, budget);
         let whole = cursor.is_none() && {
-            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            let bytes: usize = rows.iter().map(|key| row(key).len().saturating_add(1)).sum();
             bytes <= budget
         };
         let (page, next) = if whole {
@@ -254,23 +246,49 @@ impl Snapshot {
         rows.finish()
     }
 
-    /// The reply to a paged or filtered `params`, cut from the shared text: the bytes
-    /// `session_list_reply` over the summaries writes (`nextCursor` sorts first).
-    pub(crate) fn page(&self, params: &Value) -> Result<String, RpcError> {
-        let picked = super::session_pages::session_list_reply(self.keys.clone(), params)?;
+    /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
+    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
+    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
+    /// busy host with usage were more than one message, refused whole on every retry. A row
+    /// larger than `budget` alone is trimmed ([`row_text`]).
+    pub(crate) fn page(
+        &self,
+        full: Option<&FullRows>,
+        params: &Value,
+        budget: usize,
+    ) -> Result<String, RpcError> {
+        let (text, spans, keys) = match full {
+            Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
+            None => (self.whole.as_str(), &self.spans, &self.keys),
+        };
+        let picked = super::session_pages::session_list_reply(keys.clone(), params)?;
+        let rows =
+            picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let mut next = picked.get("nextCursor").cloned();
+        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+        for (n, key) in rows.iter().enumerate() {
+            let row = row_text(text, spans, key, budget);
+            // One more byte for the comma between rows.
+            let total = used.saturating_add(row.len()).saturating_add(1);
+            if n > 0 && total > budget {
+                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+                next = Some(Value::String(page_cursor(params, last)));
+                break;
+            }
+            used = total;
+            page.push(row);
+        }
         let mut text = String::from("{");
-        if let Some(next) = picked.get("nextCursor") {
+        if let Some(next) = next {
             text.push_str(&format!("\"nextCursor\":{next},"));
         }
         text.push_str("\"sessions\":[");
-        for (n, key) in picked["sessions"].as_array().into_iter().flatten().enumerate() {
+        for (n, row) in page.iter().enumerate() {
             if n > 0 {
                 text.push(',');
             }
-            let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(
-                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
-            );
+            text.push_str(row);
         }
         text.push_str("]}");
         Ok(text)
@@ -299,9 +317,43 @@ impl Snapshot {
     }
 }
 
-/// A row larger than a page alone goes as this stub, with its size, as a record too large for a
-/// reply goes (`hub/paging.rs`): a page holds at least one row, and one that large would be
-/// refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
+/// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
+/// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
+fn row_text<'a>(
+    text: &'a str,
+    spans: &[Range<usize>],
+    key: &Value,
+    budget: usize,
+) -> std::borrow::Cow<'a, str> {
+    let at = key.get("at").and_then(Value::as_u64).and_then(|at| usize::try_from(at).ok());
+    let Some(row) = at.and_then(|at| spans.get(at)).and_then(|span| text.get(span.clone())) else {
+        return "null".into();
+    };
+    if row.len() <= budget {
+        return row.into();
+    }
+    let mut value: Value = serde_json::from_str(row).unwrap_or_default();
+    if super::reply_fit::fit_object(&mut value, budget) {
+        value.to_string().into()
+    } else {
+        too_large_stub(key, row.len()).into()
+    }
+}
+
+/// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
+/// (`session_pages::cursor_after`).
+fn page_cursor(params: &Value, last: &Value) -> String {
+    let census = params.get("orderBy").and_then(Value::as_str).is_some_and(|o| !o.is_empty());
+    if census {
+        format!("s:{}", last.get("sessionId").and_then(Value::as_str).unwrap_or(""))
+    } else {
+        super::session_pages::cursor_after(last)
+    }
+}
+
+/// A row larger than a page alone even trimmed (a kept field that large) goes as this stub, with
+/// its size, as a record too large for a reply goes (`hub/paging.rs`): a page holds at least one
+/// row, and one that large would be refused, page and all. It keeps the row's paging keys (an id longer than 4 KiB as null), so
 /// a client still sees the chat and can read it alone (`_acpmux/info`).
 fn too_large_stub(key: &Value, bytes: usize) -> String {
     let id = key.get("sessionId").filter(|v| v.as_str().is_some_and(|t| t.len() <= 4 << 10));
@@ -441,13 +493,16 @@ impl ListGuard {
         let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
         // Sending even a shared list copies it into the reply line.
         let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
-        let wait = pace.wait(now, window * (CONN_BURST - 1));
-        let more = replies.wait(now + wait, window);
+        let wait = pace.wait(now, window * (CONN_BURST - 1), window);
+        // Reprice at the real clock before probing a hypothetical admission time.
+        // A rejected request must not advance shared debt to `now + wait`.
+        replies.reprice(now, window / REPLIES);
+        let more = replies.wait(now + wait, window, window / REPLIES);
         if wait + more > MAX_WAIT {
             return Err(wait + more);
         }
-        pace.spend(now + wait, window.mul_f64(share));
-        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
+        pace.spend(now + wait, window.mul_f64(share), window);
+        replies.spend(now + wait + more, window.mul_f64(share) / REPLIES, window / REPLIES);
         tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
             wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
         Ok(wait + more)
@@ -465,7 +520,10 @@ impl ListGuard {
         {
             return last.clone();
         }
-        let wait = state.pace.wait(Instant::now(), self.window() * (BURST - 1));
+        let window = self.window();
+        // A fresh snapshot waits at most one current window, even if an earlier
+        // reservation used a much more expensive build. Lock/build time is separate.
+        let wait = state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window);
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
         }
@@ -478,7 +536,7 @@ impl ListGuard {
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
             builder_wait_us = wait.as_micros(), "list_snapshot_build");
-        state.pace.spend(started, window);
+        state.pace.spend(started, window, window);
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
@@ -523,14 +581,39 @@ fn key(hub: &Hub) -> Key {
 #[derive(Default)]
 pub(crate) struct Pacer {
     ahead_to: Option<Instant>,
+    /// Debt is measured in lists, so a new build cost rescales its time value.
+    period: Duration,
 }
 
 impl Pacer {
-    fn wait(&self, now: Instant, burst: Duration) -> Duration {
+    fn wait(&mut self, now: Instant, burst: Duration, period: Duration) -> Duration {
+        self.reprice(now, period);
         self.ahead_to.map_or(Duration::ZERO, |to| to.saturating_duration_since(now + burst))
     }
 
-    fn spend(&mut self, at: Instant, cost: Duration) {
+    fn reprice(&mut self, now: Instant, period: Duration) {
+        if self.period != period {
+            // A busy host can briefly take seconds to build a list. Keeping that build's
+            // absolute-time debt after the next cheap build made a 15 s window impose
+            // nearly a minute of sleep: the burst allowance had already shrunk. Preserve
+            // the number of lists owed in both directions. Discounting falls but not
+            // charging rises would forgive debt on every oscillation, removing pacing.
+            // Previously returned reservation sleeps are not rescheduled.
+            self.ahead_to = self.ahead_to.map(|to| {
+                let remaining = to.saturating_duration_since(now);
+                let scaled = if self.period.is_zero() {
+                    Duration::ZERO
+                } else {
+                    remaining.mul_f64(period.as_secs_f64() / self.period.as_secs_f64())
+                };
+                now + scaled
+            });
+            self.period = period;
+        }
+    }
+
+    fn spend(&mut self, at: Instant, cost: Duration, period: Duration) {
+        self.reprice(at, period);
         self.ahead_to = Some(self.ahead_to.map_or(at, |to| to.max(at)) + cost);
     }
 }
@@ -573,12 +656,12 @@ mod tests {
             json!({"peer": "cmux16", "limit": 1}),
         ] {
             assert_eq!(
-                list.page(&params).unwrap(),
+                list.page(None, &params, usize::MAX).unwrap(),
                 reply(&params).unwrap().to_string(),
                 "{params}"
             );
         }
-        assert!(list.page(&json!({"cursor": 3})).is_err());
+        assert!(list.page(None, &json!({"cursor": 3}), usize::MAX).is_err());
     }
 
     /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
@@ -656,7 +739,7 @@ mod tests {
             [json!({}), json!({"limit": 2}), json!({"status": "closed"}), json!({"peer": "remote"})]
         {
             assert_eq!(
-                list.page(&params).unwrap(),
+                list.page(None, &params, usize::MAX).unwrap(),
                 super::super::session_pages::session_list_reply(rows.clone(), &params)
                     .unwrap()
                     .to_string()
@@ -711,6 +794,34 @@ mod tests {
         held
     }
 
+    /// A respawn's mark and its end each change a row (`respawnPending`): no list shows the
+    /// row as it was (review 2 of the profile respawn).
+    #[tokio::test]
+    async fn a_profile_respawn_mark_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        let seq = session.state_seq.load(Ordering::SeqCst);
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "the mark rebuilds");
+        assert!(session.state_seq.load(Ordering::SeqCst) > seq, "watchers see the mark");
+        let held = hold(&hub, minute).await;
+        hub.mark_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "marked again: no change");
+        hub.settle_profile_respawn(&session);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        let held = hold(&hub, minute).await;
+        hub.settle_profile_respawn(&session);
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
+    }
+
     #[tokio::test]
     async fn a_snapshot_is_shared_until_a_change_and_never_while_the_logs_load() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
@@ -754,3 +865,7 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
     }
 }
+
+#[cfg(test)]
+#[path = "list_scale_tests.rs"]
+mod scale_tests;

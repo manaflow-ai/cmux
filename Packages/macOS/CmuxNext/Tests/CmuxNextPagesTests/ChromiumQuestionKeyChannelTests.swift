@@ -1,11 +1,12 @@
 @testable import CmuxNextPages
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import JavaScriptCore
 import Testing
 
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct ChromiumQuestionKeyChannelTests {
     private static let target = PageQuestionKeyTarget(sessionID: "session-one", permissionID: "question-one")
     private static let url = "cmux-page://cmux.agent/index.html"

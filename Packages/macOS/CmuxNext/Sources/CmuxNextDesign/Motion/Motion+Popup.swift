@@ -2,23 +2,19 @@ public import AppKit
 
 /// Open and close of a popup window that a control opened (cx-f6i7): the
 /// Chief pill's settings card, the group editors under a tab group chip or a
-/// sidebar group header, page info, the toolbar menus. The card fades in
-/// while it grows from `Motion.popupOpenScale` on the `popover` spring about
-/// the middle of its edge that faces the control, so it reads as coming out
-/// of that control; it closes faster (`popoverClose`), fading and shrinking
-/// toward the same point. A reopen during the close continues from what is
-/// on screen. Reduce Motion keeps a short crossfade at the popup's size;
-/// `ui.animationSpeed` "off" applies both at once.
+/// sidebar group header, page info, the toolbar menus. The card opens at its
+/// final size and opacity in the same frame as the click. It closes faster
+/// (`popoverClose`), fading and shrinking toward the control. A reopen during
+/// the close continues from what is on screen. Reduce Motion keeps a short
+/// crossfade at the popup's size; `ui.animationSpeed` "off" applies both at
+/// once.
 ///
-/// Both run on the content view's layer, never the window's alpha
-/// (Lawrence's recording 2026-10-20): faded through `alphaValue`, the glass
-/// card showed no fade at all, so it appeared at full size in one frame and
-/// left after a ~75 ms hold. The window is opaque while the popup is up;
-/// owners still order a fresh popup front at alpha 0, which `openPopup`
-/// lifts once the card's layer starts at opacity 0, so nothing flashes.
+/// Close motion runs on the content view's layer, never the window's alpha.
+/// The window is opaque while the popup is up, and opening ends any stale
+/// close animation before the card is shown.
 @MainActor
 public extension NSWindow {
-    /// The point the popup grows from, in its content view: the middle of
+    /// The point the popup closes toward, in its content view: the middle of
     /// the content edge nearest `anchor` (screen coordinates), at the
     /// anchor's horizontal center when that falls inside the popup.
     func popupPivot(toward anchor: CGRect) -> CGPoint {
@@ -29,12 +25,20 @@ public extension NSWindow {
         return CGPoint(x: x, y: y)
     }
 
-    /// Opens the popup at `pivot`. Popups use their shared entrance motion by
-    /// default; menu callers opt out explicitly so they appear in one frame. A
-    /// fresh animated open (the owner left the window at alpha 0) starts from
-    /// nothing; a reopen during the close continues from what is on screen.
-    func openPopup(pivot: CGPoint, entrance: Bool = true) {
-        guard entrance else { return showPopupAtOnce() }
+    /// Opens the popup at its final size and opacity in this frame. Popup and
+    /// menu entrances never animate; their close may still fade and shrink.
+    func openPopup(pivot: CGPoint) {
+        _ = pivot // Kept at the call site for the matching close pivot.
+        showPopupAtOnce()
+    }
+
+    /// Opens a page tooltip (not a menu or popover) with its fade and grow
+    /// from `pivot`: the one entrance left, for the tooltips `popupHost.ts`
+    /// sends without `instant` (every tooltip outside New Tab). Menus and
+    /// popovers open with ``openPopup(pivot:)``. A fresh open (the owner left
+    /// the window at alpha 0) starts from nothing; a reopen during the close
+    /// continues from what is on screen.
+    func openTooltipWithEntrance(pivot: CGPoint) {
         guard let content = contentView else {
             alphaValue = 1
             return
@@ -53,18 +57,18 @@ public extension NSWindow {
             Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
                        from: fresh ? NSValue(caTransform3D: Motion.scale(Motion.popupOpenScale, about: pivot, in: layer)) : nil)
         } else {
-            // Reduce Motion: at the popup's size, whatever a close left on screen.
+            // Reduce Motion: at the tooltip's size, whatever a close left on screen.
             layer.removeAnimation(forKey: "sublayerTransform")
             setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
         }
         // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
-        // perf-gate-ok: one commit per popup open (no flash of the full card); a theme change never opens one.
+        // perf-gate-ok: one commit per tooltip open (no flash of the full card); a theme change never opens one.
         CATransaction.flush()
         alphaValue = 1
     }
 
     /// Shows the popup's card at its size and full opacity in this frame, ending any open or close
-    /// on screen: the open with no entrance (a page that asks for none, the New Tab; or no motion).
+    /// on screen, including a reopen during a close.
     func showPopupAtOnce() {
         if let content = contentView {
             content.wantsLayer = true
@@ -148,7 +152,7 @@ public final class PopupFade {
         window.orderFront(nil)
         // The icon picker is a menu-like control: the instant-menu rule applies
         // even though PopupFade also services animated card panels.
-        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor), entrance: false) }
+        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor)) }
     }
 
     /// Fades `window` out toward `anchor`, then takes it off its window.

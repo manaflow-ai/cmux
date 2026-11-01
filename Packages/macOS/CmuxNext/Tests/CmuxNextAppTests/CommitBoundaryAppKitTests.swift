@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextSignposts
+import CmuxNextTestSupport
 import Testing
 
 /// `action.commit` ends at ``CommitBoundary``: right only while every display, layout and commit
@@ -8,7 +9,7 @@ import Testing
 /// only); this one boots `NSApplication`, shows a window and dirties its layout and display, so
 /// AppKit's own observers (its display cycle) are on the main run loop too, on whichever macOS
 /// runs it. The running app reports the same audit through `debug.commit_boundary`.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct CommitBoundaryAppKitTests {
     @Test func appKitAndCoreAnimationObserversRunBeforeTheBoundary() throws {
         _ = NSApplication.shared

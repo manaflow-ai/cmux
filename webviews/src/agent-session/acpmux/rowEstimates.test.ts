@@ -12,7 +12,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows } from "./model";
+import { hasReplyActions, layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -256,7 +256,9 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its one 26px line in 2px margins and the 8px message gap, however long", () => {
+// Every one-line row takes a one-call tool run's frame: 2px over the 22px tool line, the 4px run gap
+// under it (model.ts LINE_ROW, conversation.css `.acpmux-row--line`).
+test("another agent's message is one 22px tool line in the one-line rows' frame, however long", () => {
   const row = (id: string, text: string) => ({
     id,
     version: 1,
@@ -266,15 +268,31 @@ test("another agent's message is its one 26px line in 2px margins and the 8px me
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
   const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
-  expect(short).toBe(2 + 26 + 2 + 8);
+  expect(short).toBe(2 + 22 + 4);
   expect(long).toBe(short);
 });
 
-test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
+test("a message this agent sent another one is one 22px tool line in the one-line rows' frame", () => {
+  const send = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "send",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "gcp-a-lane", message: "Rebase, then land." }),
+    },
+  };
+  const [height] = heightsOf([{ id: "s", version: 1, at: 0, kind: "activity", items: [send] }]);
+  expect(height).toBe(2 + 22 + 4);
+});
+
+test("a task notice is a tool row's line in the one-line rows' frame", () => {
   const [height] = heightsOf([
     { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
   ]);
-  expect(height).toBe(2 + 26 + 8);
+  expect(height).toBe(2 + 22 + 4);
 });
 
 // A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
@@ -363,4 +381,107 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   const placed = placeRows(estimate, (index) => (index === 0 ? 0 : undefined));
   expect(placed.heights[0]).toBe(0);
   expect(placed.tops[1]).toBe(0);
+});
+
+test("a status row between two replies is estimated in the middle of the gap", () => {
+  // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
+  // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
+  // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
+  // run's 2px top margin (conversation.css --cv-status-gap).
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const before = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [reply, step] = heightsOf([before, run, after]);
+  const [alone] = heightsOf([before]);
+  const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
+  if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
+    expect(step).toBe(2 + 22 + 30);
+    // The same reply over a prompt: its own action row, then the message gap.
+    expect(reply).toBe(overPrompt! - 8);
+  } else {
+    // No reply draws its own action row (a turn's copy lives in its footer): the plain 12px each
+    // side, the reply's 8px message gap plus 2 over the run's 2px top margin.
+    expect(step).toBe(2 + 22 + 12);
+    expect(reply).toBe(overPrompt! + 2);
+  }
+  expect(alone).toBeGreaterThan(0);
+});
+
+test("a status row under a prompt keeps its own spacing over the reply", () => {
+  // Only a status row between two replies takes the centred room: a turn that starts with a tool
+  // (prompt, tool, reply) would otherwise get 30px under the tool and its prompt gap over it.
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "List it." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [, step] = heightsOf([prompt, run, after]);
+  const [, alone] = heightsOf([prompt, run]);
+  expect(step).toBe(alone);
+  expect(statusEdge(run as AcpmuxRow, after as AcpmuxRow, prompt as AcpmuxRow)).toBeUndefined();
+  // Between two replies the room under the run is read from the reply above, as the room over it
+  // is, so the two match whatever the reply below is (a folded copy, a settled one).
+  const reply = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." } as AcpmuxRow;
+  const over = statusEdge(reply, run as AcpmuxRow, undefined);
+  const under = over === "before-status" ? "before-reply" : "before-reply-plain";
+  for (const below of [after, { ...after, settled: true }, { ...after, settled: true, foldedReply: true }])
+    expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
+});
+
+// Leo, 2026-10-25: "when I'm seeing all of these agent messages back and forth, that's when it
+// sort of, like, gets confused ... trying to scroll down slowly as you're streaming in text output".
+// A folded run (the Codex-style runs, on by default) keeps every message it sent another agent in
+// sight (TurnRows.tsx `runStretches`): the work around each send folds under its own summary line,
+// and each send is its own 22px tool row (SentMessageLine.tsx; its Copy slot stays inside the line,
+// conversation.css `.cv-sent .cv-sent-actions`). The run is estimated as those lines in its 2px top
+// margin and 4px run gap, the heights Chromium draws for the same rows. Before, any folded run of
+// two or more calls was estimated as one 28px summary line, so a run with sends grew by 22px a line
+// when it mounted, and a sub-session `send_message` was estimated at 40px.
+test("a folded run with messages to other agents is estimated as the lines it draws", () => {
+  const shell = (id: string, command: string) => ({
+    kind: "tool",
+    text: "Bash",
+    tool: { id, title: "Bash", kind: "execute", status: "completed", command, output: "queued" },
+  });
+  const read = { kind: "tool", text: "Read", tool: { id: "r", title: "Read a", kind: "read", status: "completed" } };
+  const sendMessage = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__send_message",
+    tool: {
+      id: "m",
+      title: "mcp__cmux-subsessions__send_message",
+      status: "completed",
+      inputSummary: JSON.stringify({ sessionId: "child-1", text: "Run the tests." }),
+      output: JSON.stringify({ delivery: "queued" }),
+    },
+  };
+  const send = (id: string, to: string) => shell(id, `acpmux send --no-wait ${to} 'Status?'`);
+  const run = (items: unknown[]) => [
+    { id: "run", version: 1, at: 0, kind: "activity", settled: true, foldRun: true, items },
+  ];
+  const lines = (n: number) => 2 + n * 22 + 4;
+  // Plain work still folds to its one summary line.
+  expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
+  // A send between two commands: a line each.
+  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(lines(3));
+  // Two sends, as two calls or as one shell batch.
+  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(2));
+  expect(heightsOf(run([shell("a", "acpmux send --no-wait lane-a 'a'; acpmux send --no-wait lane-b 'b'")]))[0]).toBe(
+    lines(2),
+  );
+  // Work folded on each side of the sends: "Ran 2 commands", the send, the fold of the rest, the
+  // sub-session message.
+  const mixed = [shell("a", "ls"), shell("b", "cat y"), send("s", "lane-a"), shell("d", "git diff"), read, sendMessage];
+  expect(heightsOf(run(mixed))[0]).toBe(lines(4));
+  // A sub-session message alone is one tool row, folded or not.
+  expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
+  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
 });

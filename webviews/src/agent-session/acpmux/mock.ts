@@ -483,7 +483,7 @@ export class MockAcpmuxSocket {
       case "_acpmux/harness/health": {
         const fixture = globalThis as MockAuthGlobals;
         const native = fixture.cmuxAcpmuxMockNative?.["harness.health"] as
-          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "unknown"; login?: string } }
+          | { health?: { id?: string; auth?: "signedIn" | "signedOut" | "expired" | "unknown"; login?: string } }
           | undefined;
         const fromNative = native?.health;
         const overrides = fixture.cmuxAcpmuxMockHarnessHealth;
@@ -558,6 +558,12 @@ export class MockAcpmuxSocket {
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
       case "session/new": {
+        // A gallery state can stand for an agent slow to start, or one that fails to (`mockStart`).
+        const start = (
+          globalThis as { cmuxAcpmuxMockStart?: { delayMs?: number; error?: string; startMode?: boolean } }
+        ).cmuxAcpmuxMockStart;
+        if (start?.delayMs) await this.delay(start.delayMs);
+        if (start?.error) throw Object.assign(new Error(start.error), { code: -32603 });
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
         const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);
@@ -589,7 +595,16 @@ export class MockAcpmuxSocket {
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
-        const text = String(params.prompt?.[0]?.text ?? "");
+        // Its words: every text block but a pasted block's (attachments.ts promptBlocks marks those,
+        // and the prompt's text never carries them), in order. Attachments the composer placed in
+        // the text split the words into blocks around them, so words after an attachment stay.
+        const text = (Array.isArray(params.prompt) ? params.prompt : [])
+          .filter(
+            (block: Record<string, any>) =>
+              block?.type === "text" && typeof block.text === "string" && block._meta?.cmux?.pasted !== true,
+          )
+          .map((block: Record<string, string>) => block.text)
+          .join("");
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.
         const images = (Array.isArray(params.prompt) ? params.prompt : [])
@@ -680,6 +695,19 @@ export class MockAcpmuxSocket {
         return mockGitCommit(target, params);
       case "git.push":
         return mockGitPush(target, params);
+      // A gallery state can stand for acpmux naming the mode a new chat starts in, the one its
+      // session then reports (`mockStart.startMode`); without it the mock names none.
+      case "_acpmux/start_mode": {
+        const start = (globalThis as { cmuxAcpmuxMockStart?: { startMode?: boolean } }).cmuxAcpmuxMockStart;
+        if (!start?.startMode) return {};
+        const harness = params.harness === "codex" ? "codex" : "claude";
+        const modes = newSessionSummary("", "", 0, harness).modes as {
+          availableModes: { id: string; name: string }[];
+          currentModeId: string;
+        };
+        const mode = modes.availableModes.find((choice) => choice.id === modes.currentModeId)!;
+        return { harness, modeId: mode.id, name: mode.name };
+      }
       default:
         return {};
     }

@@ -34,13 +34,30 @@ public struct WorkspaceClose {
 
     /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not start, kept out of Recently
     /// Closed (`close-reason-v1`). `ifEmpty`: only while it has no tab (`close-workspace-if-empty-v1`; else `workspace_not_empty`).
+    /// A workspace the daemon no longer has counts as closed (`isAlreadyClosed`).
     public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
                       reason: CloseReason? = nil, ifEmpty: Bool = false) async throws {
-        if await connection.supportsBatchClose {
-            _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+        do {
+            if await connection.supportsBatchClose {
+                _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+                return
+            }
+            for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }
+            _ = try await connection.closeWorkspace(key, ifEmpty: ifEmpty)
+        } catch where isAlreadyClosed(error) {
             return
         }
-        for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }
-        _ = try await connection.closeWorkspace(key, ifEmpty: ifEmpty)
+    }
+
+    /// Whether `error` is the daemon saying the workspace is already gone: closed before this request came
+    /// ("unknown workspace ..."), or by another close that committed while this one was on its way ("close
+    /// target disappeared"). A close asks for the workspace to be gone, so either is a close that went through,
+    /// never a refusal (Leo 2026-10-31, a sidebar close of 8 rows showed "The workspace could not be closed."
+    /// above "Closed 8 workspaces": "plus the dumb shit when it apparently races a delete"). A refusal (for
+    /// example `workspace_not_empty`) has a code or another message and still fails.
+    public static func isAlreadyClosed(_ error: any Error) -> Bool {
+        guard case let DaemonError.command(cmd, message, code, _, _) = error, cmd == CloseWorkspaceRequest.command, code == nil
+        else { return false }
+        return message.hasPrefix("unknown workspace") || message == "close target disappeared"
     }
 }

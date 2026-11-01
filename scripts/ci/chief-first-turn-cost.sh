@@ -147,11 +147,33 @@ if [[ "$real" == 1 ]]; then
   base_url="$count_url"
   api_key="sk-ant-placeholder-the-router-signs"
 else
-  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py proxy "$work/cap" > "$work/proxy.log" 2>&1 &
+  # The stand-in prints its port once it listens. Wait for that line or for the
+  # stand-in to end (its stdout closes), not a fixed 10 s: a slow start on one host
+  # (cx-rkzfny: a 35 s reverse DNS lookup) failed with nothing to show. 300 s bounds a hung start.
+  mkfifo "$work/proxy.out"
+  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py proxy "$work/cap" > "$work/proxy.out" 2> "$work/proxy.log" &
   proxy_pid=$!
-  for _ in $(seq 1 100); do [[ -s "$work/cap/port" ]] && break; sleep 0.1; done
-  [[ -s "$work/cap/port" ]] || { echo "FIRST-TURN-COST the stand-in did not start" >&2; cat "$work/proxy.log" >&2; exit 1; }
-  base_url="http://127.0.0.1:$(cat "$work/cap/port")"
+  # Held open until the step ends, so later output from the stand-in never meets a closed pipe.
+  exec 7< "$work/proxy.out"
+  proxy_port=""
+  proxy_started=$SECONDS
+  IFS= read -r -t 300 proxy_port <&7 || true
+  if [[ ! "$proxy_port" =~ ^[0-9]+$ ]]; then
+    # The read timed out, or the stand-in closed its stdout as it ended. Steps run under
+    # bash 3.2, whose read exits 1 in both cases, so the time it took says which.
+    if (( SECONDS - proxy_started >= 299 )); then
+      proxy_end="still running after $((SECONDS - proxy_started)) s"
+    else
+      proxy_status=0
+      wait "$proxy_pid" || proxy_status=$?
+      proxy_end="exited with status $proxy_status after $((SECONDS - proxy_started)) s"
+    fi
+    echo "FIRST-TURN-COST the stand-in did not start: $proxy_end; python3 is $(command -v python3 || echo missing) ($(python3 -V 2>&1 || true))" >&2
+    cat "$work/proxy.log" >&2
+    exit 1
+  fi
+  echo "FIRST-TURN-COST-PROXY port $proxy_port after $((SECONDS - proxy_started)) s"
+  base_url="http://127.0.0.1:$proxy_port"
   api_key="sk-ant-placeholder-no-model-runs"
 fi
 
@@ -159,7 +181,7 @@ status=0
 HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario smoke --only "$only" \
   --out "$work/run" --bins "$work/bin" --turn-timeout 600 \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=$api_key" \
-  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 &
+  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 7<&- &
 driver_pid=$!
 wait "$driver_pid" || status=$?
 driver_pid=""

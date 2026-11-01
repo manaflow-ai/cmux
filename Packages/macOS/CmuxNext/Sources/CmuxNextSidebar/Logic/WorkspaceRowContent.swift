@@ -14,6 +14,11 @@ public import Foundation
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
+    /// The workspace's color as the row's leading rail or full fill (`workspaceColors.indicatorStyle`,
+    /// #25653); nil for the dot style, an uncolored workspace or `sidebar.showColors` off.
+    public var rowColor: GroupColor?
+    /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
+    public var colorStyle: WorkspaceColorIndicatorStyle = .dot
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.

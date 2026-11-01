@@ -97,6 +97,12 @@ const GROUPS: &[Group] = &[
                 "Text that hands the machine to someone else",
                 "マシンを他の人に引き継ぐためのテキスト",
             ),
+            verb(
+                "share-machine",
+                "{target} [--teammate USER_ID] [--revoke]",
+                "Share a team machine's chats with a teammate (no --teammate lists them)",
+                "チームのマシンのチャットをチームメイトと共有（--teammate なしで一覧表示）",
+            ),
         ],
     },
     Group {
@@ -317,8 +323,32 @@ const GROUPS: &[Group] = &[
                 "Delete a firewall rule",
                 "ファイアウォールルールを削除",
             ),
+            verb(
+                "set-network-access",
+                "{target} --access full|trusted|none",
+                "Set a machine's internet access",
+                "マシンのインターネットアクセスを設定",
+            ),
             verb("domain-list", "", "List domains", "ドメインを一覧表示"),
             verb("publication-list", "", "List publications", "公開設定を一覧表示"),
+            verb(
+                "provision-api",
+                "{target} --port PORT [--name NAME]",
+                "Publish a machine port as an API and create a key",
+                "マシンのポートを API として公開し、キーを作成",
+            ),
+            verb(
+                "api-key-list",
+                "--path PUBLICATION",
+                "List a publication's API keys",
+                "公開設定の API キーを一覧表示",
+            ),
+            verb(
+                "api-key-revoke",
+                "--path PUBLICATION --key KEY_ID --confirm",
+                "Revoke a publication's API key",
+                "公開設定の API キーを失効",
+            ),
         ],
     },
     Group {
@@ -364,7 +394,8 @@ USAGE
 These actions run through the cmux app, signed in (`cmux cloud sign-in`).
 An action on one machine needs --target machine:MACHINE_ID, even with one
 machine: `cmux cloud list-machines` prints each machine's target. Without the
-app (CI, a headless agent), `cmux vm --help` talks to the cmux VM API directly.
+app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
+directly.
 
 QUICK START
   cmux cloud list-machines --json
@@ -383,7 +414,7 @@ const INTRO_JA: &str = "\
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
 特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
-（CI、画面のないエージェント）は、`cmux vm --help` で cmux VM API を直接使えます。
+（CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
 
 クイックスタート
   cmux cloud list-machines --json
@@ -455,6 +486,11 @@ pub(super) fn overview(japanese: bool) -> String {
             text.push_str(&format!("  {:width$}  {description}{marker}\n", verb.name));
         }
     }
+    text.push_str(if japanese {
+        "\nチャットのリポジトリ\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    } else {
+        "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     text

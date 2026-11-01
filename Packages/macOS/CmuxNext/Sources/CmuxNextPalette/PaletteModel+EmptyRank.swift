@@ -116,10 +116,7 @@ extension PaletteModel {
             // rather than wait on a rank no one delivers.
             let sections = ranked?.resolve(on: state) ?? Self.unranked(state)
             self.deliver(Self.leading(queryItems?(query), sections), to: state, generation: generation)
-            if self.pendingClose {
-                self.pendingClose = false
-                self.handle(.closeItem)
-            }
+            self.closeIfPending()
         }
     }
 

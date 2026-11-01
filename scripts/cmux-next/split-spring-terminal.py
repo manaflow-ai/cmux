@@ -54,6 +54,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
+# staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
+if "--suite=premain" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "premain-launch.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=premain"])
 # `--suite=command-pan`: Command + scroll pans the columns strip, light and STRESS (scripts/cmux-next/bench-command-pan.py).
 if "--suite=command-pan" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")

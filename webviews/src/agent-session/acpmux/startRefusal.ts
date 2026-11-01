@@ -18,3 +18,13 @@ export function startRefusalAction(code: string | undefined): StartRefusalAction
       return undefined;
   }
 }
+
+/// Where a card's action goes. Choose Folder on a chat on another machine opens that machine's
+/// folder menu (the composer's Location menu, listed from its `project.list`), never this Mac's open
+/// panel, which the host refuses there (cmux#29213).
+export type StartRefusalRoute = "newCloudMachine" | "machineFolderMenu" | "folderPanel";
+
+export function startRefusalRoute(action: StartRefusalAction, remoteChat: boolean): StartRefusalRoute {
+  if (action === "newCloudMachine") return "newCloudMachine";
+  return remoteChat ? "machineFolderMenu" : "folderPanel";
+}

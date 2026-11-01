@@ -1,7 +1,7 @@
 // A font family read from a custom property that no sheet defines is invalid at computed-value
 // time: the declaration falls back to the inherited face (and a `font` shorthand also drops its
 // size). The agent pane's mono text (permission commands, preview addresses, replay clock,
-// Inspector) read `--font-mono`, which only Tailwind's theme layer happened to emit because a
+// Session Info) read `--font-mono`, which only Tailwind's theme layer happened to emit because a
 // source file named it. Every variable a page's font reads must be defined in our own sheets or
 // set by the host or page script, or carry a fallback.
 import { expect, test } from "bun:test";

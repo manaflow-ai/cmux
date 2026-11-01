@@ -2,12 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// With the sidebar hidden, the pointer anywhere over the top-left corner, the traffic lights and
 /// the strip's first tab where the open band would be, opens the 0-wide toolbar band (cx-fi0i,
 /// Lawrence 2026-10-09). A region taken from the collapsed band's frame was the traffic lights
 /// alone, so the pointer over the first tab did nothing.
+@Suite(.closesItsWindows)
 @MainActor struct CornerHoverBandTests {
     /// A window root in a titled, full-size-content window, as the app shows it, sidebar hidden.
     func collapsedRoot() -> (NSWindow, WindowRootView) {

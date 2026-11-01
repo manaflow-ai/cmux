@@ -15,7 +15,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
+import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -58,23 +59,23 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
       ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
     );
-    const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+    const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
     return toggle;
   };
-  const closeInspector = async (page: Page) => {
+  const closeSessionInfo = async (page: Page) => {
     const toggle = await showToggle(page);
-    if ((await page.locator("aside.acpmux-chat-inspector").count()) > 0) {
+    if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
       await toggle.click({ force: true });
-      await page.locator("aside.acpmux-chat-inspector").waitFor({ state: "detached", timeout: 5_000 });
+      await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
     }
     await settle(page);
   };
-  const openInspector = async (page: Page, push: boolean) => {
-    if (push) await inspectorPushAlways(page);
+  const openSessionInfo = async (page: Page, push: boolean) => {
+    if (push) await sessionInfoPushAlways(page);
     const toggle = await showToggle(page);
-    if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click({ force: true });
-    await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click({ force: true });
+    await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
     await settle(page);
   };
   /// Settings > Agent Chat > Prompt Rail Side, as the rail's right-click menu writes it (railSide.ts).
@@ -113,11 +114,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          await closeInspector(page);
+          await closeSessionInfo(page);
           const closed = await rail(page);
           if (process.env.RAIL_CAPTURE_DIR && [1600, 1084, 800, 760].includes(width))
             await page.screenshot({ path: `${process.env.RAIL_CAPTURE_DIR}/${width}-closed.png` });
-          await openInspector(page, false);
+          await openSessionInfo(page, false);
           const open = await rail(page);
           if (process.env.RAIL_CAPTURE_DIR && [1600, 1084, 800, 760].includes(width))
             await page.screenshot({ path: `${process.env.RAIL_CAPTURE_DIR}/${width}-open.png` });
@@ -126,12 +127,12 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           }
           // Push always narrows the chat to the pane less the panel; the rail stays pinned to the pane
           // edge and uses its own spacing-token inset.
-          await closeInspector(page);
-          await openInspector(page, true);
+          await closeSessionInfo(page);
+          await openSessionInfo(page, true);
           const pushed = await rail(page);
-          // The rail is pinned to the pane edge. Its inset grows from space-2 to space-4 with room;
-          // the chat column may therefore overlap it at narrow widths without hiding the rail.
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          // The rail is pinned to the pane edge at its spacing-token inset (model.ts railPlacement: the
+          // widest step whenever the gutter has room for it), whatever the chat column does.
+          const railInset = railPlacement(width).left;
           for (const state of [closed, open, pushed]) {
             expect(state).toMatchObject({ shown: true, insidePane: true });
             expect(state.occluded).toBe(state.distance! < -0.5);
@@ -150,11 +151,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          await closeInspector(page);
+          await closeSessionInfo(page);
           await page.locator(".acpmux-minimap__tick").first().focus();
           const card = page.locator(".acpmux-minimap__card");
           await card.waitFor({ state: "visible" });
-          // Keep this same preview open while the Inspector changes independently of pointer/focus.
+          // Keep this same preview open while Session Info changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
           await page.evaluate(() => {
             const samples: { rail: number; card: number | null }[] = [];
@@ -167,10 +168,10 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             Object.assign(window, { railCardFrames: { samples, stop } });
           });
           const toggle = () =>
-            page.locator("button.acpmux-chat-inspector-toggle").evaluate((node) => (node as HTMLElement).click());
+            page.locator("button.acpmux-session-info-toggle").evaluate((node) => (node as HTMLElement).click());
           for (const open of [true, false, true]) {
             await toggle();
-            await page.locator("aside.acpmux-chat-inspector").waitFor({ state: open ? "visible" : "detached" });
+            await page.locator("aside.acpmux-session-info").waitFor({ state: open ? "visible" : "detached" });
             await settle(page);
             await page.evaluate(() => window.cmuxPaintFrame());
           }
@@ -205,8 +206,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     if (!current) return;
     const page = await pane!.open({ width: 1200, height: 700 });
     try {
-      await closeInspector(page);
-      await openInspector(page, false);
+      await closeSessionInfo(page);
+      await openSessionInfo(page, false);
       await page.evaluate(() => {
         const samples: { railLeft: number; railRight: number; columnLeft: number; cardLeft: number | null }[] = [];
         const stop = window.cmuxAfterPaint(() => {
@@ -236,7 +237,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         return trace.samples as { railLeft: number; railRight: number; columnLeft: number; cardLeft: number | null }[];
       });
       if (process.env.RAIL_RESIZE_SCREENSHOT) await page.screenshot({ path: process.env.RAIL_RESIZE_SCREENSHOT });
-      const paneInset = Math.min(16, Math.max(8, Math.round(1600 / 100)));
+      const paneInset = railPlacement(1600).left;
       expect(samples.every((sample) => Math.abs(sample.railLeft - paneInset) <= 1)).toBe(true);
       expect(
         samples.every((sample) => sample.cardLeft === null || Math.abs(sample.cardLeft - sample.railRight) <= 1),
@@ -251,7 +252,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     if (!current) return;
     const page = await pane!.open({ width: 1600, height: 700 });
     try {
-      await closeInspector(page);
+      await closeSessionInfo(page);
       await page.locator(".acpmux-minimap__tick").first().hover();
       await page.locator(".acpmux-minimap__card").waitFor({ state: "visible" });
       await page.mouse.move(1000, 500);
@@ -270,7 +271,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       if (!current) return;
       const page = await pane!.open({ width, height: 700 });
       try {
-        await closeInspector(page);
+        await closeSessionInfo(page);
         const nav = page.locator(".acpmux-minimap__rail:not(.acpmux-scrollmap)");
         const strip = page.locator(".acpmux-minimap__strip");
         await nav.waitFor();
@@ -319,12 +320,12 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
-          await closeInspector(page);
+          await closeSessionInfo(page);
           await railSide(page, "right");
           const nav = page.locator('.acpmux-minimap__rail[data-side="right"]:not(.acpmux-scrollmap)');
           await nav.waitFor({ state: "attached" });
           await settle(page);
-          const railInset = Math.min(16, Math.max(8, Math.round(width / 100)));
+          const railInset = railPlacement(width).left;
           const placed = await page.evaluate(() => {
             const scroller = document.querySelector(".acpmux-scroll")!;
             const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();

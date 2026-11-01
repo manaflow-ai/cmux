@@ -151,12 +151,15 @@ public final class HomeNativeTranscriptView: NSView {
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
         conversationID = conversation
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once. Before the
+        // transcript: the open brings back a kept transcript, so the transcript's
+        // first pass installs it at the newest message, as it does a chat another
+        // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
+        binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
-        // One binding per shown conversation; it opens the conversation on
-        // the store now and `stop()` closes exactly that open, once.
-        binding = HomeStoreBinding(store: store, conversation: conversation)
         attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true

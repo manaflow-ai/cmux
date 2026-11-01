@@ -42,7 +42,7 @@ struct TeamSidebar: View {
                     }
                     if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("No teams yet. Create one to share Macs and workspaces.")
+                            Text("No teams. Create one to share Macs and workspaces.")
                                 .font(theme.type.rowSubtitle)
                                 .foregroundStyle(theme.colors.label2)
                             PrimaryCapsule("Create team", systemImage: "plus", size: .inline) { creatingTeam = true }

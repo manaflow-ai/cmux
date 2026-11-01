@@ -13,7 +13,10 @@ import CmuxNextCompat
 /// never a periodic wakeup. A daemon that is relaunched and dies on connect
 /// makes a new socket each time; after `socketRetries` such failed attempts
 /// (until a connection stays healthy) a socket change no longer wakes the
-/// loop, only an explicit event does, one attempt each.
+/// loop, only an explicit event does, one attempt each. The one exception is a
+/// loop that starts its own peer (``keepsTrying``, the app's local daemon): it
+/// keeps one attempt per backoff cap, because nothing sends an event when the
+/// cause of a failed start goes away (a full disk, restore fuzz h2).
 public struct RetryPolicy: Sendable {
     public var backoff: Backoff
     /// Failures after which retries wait for an event only.
@@ -21,17 +24,28 @@ public struct RetryPolicy: Sendable {
     /// Failed attempts woken by a socket change after which socket changes
     /// stop waking the loop (a crash loop, cx-6so.7).
     public var socketRetries: Int
+    /// Past `timedRetries` the loop keeps one timed attempt per `backoff.maximum` instead of
+    /// waiting for an event only, and an explicit event starts the spacing over. For a loop that
+    /// itself starts its peer (the app's local daemon, through `server ensure`): what made the
+    /// start fail can end with no event at all (a full disk that has space again, restore fuzz h2).
+    public var keepsTrying: Bool
 
-    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3) {
+    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
         self.socketRetries = socketRetries
+        self.keepsTrying = keepsTrying
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
     public static let reconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10)
     /// First connect to a daemon: 250 ms growing to 30 s, 10 timed attempts.
     public static let firstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10)
+    /// The app's own local daemon, which the reconnect starts (`server ensure`): as ``reconnect``,
+    /// then one attempt every 30 s for as long as it fails (``keepsTrying``).
+    public static let localReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
+    /// The app's first connect to its local daemon: as ``firstConnect``, then one attempt every 30 s.
+    public static let localFirstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
     /// A failing store snapshot while connected: 100 ms growing to 10 s, 8 attempts.
     public static let resync = RetryPolicy(initial: .milliseconds(100), maximum: .seconds(10), timedRetries: 8)
 }
@@ -59,8 +73,12 @@ public struct RetryPacer: Sendable {
         backoff = policy.backoff
     }
 
-    /// The timed-retry budget is spent: wait for an event only.
-    public var isExhausted: Bool { failures >= policy.timedRetries }
+    /// The timed-retry budget is spent: wait for an event only (never for a ``RetryPolicy/keepsTrying`` loop).
+    public var isExhausted: Bool { failures >= policy.timedRetries && !policy.keepsTrying }
+
+    /// The next wait arms no timer: the budget is spent and the last attempt was not a busy
+    /// refusal (``refusedBusy()``), whose daemon is alive and keeps a timed retry.
+    public var waitsForEventOnly: Bool { isExhausted && !busyRefusal }
 
     /// A socket change may wake the next wait: false in a crash loop.
     public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
@@ -85,7 +103,8 @@ public struct RetryPacer: Sendable {
         failures += 1
         if wokeBySocket { socketFailures += 1 }
         wokeBySocket = false
-        return failures > policy.timedRetries ? nil : backoff.next()
+        // Past the budget a loop that keeps trying stays at the backoff's cap (`Backoff.next` caps it).
+        return failures > policy.timedRetries && !policy.keepsTrying ? nil : backoff.next()
     }
 
     /// Notes a failure while the socket is missing: it spends no timed
@@ -130,9 +149,15 @@ public struct RetryPacer: Sendable {
         busyRefusal = true
     }
 
-    /// Notes what woke the wait before the next attempt.
+    /// Notes what woke the wait before the next attempt. An explicit event (app activation, Retry
+    /// Now, Restart cmux-tui) starts a ``RetryPolicy/keepsTrying`` loop's spacing over; the
+    /// crash-loop count stays, so a daemon that dies on every connect still stops socket wakes.
     public mutating func woke(_ cause: RetryWake.Cause) {
         wokeBySocket = cause == .socket
+        if cause == .event, policy.keepsTrying {
+            failures = 0
+            backoff.reset()
+        }
     }
 }
 

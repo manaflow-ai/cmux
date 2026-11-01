@@ -18,6 +18,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
         stored_only: bool,
+        notify: bool,
     ) -> (EventRecord, bool) {
         let keep = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).keep(
             dir,
@@ -28,8 +29,17 @@ impl Hub {
         );
         self.store_late(session, keep.before);
         let kept = keep.stored.map_or(Kept::Sent, Kept::Stub);
-        let (record, stored) =
-            self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept);
+        let (record, stored) = self.append_record_locked(
+            session,
+            dir,
+            kind,
+            msg,
+            host_seq,
+            at,
+            stored_only,
+            kept,
+            notify,
+        );
         if stored {
             let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
             deferral.stored(&record.dir, &record.kind, &record.msg);
@@ -42,8 +52,17 @@ impl Hub {
     fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>) -> bool {
         let mut late = late.into_iter();
         while let Some((kind, msg)) = late.next() {
-            let (record, stored) =
-                self.append_record_locked(session, "in", kind, msg, None, None, true, Kept::Sent);
+            let (record, stored) = self.append_record_locked(
+                session,
+                "in",
+                kind,
+                msg,
+                None,
+                None,
+                true,
+                Kept::Sent,
+                true,
+            );
             if !stored {
                 let mut refused = vec![(kind, record.msg)];
                 refused.extend(late);

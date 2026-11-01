@@ -178,6 +178,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
+        // Cloud whole-machine turn fencing. These methods are served by the
+        // daemon's request dispatcher and intentionally use untyped envelopes
+        // while the owner capability payload remains private to Cloud clients.
+        untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
+        untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
@@ -332,6 +337,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),
@@ -365,6 +371,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_SECRET_SET, Request),
         untyped(method::MUX_HARNESS_ICON, Request),
         untyped(method::MUX_HARNESS_HEALTH, Request),
+        untyped(method::MUX_AGENT_LOGIN_START, Request),
+        untyped(method::MUX_AGENT_LOGIN_FINISH, Request),
+        untyped(method::MUX_AGENT_LOGIN_CANCEL, Request),
+        untyped(method::MUX_AGENT_LOGIN_API_KEY, Request),
         request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
         request::<inventory::InventoryRefreshParams, Value>(method::MUX_HARNESS_INVENTORY_REFRESH),
         request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PLAN),
@@ -398,6 +408,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),

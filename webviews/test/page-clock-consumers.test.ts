@@ -4,6 +4,7 @@ import path from "node:path";
 
 const files = [
   "src/agent-session/acpmux/clock.ts",
+  "src/agent-session/acpmux/conversation/ActivityLine.tsx",
   "src/agent-session/acpmux/conversation/WorkingFor.tsx",
   "src/agent-session/acpmux/subagents/SubagentGroup.tsx",
 ];

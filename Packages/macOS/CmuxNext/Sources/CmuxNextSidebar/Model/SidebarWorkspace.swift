@@ -86,6 +86,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
+    /// The workspace's own color (workspace-metadata-v1 `color`), whatever icon it shows: the row's
+    /// leading rail or fill under `workspaceColors.indicatorStyle` (#25653).
+    public var color: GroupColor?
     /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
     /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
@@ -184,6 +187,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         rowKind: WorkspaceRowKind? = nil,
         agentWorking: Bool = false,
         icon: WorkspaceIcon? = nil,
+        color: GroupColor? = nil,
         kind: SidebarWorkspaceKind = .terminal,
         kindBrand: String? = nil,
         unread: UnreadState = .none,
@@ -213,6 +217,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.rowKind = rowKind ?? kind.rowKind
         self.agentWorking = agentWorking
         self.icon = icon
+        self.color = color
         self.kind = kind
         self.kindBrand = kindBrand
         self.unread = unread

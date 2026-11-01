@@ -1220,6 +1220,39 @@
             }
           }
         },
+        "hourly_rate_usd": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "running_since": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -1377,21 +1410,24 @@
               "vm_hours_used": {
                 "required": true,
                 "type": {
-                  "kind": "union",
-                  "variants": [
-                    {
-                      "kind": "primitive",
-                      "name": "float64"
-                    },
-                    {
-                      "kind": "enum",
-                      "values": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
                 }
               },
               "period_end": {
@@ -5444,6 +5480,13 @@
           "type": {
             "kind": "primitive",
             "name": "int64"
+          }
+        },
+        "install_grant": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GrantId"
           }
         }
       }
@@ -18249,6 +18292,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -20336,6 +20413,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -20772,6 +20883,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -21120,6 +21265,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -21719,6 +21898,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -22058,6 +22271,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -22414,6 +22661,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -22806,6 +23087,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -23154,6 +23469,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -23493,6 +23842,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -23905,15 +24288,22 @@
                   "vm_hours_used": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
                       },
                       {
-                        "type": "string",
-                        "enum": [
-                          "Infinity",
-                          "-Infinity",
-                          "NaN"
-                        ]
+                        "type": "null"
                       }
                     ]
                   },
@@ -24940,6 +25330,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -25412,6 +25836,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -43280,6 +43738,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -43302,6 +43765,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -43614,6 +44080,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -43636,6 +44107,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -55813,6 +56287,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -55835,6 +56314,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -63015,6 +63497,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -63037,6 +63524,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -64051,6 +64541,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -64073,6 +64568,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [

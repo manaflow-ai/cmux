@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 import WebKit
@@ -12,7 +13,7 @@ import WebKit
 /// Prints `TAB-SWITCH-CYCLE n=<count> p50 <ms> p90 <ms> max <ms> moves <n>`. The check is behavioral: a
 /// warm switch moves no page out of the window, at every tab count (a pane once kept only 8 hidden, so
 /// 10 or 30 tabs moved a view on every switch). Timing is printed, not gated (shared fleet hosts).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .closesItsWindows)
 struct TabSwitchCycleBench {
     final class Loaded: NSObject, WKNavigationDelegate {
         var continuation: CheckedContinuation<Void, Never>?

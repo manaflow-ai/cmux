@@ -19,11 +19,18 @@ name: cmux-next fast gates
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
 #
-# Three jobs, so pull request code never runs next to a write token: `resolve`
-# names the head and base without running any checked-out code (a dispatch
-# refuses a fork head or another base before anything is fetched), `gates` runs
-# the PR's code with contents: read only, and `post` writes the status from
-# resolve's outputs and the gates job's result, never from anything gates wrote.
+# A dispatch also reruns the Rust panic ratchet (panic-ratchet) when the tip
+# lowered a rust-panic-baseline.json row of a crate the PR changes since its
+# merge base: cmux-tui-spec.yml's clippy job judged the PR against the old row,
+# so on 2026-10-30 #28182 and #28369 landed hits over rows lowered after their
+# checks ran. It lints those packages on the tip and on the merge and fails only
+# on counts over the tip's row that the tip does not already reach.
+#
+# Pull request code never runs next to a write token: `resolve` names the head
+# and base without running any checked-out code (a dispatch refuses a fork head
+# or another base before anything is fetched), `fast-gates` and `panic-ratchet`
+# run the PR's code with contents: read only, and `post` writes the status from
+# resolve's outputs and those jobs' results, never from anything they wrote.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -33,6 +40,11 @@ on:
       pr:
         description: Pull request number into feat-cmux-next, merged with the current tip and gated
         required: true
+        type: string
+      runner:
+        description: Fleet or bounded Blacksmith Linux label for a rerun after a stalled fleet start
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -49,7 +61,7 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -86,17 +98,50 @@ jobs:
               echo "::error::pr must be a pull request number (digits only)"
               exit 1
             fi
+            errors="$(mktemp)"
             gh_read() {
               local response status
-              if response="$(gh api "$@")"; then
+              if response="$(gh api "$@" 2>"$errors")"; then
                 printf '%s' "$response"
               else
                 status=$?
+                cat "$errors" >&2
                 return "$status"
               fi
             }
-            pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
-              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')" || exit $?
+            # One REST read of the pull request. When the repository's GITHUB_TOKEN REST budget is spent
+            # ("API rate limit exceeded for installation"), one GraphQL read, which has its own budget,
+            # answers the same fields plus the branch tip. Not a retry: no loop and no sleep, and any other
+            # failure (a 5xx, a permission refusal, a GraphQL error) still fails closed. Without it a
+            # dispatched run died here with no status, and next-autoland waited 45 minutes before asking
+            # again (2026-10-31: 13 of 34 dispatches between 22:16Z and 22:19Z, #29724's among them).
+            base=""
+            if pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')"; then
+              :
+            else
+              status=$?
+              grep -qiE 'rate limit exceeded' "$errors" || exit "$status"
+              echo "::warning title=GitHub API budget::the REST budget is spent; reading #$PR and $BRANCH over GraphQL"
+              # shellcheck disable=SC2016 # the GraphQL query's own $variables, not the shell's
+              fields="$(gh_read graphql -F owner="${GITHUB_REPOSITORY%%/*}" -F name="${GITHUB_REPOSITORY#*/}" \
+                -F number="$PR" -F branch="refs/heads/$BRANCH" -f query='
+                  query($owner: String!, $name: String!, $number: Int!, $branch: String!) {
+                    repository(owner: $owner, name: $name) {
+                      pullRequest(number: $number) {
+                        state headRefOid baseRefName headRepository { nameWithOwner }
+                      }
+                      ref(qualifiedName: $branch) { target { oid } }
+                    }
+                  }' \
+                --jq '.data.repository | [(.pullRequest.state // "" | ascii_downcase),
+                  (.pullRequest.headRepository.nameWithOwner // ""), (.pullRequest.baseRefName // ""),
+                  (.pullRequest.headRefOid // ""), (.ref.target.oid // "")] | @tsv')" || exit $?
+              IFS=$'\t' read -r state head_repo base_ref head base extra <<<"$fields"
+              # The PR's merged/closed states read as merged/closed; only open goes on, as with REST.
+              pr_fields="$(printf '%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head")"
+              [[ -n "$base" && -z "$extra" ]] || { echo "::error::#$PR returned incomplete branch metadata from GitHub"; exit 1; }
+            fi
             IFS=$'\t' read -r state head_repo base_ref head extra <<<"$pr_fields"
             if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" ]]; then
               echo "::error::#$PR returned incomplete pull request metadata from GitHub"
@@ -110,7 +155,9 @@ jobs:
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
             fi
-            base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
+            if [[ -z "$base" ]]; then
+              base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
+            fi
             post=true
           else
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
@@ -127,7 +174,9 @@ jobs:
   fast-gates:
     name: fast gates
     needs: resolve
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    outputs:
+      ratchet: ${{ steps.prepare.outputs.ratchet }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 10
     # The pull request's code runs here: no write permission of any kind.
     permissions:
@@ -213,13 +262,69 @@ jobs:
           CHECKS: ${{ steps.prepare.outputs.checks }}
         run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"
 
-  # Writes the status from resolve's outputs and the gates job's result only; it
-  # checks nothing out and reads nothing the gates job wrote.
+  # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
+  # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
+  # cmux-tui-spec.yml's clippy job's, and its cargo cache is read, never saved.
+  panic-ratchet:
+    name: panic ratchet (lowered baseline)
+    needs: [resolve, fast-gates]
+    if: ${{ !cancelled() && needs.fast-gates.outputs.ratchet == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Merge with the base
+        env:
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+        run: python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Restore the cargo build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-pr-clippy
+          save-if: false
+
+      - name: Rust panic ratchet on the merge, against the tip
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+        run: python3 .github/scripts/cmux-tui-clippy-changed.py --repo "$GITHUB_WORKSPACE" --base "$BASE" --panic-ratchet "$RUNNER_TEMP/panic-clippy.jsonl" --compare-base
+
+  # Writes the status from resolve's outputs and the gates jobs' results only; it
+  # checks nothing out and reads nothing the gates jobs wrote. A skipped
+  # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-gates]
+    needs: [resolve, fast-gates, panic-ratchet]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 5
     permissions:
       statuses: write
@@ -231,12 +336,13 @@ jobs:
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
+          RATCHET: ${{ needs.panic-ratchet.result }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
-          if [[ "$GATES" == success ]]; then state=success; fi
+          if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
           # run green with a named warning; a missing status is never treated as a pass by the
           # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.

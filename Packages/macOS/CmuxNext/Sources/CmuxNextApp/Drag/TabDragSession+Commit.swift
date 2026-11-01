@@ -201,7 +201,7 @@ extension TabDragSession {
                   let gap = WorkspaceGap(DropPosition(section: section, group: group, index: index), in: sections) else { return nil }
             return .gap(gap)
         case .intoGroup(let group)?: return .endOfGroup(group)
-        case .intoWorkspace?, .beforeTab?, nil: return nil
+        case .intoWorkspace?, nil: return nil
         }
     }
 

@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19 (u2397): a group header's + and more buttons popped in when the
 /// pointer entered the header. They fade in and out with opacity only (about 0.12 s, ease-out,
 /// no slide or scale), take a click at once while fading in, and show at once under Reduce
 /// Motion.
-@MainActor @Suite(.serialized) struct GroupHeaderHoverRevealTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupHeaderHoverRevealTests {
     /// A sidebar with one group on screen, its header offering + (an App that runs group actions).
     static func header() throws -> (GroupHeaderRowView, NSWindow) {
         let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar([.red])

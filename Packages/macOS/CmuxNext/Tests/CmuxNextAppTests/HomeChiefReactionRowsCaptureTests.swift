@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextDaemon
 import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -10,7 +11,7 @@ import UniformTypeIdentifiers
 /// The picture of the Chief Settings card's Reactions block (a416), light and dark side by side, in
 /// `.build/chief-reactions-panel.png` of the package (a fleet step returns it with `--artifact`). It checks
 /// only that both drew; the picture is for people.
-@MainActor @Suite(.serialized) struct HomeChiefReactionRowsCaptureTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeChiefReactionRowsCaptureTests {
     func render(_ appearance: NSAppearance.Name) async throws -> CGImage? {
         let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: CapturedChief(writes: continuation))
