@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
+  host name for remote, and no location label for local. It stays visible without opening details;
+  expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
+  kind of delineation between cloud/remote (local has no distinguishing) seem alright for cloud
+  related stuff"; "it's just on the hover preview". Regression: WorkspaceHoverHostIdentityTests.
+
+- 2026-11-01: Leo: "did we get the “bigger blue dot” thing in? i also think we ought to have a bigger red warn symbol".
+  #29633 made legacy unread badges, tiles and priority dots 8 pt, but the default workspace badge still
+  painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
+  `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
+  keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
+
 - 2026-10-31: one Archive section at the bottom replaces the per-list "Archived (N)" rows. Lawrence 19197 (a NIGHTLY
   shot with ten groups each ending in "Archived (N)", seven dimmed archived groups and "Archived (29)"): "i see a ton
   of archived ... this doesnt look very clean ... maybe we can move completely archived groups into archive as well".
@@ -229,6 +241,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Part | Target | Source |
 | --- | --- | --- |
 | Hover preview first show | After the existing dwell delay, a sidebar row's hover preview appears at full opacity at its final position. Switching between shown cards keeps its existing motion. | Leo 2026-10-28, ask-067e9aa217 ("there's no fade-in animation for the hover. We can just have it instantly come in on the first load; the delay that we have is fine, maybe.") |
+| Hover preview timing, list and travel | The cold delay is 400 ms (`HoverCardTiming.showDelay`, `sidebar.hoverCards.delay`); an open card moves to the next row at once and a hover within 300 ms of it going shows at once. The card lists every tab: no "Show N more"; up to the row limit plus one fit, a longer list shows the limit plus half a row and scrolls in place, and its gaps and scroller take the pointer. A pointer aiming from its row into the card across other rows keeps the card (the safe triangle, `cardAim`); a crossed row takes it only if the pointer stops there. Show details is a row-styled disclosure: chevron on the tab rows' icon column, words on their title column, secondary ink, the rows' hover and pressed fill. | Leo 2026-11-01 ("i need these hover previews to appear a hell of a lot faster than they do now"; "the show 1 more is reallly bad when it's this small like you need to be able to scroll through them and also for my mouse to be able to reliably go across them and the show details... make the thing a little bit less completely unstyled. at least try a little bit"). Replaces the 1300 ms Chrome delay (Lawrence 2026-10-28 msg 15729) for the default; the setting keeps any value. |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
 | Group rail shape | Chrome's line on that edge: 2 pt, flat ends, the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
@@ -885,3 +898,11 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 ## Remote groups draw as groups (2026-10-31, a954)
 
 - User 2026-10-31 (Chief msg 19277), verbatim: "remote groups needs to be better, this is unintuitive to use, and also it needs to look like a group in the sidebar". Before: a remote group was its machine's section header (quiet text, status dot and word) over unindented rows. Now `SidebarDocProjection.arrange` wraps a remote group's section into one sidebar group (`SidebarSection.wrappedAsHostGroup`, id `host:<machine>`): the group bar, chevron, rail and member indent of any group, with a trailing machine mark and status dot left of the chevron (`SidebarHostGroupLook.trailingMarkAndDot`, the default; the gallery `AARemoteGroupGalleryTests` renders all six looks, light and dark, `sectionHeader` being the before). Its loose rows are members and its groups nest one level down. Its intents go to the machine (`SidebarIntent.resolvingHostGroup`: fold folds the section, + makes a workspace on the machine, a drop lands at the section's top level); rename, color, ungroup, pin, icon, close and reorder of the host group are dropped. This Mac never wraps. Tests: `SidebarHostGroupTests`, `AARemoteGroupGalleryTests.everyGroupLookDrawsTheMachineAsAGroupRow`.
+
+## Red warning mark size (2026-11-01, #30236)
+
+- 2026-11-01: Leo: "did we get the \"bigger blue dot\" thing in? i also think we ought to have a bigger red warn symbol";
+  "like look at this in chatgpt". The row badge's error glyph grows from a 10 pt box (~9 pt visible ring)
+  to 14 pt (~13 pt visible ring), centered within the same trailing cell. Blue dots, working spinners,
+  other status glyphs, row spacing and the shared trailing column stay unchanged. The row-badge regression
+  measures the error frame and its unchanged cell center (`SidebarRowCornerBadgeTests`).
