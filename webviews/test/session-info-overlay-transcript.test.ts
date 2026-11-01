@@ -3,8 +3,9 @@
 // "5 finished"). The panel floats outside the chat's layout and never moves it (Leo, 2026-10-29: "it's
 // not supposed to be a fucking sidebar that pushes the fucking layout"): where the right gutter holds
 // it, every row ends left of the panel; with Settings Push always, the chat narrows beside it and every
-// row ends the page edge (18px) clear of it. Where the gutter cannot hold it, it floats over the chat
-// (session-info-placement.test.ts). Closed, the rows take the column's centered place again.
+// row ends the chat's page edge (the grid's 16px icon box, --cv-edge, #27580) clear of it. Where the
+// gutter cannot hold it, it floats over the chat (session-info-placement.test.ts). Closed, the rows
+// take the column's centered place again.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine); CI fails the file when it
@@ -65,7 +66,8 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
       // 1600px: the 400px gutter holds the 320px panel and its margins.
       { width: 1600, placement: "overlay", clear: 0 },
       // 900px: the 720px column centered leaves 90px each side, less than the 320px panel.
-      { width: 900, placement: "push", clear: 18 },
+      // Pushed, the rows end the chat's page edge clear of it: --cv-edge, the grid's 16px icon box (#27580).
+      { width: 900, placement: "push", clear: 16 },
     ] as const)
       test(`${name}: no transcript row draws under the open Session Info (${width}px, ${placement})`, async () => {
         current = browsers.get(name)!;
