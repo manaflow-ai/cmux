@@ -195,7 +195,12 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     (
         "cloud.vm.attention.emit",
         VM_SELF,
-        &["cloud.machine.not_found", "cloud.rate_limited", "idempotency.conflict", "owner.unreachable"],
+        &[
+            "cloud.machine.not_found",
+            "cloud.rate_limited",
+            "idempotency.conflict",
+            "owner.unreachable",
+        ],
     ),
 ];
 

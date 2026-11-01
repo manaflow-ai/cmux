@@ -74,9 +74,30 @@ const convert = (js: JsonSchema, defs: Record<string, JsonSchema>): TypeRef => {
 const descriptionOf = (js: JsonSchema): TypeRef => (typeof js.description === "string" ? { description: js.description } : {})
 const withDescription = (t: TypeRef, js: JsonSchema): TypeRef => ({ ...t, ...descriptionOf(js) })
 
+// Effect can wrap a union in another union when an optional field combines a
+// special numeric encoding with null. Keep the catalog sidecar canonical by
+// flattening those equivalent nested anyOf/oneOf nodes before writing it.
+const normalizeSchema = (value: Json): Json => {
+  if (Array.isArray(value)) return value.map(normalizeSchema)
+  if (value === null || typeof value !== "object") return value
+  const out = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalizeSchema(v)])) as JsonSchema
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const members = out[key]
+    if (!Array.isArray(members)) continue
+    out[key] = members.flatMap((member) => {
+      if (member && typeof member === "object" && !Array.isArray(member)) {
+        const nested = (member as JsonSchema)[key]
+        if (Array.isArray(nested) && Object.keys(member).every((k) => k === key)) return nested
+      }
+      return [member]
+    })
+  }
+  return out
+}
+
 const jsonSchemaOf = (schema: Schema.Top) => {
   const doc = Schema.toJsonSchemaDocument(schema as never) as unknown as { schema: JsonSchema; definitions?: Record<string, JsonSchema> }
-  return { schema: doc.schema, defs: doc.definitions ?? {} }
+  return { schema: normalizeSchema(doc.schema) as JsonSchema, defs: normalizeSchema(doc.definitions ?? {}) as Record<string, JsonSchema> }
 }
 
 const entry = (op: CloudOpDef) => {

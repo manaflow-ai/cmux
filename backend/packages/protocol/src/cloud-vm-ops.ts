@@ -18,7 +18,8 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(
   params: P,
   result: R,
   docs: string,
-  errors: ReadonlyArray<string> = VM_ERRORS
+  errors: ReadonlyArray<string> = VM_ERRORS,
+  appendNoKeyDocs = true
 ) =>
   def({
     name,
@@ -32,7 +33,7 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(
     params,
     result,
     errors,
-    docs: docs + (cls === "mutation" ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + " VM installs only (kind vm, grant vm-self, its own bound machine).",
+    docs: docs + (cls === "mutation" && appendNoKeyDocs ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + (appendNoKeyDocs ? " VM installs only (kind vm, grant vm-self, its own bound machine)." : ""),
     cli: { path: "", visible: false },
     mcp: { expose: "never", group: "cloud" }
   })
@@ -112,8 +113,9 @@ export const CloudVmAttentionEmit = vmDef(
     replayed: Schema.Boolean,
     correlation_id: Schema.optionalKey(Short(128))
   }),
-  "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict.",
-  [...VM_ERRORS, "idempotency.conflict", "owner.unreachable"]
+  "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
+  [...VM_ERRORS, "idempotency.conflict", "owner.unreachable"],
+  false
 )
 
 export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit] as const
