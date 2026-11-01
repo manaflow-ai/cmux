@@ -178,6 +178,7 @@ extension CmuxSettingsFileStore {
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.agentAutoResume",
+        "automation.claudeAccountAutoSwitch",
         "automation.ampIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",

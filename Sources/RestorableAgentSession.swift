@@ -1018,8 +1018,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// remote workspaces type into the remote host's shell after attach, which
     /// cmux treats as POSIX regardless of the local `$SHELL` — pass `.posix`
     /// there so a local nushell login never leaks `^/bin/sh -c "…"` to a
-    /// remote zsh/bash.
-    private func startupInput(
+    /// remote zsh/bash. Claude account switches share this inline/launcher policy.
+    func startupInput(
         command: String?,
         workingDirectory: String?,
         fileManager: FileManager,

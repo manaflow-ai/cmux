@@ -3366,6 +3366,7 @@
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
           "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。",
           "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
+          "claudeAccountAutoSwitch": "cmux が起動した Claude Code セッションがアカウントの使用量の上限で停止すると、cmux は `agents.claudeAccounts` の次のアカウントに切り替えて同じ会話を続けます。まだ上限に達しているアカウントは、リセットされるまでスキップされます。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

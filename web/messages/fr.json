@@ -2210,6 +2210,7 @@
           "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
           "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais.",
           "agentAutoResume": "Envoie `continue`, avec un délai progressif, à un agent lancé par cmux dont le tour s’est terminé sur une erreur amont réessayable (modèle saturé, surchargé ou connexion perdue). Les tours en attente d’une personne ne sont jamais relancés.",
+          "claudeAccountAutoSwitch": "Quand une session Claude Code lancée par cmux s’arrête parce que son compte a atteint sa limite d’utilisation, cmux la bascule sur le compte suivant de `agents.claudeAccounts` et poursuit la même conversation. Les comptes encore à leur limite sont ignorés jusqu’à sa réinitialisation.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

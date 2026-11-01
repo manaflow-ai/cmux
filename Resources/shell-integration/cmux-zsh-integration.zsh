@@ -1,6 +1,18 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
+# Switching a pane to the default Claude account can only blank an inherited
+# account variable, not unset it. Claude Code reads a blank CLAUDE_CONFIG_DIR as
+# a relative path and a blank CLAUDE_SECURESTORAGE_CONFIG_DIR as the default
+# account's credentials, so unset blank ones before anything else runs. Keep this
+# first, ahead of every early return, and keep non-empty values untouched.
+if [[ -n "${CLAUDE_CONFIG_DIR+set}" && -z "$CLAUDE_CONFIG_DIR" ]]; then
+    builtin unset CLAUDE_CONFIG_DIR
+fi
+if [[ -n "${CLAUDE_SECURESTORAGE_CONFIG_DIR+set}" && -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ]]; then
+    builtin unset CLAUDE_SECURESTORAGE_CONFIG_DIR
+fi
+
 # Socket sends exec a unix-socket-capable client in a detached child. The
 # historical zsocket fast path (zmodload zsh/net/unix) never activated because
 # that module does not exist (zsocket lives in zsh/net/socket). Enabling it
