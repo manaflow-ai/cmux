@@ -60,6 +60,24 @@ struct IncognitoSpaceTests {
         #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito workspace while it was created")
     }
 
+    /// Issue #31039: a workspace's tree entry can arrive before its ephemeral flag (`session.events`), so
+    /// reconcile already placed it in a normal window when the flag lands. Phones hide it as the flag lands.
+    @Test func phonesHideAWorkspaceWhoseEphemeralFlagLandsAfterItsPlacement() async throws {
+        let services = Self.services()
+        let key = UUID().uuidString.lowercased()
+        services.daemon.store.apply(snapshot: DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: key), name: "workspace-1"),
+        ]))
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-normal", workspaceIDs: [key]) }
+        services.windows.observeMembership()
+        defer { services.windows.membershipObservation?.cancel() }
+        services.windows.recordIncognitoWorkspaces()
+        #expect(!services.mobile.access.hidesWorkspace(key))
+        try #require(services.daemon.store.workspace(id: key)).applyState(ephemeral: true, status: nil, screenGroups: nil)
+        for _ in 0..<1_000 where !services.mobile.access.hidesWorkspace(key) { await Task.yield() }
+        #expect(services.mobile.access.hidesWorkspace(key), "a phone could list a workspace whose ephemeral flag landed after its placement")
+    }
+
     /// A crashed run's incognito workspaces are hidden from phones as the restore marks them, before they close.
     @Test func phonesHideACrashedRunsIncognitoWorkspacesAtOnce() {
         let services = Self.services()
