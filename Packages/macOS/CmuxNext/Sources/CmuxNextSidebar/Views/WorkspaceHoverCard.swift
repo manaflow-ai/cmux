@@ -156,7 +156,6 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.tabList.configure(title: ws.rawValue, tabs: workspace.tabs)
-        body.tabList.onResize = { [weak self] in self?.coordinator.contentChanged(id) }
         body.onDetailsChanged = { [weak self] in self?.detailsChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self else { return }
@@ -226,7 +225,6 @@ final class WorkspaceHoverCardController: HoverCardSource {
         resources.close()
         body?.resetResourceHistory()
         body?.tabList.onSelect = nil
-        body?.tabList.onResize = nil
         body?.onDetailsChanged = nil
         bodyID = nil
         releaseCustom()
@@ -340,7 +338,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The stats line's row, which puts it on the text column (hidden with it).
     private let statsRow = NSStackView()
     /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
-    let detailsToggle = ClickableButton(title: Strings.showDetails, target: nil, action: nil)
+    let detailsToggle = WorkspaceHoverCardDisclosure()
     private var detailsExpanded = false
     var isDetailsExpanded: Bool { detailsExpanded }
     var onDetailsChanged: (() -> Void)?
@@ -395,11 +393,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         statsLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         statsLabel.lineBreakMode = .byTruncatingTail
         timeline.isHidden = true
-        detailsToggle.isBordered = false
-        detailsToggle.font = Typography.caption
-        detailsToggle.alignment = .left
-        detailsToggle.target = self
-        detailsToggle.action = #selector(toggleDetails)
+        detailsToggle.title = Strings.showDetails
+        detailsToggle.onPress = { [weak self] in self?.toggleDetails() }
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -442,6 +437,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
+        // Show details reads as the list's last row, on the rows' spacing.
+        stack.setCustomSpacing(Metrics.space1, after: tabList)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
         let p = Self.padding
@@ -451,6 +448,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             widthLimit,
             timeline.widthAnchor.constraint(equalTo: stack.widthAnchor),
             tabList.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            detailsToggle.widthAnchor.constraint(equalTo: stack.widthAnchor),
             content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
@@ -560,7 +558,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         updateDetailsVisibility()
     }
 
-    @objc private func toggleDetails() {
+    private func toggleDetails() {
         detailsExpanded.toggle()
         updateDetailsVisibility()
         needsLayout = true
@@ -595,6 +593,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     private func updateDetailsVisibility() {
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
+        detailsToggle.isExpanded = detailsExpanded
         if !detailsExpanded {
             for view in builtIn { view.isHidden = true }
             customSlot.isHidden = true
@@ -736,8 +735,8 @@ extension WorkspaceHoverCardView {
     /// adopt and on every change of that scope.
     func applyColors() {
         tabList.applyColors()
+        detailsToggle.applyColors()
         performWithTheme {
-            detailsToggle.contentTintColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
