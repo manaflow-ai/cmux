@@ -368,7 +368,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // on the sidebar document; the App only answers `SidebarArchiveHost`.
         .target(
             name: "CmuxNextSidebarActions",
-            dependencies: ["CmuxNextActions", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesignTokens", "CmuxNextSidebar"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),

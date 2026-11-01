@@ -750,6 +750,7 @@ class OwnedPools(unittest.TestCase):
     REPO_RUNNERS = "/repos/manaflow-ai/cmux/actions/runners?per_page=100&page=1"
     GROUPS = "/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux"
     GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/23/runners?per_page=100&page=1"
+    FLEET_GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/24/runners?per_page=100&page=1"
 
     def test_runners_lists_the_org_glaeda_minis_group_beside_the_repository(self):
         # glaeda#1222 moved the minis to org runners in glaeda-minis, which the
@@ -767,6 +768,26 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(sorted(runner["id"] for runner in runners), [1, 10, 11, 12])
         self.assertEqual(pool.live_owned_free(runners, (MINI,)), {MINI: 2})
         self.assertEqual(calls, [self.REPO_RUNNERS, self.GROUPS, self.GROUP_RUNNERS])
+
+    def test_runners_lists_the_approved_gcp_linux_group(self):
+        # The canonical Linux fleet label is hosted in its own approved org
+        # group, so the live admission picker can prove that it is registered
+        # and idle instead of trusting a repository variable or stale snapshot.
+        fleet = [{"id": 40, "status": "online", "busy": False, "os": "Linux",
+                  "labels": [{"name": "cmux-fleet-linux-x64"}]}]
+        client, calls = self.fake_api({
+            self.REPO_RUNNERS: {"runners": []},
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                             {"id": 24, "name": "cmux-fleet-linux"}]},
+            self.GROUP_RUNNERS: {"runners": []},
+            self.FLEET_GROUP_RUNNERS: {"runners": fleet},
+        })
+        runners = client.runners()
+        self.assertEqual([runner["id"] for runner in runners], [40])
+        self.assertEqual(calls, [self.REPO_RUNNERS, self.GROUPS,
+                                 self.GROUP_RUNNERS, self.FLEET_GROUP_RUNNERS])
+        self.assertEqual(pool.live_owned_free(runners, ("cmux-fleet-linux-x64",)),
+                         {"cmux-fleet-linux-x64": 1})
 
     def test_runners_pages_through_a_full_group(self):
         page = [{"id": n, "status": "online", "busy": False, "labels": [{"name": MINI}]} for n in range(100)]
