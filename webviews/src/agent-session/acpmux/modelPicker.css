@@ -814,3 +814,13 @@
 /* Legacy models and its count on one row, the count quiet after the name. */
 .acpmux-quick-legacy { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
 .acpmux-quick-legacy .acpmux-quick-value { margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-caption); }
+
+/* Fast mode on (ModelPicker.tsx chipFace): a small bolt right after the model's name, in the
+   effort's muted ink (styles.css .acpmux-picker-button .acpmux-icon:last-child). A mark, not a
+   button: Fast mode turns on and off in the model menu. */
+.acpmux-model .acpmux-model-bolt {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: inherit;
+}

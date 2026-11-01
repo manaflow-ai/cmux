@@ -1,4 +1,4 @@
-// Leo 2026-10-21, as in Claude: a huge paste (more than 20 lines or 2,000 characters) into the
+// Leo 2026-10-21, as in Claude: a huge paste (more than 750 words or 10,000 characters) into the
 // composer is a "Pasted text" chip (its first words and line count), not pages of text in the
 // prompt. A click puts it back in the prompt to edit, × removes it, and it goes to the agent as
 // its own text block after the prompt's. Paste as Plain Text (⌘⇧V, or the prompt's menu) keeps
@@ -18,7 +18,7 @@ import {
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import {
   PASTE_CHIP_CHARS,
-  PASTE_CHIP_LINES,
+  PASTE_CHIP_WORDS,
   isLargePaste,
   pastedTextAttachment,
   resentAttachments,
@@ -198,8 +198,8 @@ async function typeDraft(text: string) {
   });
 }
 
-/// 25 lines of a log: over the 20-line limit, under 2,000 characters.
-const LOG = Array.from({ length: 25 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
+/// 130 lines of a log: 780 words, over the 750-word limit, under 10,000 characters.
+const LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
 /// The log with a blank line in it, which a paste keeps.
 const SPACED = LOG.replace("line 13 of the build log\n", "line 13 of the build log\n\n");
 
@@ -216,7 +216,7 @@ const plainPasteKey = (init: KeyboardEventInit) =>
     );
   });
 
-test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typed", async () => {
+test("a paste over 750 words is a Pasted text chip; the prompt keeps what was typed", async () => {
   const composer = await openComposer();
   await typeDraft("why does this fail?");
   await paste(LOG);
@@ -235,20 +235,20 @@ test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typ
   expect(chip.querySelector(".acpmux-text-card__lines")!.textContent!.split("\n")[0]).toContain(
     "line 1 of the build log",
   );
-  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines");
   // The strip view draws the same chip in the strip, its first words and its line count.
   await showAttachments("strip");
   const strip = host.querySelector(".acpmux-attachment-pasted")!;
   expect(strip).not.toBeNull();
   expect(strip.textContent).toContain("line 1 of the build log");
-  expect(strip.textContent).toContain("25 lines");
-  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
+  expect(strip.textContent).toContain("130 lines");
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 130 lines");
   expect(words()).toBe("why does this fail?");
 });
 
-test("a paste over 2,000 characters on one line is a chip too", async () => {
+test("a paste over 10,000 characters with few words is a chip too", async () => {
   const composer = await openComposer();
-  const long = "word ".repeat(450);
+  const long = "abcdefghij".repeat(1001);
   await paste(long);
   expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
   expect(words()).toBe("");
@@ -438,16 +438,18 @@ test("the pasted text goes to the agent as its own text block after the prompt's
   ]);
 });
 
-test("the limit: more than 20 lines or 2,000 characters; the label is the first words on one line", () => {
-  expect(PASTE_CHIP_LINES).toBe(20);
-  expect(PASTE_CHIP_CHARS).toBe(2000);
-  const lines = (count: number) => Array.from({ length: count }, (_, index) => `l${index}`).join("\n");
-  expect(isLargePaste(lines(20))).toBe(false);
-  // A newline at the end starts no line.
-  expect(isLargePaste(`${lines(20)}\n`)).toBe(false);
-  expect(isLargePaste(lines(21))).toBe(true);
-  expect(isLargePaste("x".repeat(2000))).toBe(false);
-  expect(isLargePaste("x".repeat(2001))).toBe(true);
+test("the limit: more than 750 words or 10,000 characters; the label is the first words on one line", () => {
+  expect(PASTE_CHIP_WORDS).toBe(750);
+  expect(PASTE_CHIP_CHARS).toBe(10_000);
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `w${index}`).join(" ");
+  expect(isLargePaste(words(750))).toBe(false);
+  // Space and line breaks around the words are no words.
+  expect(isLargePaste(`\n  ${words(750).replaceAll(" ", "\n\n")}  \n`)).toBe(false);
+  expect(isLargePaste(words(751))).toBe(true);
+  // Lines alone no longer make a chip: 200 short lines are 200 words.
+  expect(isLargePaste(Array.from({ length: 200 }, (_, index) => `l${index}`).join("\n"))).toBe(false);
+  expect(isLargePaste("x".repeat(10_000))).toBe(false);
+  expect(isLargePaste("x".repeat(10_001))).toBe(true);
   // Its name is the transcript chip's (promptCollapse.ts pasteName): the first words, one line.
   expect(pastedTextAttachment("\n  first   line\nsecond line  ").name).toBe("first line");
 });
