@@ -340,12 +340,15 @@ def bars_ok(red, blue):
 
 def check_show_again():
     """show.again: hide the page (a new workspace) and show it again; its last frame must show at once."""
+    probe_ws = ((rpc("snapshot.get") or {}).get("topology") or {}).get("focus", {}).get("workspace")
     created = action("workspace.newAtBottom")
     if not wait(lambda: page_rect() is None, 5, 0.05):
         row("show.again", False, {"note": "the page still shows after workspace.newAtBottom", "reply": json.dumps(created)[:200]})
         return
     time.sleep(0.5)  # test harness: the hidden page window's deferred hide and Widget::Hide run
-    back = action("workspace.selectFirst")
+    # Back to the probe's own workspace (openBrowser.chromium may open the probe in a workspace of its own, so
+    # selectFirst showed the launch's terminal workspace and every later row read no page).
+    back = action("goToWorkspace", {"workspace": probe_ws}) if probe_ws else action("workspace.selectFirst")
     # Right after the reply: the screen first (what the display shows), then the app's own window image.
     screen = capture_bars("show-again-screen")
     shot = os.path.join(opts.out, f"verify-{opts.mode}-show-again-window.png")
@@ -374,6 +377,17 @@ def main():
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
     os.makedirs(opts.out, exist_ok=True)
+    # An empty saved session, as every bench launch (bench_launch.py start_fresh): a session an earlier bench left
+    # (the STRESS layout) put the probe in a small pane of one of 60 workspaces, and workspace.selectFirst went elsewhere.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bench_launch import BenchApp
+    bench = BenchApp(APP, out=opts.out)
+    bench.start_fresh()
+    if opts.tunables == "build":
+        # The launch reads the build's file: give it this mode before the first page (a page shown at launch with the
+        # last run's value would count as hosted in mode off). The path is checked against the app's own below.
+        FACTS["tunables_prelaunch"] = os.path.join(bench.state_root(), "debug-tunables.json")
+        write_build_tunable(FACTS["tunables_prelaunch"], opts.mode == "on")
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
@@ -394,6 +408,9 @@ def main():
         if opts.tunables == "build":
             # The benches launch with no override: they read this file. Set the value live for this launch too.
             state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
+            if not state.get("file"):  # `set` answers with the tunable's row; the file is in the state
+                FACTS["tunables_set"] = state
+                state = rpc("debug.tunables", {"action": "state"}) or {}
             FACTS["tunables_file"] = state.get("file")
             if not state.get("file"):
                 row("tunables", False, f"debug.tunables gave no file: {json.dumps(state)[:200]}")

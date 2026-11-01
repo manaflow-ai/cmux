@@ -176,3 +176,55 @@ API 27 pin and the harness's variants, before it can be the default.
    for a STRESS workspace). Measure input to commit for both directions with the `action.perform`/`action.commit`
    signposts, light and STRESS, then remove the show side (the input window stays ordered in, or moves off screen).
 4. Default on, after parity.
+
+## 6. Measured: hosting off vs on, fork API 30 (2026-11-01)
+
+Build: feat-cmux-next a3c23b79cc5b (with resize sync, #26595) and the engine pinned to cef-154.0.28-cmux.36 (fork API 30,
+`cmux/8037-helper-items`), measurement only: cmux.36 lacks the cmux.38 CVE backport, so it is not a shipping pin. Fleet
+minis in a console session at 60 Hz, a DEV build of the commit (Debug). Steps (fleet `cmux-ci run` ids): A/B
+0e2cfd8e23254fe2a40fdf6b and 93a389c596317f756c8582fa (STRESS on a 1920x1200 virtual display), divider drags
+6497317fab135acce2c326a3, ec26f2b5d8d1c37b906b057c and 2720dca1c3486b2a91bf93d5. One run per mode unless n says
+otherwise: read these as a direction, not a budget.
+
+| metric | off (child window) | on (hosted) | delta | harness |
+|---|---|---|---|---|
+| mode is real (verify `valid`, `hosted`, `hosted.fork`) | pass, page window holds the CALayerHost | pass: fork_api 30, hosted_pages >= 1, CALayerHost in the hosted context, 0 in the page window | | `cef-layer-verify.py --checks hosted` |
+| tab switch, Chromium, 2 tabs click: e2e / commit median | 32.3 / 19.2 ms | 20.0 / 12.0 ms | -12 / -7 ms | `tab-switch-matrix.py --kinds chromium` |
+| tab switch, Chromium, 10 tabs Ctrl-Tab: e2e / commit median | 21.0 / 20.0 ms | 18.6 / 17.1 ms | -2 / -3 ms | same |
+| tab switch, Chromium, 10 tabs click: commit median (two hosts) | 17.4, 19.9 ms | 12.7, 15.4 ms | -5 ms | same |
+| workspace switch to a Chromium workspace, click: input to commit p50 / p95 | 27.7 / 54.0 ms | 27.8 / 46.1 ms | even | `sidebar-stress-bench.py switch_matrix` |
+| light (1x2, 4x2, page top left) split / close / drag: missed frames, 3 rounds | 6 / 2 / 0 (1x2), 4 / 2 / 5 (4x2) | 5 / 3 / 0, 5 / 4 / 7 | +0-2 | `pane-perf-terminal.py --browser` |
+| light 4x2 drag, missed frames, 3 rounds, second host | 27 | 71 | +44 (not seen on the first host, nor in the resize bench: 19 off, 14 on) | same |
+| STRESS split / close / column / column-close / drag: missed frames | 9 / 9 / 19 / 12 / 77 | 10 / 9 / 23 / 13 / 78 | +0-4 | `cef-resize-sync-bench.py` |
+| STRESS column-close: longest frame | 83 ms | 256 ms (syncDeadline 0: 243 ms) | +173 ms, one run | same |
+| STRESS with syncDeadline 0 (`on0`) missed frames, same actions | | 9 / 7 / 18 / 13 / 77 | equals off | same |
+| divider drag beside a page, layout lag p95: median / max of 9 runs | live 0.65 / 26.2 ms | live hosted 9.6 / 9.7 ms | | `split-resize-bench.py` |
+| same, resize sync (`dragResize` resizeSync) | 0.84 / 9.6 ms | 1.98 / 9.7 ms | max -16.5 ms vs live | same |
+| same, app frames dropped per drag (mean of 9) | live 1.67, resizeSync 1.67 | live 1.0, resizeSync 1.56 | even | same |
+
+What this says:
+- Hosting costs no frames in light layouts and at most a few in STRESS, and makes Chromium tab switches 3-12 ms faster
+  to commit. The one large miss (a 256 ms column-close frame in STRESS) is one run, and it shows with syncDeadline 0
+  too, so it is not the resize wait.
+- Resize sync caps how far a page lags a dragged divider: the worst p95 of 9 runs is 9.6 ms against 26 ms for live,
+  with no more dropped app frames. `hold` lags 194-226 ms; `synced` is close to resize sync, but it is a launch switch
+  that waits up to 500 ms.
+- Not proven: the verify rows that read pixels or deliver input (`pixels.*`, `show.again`, `click`, `keys`, `scroll`,
+  `drag`, `context`, `resize.top`) fail the same way in mode off on the fleet minis. Window images there hold no
+  Chromium pixels, `screencapture` writes nothing (no Screen Recording grant), and no posted event reaches the page.
+  They need a host with those grants before hosting can default on (section 3's open rows stay open).
+
+Harness fixes made for these runs (same PR): `cef-layer-verify.py --tunables build` read the file path from
+`debug.tunables set`, whose reply is the tunable's row (it now reads `state`), so every A/B run refused to bench.
+It now starts from an empty saved session and writes the mode before launch. show.again goes back to the probe's
+own workspace by id; `workspace.selectFirst` showed the launch's workspace, so every later row read no page. The A/B
+validity gate is the three mode rows, and show.again is recorded. `bench_launch.py` keeps the build's Debug Settings
+file when it moves the saved session aside, so the mode the A/B set still applies.
+
+Remaining before default on:
+1. A shipping pin at fork API >= 27 with the CVE fix: cmux.39 (the API 30 line rebased on the cmux.38 security
+   line). Until then the tunable and resize sync are inert for users (cmux.38 is API 24).
+2. Pixel and input rows on a host with Screen Recording and event posting, both modes.
+3. STRESS column-close, more runs; if the long frame holds, trace it (page-window show and order churn, slice 3).
+4. The post-commit GPU wait (section 1): the fork still calls `Synchronize()` at a 0 deadline.
+5. Popups and DevTools in hosted mode on screen (section 3).
