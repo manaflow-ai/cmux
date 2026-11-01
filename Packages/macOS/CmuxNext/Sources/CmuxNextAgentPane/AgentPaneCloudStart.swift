@@ -16,6 +16,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var home = false
     public var harness: String?
     public var model: String?
+    /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
+    public var environment: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -23,8 +25,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
+        self.environment = environment
     }
 
     /// The page's params, checked; nil for anything else.
@@ -37,12 +40,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
-              let harness = name("harness"), let model = name("model") else { return nil }
+              let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
         self.home = home as? Bool ?? false
     }
 
