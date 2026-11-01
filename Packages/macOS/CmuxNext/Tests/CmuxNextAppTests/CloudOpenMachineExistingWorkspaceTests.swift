@@ -1,4 +1,5 @@
 import CmuxNextActions
+@testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
 import Testing
