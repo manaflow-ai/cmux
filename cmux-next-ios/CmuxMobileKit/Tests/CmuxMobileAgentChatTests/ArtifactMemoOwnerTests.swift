@@ -121,7 +121,9 @@ import Testing
         #expect(await memo.thumbnail(for: file, source: a, scale: 2) == .excerpt("private A"))
         #expect(await memo.thumbnail(for: file, source: b, scale: 2) == .excerpt("Mac B"))
         #expect(await memo.thumbnail(for: file, source: a, scale: 2) == .excerpt("private A"))
-        #expect(await a.count() == 1 && b.count() == 1)
+        let firstReads = await a.count()
+        let secondReads = await b.count()
+        #expect(firstReads == 1 && secondReads == 1)
     }
 }
 #endif
