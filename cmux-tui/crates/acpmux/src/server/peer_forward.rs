@@ -295,15 +295,25 @@ async fn forward_inner(
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
         }
+        // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
+        // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.
+        // It goes on the link that listed the feature, never on one a reconnect brought since.
+        let held = m == method::SESSION_PROMPT
+            && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
+        let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
+        let approval_link = peer.lists_on(crate::author::QUEUE_APPROVAL_FEATURE);
+        if approval && approval_link.is_none() {
+            return Err(crate::author::approval_unsupported(&peer));
+        }
         // So do a message's attachments, under their caps (`attach.rs`).
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
         {
             crate::attach::check_wire(params)?;
-            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+            if crate::attach::any(blocks) && !peer.lists(crate::attach::FEATURE) {
                 return Err(crate::attach::peer_unsupported(&peer));
             }
-            if crate::prompt_uploads::any(blocks) && !peer.supports_prompt_uploads() {
+            if crate::prompt_uploads::any(blocks) && !peer.lists(crate::prompt_uploads::FEATURE) {
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
@@ -311,14 +321,16 @@ async fn forward_inner(
         // naming it: refused before its bytes are sent, so none is left behind.
         if m == method::MUX_FILE_PUT_BEGIN
             && params.get("forPrompt") == Some(&Value::Bool(true))
-            && !peer.supports_prompt_uploads()
+            && !peer.lists(crate::prompt_uploads::FEATURE)
         {
             return Err(crate::prompt_uploads::peer_unsupported(&peer));
         }
         // An older peer would answer status as unknown and finish without checking `sha256`.
         let checked =
             m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
-        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+        if (checked || m == method::MUX_FILE_PUT_STATUS)
+            && !peer.lists(crate::hub::file_uploads::RESUME_FEATURE)
+        {
             return Err(crate::hub::file_uploads::peer_unsupported(&peer));
         }
         if m == method::MUX_FILE_PUT_CHUNK {
@@ -375,6 +387,14 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        // A held prompt names its hold to the peer: a link guest's waits with `approval` left
+        // off here, which a peer that reads only `approval` would run unapproved.
+        if held
+            && let Some(author) =
+                p.pointer_mut("/_meta/acpmux/author").and_then(Value::as_object_mut)
+        {
+            author.insert("approval".into(), json!(crate::author::APPROVAL_OWNER));
+        }
         if m == method::SESSION_CANCEL {
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
@@ -579,8 +599,10 @@ async fn forward_inner(
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for
         // must reach the peer even when its client is gone.
-        // A page goes on the link it is labelled with, or fails.
-        let on = pages.then_some(link).or(resume_link.flatten());
+        // A page goes on the link it is labelled with, or fails; so does a held prompt or an
+        // answer to one, on the link that listed `queueApproval`.
+        let on =
+            if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
