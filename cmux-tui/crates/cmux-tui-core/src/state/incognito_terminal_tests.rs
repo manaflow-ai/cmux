@@ -167,3 +167,75 @@ fn an_incognito_terminal_screen_never_reaches_the_disk() {
     drop(registry);
     mux.shutdown();
 }
+
+/// When the registry cannot tell whether a terminal is incognito, it is
+/// treated as incognito (its screen does not reach the disk), its bytes
+/// wait for an answer instead of being dropped, and a known answer is
+/// kept, so the write pass does not ask SQLite again for every terminal.
+#[cfg(unix)]
+#[test]
+fn an_unknown_terminal_keeps_its_screen_off_the_disk_until_the_registry_answers() {
+    const TERMINAL: &str = "00000000000040008000000000000b01";
+    const INCARNATION: &str = "10000000000040008000000000000b01";
+    let session = Session::new("incognito-fail-closed");
+    let mux = session.open();
+    let directory = mux.output_store.directory().expect("a persistent session").to_path_buf();
+    let (_, key) = workspace(&mux, "normal", "empty", false);
+    let surface = mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &key).unwrap();
+    let public = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .terminal_resource_id(TERMINAL)
+        .unwrap()
+        .expect("a public terminal id");
+    let written = || {
+        std::fs::read_dir(&directory)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .any(|entry| entry.file_name().to_string_lossy().starts_with(public.as_str()))
+            })
+            .unwrap_or(false)
+    };
+    let set_broken = |broken: bool| {
+        let (from, to) = if broken {
+            ("resource_terminals", "resource_terminals_broken")
+        } else {
+            ("resource_terminals_broken", "resource_terminals")
+        };
+        let (workspaces_from, workspaces_to) = if broken {
+            ("resource_workspaces", "resource_workspaces_broken")
+        } else {
+            ("resource_workspaces_broken", "resource_workspaces")
+        };
+        mux.read_registry_state(|connection| {
+            connection.execute_batch(&format!(
+                "ALTER TABLE {from} RENAME TO {to}; ALTER TABLE {workspaces_from} RENAME TO {workspaces_to};"
+            ))?;
+            Ok(())
+        })
+        .unwrap();
+    };
+    // The registry cannot answer: fail closed.
+    set_broken(true);
+    assert!(mux.output_store.is_private(&mux, &public), "an unknown terminal reads as incognito");
+    assert!(!mux.output_store.keeps_screen(&mux, &public));
+    assert!(mux.workspace_key_is_ephemeral(&key), "an unknown workspace reads as incognito");
+    let bytes = b"output while the registry is unreadable\r\n".to_vec();
+    mux.surface(surface).unwrap().apply_stream_output_for_test(&bytes).unwrap();
+    mux.output_store.append(&public, &Arc::from(INCARNATION), &bytes, None);
+    mux.output_store.write_now(&mux);
+    assert!(!written(), "nothing reaches the disk while the answer is unknown");
+    // The registry answers: a normal terminal, and its output is written.
+    set_broken(false);
+    assert!(!mux.output_store.is_private(&mux, &public));
+    assert!(!mux.workspace_key_is_ephemeral(&key));
+    mux.output_store.write_now(&mux);
+    assert!(written(), "the waiting output is written once the terminal is known normal");
+    // The answer is kept: no registry read for it again.
+    set_broken(true);
+    assert!(!mux.output_store.is_private(&mux, &public), "a known normal terminal stays normal");
+    set_broken(false);
+    mux.shutdown();
+}
