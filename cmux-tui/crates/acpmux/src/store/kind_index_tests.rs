@@ -179,7 +179,7 @@ fn a_copy_made_for_other_kinds_is_read_past() {
         // The copy an older list without `turn_result` made: none of its lines.
         let older: String =
             lines.split_inclusive('\n').filter(|l| !l.contains("\"turn_result\"")).collect();
-        let meta = std::fs::metadata(&path).unwrap();
+        let meta = kind_index::Stamp::of(&std::fs::File::open(&path).unwrap()).unwrap();
         let len = header["len"].as_u64().unwrap();
         store.write_kind_index("c", index, &meta, len, true, older.as_bytes()).unwrap();
         stripped.push(copy);
@@ -273,9 +273,63 @@ fn a_scan_writes_no_copy_for_a_deleted_chat() {
     let root = root();
     let (store, _) = store_with_log(&root, 3);
     let (index, path) = store.segments("c").unwrap()[0].clone();
-    let meta = std::fs::metadata(&path).unwrap();
+    let meta = kind_index::Stamp::of(&std::fs::File::open(&path).unwrap()).unwrap();
     std::fs::remove_dir_all(root.join("c")).unwrap();
     assert!(store.write_kind_index("c", index, &meta, 0, true, b"").is_err());
     assert!(!root.join("c").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Linux keeps a birth time and the copies need it, on musl too: Rust's `Metadata::created` fails
+/// on every musl build (the static daemon), so no copy was ever written or read there. The birth
+/// time comes from `statx` on the open file, the same value glibc's `created` reads.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_segments_birth_time_is_read_on_linux() {
+    let root = root();
+    let (store, _) = store_with_log(&root, 3);
+    let (_, path) = store.segments("c").unwrap()[0].clone();
+    let file = std::fs::File::open(&path).unwrap();
+    let born = kind_index::birth_ns(&file);
+    let created = std::fs::metadata(&path).unwrap().created().ok();
+    let created = created.map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    if cfg!(target_env = "gnu") {
+        assert_eq!(born.map(u128::from), created, "glibc's created() reads the same statx field");
+    } else {
+        assert!(born.is_some_and(|ns| ns > 0), "statx read no birth time: {born:?}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The copies' folder is owner-only whatever the umask: under 002 (a lane VM's) it was made
+/// group-writable, `private_state_dir` refused it, and no copy was ever written. The umask is the
+/// process's, so the scan runs in a child process of this test binary that runs this test alone.
+#[cfg(unix)]
+#[test]
+fn a_copy_is_written_under_a_group_writable_umask() {
+    use std::os::unix::fs::PermissionsExt;
+    const CHILD: &str = "ACPMUX_TEST_KIND_INDEX_UMASK_CHILD";
+    let name = "store::kind_index::tests::a_copy_is_written_under_a_group_writable_umask";
+    if std::env::var_os(CHILD).is_none() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name, "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && text.contains("1 passed"), "{text}");
+        return;
+    }
+    // SAFETY: umask has no preconditions; this process runs this test only.
+    unsafe { libc::umask(0o002) };
+    let root = root();
+    let (store, log) = store_with_log(&root, 3);
+    let first = scanned(&store, &["queued"]);
+    assert_eq!(first.len(), log.iter().filter(|r| r.kind == "queued").count());
+    let dir = root.join("c").join(kind_index::DIR);
+    let mode = std::fs::metadata(&dir).expect("the copies' folder").permissions().mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert!(std::fs::read_dir(&dir).unwrap().next().is_some(), "a copy was written");
     let _ = std::fs::remove_dir_all(&root);
 }

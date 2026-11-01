@@ -151,6 +151,8 @@ void Emit(int kind,
 // the pending choosers of a browser that closed or crashed (UI thread).
 CefRefPtr<CefDialogHandler> FileDialogHandlerInstance();
 void CancelFileDialogs(int browser_id);
+// A closed browser's per-browser chooser routing (shim_file_dialog.mm).
+void ForgetFileDialogRoute(int browser_id);
 
 // Live browsers by identifier (UI thread only).
 std::map<int, CefRefPtr<CefBrowser>>& browsers();

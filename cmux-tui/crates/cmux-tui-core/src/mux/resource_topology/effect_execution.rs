@@ -698,6 +698,11 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        if ephemeral {
+            // Its first terminal spawns before the workspace row is
+            // published: it must start incognito already.
+            self.note_incognito_workspace(&workspace_key);
+        }
         // `workspace.create` from a caller: the resource router sends
         // `focus: false` unless it asked. Other creations focus.
         let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);

@@ -79,7 +79,14 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
   return (
     <span className="cv-user__inline-file">
       <FileAttachment
-        file={{ name: part.name, size: part.size, mimeType: part.mimeType, path: attachmentPath(part.uri) }}
+        file={{
+          name: part.name,
+          size: part.size,
+          mimeType: part.mimeType,
+          path: attachmentPath(part.uri),
+          // The app it came from: its icon and tooltip line, as the legacy band's file chip has.
+          source: part.source,
+        }}
       />
     </span>
   );

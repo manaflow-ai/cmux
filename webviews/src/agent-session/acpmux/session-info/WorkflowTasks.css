@@ -3,11 +3,11 @@
 .acpmux-workflow-tasks {
   display: flex;
   flex-direction: column;
-  padding-bottom: 4px;
+  gap: var(--grid-gap-inner);
 }
 .acpmux-workflow-tasks__group {
-  margin: 4px 0 0;
-  padding: 0 8px;
+  margin: 0;
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: inherit;
@@ -16,7 +16,8 @@
 .acpmux-workflow-task {
   display: flex;
   flex-direction: column;
-  padding: 4px 0 8px;
+  gap: var(--grid-gap-inner);
+  padding: 0;
 }
 .acpmux-workflow-task + .acpmux-workflow-task {
   border-top: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 10%, transparent));
@@ -24,9 +25,9 @@
 .acpmux-workflow-task__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 4px 0 8px;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
 }
 .acpmux-workflow-task__name {
   flex: 1 1 auto;
@@ -39,7 +40,7 @@
 .acpmux-workflow-task__meta,
 .acpmux-workflow-task__description {
   margin: 0;
-  padding: 0 8px;
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -49,15 +50,15 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-workflow-task__phases {
-  margin-top: 4px;
+  margin-top: 0;
 }
 .acpmux-workflow-phase__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
   width: 100%;
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: var(--grid-row);
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
@@ -89,11 +90,11 @@
    Fixed size, so a change of state never moves the rows. */
 /* Indented under the phase; each agent's time lines up under the phase's counts (the chevron's room). */
 .acpmux-workflow-phase__agents {
-  padding-left: 16px;
-  padding-right: 24px;
+  padding-left: var(--grid-sidebar-depth-indent);
+  padding-right: 0;
 }
 .acpmux-workflow-phase__model {
-  padding: 0 8px;
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -105,12 +106,12 @@
 }
 .acpmux-workflow-agent__button {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
+  grid-template-columns: var(--grid-icon-box) minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: var(--grid-gap);
   width: 100%;
-  min-height: calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4);
-  padding: 4px 4px 4px 8px;
+  min-height: var(--grid-row);
+  padding: var(--grid-base) var(--grid-gap);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
@@ -129,7 +130,13 @@ button.acpmux-workflow-agent__button:focus-visible {
 .acpmux-workflow-agent__icon {
   flex: none;
   display: inline-flex;
-  width: 12px;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  /* The row tops its items (align-items: start), so centre the icon box on the first line, the
+     agent's name, which is a line (1lh) tall rather than an icon box. */
+  margin-top: calc((1lh - var(--grid-icon-box)) / 2);
   color: var(--agent-muted);
 }
 .acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__icon {
@@ -155,12 +162,12 @@ button.acpmux-workflow-agent__button:focus-visible {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--ds-space-1) / 4);
+  gap: var(--grid-base);
 }
 .acpmux-workflow-agent__line {
   display: flex;
   min-width: 0;
-  gap: calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4);
+  gap: var(--grid-gap);
   align-items: baseline;
 }
 .acpmux-workflow-agent__name,
@@ -194,12 +201,12 @@ button.acpmux-workflow-agent__button:focus-visible {
 .acpmux-workflow-agent__button--detail .acpmux-workflow-agent__line {
   flex-direction: column;
   align-items: stretch;
-  gap: calc(var(--ds-space-1) / 4);
+  gap: var(--grid-base);
 }
 .acpmux-workflow-agent__button--compact {
-  min-height: calc(var(--ds-control-row) - var(--ds-space-1) / 2);
-  padding-top: calc(var(--ds-space-1) / 2);
-  padding-bottom: calc(var(--ds-space-1) / 2);
+  min-height: var(--grid-row);
+  padding-top: var(--grid-pill-inset);
+  padding-bottom: var(--grid-pill-inset);
 }
 /* One line: the name (and model), then the current action, which truncates inside the row. */
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__text {
@@ -216,12 +223,12 @@ button.acpmux-workflow-agent__button:focus-visible {
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__doing {
   flex: 1 1 auto;
-  margin-left: 6px;
+  margin-left: var(--grid-gap);
 }
 .acpmux-workflow-agent__button--grid {
   /* No floors on the name and model columns: in a narrow panel they truncate inside the row. */
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
-  min-height: calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4);
+  grid-template-columns: var(--grid-icon-box) minmax(0, 1fr) minmax(0, 1fr) auto;
+  min-height: var(--grid-row);
 }
 .acpmux-workflow-agent__button--grid .acpmux-workflow-agent__icon {
   grid-column: 1;
@@ -252,4 +259,14 @@ button.acpmux-workflow-agent__button:focus-visible {
 .acpmux-workflow-agent__button--grid .acpmux-session-info-task__time {
   grid-column: 4;
   grid-row: 1;
+}
+
+.acpmux-workflow-phase__head > svg {
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+
+.acpmux-workflow-task .acpmux-workflow-dots {
+  margin: 0;
+  padding-inline: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap)) var(--grid-gap);
 }

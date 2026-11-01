@@ -380,6 +380,68 @@ pub(crate) fn mark_workspace_ephemeral(
          ON CONFLICT(workspace_id) DO UPDATE SET ephemeral = 1",
         [workspace_id],
     )?;
+    note_ephemeral(workspace_id);
+    Ok(())
+}
+
+/// Every workspace this process marked or found ephemeral, by public id
+/// (never reused). A remote device's event filter judges a closed incognito
+/// workspace's late events by it, after the workspace left the registry
+/// (server/incognito_remote.rs, #31210). A rolled-back mark leaves an id no
+/// workspace has.
+static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that workspace `workspace_id` is ephemeral.
+pub(crate) fn note_ephemeral(workspace_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether workspace `workspace_id` was ever ephemeral in this process.
+pub(crate) fn was_ephemeral(workspace_id: &str) -> bool {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().contains(workspace_id)
+}
+
+/// Saved tab and screen groups this process saw saved from, or synced with,
+/// a group of an ephemeral workspace, by saved id (random, never reused).
+/// Their records keep that workspace's titles, directories and URLs, so a
+/// remote device never lists or reopens them (#31210), even once the
+/// workspace closed.
+static NOTED_INCOGNITO_SAVED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that saved group `saved_id` holds an incognito workspace's group.
+pub(crate) fn note_incognito_saved(saved_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().insert(saved_id.to_string());
+}
+
+/// Every saved group noted by [`note_incognito_saved`].
+pub(crate) fn incognito_saved() -> Vec<String> {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().iter().cloned().collect()
+}
+
+/// Note saved tab group `saved_id` when pane `pane_id` (public id), whose
+/// strip holds the group it was written from, is in an ephemeral workspace.
+pub(crate) fn note_saved_from_pane(
+    connection: &Connection,
+    pane_id: &str,
+    saved_id: &str,
+) -> anyhow::Result<()> {
+    let incognito: i64 = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_panes AS p
+           JOIN resource_screens AS s ON s.public_id = p.screen_id
+           JOIN workspace_state AS w ON w.workspace_id = s.workspace_id
+           WHERE p.public_id = ?1 AND w.ephemeral = 1)",
+        [pane_id],
+        |row| row.get(0),
+    )?;
+    if incognito != 0 {
+        note_incognito_saved(saved_id);
+    }
     Ok(())
 }
 
@@ -391,4 +453,82 @@ pub(crate) fn ephemeral_workspaces(connection: &Connection) -> anyhow::Result<Ve
          WHERE s.ephemeral = 1 AND rw.deleted_revision IS NULL",
     )?;
     Ok(statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Whether workspace `workspace_key` is ephemeral (incognito). False before
+/// the state tables exist.
+pub(crate) fn workspace_key_is_ephemeral(
+    connection: &Connection,
+    workspace_key: &str,
+) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM resource_workspaces AS rw
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE rw.workspace_key = ?1 AND ws.ephemeral != 0",
+            [workspace_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Whether terminal `terminal_id` (internal id) was created in an ephemeral
+/// workspace that still carries the flag. Its flag row goes when that
+/// workspace closes, so callers that need the answer after the close keep
+/// it (`OutputStore::mark_private`).
+fn terminal_is_ephemeral(connection: &Connection, terminal_id: &str) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM terminal_hosts AS th
+             JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE th.terminal_id = ?1 AND ws.ephemeral != 0",
+            [terminal_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// The public ids of the terminals created in workspace `workspace_id`
+/// (a public id), placed or not.
+pub(crate) fn workspace_terminal_public_ids(
+    connection: &Connection,
+    workspace_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT rt.public_id FROM resource_terminals AS rt
+         JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+         JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+         WHERE rw.public_id = ?1 AND rt.deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([workspace_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// [`terminal_is_ephemeral`] by public terminal id; `None` for a terminal
+/// the session does not (yet) have.
+pub(crate) fn public_terminal_is_ephemeral(
+    connection: &Connection,
+    public_id: &str,
+) -> anyhow::Result<Option<bool>> {
+    let terminal = connection
+        .query_row(
+            "SELECT terminal_id FROM resource_terminals WHERE public_id = ?1",
+            [public_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    match terminal {
+        Some(terminal) => terminal_is_ephemeral(connection, &terminal).map(Some),
+        None => Ok(None),
+    }
 }
