@@ -575,13 +575,12 @@ class LightJobsOnAFreeMini(unittest.TestCase):
     """The nightly's light jobs take a mini idle when build-nightly-app finished, else Blacksmith.
 
     Leo, 2026-10-31: "i mean the linux things cant our minis just run them" and "we just need the
-    nightlies bro". await-nightly-tree-marker (bash, curl, python3) has no environment and no secret;
-    build-nightly-app's last step places it (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only that
-    job reads its outputs, and no job that holds a signing or publishing environment ever does.
-    build-nightly-remote-daemon no longer follows the app build: it builds beside it
-    (DaemonBesideTheApp)."""
+    nightlies bro". await-nightly-tree-marker (bash, curl, python3) and the preparation jobs
+    have no environment and no secret; build-nightly-app's last step places them
+    (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only those three jobs read its outputs, and no job
+    that holds a signing or publishing environment ever does."""
 
-    LIGHT = ('await-nightly-tree-marker',)
+    LIGHT = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker')
     MINI = 'glaeda-side-std-xcode-26.6'
 
     def runs_on(self, job, **changes):
@@ -597,21 +596,29 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         for job in self.LIGHT:
             with self.subTest(job=job):
                 self.assertEqual(self.runs_on(job), self.MINI)
-                # Placed only another job: this one keeps the runner set's Blacksmith member.
-                self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': ' other-job '}),
-                                 'blacksmith-32vcpu-ubuntu-2404')
+                # Placed only the other job: this one keeps the runner set's Blacksmith member.
+                other = next(name for name in self.LIGHT if name != job)
+                self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': f' {other} '}),
+                                 ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant' else 'blacksmith-32vcpu-ubuntu-2404'))
 
     def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
         for job in self.LIGHT:
             for changes, expected in (
-                    ({'needs.build-nightly-app.outputs.light_mini_jobs': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
-                    ({'needs.build-nightly-app.outputs.light_attempt': ''}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'needs.build-nightly-app.outputs.light_mini_jobs': ''}, None),
+                    ({'needs.build-nightly-app.outputs.light_attempt': ''}, None),
                     # A re-run of failed jobs keeps attempt 1's outputs: the mini may be busy by now.
-                    ({'github.run_attempt': 2}, 'blacksmith-32vcpu-ubuntu-2404'),
+                    ({'github.run_attempt': 2}, None),
                     ({'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404', 'github.run_attempt': 2},
-                     'blacksmith-16vcpu-ubuntu-2404'),
+                     None),
                     ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
                 with self.subTest(job=job, changes=changes):
+                    if expected is None:
+                        if changes.get('vars.LINUX_RUNNER') == 'blacksmith-16vcpu-ubuntu-2404':
+                            expected = ('blacksmith-32vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
+                                        else 'blacksmith-16vcpu-ubuntu-2404')
+                        else:
+                            expected = ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
+                                        else 'blacksmith-32vcpu-ubuntu-2404')
                     self.assertEqual(self.runs_on(job, **changes), expected)
 
     def test_light_jobs_hold_no_environment_and_no_secret(self):
@@ -627,6 +634,8 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light')
         self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
         self.assertEqual(step['env']['NIGHTLY'], '1')
+        self.assertEqual(step['env']['NIGHTLY_WAIT_FOR_FLEET'], '1')
+        self.assertEqual(step['timeout-minutes'], 5)
         # No fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
         self.assertEqual(step['env']['FLEET_LINUX'], '')
         self.assertTrue(step['continue-on-error'])
