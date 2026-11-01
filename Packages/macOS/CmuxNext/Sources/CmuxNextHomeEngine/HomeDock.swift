@@ -179,17 +179,28 @@ public final class HomeDock {
     /// ``allowTabs``, with a failure logged and returned as the step, so the rest of the connect
     /// (the placeholder check) still runs; the next connect tries again.
     private func allowTabsLogged(_ connection: DaemonConnection, store: DaemonStore,
-                                 workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async -> String? {
+                                 workspace: @escaping @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async -> String? {
+        await allowTabsLogged(store: store, workspace: workspace, fresh: fresh) { screen, pane in
+            try await connection.setColumnAllowsTabs(true, screen: screen, pane: pane)
+        }
+    }
+
+    /// The `column.update {allow_tabs: true}` of the dock column on `screen` holding `pane` (tests pass their own).
+    typealias AllowTabs = @Sendable (_ screen: ResourceID, _ pane: ResourceID) async throws -> Void
+
+    /// ``allowTabsLogged(_:store:workspace:fresh:)`` with the request as `allow`.
+    func allowTabsLogged(store: DaemonStore, workspace: @escaping @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool,
+                         allow: @escaping AllowTabs) async -> String? {
         do {
-            return try await allowTabs(connection, store: store, workspace: workspace, fresh: fresh)
+            return try await allowTabs(store: store, workspace: workspace, fresh: fresh, allow: allow)
         } catch {
             logger.error("home dock allow_tabs: \(String(describing: error), privacy: .public)")
             return "home dock allow_tabs failed: \(String(describing: error))"
         }
     }
 
-    private func allowTabs(_ connection: DaemonConnection, store: DaemonStore,
-                           workspace: @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool) async throws -> String? {
+    private func allowTabs(store: DaemonStore, workspace: @escaping @MainActor @Sendable () -> WorkspaceModel?, fresh: Bool,
+                           allow: @escaping AllowTabs) async throws -> String? {
         guard store.supports(DaemonCapability.pinnedDock.rawValue), fresh || !defaults.bool(forKey: Self.dockTakesTabsKey),
               let placed = workspace().flatMap(Self.pageTab(in:)),
               let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock else { return nil }
@@ -203,7 +214,7 @@ public final class HomeDock {
             logger.error("home dock allow_tabs: the tree has no resource id for the dock's screen or pane yet")
             return "home dock allow_tabs waits for resource ids"
         }
-        try await connection.setColumnAllowsTabs(true, screen: screen, pane: pane)
+        try await allow(screen, pane)
         defaults.set(true, forKey: Self.dockTakesTabsKey)
         return "home dock takes tabs"
     }
