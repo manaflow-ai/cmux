@@ -2,6 +2,7 @@ import datetime as dt
 import base64
 from pathlib import Path
 import unittest
+import sys
 from unittest import mock
 
 from scripts.ci import cloud_probe_rescue as r
@@ -72,11 +73,19 @@ class RescueTests(unittest.TestCase):
         ]}
         self.assertEqual([run["id"] for run in r.candidate_runs(api)], [1])
 
-    def test_committed_workflow_has_the_required_attempt_route(self):
+    def test_unmodified_legacy_workflow_requires_separate_activation(self):
         api = mock.Mock()
         source = (Path(__file__).resolve().parents[1] / r.WORKFLOW_PATH).read_text()
         api.request.return_value = {"content": base64.b64encode(source.encode()).decode()}
-        self.assertTrue(r.workflow_supports_reroute(api, run()))
+        self.assertFalse(r.workflow_supports_reroute(api, run()))
+
+    def test_missing_yaml_dependency_fails_loudly_before_mutation(self):
+        api = mock.Mock()
+        with mock.patch.dict(sys.modules, {"yaml": None}):
+            with self.assertRaisesRegex(RuntimeError, "python-with-yaml.sh"):
+                r.workflow_supports_reroute(api, run())
+        api.request.assert_not_called()
+        api.cancel.assert_not_called()
 
     def test_unconditional_prefix_cannot_hide_the_route(self):
         api = mock.Mock()

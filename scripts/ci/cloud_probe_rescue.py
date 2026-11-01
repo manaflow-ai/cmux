@@ -5,6 +5,13 @@ This is deliberately separate from the owned-pool/nightly rescue policy.  It
 touches one workflow and one unstarted control job only.  A queued watcher is
 safe to retry because it has not received the App key; started watchers are
 left alone and execute their normal probe/switch path.
+
+Deployment is deliberately two-phase. This runtime module has no workflow
+caller on feat-cmux-next; the existing feature-branch watcher is unchanged.
+The separate main activation checks this module out beside main's client,
+adds its requested-event trigger, and changes the main watcher route together.
+Invoke the CLI through main's scripts/ci/python-with-yaml.sh, which installs
+PyYAML==6.0.3. Legacy workflow revisions are intentionally not rerouted.
 """
 from __future__ import annotations
 
@@ -79,9 +86,12 @@ def workflow_supports_reroute(api: object, run: Mapping[str, object]) -> bool:
     if not sha or not hasattr(api, "request"):
         return False
     try:
+        import yaml
+    except ImportError as error:
+        raise RuntimeError("PyYAML is required; invoke through scripts/ci/python-with-yaml.sh") from error
+    try:
         data = api.request("GET", f"/contents/{WORKFLOW_PATH}?ref={sha}")
         content = base64.b64decode(str((data or {}).get("content") or "").replace("\n", "")).decode()
-        import yaml
         document = yaml.safe_load(content)
     except Exception:
         return False

@@ -6,7 +6,7 @@ name: CI cloud overflow probe
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and GitHub-hosted Linux, and pointed back once it serves
 # again. One probe, one switch: `probe` asks for a Blacksmith label and only
-# prints a line; `watch` uses a bounded set of ephemeral retry routes.
+# prints a line; `watch`, on a GitHub-hosted runner, waits for it.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - The probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -68,9 +68,7 @@ jobs:
     environment: ci-routing-agent
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # The rescue validates this attempt-aware route before retrying an
-    # unassigned watcher. Credentials stay on trusted ephemeral runners.
-    runs-on: ${{ github.run_attempt == 1 && 'blacksmith-8vcpu-ubuntu-2404' || github.run_attempt == 2 && 'blacksmith-6vcpu-macos-26' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
     timeout-minutes: 25
     permissions:
       actions: write
