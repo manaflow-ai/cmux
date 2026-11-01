@@ -1,4 +1,5 @@
-// l10n-allow-file: synthetic report and inbox capture fixtures, not shipped UI.
+// l10n-allow-file: synthetic report capture fixtures, not shipped UI.
+// Lane reports fold; inbox notices never do (their threads are lines: InboxNotice.gallery.ts).
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -6,23 +7,18 @@ import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { report, notice } from "./laneNotice.gallery-fixtures";
+import { report } from "./laneNotice.gallery-fixtures";
 import { batchLaneNotices } from "./laneNoticeBatches";
 import { setMessageOpened } from "./incomingOpened";
 import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
-type Props = { kind: "reports" | "inbox" | "single"; expanded: boolean };
+type Props = { kind: "reports" | "single"; expanded: boolean };
 
 function Stage({ kind, expanded }: Props) {
   const session = `gallery-lane-notice-${kind}-${expanded}`;
   const [rows] = useState(() => {
     resetTranscriptDisclosure(session);
-    const members =
-      kind === "inbox"
-        ? [0, 1, 2].map((index) => notice(index, session))
-        : kind === "single"
-          ? [report(4, session)]
-          : [0, 1, 2, 3, 4].map((index) => report(index, session));
+    const members = kind === "single" ? [report(4, session)] : [0, 1, 2, 3, 4].map((index) => report(index, session));
     const grouped = batchLaneNotices(members);
     for (const row of [...members, ...grouped]) setMessageOpened(session, row.id, false);
     return grouped;
@@ -78,7 +74,7 @@ const variant = (kind: Props["kind"], expanded: boolean, note: string) => ({
 
 export default componentEntry<Props>({
   id: "agent-pane.lane-notices",
-  title: "Lane reports and inbox notices",
+  title: "Lane reports",
   area: "Agent pane",
   pane: true,
   height: 640,
@@ -98,8 +94,6 @@ export default componentEntry<Props>({
       true,
       "The five reports keep their names and disclosures; the BLOCK shows both full findings.",
     ),
-    "inbox-collapsed": variant("inbox", false, "Three inbox notices share one row naming their senders."),
-    "inbox-expanded": variant("inbox", true, "Each inbox notice remains independently expandable."),
     "single-collapsed": variant(
       "single",
       false,

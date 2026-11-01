@@ -80,7 +80,7 @@ import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
-import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
+import { inboxNoticeFromText, inboxText, isInboxNoticeText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -635,6 +635,15 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   const incoming = incomingPrompt(text, msg, context);
   if (incoming?.kind === "message") return incoming.message;
   const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
+  // acpmux's inbox notice waiting its turn: its threads, read from its provenance, else its text (a
+  // listed entry keeps only a preview). One that names none still is the notice, and draws nothing.
+  if (incoming?.kind === "inbox" || name === "inbox" || (name && isInboxNoticeText(text)))
+    return {
+      name: name || "inbox",
+      text: "",
+      raw: text,
+      inbox: incoming?.kind === "inbox" ? incoming.notice : (inboxNoticeFromText(text) ?? { threads: [] }),
+    };
   if (!name) return undefined;
   const lead = text.trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
@@ -783,7 +792,16 @@ export function mergeQueue(
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? undefined : (kept ?? listedMessage);
+    // acpmux's own inbox notice is listed with no `fromAgent` (it has no sender, hub/inbox.rs
+    // `deliver_notice`), yet it is never the person's prompt: the record read named it, or its
+    // listed preview (client `acpmux`, the notice's head) does.
+    const notice =
+      had?.message?.inbox !== undefined
+        ? had.message
+        : entry?.client === "acpmux" && isInboxNoticeText(preview)
+          ? queuedMessage({ text: preview, fromAgent: "inbox" })
+          : undefined;
+    const message = notice ?? (listed === null ? undefined : (kept ?? listedMessage));
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const author =

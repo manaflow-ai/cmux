@@ -50,7 +50,7 @@ test("keeps a singleton report and batches consecutive reports with verdict coun
   expect(grouped[0]!.text).toContain("SHIP at");
 });
 
-test("inbox threads deduplicate by thread id and count senders", () => {
+test("inbox notices never fold: each is its threads' lines (inboxNotice.ts), not a batch row", () => {
   const first = row("i1", "New messages", {
     threads: [
       { id: "orch/pr:1", sender: "orch" },
@@ -63,12 +63,8 @@ test("inbox threads deduplicate by thread id and count senders", () => {
       { id: "other/pr:3", sender: "other" },
     ],
   });
-  const [group] = batchLaneNotices([first, second]);
-  expect(group!.laneNoticeBatch?.threads).toEqual([
-    { id: "orch/pr:1", sender: "orch" },
-    { id: "orch/pr:2", sender: "orch" },
-    { id: "other/pr:3", sender: "other" },
-  ]);
+  const rows = [first, second];
+  expect(batchLaneNotices(rows)).toBe(rows);
 });
 
 test("ordinary rows, kind boundaries, and waiting rows break a batch", () => {

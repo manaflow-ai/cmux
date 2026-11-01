@@ -8,9 +8,8 @@
 // (`_acpmux/inbox_thread`, through `chat.inbox.thread`) when the line first opens, without marking
 // them read (the person reading is not the agent). Nothing of the notice's text for the agent shows.
 // Two or more threads (a notice of several, or notices next to each other, mergeInboxNotices) draw
-// as one group in the look of the waiting messages' group (PendingMessagesCard.tsx): one line, "N
-// messages from M sessions" and the senders muted, that opens to the threads' lines; the versions
-// beside it are inboxNoticeLook.ts's. Whether a line or the group is open lasts while the page does
+// as one flat run of those lines, a thread once, with no head over them (Leo, 2026-11-01: "WTF IS
+// THIS FUCKING RENDERING"); the versions beside it (a group head, a card) are inboxNoticeLook.ts's. Whether a line or the group is open lasts while the page does
 // (incomingOpened.ts), and the row estimator (model.ts) reads it. Everything opens on the click,
 // with no fade in.
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";

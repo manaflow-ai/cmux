@@ -1,9 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample agent names and messages), not shipped UI.
 // acpmux's inbox notice (hub/inbox.rs, provenance `inbox_notice`) in the transcript: each thread is
 // another agent's received line (the sender, the thread's label, the newest message's first line,
-// "+N more"), and two or more threads fold under one line, "N messages from M sessions" (Leo,
+// "+N more"), and two or more threads are a flat run of those lines with no head over them (Leo,
 // 2026-10-31, on the notice drawn as the person's bubbles: "isn't this rendered pretty terribly? why
-// do we have this like this? why is there so much additional text?"). `before`: the notice as the
+// do we have this like this? why is there so much additional text?"; 2026-11-01, on folds inside
+// folds: "WTF IS THIS FUCKING RENDERING"). `before`: the notice as the
 // pane drew it, its text for the agent in the person's bubble. The `look-*` versions beside the
 // default are inboxNoticeLook.ts's (`theme.inboxNoticeLook`). Names and messages are made up.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -211,31 +212,31 @@ export default agentPaneEntry({
       play: openFirst,
     },
     three: {
-      note: 'Three threads: one line, "4 messages from 3 sessions" and the senders.',
+      note: "Three threads: a received line per thread, no head over them.",
       snapshot: snapshot(THREE),
     },
     "three-open": {
-      note: "Three threads, opened: a received line per thread, the first opened.",
+      note: "Three threads, the first opened: its whole message under its line.",
       snapshot: snapshot(THREE),
       play: openFirst,
     },
     six: {
-      note: "Three notices in a row (six threads) fold into one line.",
+      note: "Three notices in a row (six threads): one flat run of six lines, a thread once.",
       snapshot: snapshot(SIX),
     },
     "six-open": {
-      note: "Six threads, opened, the thread of three messages opened: each message under its sender.",
+      note: "Six threads, the thread of three messages opened: each message under its sender.",
       snapshot: snapshot(SIX),
       play: openRail,
     },
-    "look-lines-three": {
-      note: "Gallery version (theme inboxNoticeLook lines): a received line per thread, no head.",
-      theme: { inboxNoticeLook: "lines" },
+    "look-group-three": {
+      note: 'Gallery version (theme inboxNoticeLook group): one line, "4 messages from 3 sessions" and the senders.',
+      theme: { inboxNoticeLook: "group" },
       snapshot: snapshot(THREE),
     },
-    "look-lines-six": {
-      note: "Gallery version (theme inboxNoticeLook lines), six threads.",
-      theme: { inboxNoticeLook: "lines" },
+    "look-group-six": {
+      note: "Gallery version (theme inboxNoticeLook group), six threads.",
+      theme: { inboxNoticeLook: "group" },
       snapshot: snapshot(SIX),
     },
     "look-card-three": {

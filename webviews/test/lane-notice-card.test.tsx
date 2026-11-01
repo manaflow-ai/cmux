@@ -112,12 +112,7 @@ async function mount(
           >
             {grouped.map((row) =>
               row.pendingMessages ? (
-                <PendingMessagesCard
-                  key={row.id}
-                  row={row}
-                  onOpen={(id) => void opened.push(id)}
-                  renderMessage={renderNotice}
-                />
+                <PendingMessagesCard key={row.id} row={row} renderMessage={renderNotice} />
               ) : (
                 renderNotice(row)
               ),
@@ -215,7 +210,7 @@ test("Find opens the batch and only the member holding its match", async () => {
   expect(drawn.repaints()).toBeGreaterThan(0);
 });
 
-test("three inbox notices share one line and expose each notice when opened", async () => {
+test("inbox notices never fold into a batch of deliveries", () => {
   const senders = ["pane-tools", "layout-review", "message-rows"];
   const rows: AcpmuxRow[] = senders.map((sender, i) => {
     const text = `New messages from other agents in 1 thread.\n- 1 new in #${300 + i} from ${sender}: Ready for review. (thread from:${sender}/pr:${300 + i})`;
@@ -236,27 +231,17 @@ test("three inbox notices share one line and expose each notice when opened", as
       },
     };
   });
-  await mount(rows);
-  const toggle = host.querySelector(".cv-lane-batch__toggle")!;
-  expect(toggle.textContent).toContain("3 inbox threads");
-  for (const sender of senders) expect(toggle.textContent).toContain(sender);
-  expect(toggle.textContent).not.toContain("\n");
-  expect(host.querySelector(".cv-received")).toBeNull();
-  await click(".cv-lane-batch__toggle");
-  expect(host.querySelectorAll(".cv-received")).toHaveLength(3);
-  await click('[data-row-id="inbox-1"] .cv-disclosure__toggle');
-  expect(host.querySelector('[data-row-id="inbox-1"] .cv-received__text')?.textContent).toContain("Ready for review.");
+  expect(batchLaneNotices(rows)).toBe(rows);
 });
 
-test("waiting report batches keep every sender visible and clickable without a shared sender head", async () => {
+test("waiting reports are flat lines in the waiting group, every sender visible and clickable", async () => {
   const { opened } = await mount([report("waiting-one"), report("waiting-two")], undefined, true);
   await click(".cv-pending__toggle");
-  await click(".cv-lane-batch__toggle");
+  // No fold inside the group, and no sender head over the lines.
+  expect(host.querySelector(".cv-lane-batch")).toBeNull();
+  expect(host.querySelector(".cv-pending__sender")).toBeNull();
   const senders = [...host.querySelectorAll<HTMLElement>(".cv-received__from--open")];
   expect(senders).toHaveLength(2);
-  // PendingMessagesCard.css hides sender chips below a shared sender head. A mixed report
-  // batch has no such head and must stay outside that selector's scope.
-  for (const sender of senders) expect(sender.closest(".cv-pending__sender")).toBeNull();
   await act(async () => senders[1]!.click());
   expect(opened).toEqual(["session-waiting-two"]);
 });

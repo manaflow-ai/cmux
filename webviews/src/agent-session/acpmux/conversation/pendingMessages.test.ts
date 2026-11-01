@@ -4,13 +4,7 @@
 // are never folded into one.
 import { expect, test } from "bun:test";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
-import {
-  bySender,
-  dedupeMessages,
-  PENDING_MESSAGES_ROW_ID,
-  pendingMessagesRow,
-  searchablePendingRows,
-} from "./pendingMessages";
+import { dedupeMessages, PENDING_MESSAGES_ROW_ID, pendingMessagesRow, searchablePendingRows } from "./pendingMessages";
 
 let at = 0;
 const queued = (promptId: string, name: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -72,12 +66,8 @@ test("every waiting message is in one group, and a later one joins it under the 
   const later = pendingMessagesRow(steers, [...first, queued("q3", "dep-fleet", "#26105 reds")], group)!;
   expect(later.id).toBe(group.id);
   expect(later.pendingMessages?.rows).toHaveLength(4);
-  // Opened, by sender, each sender once in the order it first wrote.
-  expect(bySender(later.pendingMessages!.rows).map((each) => [each.key, each.rows.length])).toEqual([
-    ["s-claude-sr2/fanout-infra", 1],
-    ["s-dep-fleet", 2],
-    ["s-nx-sidebar", 1],
-  ]);
+  // Opened, one flat run in arrival order: no sender sections.
+  expect(later.pendingMessages?.displayRows).toBe(later.pendingMessages?.rows);
   // Nothing waits: no group.
   expect(pendingMessagesRow([], [])).toBeUndefined();
 });
