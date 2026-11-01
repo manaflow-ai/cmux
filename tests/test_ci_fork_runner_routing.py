@@ -322,9 +322,6 @@ SECRET_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "build-nightly-app"):
         "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
         "by design; nightlies never use Blacksmith",
-    ("seed-derived-data.yml", "seed"):
-        "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
-        "(it seeds their DerivedData)",
 }
 APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
                              if key == ("nightly.yml", "generate-nightly-deltas")}

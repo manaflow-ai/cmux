@@ -7086,6 +7086,11 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     assert names(composed, ADMISSION_JOB), "reuse_app_host_products.py must match the final segment of the job name"
     assert names(inner, ADMISSION_JOB)
     assert names("seed (blacksmith-12vcpu-macos-26)", "seed")
+    # seed-derived-data.yml calls seed-derived-data-pool.yml per pool: its build job is
+    # "seed (<pool>) / seed", and the save job beside it never counts as the producer.
+    assert names("seed (blacksmith-12vcpu-macos-26) / seed", "seed")
+    assert names("seed (glaeda-trusted-std-xcode-26.6, 2) / seed", "seed")
+    assert not names("seed (blacksmith-12vcpu-macos-26) / save", "seed")
     assert not names("macos / some other job", ADMISSION_JOB)
     assert not names("seeder", "seed")
     assert not names(None, "seed")
@@ -7098,7 +7103,7 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
-        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
+        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data-pool.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))

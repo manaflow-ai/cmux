@@ -230,18 +230,18 @@ class SeedDerivedData(unittest.TestCase):
         self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
 
     def test_the_trusted_seed_job_keeps_its_seeds_before_save_and_the_product_steps(self):
-        """Keep clones the seed before the R2 upload, so the LAN archive need not wait for it."""
-        seeder = steps("seed-derived-data.yml", "seed")
+        """Keep clones the seed before it is packed for R2, so the LAN archive need not wait for it."""
+        seeder = steps(POOL, "seed")
         choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
         adopt_at, _ = named(seeder, "Adopt the newest seed")
-        save_at, _ = named(seeder, "Save seed")
+        save_at, _ = named(seeder, "Pack seed")
         keep_at, keep = named(seeder, "Keep the seed on this Mac")
         stage_at, _ = named(seeder, "Stage compiled package frameworks")
         self.assertLess(choose_at, adopt_at)
         self.assertLess(adopt_at, keep_at)
         self.assertLess(keep_at, save_at)  # the LAN archive gets the seed without waiting on R2
         self.assertLess(save_at, stage_at)
-        self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
+        self.assertIn("inputs.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
         # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
         self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
         self.assertIn('[ -d "$cache" ]', choose["run"])  # once on, prune_local holds the disk
@@ -686,6 +686,15 @@ def steps(workflow, job):
     return load(workflow)["jobs"][job]["steps"]
 
 
+# seed-derived-data.yml's `seed` matrix calls this per pool: its `seed` job builds on the pool
+# with no secret, `save` uploads to R2 from an ephemeral Linux runner.
+POOL = "seed-derived-data-pool.yml"
+
+
+def seed_build():
+    return load(POOL)["jobs"]["seed"]
+
+
 def seed_pools():
     """The pool expressions that seed, in order: the decide step's SEED_POOL_n.
 
@@ -915,7 +924,7 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml",
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", POOL, "test-e2e.yml",
                                                                         "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
         # E2E builds and main compile probes adopt the same seed but only read it.
@@ -937,15 +946,18 @@ class Wiring(unittest.TestCase):
         # cancel-in-progress would starve publishing while merges keep
         # arriving faster than a seed builds; see the comment beside it.
         self.assertIs(workflow["jobs"]["seed"]["concurrency"]["cancel-in-progress"], False)
-        # One group per pool: a seed is only useful to admission on that pool.
-        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["jobs"]["seed"]["concurrency"]["group"])
+        # One group per pool: a seed is only useful to admission on that pool. The
+        # group holds the whole call, build and save.
+        self.assertEqual(seed_build()["runs-on"], "${{ inputs.pool }}")
+        self.assertEqual(workflow["jobs"]["seed"]["with"]["pool"], "${{ matrix.pool }}")
+        self.assertIn("matrix.pool", workflow["jobs"]["seed"]["concurrency"]["group"])
 
-        seeder = steps("seed-derived-data.yml", "seed")
+        seeder = steps(POOL, "seed")
         resolve_at, _ = named(seeder, "Resolve Swift packages")
         adopt_at, adopt = named(seeder, "Adopt the newest seed")
         record_at, _ = named(seeder, "Record seed inputs")
         build_at, _ = named(seeder, "Build")
-        save_at, save = named(seeder, "Save seed")
+        save_at, save = named(seeder, "Pack seed")
         self.assertLess(resolve_at, adopt_at)
         self.assertLess(adopt_at, record_at)
         self.assertLess(record_at, build_at)
@@ -959,7 +971,7 @@ class Wiring(unittest.TestCase):
         _, key = named(seeder, "Compute seed key")
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
-        job = workflow["jobs"]["seed"]
+        job = seed_build()
         # Every nightly cold seed lands on a pool the per-push seeder uses, on
         # the same Xcode, and the macOS 15 pool gets one too.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
@@ -975,10 +987,13 @@ class Wiring(unittest.TestCase):
                 self.assertIn(picked, seeded, (lane, pool))
                 self.assertTrue(picked.startswith("blacksmith-"), (lane, picked))
         self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
-        self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
+        # The same expression, on the pool its caller's matrix names.
+        self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"],
+                         job["env"]["CMUX_CI_XCODE_APP"].replace("inputs.pool", "matrix.pool"))
         # On the lane's pools the seeder uses the nightly's Xcode.
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         context["matrix"] = {"pool": "blacksmith-6vcpu-macos-26"}
+        context["inputs"]["pool"] = "blacksmith-6vcpu-macos-26"
         self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context),
                          evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], context))
 
@@ -992,7 +1007,8 @@ class Wiring(unittest.TestCase):
         """Pull-request admission runs on the 6 or 12 vCPU macOS 26 pool, and a
         seed only serves the width it was built at, so both pools seed."""
         job = load("seed-derived-data.yml")["jobs"]["seed"]
-        self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
+        self.assertEqual(job["with"]["pool"], "${{ matrix.pool }}")
+        self.assertEqual(seed_build()["runs-on"], "${{ inputs.pool }}")
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in seed_pools()}
@@ -1008,11 +1024,12 @@ class Wiring(unittest.TestCase):
         self.assertIs(job["concurrency"]["cancel-in-progress"], False)
 
         # Both writers save under the width they built at.
-        seeder = job["steps"]
+        seeder = seed_build()["steps"]
         _, key = named(seeder, "Compute seed key")
         self.assertIn("seed_derived_data.py scope", key["run"])
-        _, save = named(seeder, "Save seed")
+        _, save = named(seeder, "Pack seed")
         self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        self.assertEqual(seed_build()["outputs"]["seed-key"], save["with"]["key"])
         # A failed scope call must not save under the bare revision.
         self.assertIn('test -n "$scoped"', key["run"])
         nightly = steps("nightly.yml", "refresh-test-compilation-cache")
@@ -1064,11 +1081,13 @@ class Wiring(unittest.TestCase):
         fork["github"]["repository"] = "someone/cmux"
         self.assertEqual(evaluate(trusted, fork), "")
 
-        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        job = seed_build()
         ctx = context("push", CI_SEED_TRUSTED_POOL=label)
-        ctx["matrix"] = {"pool": label}
+        ctx["inputs"]["pool"] = label
         self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], ctx), "/Applications/Xcode-pr.app")
-        self.assertEqual(evaluate(job["environment"], ctx), "ci-cache-writer")
+        # The R2 keys never reach the trusted mini: only the save job enters their environment.
+        self.assertNotIn("environment", job)
+        self.assertEqual(evaluate(load(POOL)["jobs"]["save"]["environment"], ctx), "ci-cache-writer")
         # Never the product publisher.
         self.assertNotIn("TRUSTED", seed_pools()[0])
 
@@ -1102,9 +1121,10 @@ class Wiring(unittest.TestCase):
         self.assertNotEqual(pools(label, "x")[0], 0)
 
         job = workflow["jobs"]["seed"]
-        self.assertEqual(job["env"]["CMUX_SEED_ROOT"], "${{ matrix.root }}")
+        self.assertEqual(job["with"]["root"], "${{ matrix.root }}")
+        self.assertEqual(seed_build()["env"]["CMUX_SEED_ROOT"], "${{ inputs.root }}")
         self.assertIn("matrix.root", job["concurrency"]["group"])
-        _, prepare = named(job["steps"], "Prepare admission build paths")
+        _, prepare = named(seed_build()["steps"], "Prepare admission build paths")
 
         def prepare_root(pool, root):
             with tempfile.TemporaryDirectory() as tmp:
@@ -1162,7 +1182,7 @@ class Wiring(unittest.TestCase):
         a hook that already placed the job (exit 2) keeps today's behaviour,
         and any other failure stops the job before it touches the root."""
         import subprocess
-        _, prepare = named(load("seed-derived-data.yml")["jobs"]["seed"]["steps"], "Prepare admission build paths")
+        _, prepare = named(seed_build()["steps"], "Prepare admission build paths")
         text = prepare["run"]
         self.assertIn("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", text)
         self.assertLess(text.index('"$helper" take "$root"'), text.index("scripts/ci/clear-dirs.sh"))
@@ -1197,12 +1217,12 @@ class Wiring(unittest.TestCase):
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
         import pr_runner_pool
 
-        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        job = seed_build()
         *_, overflow = seed_pools()
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pool = evaluate(overflow, context)
         self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
-        context["matrix"] = {"pool": pool}
+        context["inputs"]["pool"] = pool
         self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
         self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
         # Only the first entry publishes the product, never this one.
@@ -1212,19 +1232,20 @@ class Wiring(unittest.TestCase):
         """Pull requests adopt this product in place of compiling, so it has to
         be the admission product: same key, same staging, same packaging, same
         artifact name, published only by a main push, after the seed is saved."""
-        workflow = load("seed-derived-data.yml")
-        job = workflow["jobs"]["seed"]
+        job = seed_build()
         seeder = job["steps"]
         admission = steps("ci-macos.yml", "macos-compile-admission")
 
-        # The consumer names the job and step that must have compiled it.
+        # The consumer names the job and step that must have compiled it
+        # ("seed (<pool>) / seed"), and so does glaeda's hook (the job id).
         self.assertNotIn("name", job)
+        self.assertNotIn("name", load("seed-derived-data.yml")["jobs"]["seed"])
         build_at, build = named(seeder, "Build")
         self.assertIn("canonical-build", build["run"])
         _, admission_compile = named(admission, "Compile app-host test product")
         self.assertIn("canonical-build", admission_compile["run"])
 
-        save_at, _ = named(seeder, "Save seed")
+        save_at, _ = named(seeder, "Pack seed")
         key_at, key = named(seeder, "Identify reusable compiled products")
         _, admission_key = named(admission, "Identify reusable compiled products")
         self.assertEqual(key["id"], "product-key")
@@ -1253,7 +1274,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("retention-days", upload["with"])
 
         # Staging and relocation rewrite Build/Products, so they run only once
-        # the seed incremental builds read is already saved.
+        # the seed incremental builds read is already packed.
         self.assertLess(build_at, save_at)
         self.assertLess(save_at, stage_at)
         self.assertLess(stage_at, package_at)
@@ -1268,10 +1289,147 @@ class Wiring(unittest.TestCase):
         self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
         self.assertNotIn("secrets.", json.dumps([stage, package, upload]))
 
+    def test_the_build_on_the_pool_holds_no_secret_and_an_ephemeral_job_saves_what_it_packed(self):
+        """The pool can be a reused owned Mac (the trusted pool, or the owned pull-request pool
+        MACOS_RUNNER_PR names), so the build holds no R2 key, no environment and a read-only
+        token. It packs each archive r2-cache.sh would upload into this run's artifacts, and
+        `save`, on a literal Linux label, uploads them in the old order: adopt, record, build,
+        save."""
+        import subprocess
+        caller = load("seed-derived-data.yml")["jobs"]["seed"]
+        jobs = load(POOL)["jobs"]
+        build, save = jobs["seed"], jobs["save"]
+        self.assertNotIn("secrets", json.dumps(build))
+        for name, job in (("caller", caller), ("seed", build)):
+            self.assertNotIn("environment", job, name)
+        # GitHub resolves an environment secret in a called workflow only when the caller
+        # passes it by name; unpassed, it is empty and every save writes nothing, silently.
+        r2 = ("CI_CACHE_R2_ACCESS_KEY_ID", "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID")
+        self.assertEqual(caller["secrets"], {name: f"${{{{ secrets.{name} }}}}" for name in r2})
+        declared = load(POOL).get("on", load(POOL).get(True))["workflow_call"]["secrets"]
+        self.assertEqual({name: spec["required"] for name, spec in declared.items()}, {name: True for name in r2})
+        readers = {name for name, job in jobs.items() if "secrets." in json.dumps(job)}
+        self.assertEqual(readers, {"save"})
+        self.assertEqual(build["permissions"], {"contents": "read"})
+        self.assertEqual(save["permissions"], {"contents": "read"})
+        self.assertEqual(save["needs"], "seed")
+        self.assertEqual(save["if"], "always() && needs.seed.result != 'skipped'")
+        self.assertEqual(save["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(save["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertIn("secrets.CI_CACHE_R2_SECRET_ACCESS_KEY", json.dumps(save))
+
+        seeder = build["steps"]
+        adopt_at, adopt = named(seeder, "Adopt the newest seed")
+        record_at, _ = named(seeder, "Record seed inputs")
+        build_at, _ = named(seeder, "Build")
+        bound_at, _ = named(seeder, "Bound seed size")
+        pack_at, pack = named(seeder, "Pack seed")
+        upload_at, upload = named(seeder, "Upload packed seed")
+        self.assertEqual(sorted((adopt_at, record_at, build_at, bound_at, pack_at, upload_at)),
+                         [adopt_at, record_at, build_at, bound_at, pack_at, upload_at])
+        # The restore reads the public URL: no key, only the read-only token for the lineage.
+        self.assertIs(adopt.get("continue-on-error"), True)
+        self.assertEqual(set(adopt["env"]), {"PREFIX", "GH_TOKEN"})
+        # Packing the seed is the old save without the upload: same store, key and path, and
+        # still not continue-on-error, so a seed that was built and not handed on fails the job.
+        self.assertTrue(pack["uses"].startswith("./.github/actions/cache-save"))
+        self.assertEqual(pack["with"]["backend"], "r2")
+        self.assertEqual(pack["with"]["path"], "${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}")
+        self.assertEqual(pack["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        self.assertEqual(pack["if"], "steps.bound.outputs.save == 'true'")
+        self.assertEqual(upload["if"], f"steps.{pack['id']}.outcome == 'success'")
+        self.assertEqual(upload["with"]["path"], pack["with"]["pack-to"])
+        for step in (pack, upload):
+            self.assertNotIn("continue-on-error", step)
+
+        # Each archive is bound to this lane's build: the save job downloads the exact artifact
+        # the build uploaded (by its id, never by a name another job of the run could
+        # overwrite), and publish uploads it only when its sha256 is the one the build packed.
+        uploads = [step for step in seeder if "upload-artifact" in str(step.get("uses"))
+                   and step["with"]["name"].startswith("r2-pack-")]
+        self.assertEqual(len(uploads), 4)
+        outputs = {value: key for key, value in build["outputs"].items()}
+        save_steps = save["steps"]
+        for upload in uploads:
+            kind = upload["with"]["path"].rsplit("/", 1)[-1]
+            with self.subTest(kind=kind):
+                self.assertEqual(upload["with"]["retention-days"], 1)
+                artifact = outputs[f"${{{{ steps.{upload['id']}.outputs.artifact-id }}}}"]
+                packer = next(step for step in seeder
+                              if str((step.get("with") or {}).get("pack-to", "")).endswith(f"/r2-pack/{kind}")
+                              or f'"$RUNNER_TEMP/r2-pack/{kind}"' in str(step.get("run", "")) and " pack " in str(step.get("run", "")))
+                digest = outputs[f"${{{{ steps.{packer['id']}.outputs.{'packed-sha256' if 'uses' in packer else 'sha256'} }}}}"]
+                download = next(step for step in save_steps if "download-artifact" in str(step.get("uses"))
+                                and step["with"].get("path", "").endswith(f"/r2-pack/{kind}"))
+                self.assertNotIn("name", download["with"])
+                self.assertEqual(download["with"]["artifact-ids"], f"${{{{ needs.seed.outputs.{artifact} }}}}")
+                self.assertEqual(download["with"]["path"], upload["with"]["path"])
+                self.assertIn(f"needs.seed.outputs.{artifact} != ''", download["if"])
+                publish = next(step for step in save_steps if step.get("if") == f"steps.{download['id']}.outcome == 'success'")
+                self.assertEqual(publish["env"]["SHA256"], f"${{{{ needs.seed.outputs.{digest} }}}}")
+                self.assertRegex(publish["run"], rf'r2-cache\.sh publish "\$RUNNER_TEMP/r2-pack/{kind}" "[^"]+" "\$SHA256"')
+        self.assertNotIn("PACKED", save.get("env") or {})
+
+        # Save seed uploads what was packed, under this commit's seed key and no other.
+        download_at, download = named(save["steps"], "Download packed seed")
+        save_at, saved = named(save["steps"], "Save seed")
+        self.assertLess(download_at, save_at)
+        self.assertEqual(saved["if"], f"steps.{download['id']}.outcome == 'success'")
+        self.assertNotIn("continue-on-error", saved)
+        self.assertEqual(saved["env"]["KEY"], "${{ needs.seed.outputs.seed-key }}")
+        self.assertEqual(build["outputs"]["seed-key"], pack["with"]["key"])
+        self.assertIn('r2-cache.sh publish "$RUNNER_TEMP/r2-pack/seed" "$KEY"', saved["run"])
+        sha = "a" * 40
+
+        def accepts(key):
+            script = saved["run"].replace("scripts/ci/r2-cache.sh publish", "true")
+            env = {"PATH": "/usr/bin:/bin", "KEY": key, "GITHUB_SHA": sha, "SHA256": "0" * 64,
+                   "RUNNER_TEMP": "/nonexistent"}
+            return subprocess.run(["bash", "-c", script], env=env, capture_output=True).returncode == 0
+
+        good = f"admission-derived-data-v1-macOS-ARM64-6f83899097cf4b805962dc271dafa4b3-j14-{sha}"
+        self.assertTrue(accepts(good))
+        self.assertTrue(accepts(good.replace("-j14-", "-j6-")))
+        # The fingerprint is compile-app-host-test-product.sh's 32 hex and the width a -j count;
+        # both need the Mac's Xcode, so they come from the build, in exactly that shape.
+        for bad in (good.replace(sha, "b" * 40), "spm-" + sha, f"git-seed-v1-{sha}", good + "-x", "",
+                    good.replace("6f83899097cf4b805962dc271dafa4b3", "6f83899097cf4b80"),
+                    good.replace("6f83899097cf4b805962dc271dafa4b3", "6f83899097cf4b805962dc271dafa4b3aa"),
+                    good.replace("-j14-", "-j0-"), good.replace("macOS-ARM64", "Linux-X64")):
+            self.assertFalse(accepts(bad), bad)
+
+        # The SwiftPM manifest key's 32-hex inputs part names this commit's manifests, so the
+        # save job computes it from its own checkout; only the toolchain hash (xcodebuild
+        # -version, Mac only) comes from the build.
+        _, manifests = named(save["steps"], "Save SwiftPM manifest cache")
+        checkout = save["steps"][0]
+        self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+        # Every Package.swift and submodule pointer is in the index of a full checkout.
+        self.assertNotIn("sparse-checkout", checkout["with"])
+        self.assertIn("swiftpm-manifest-cache.sh inputs", manifests["run"])
+        inputs = subprocess.run(["bash", "scripts/ci/swiftpm-manifest-cache.sh", "inputs"], cwd=ROOT,
+                                capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual(inputs.returncode, 0, inputs.stderr)
+        inputs = inputs.stdout.strip()
+
+        def accepts_manifests(key):
+            script = manifests["run"].replace("scripts/ci/r2-cache.sh publish", "true")
+            env = {"PATH": "/usr/bin:/bin", "KEY": key, "SHA256": "0" * 64, "RUNNER_TEMP": "/nonexistent"}
+            return subprocess.run(["bash", "-c", script], env=env, cwd=ROOT, capture_output=True).returncode == 0
+
+        manifest_key = f"swiftpm-manifests-v1-macOS-ARM64-0123456789abcdef-{inputs}"
+        self.assertTrue(accepts_manifests(manifest_key))
+        other = "f" * 32 if inputs != "f" * 32 else "e" * 32
+        for bad in (manifest_key.replace(inputs, other), manifest_key.replace("macOS-ARM64", "Linux-X64"),
+                    manifest_key.replace("0123456789abcdef", "0123"), manifest_key + "0", ""):
+            self.assertFalse(accepts_manifests(bad), bad)
+
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
         # save without it, so a seeder without it never reads or writes a seed.
-        seeder = load("seed-derived-data.yml")
+        # A called workflow does not inherit its caller's env, so the pool workflow sets it.
+        seeder = load(POOL)
         admission = load("ci-macos.yml")
         self.assertEqual(
             seeder.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"),
@@ -1350,7 +1508,7 @@ class Wiring(unittest.TestCase):
         # The seed key carries the Xcode and the seed was built on its pool, so
         # admission can only adopt it where the seeder compiled.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        seeder = load("seed-derived-data.yml")["jobs"]["seed"]
+        seeder = seed_build()
         for overflow in ("", "1"):
             for unset in ((), ("MACOS_RUNNER_PR", "CMUX_CI_XCODE_APP_PR")):
                 context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)

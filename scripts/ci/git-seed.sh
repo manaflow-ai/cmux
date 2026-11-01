@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # git-seed.sh save WORKSPACE
+# git-seed.sh pack WORKSPACE OUT
 # git-seed.sh restore WORKSPACE
 # git-seed.sh update-submodules WORKSPACE PATH...
 #
@@ -15,7 +16,10 @@
 # commit is already present is not fetched at all.
 #
 # `save` runs in a main-branch job after its checkout and publishes the
-# repository's objects to R2 under git-seed-v1-<commit>. Only objects, the
+# repository's objects to R2 under git-seed-v1-<commit>. `pack` is `save`
+# without the credentials: it leaves the archive in OUT for
+# `r2-cache.sh publish OUT git-seed-v1-<commit>` in a job that holds them
+# (seed-derived-data-pool.yml). Only objects, the
 # shallow list and commit ids travel: no config, hooks, index or credentials.
 #
 # `restore` runs before actions/checkout on a runner with no repository yet.
@@ -40,7 +44,7 @@ PREFIX="git-seed-v1-"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  echo "usage: git-seed.sh save|restore WORKSPACE | update-submodules WORKSPACE PATH..." >&2
+  echo "usage: git-seed.sh save|restore WORKSPACE | pack WORKSPACE OUT | update-submodules WORKSPACE PATH..." >&2
   exit 2
 }
 
@@ -82,6 +86,15 @@ save() {
   scratch="$(mktemp -d)"
   bash "${BASH_SOURCE[0]}" stage "$workspace" "$scratch/seed"
   "$HERE/r2-cache.sh" save "$scratch/seed" "$PREFIX$head"
+  rm -rf "$scratch"
+}
+
+pack_seed() { # <out>
+  local out="$1" scratch head
+  head="$(git -C "$workspace" rev-parse HEAD)"
+  scratch="$(mktemp -d)"
+  bash "${BASH_SOURCE[0]}" stage "$workspace" "$scratch/seed"
+  "$HERE/r2-cache.sh" pack "$scratch/seed" "$PREFIX$head" "$out"
   rm -rf "$scratch"
 }
 
@@ -202,6 +215,7 @@ update_submodules() {
 
 case "$mode" in
   save) save ;;
+  pack) pack_seed "${3:?}" ;;
   restore) restore ;;
   update-submodules) shift 2; update_submodules "$@" ;;
   # Internal steps of `save` and `restore`.

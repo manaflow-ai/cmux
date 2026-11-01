@@ -190,6 +190,31 @@ class GitSeedTests(unittest.TestCase):
         self.run_seed("restore", workspace)
         self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), self.main)
 
+    def test_pack_leaves_the_seed_save_would_upload_with_no_credentials(self):
+        # seed-derived-data-pool.yml packs on the pool and publishes from another job.
+        seeder = self.base / "seeder"
+        git("clone", "-q", "--depth=1", "--recurse-submodules", "--shallow-submodules",
+            f"file://{self.super}", str(seeder), env=self.env)
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CI_CACHE_R2_ENDPOINT", "CI_CACHE_R2_PUBLIC_URL"):
+            self.env.pop(name, None)
+        outputs = self.base / "outputs"
+        self.env.update(RUNNER_OS="macOS", RUNNER_ARCH="ARM64", GITHUB_OUTPUT=str(outputs))
+        out = self.base / "packed"
+        self.run_seed("pack", seeder, out)
+        key = f"git-seed-v1-{self.main}"
+        self.assertIn("namespace=v1/macOS-ARM64", (out / f"{key}.packed").read_text())
+        # The step's sha256 output, which the save job checks before it publishes.
+        self.assertRegex(outputs.read_text(), r"(?m)^sha256=[0-9a-f]{64}$")
+        archive = next(out.glob(f"{key}.tar.*"))
+        stage = self.base / "unpacked"
+        stage.mkdir()
+        unpack = "zstd -dc" if archive.name.endswith(".zst") else "gzip -dc"
+        subprocess.run(f"{unpack} {archive} | tar -xf - -C {stage}", shell=True, check=True)
+        workspace = self.base / "ws"
+        workspace.mkdir()
+        self.run_seed("install", workspace, stage)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=workspace), self.main)
+
     def test_a_corrupt_seed_installs_nothing(self):
         stage = self.seed_from_main()
         (stage / "HEAD").write_text("0" * 40 + "\n")
@@ -239,12 +264,23 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
 
     def test_only_main_saves_the_seed(self):
-        text = (WORKFLOWS / "seed-derived-data.yml").read_text()
-        step = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\Z)", text, re.S)
+        # The build on the pool packs it with no credentials; the save job
+        # uploads it under the key it names itself, never one from the build.
+        text = (WORKFLOWS / "seed-derived-data-pool.yml").read_text()
+        step = re.search(r"- name: Pack git object seed\n(.*?)(?=\n      - name:|\Z)", text, re.S)
         self.assertIsNotNone(step)
         self.assertIn("if: github.ref == 'refs/heads/main'", step.group(1))
         self.assertIn("continue-on-error: true", step.group(1))
-        self.assertIn('git-seed.sh save "$GITHUB_WORKSPACE"', step.group(1))
+        self.assertIn('git-seed.sh pack "$GITHUB_WORKSPACE" "$RUNNER_TEMP/r2-pack/git-seed"', step.group(1))
+        self.assertNotIn("secrets.", step.group(1))
+        save = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\n\n  [a-z]|\Z)", text, re.S)
+        self.assertIsNotNone(save)
+        self.assertIn("continue-on-error: true", save.group(1))
+        # Only the bytes this lane's build packed: the save job checks their sha256.
+        self.assertIn('r2-cache.sh publish "$RUNNER_TEMP/r2-pack/git-seed" "git-seed-v1-$GITHUB_SHA" "$SHA256"', save.group(1))
+        self.assertIn("SHA256: ${{ needs.seed.outputs.git-seed-sha256 }}", save.group(1))
+        self.assertIn("secrets.CI_CACHE_R2_SECRET_ACCESS_KEY", save.group(1))
+        self.assertLess(text.index("\n  save:\n"), save.start())
 
 
 if __name__ == "__main__":
