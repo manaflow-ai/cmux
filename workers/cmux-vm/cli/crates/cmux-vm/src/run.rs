@@ -1395,7 +1395,7 @@ fn pack_with(
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut tar = std::process::Command::new(program)
+    let mut tar = tar_command(program)
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
@@ -1496,9 +1496,22 @@ fn pack_with(
     }
 }
 
+/// The local `tar` command every sync and pull runs, with only the
+/// arguments given here: options from the caller's environment
+/// (`TAR_OPTIONS=--sparse` for GNU tar, `TAR_READER_OPTIONS` and
+/// `TAR_WRITER_OPTIONS` for bsdtar) could shrink a hole past the
+/// unpacked-size count or change how pulled files unpack.
+fn tar_command(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+        command.env_remove(name);
+    }
+    command
+}
+
 /// `tar --version`'s text; a tar that cannot say what it is is not run.
 fn tar_version(program: &str) -> Result<String, CliError> {
-    let output = std::process::Command::new(program)
+    let output = tar_command(program)
         .arg("--version")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -1614,7 +1627,7 @@ fn gunzipped_len(bytes: &[u8], limit: u64) -> Result<u64, CliError> {
 }
 
 fn tar_with_stdin(args: &[&str], bytes: &[u8], dir: &Path) -> Result<Vec<u8>, CliError> {
-    let mut child = std::process::Command::new("tar")
+    let mut child = tar_command("tar")
         .current_dir(dir)
         .args(args)
         .stdin(Stdio::piped())
@@ -2013,15 +2026,17 @@ mod tests {
     fn a_sparse_file_bsdtar_packs_is_counted_at_its_full_size() {
         // bsdtar (macOS's tar) stores holes as a map, so its stream is tiny
         // while the guest writes the file out in full. `pack` is called
-        // directly, as if the file turned sparse after the size sum.
-        if std::process::Command::new("bsdtar")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
+        // directly, as if the file turned sparse after the size sum. On
+        // macOS bsdtar is `tar` itself.
+        let Some(program) = ["tar", "bsdtar"].into_iter().find(|program| {
+            std::process::Command::new(program)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("bsdtar"))
+        }) else {
             eprintln!("skipped: no bsdtar on this host");
             return;
-        }
+        };
         let dir = std::env::temp_dir().join(format!(
             "cmux-vm-run-sync-bsdtar-sparse-{}",
             std::process::id()
@@ -2032,9 +2047,24 @@ mod tests {
         file.set_len(256 * 1024 * 1024).unwrap();
         drop(file);
         let files = vec![PathBuf::from("sparse.img")];
-        let error = pack_with("bsdtar", &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
+        let error = pack_with(program, &dir, &files, MAX_SYNC_BYTES, 1024 * 1024).unwrap_err();
         assert!(error.message().contains("unpack"), "{}", error.message());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tar_runs_with_none_of_the_callers_tar_options() {
+        // `TAR_OPTIONS=--sparse` would let GNU tar shrink a hole past the
+        // stream count; bsdtar reads the other two.
+        let command = tar_command("tar");
+        for name in ["TAR_OPTIONS", "TAR_READER_OPTIONS", "TAR_WRITER_OPTIONS"] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == name && value.is_none()),
+                "{name} is passed through"
+            );
+        }
     }
 
     #[test]

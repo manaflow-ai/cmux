@@ -406,6 +406,7 @@ export class CloudDO extends CloudIdle {
       },
       submit: (p, f) => this.submit(entity, p, f),
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      changing: (id) => this.isBound(entity) && Object.values(this.bind(entity).currentState.pending).some((e) => e.machine === id),
       resources: async (row) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
         const r = driver ? await driver.resourcesOf(row.provider_name, { team: entity, machine: row.id }).catch(() => null) : null

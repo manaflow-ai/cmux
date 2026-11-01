@@ -99,9 +99,9 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
-mod prompt_sender;
 #[cfg(test)]
 mod prompt_line_tests;
+mod prompt_sender;
 mod protected_hold;
 mod queue;
 mod queue_admission;
