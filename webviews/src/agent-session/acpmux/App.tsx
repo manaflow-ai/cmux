@@ -402,6 +402,7 @@ import {
   useBackgroundKey,
 } from "./conversation/runInBackground";
 import { UserBubble } from "./conversation/UserBubble";
+import { withSkillDollars } from "./slashCommands";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import {
   editableKey,
@@ -7404,6 +7405,9 @@ function AcpmuxPane() {
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
+  // The agent's commands, for an edited prompt's Codex skills (`edit.send`), read at the send.
+  const agentCommands = useRef(snapshot.commands);
+  agentCommands.current = snapshot.commands;
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7424,8 +7428,13 @@ function AcpmuxPane() {
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
+          // A Codex skill typed `/name` in the editor goes as `/$name` (slashCommands.ts).
           send: (rowId: string, throughSeq: number, text: string) =>
-            callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
+            callNative<boolean>("chat.editResend", {
+              rowId,
+              throughSeq,
+              text: withSkillDollars(text, agentCommands.current),
+            }).then(
               (sent) => sent === true,
               () => false,
             ),
