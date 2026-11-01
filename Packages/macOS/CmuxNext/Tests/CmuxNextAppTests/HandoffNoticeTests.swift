@@ -142,6 +142,29 @@ struct HandoffNoticeTests {
         #expect(await store.afters.suffix(2) == [3, 3])
     }
 
+    /// Issue #31040: an incognito hand-off is never saved, so after a relaunch it comes back from the
+    /// owner's list. It stays incognito there: its later banners are redacted, and its click opens nothing.
+    @Test func anIncognitoHandoffFoundInTheListAfterARelaunchStaysIncognito() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("running", version: 2)])
+        let defaults = try defaults()
+        let (first, _) = follower(store, defaults: defaults)
+        var incognito = record()
+        incognito.incognito = true
+        first.watch(incognito)
+        while await store.afters.isEmpty { await Task.yield() }
+        first.stop()
+        let (relaunched, ends) = follower(store, defaults: defaults)
+        #expect(!relaunched.knows(Self.id), "an incognito hand-off's record outlived the run")
+        await store.script(Self.id, [Self.handoff("needs-you", version: 3),
+                                     Self.handoff("done", version: 4, state: "closed", summary: "Pushed")])
+        relaunched.watch(HandoffNotices.listed(Self.listEntry(status: "running", version: 2, turn: 1), user: "u1"))
+        await settle(relaunched)
+        #expect(ends.all.map(\.outcome) == [.needsYou, .succeeded])
+        #expect(ends.all.map(\.record.incognito) == [true, true], "a relaunch's banner of an incognito hand-off posted its full text")
+        #expect(relaunched.endedRun(Self.id)?.record.incognito == true)
+    }
+
     @Test func aHandoffFoundInTheListTellsOnlyWhatChangesAfter() async throws {
         let store = Store()
         // The store answers at its deadline with the state the list showed, then turn 3 runs and ends.

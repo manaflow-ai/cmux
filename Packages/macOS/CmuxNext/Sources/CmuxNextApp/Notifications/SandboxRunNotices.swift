@@ -20,10 +20,13 @@ final class SandboxRunNotices {
     static let bannerPrefix = "sandbox-run."
     let follower: SandboxRunFollower
     private weak var services: AppServices?
+    /// The signed-in user whose Runs are followed (tests pass their own).
+    private let currentUser: @MainActor () -> String?
     private var account: Task<Void, Never>?
 
-    init(services: AppServices, follower: SandboxRunFollower? = nil) {
+    init(services: AppServices, follower: SandboxRunFollower? = nil, user: (@MainActor () -> String?)? = nil) {
         self.services = services
+        self.currentUser = user ?? { [weak services] in services?.cloud.auth.user?.id }
         self.follower = follower ?? SandboxRunFollower(wait: { [api = services.cloud.api] id, team in
             try await api.pinningTeam(team).waitRun(id, timeoutMs: 10_000)
         })
@@ -50,8 +53,8 @@ final class SandboxRunNotices {
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
     /// The server decides who may read it: if the create went out under another account (a switch
     /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
-    func follow(id: String, task: String, key: String, team: String?) async throws -> Data {
-        guard let user = services?.cloud.auth.user?.id else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
+    func follow(id: String, task: String, key: String, team: String?, incognito _: Bool? = nil) async throws -> Data {
+        guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
         var record = SandboxRunRecord(id: id, task: task, key: key, user: user, team: team, started: Date())
         // A send whose tab is gone already may have been an incognito one: it is taken as one.
         record.incognito = tab(holding: key) == nil || incognito(key) ? true : nil
