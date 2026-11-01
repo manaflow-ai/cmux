@@ -102,19 +102,25 @@ impl TerminalHostCloses {
                 // commits state), so keeping the wait in this pool starves
                 // later signals and makes hosts trail the last reply.
                 let closes = self.clone();
+                let close_slot = Arc::new(Mutex::new(Some(close)));
+                let waiter_slot = close_slot.clone();
                 if std::thread::Builder::new()
                     .name("terminal-host-close-wait".into())
                     .spawn(move || {
-                        finish_host_close(close);
-                        closes.complete();
+                        if let Some(close) = waiter_slot.lock().unwrap().take() {
+                            finish_host_close(close);
+                            closes.complete();
+                        }
                     })
                     .is_err()
                 {
                     // Thread exhaustion must not strand a close. Finish it
                     // inline as the enqueue path did before the pool existed.
-                    finish_host_close(close);
-                    state.pending -= 1;
-                    self.idle.notify_all();
+                    if let Some(close) = close_slot.lock().unwrap().take() {
+                        finish_host_close(close);
+                        state.pending -= 1;
+                        self.idle.notify_all();
+                    }
                 }
                 continue;
             }
