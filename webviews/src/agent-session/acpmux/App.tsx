@@ -527,6 +527,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { hostLineText } from "./hostLine";
 import {
   AcpmuxRestartGate,
   hostErrorShows,
@@ -8440,6 +8441,9 @@ function AcpmuxPane() {
   // the handshake is done (below): the page that comes back right then takes the draft, and no
   // later page (another New Tab adopted into this pane, a chat's own recovery) ever does.
   const composerStoodIn = useRef(false);
+  /// The failure behind `hostError`, which hostLine.ts words plainly (a chat's machine that is not
+  /// reachable, acpmux's own codes and commands behind Details).
+  const [hostFailure, setHostFailure] = useState<unknown>();
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
@@ -10219,6 +10223,7 @@ function AcpmuxPane() {
           // A chat too large to open says so in plain words; the reply's byte count stays in the log.
           const tooLarge = hostRefusedTooLarge(error);
           setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
+          setHostFailure(error);
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
           setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
@@ -12329,10 +12334,14 @@ function AcpmuxPane() {
     );
   // While the host recovers nothing shows (no card, no spinner, no button) and the composer stays
   // usable; a failure past its deadline, or a refusal, is one line (HostUnavailableLine).
+  // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
+  // and commands go behind Details (hostLine.ts).
+  const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
       <HostUnavailableLine
-        message={hostError ?? ""}
+        message={hostWords.line}
+        detail={hostWords.detail}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}
         restarting={restartingAcpmux}
