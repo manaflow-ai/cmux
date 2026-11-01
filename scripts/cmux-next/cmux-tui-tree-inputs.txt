@@ -51,6 +51,8 @@ blob schemas/deeplinks/agent-link.json
 blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
 blob schemas/link-token/keyset-vectors.json
+blob schemas/link-token/native.json
+blob schemas/link-token/vectors.json
 blob schemas/remote-tab/client.json
 blob schemas/remote-tab/cookie-sync.json
 blob schemas/remote-tab/input-mapping.json
