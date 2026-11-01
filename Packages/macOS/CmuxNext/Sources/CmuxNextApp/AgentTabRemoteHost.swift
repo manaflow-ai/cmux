@@ -109,8 +109,19 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
-                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud)
+                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
+                cloudRepositoryStart: { surface, method, params, timeout in
+                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+                    let result: Result<Data, any Error>
+                    do {
+                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
+                    } catch {
+                        result = .failure(error)
+                    }
+                    await requestClient.close()
+                    return try result.get()
+                })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
