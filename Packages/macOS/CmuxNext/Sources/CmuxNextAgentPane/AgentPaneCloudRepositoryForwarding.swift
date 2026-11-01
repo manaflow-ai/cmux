@@ -3,7 +3,7 @@ public import Foundation
 
 /// Shared forwarding closures for Cloud repository frames. The app supplies only the endpoint
 /// details; connection lifetime and error propagation stay with the package that owns the wire.
-public enum AgentPaneCloudRepositoryForwarding {
+public nonisolated enum AgentPaneCloudRepositoryForwarding {
     public typealias Endpoint = @Sendable () async throws -> DaemonEndpoint
     public typealias Reconnect = @Sendable () async -> Bool
 

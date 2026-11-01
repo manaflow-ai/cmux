@@ -2,7 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextDaemon
 
 /// Coordinates the keyed remote start handshake shared by tab hosts.
-public enum AgentRemoteStartCoordinator {
+public nonisolated enum AgentRemoteStartCoordinator {
     public static func keyedStart<Started: Sendable>(
         _ cwd: String?, _ harness: String?, _ model: String?, approvals: AgentPaneRemoteApprovals?, servesKeyedReason: Bool,
         updateMachine: (@Sendable () async -> Bool)? = nil,
