@@ -300,6 +300,11 @@
     "agent-pane.chat-inspector#subagents-open": [],
     "agent-pane.chat-inspector#subagents-wave": [],
     "agent-pane.chat-inspector#tasks-finished": [],
+    "agent-pane.chat-inspector#usage": [],
+    "agent-pane.chat-inspector#usage-all": [],
+    "agent-pane.chat-inspector#usage-context": [],
+    "agent-pane.chat-inspector#usage-no-cap": [],
+    "agent-pane.chat-inspector#usage-unknown-cost": [],
     "agent-pane.chat-inspector#workflow-agent-failed": [],
     "agent-pane.chat-inspector#workflow-agent-row-compact": [],
     "agent-pane.chat-inspector#workflow-agent-row-detail": [],
@@ -355,6 +360,8 @@
     "agent-pane.cloud-chat-recovery#deleted": [],
     "agent-pane.cloud-chat-recovery#paused": [],
     "agent-pane.cloud-chat-recovery#resuming": [],
+    "agent-pane.cloud-repository-picker#empty": [],
+    "agent-pane.cloud-repository-picker#mixed": [],
     "agent-pane.cloud-run-designs#bare": [
       "menu-fit:div[aria-label=\"Environment\"]"
     ],
@@ -591,6 +598,7 @@
     ],
     "agent-pane.composer-pickers#model-more": [],
     "agent-pane.composer-pickers#model-press-drag-release": [],
+    "agent-pane.composer-pickers#modes-only": [],
     "agent-pane.composer-pickers#permission-focus": [],
     "agent-pane.composer-pickers#permission-managed": [],
     "agent-pane.composer-pickers#permission-menu": [],
@@ -971,6 +979,8 @@
     "agent-pane.empty-state#search": [
       "menu-fit:div[aria-label=\"Project\"]"
     ],
+    "agent-pane.environment-save#granted": [],
+    "agent-pane.environment-save#granted-hover": [],
     "agent-pane.environment-save#refused": [],
     "agent-pane.environment-save#success": [],
     "agent-pane.file-attachment#balanced": [],
@@ -1066,6 +1076,9 @@
       "menu-fit:\"Copy linkCopy last responseCopy as Markd\""
     ],
     "agent-pane.header-tools#menu-open": [],
+    "agent-pane.header-tools#menu-revoke-access": [
+      "menu-fit:\"Trusted atlasAllow for this chat\""
+    ],
     "agent-pane.header-tools#native-row-off": [],
     "agent-pane.header-tools#native-row-tools": [],
     "agent-pane.header-tools#panel-icon-info": [],
@@ -1307,6 +1320,11 @@
     "agent-pane.inline-model-effort#slider": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
+    "agent-pane.inline-preview#code": [],
+    "agent-pane.inline-preview#html-table-chart": [],
+    "agent-pane.inline-preview#scripted": [],
+    "agent-pane.inline-preview#streaming": [],
+    "agent-pane.inline-preview#svg-bar-chart": [],
     "agent-pane.inspector-colours#errors": [],
     "agent-pane.inspector-composer-foot#animated": [],
     "agent-pane.inspector-composer-foot#jump": [],
@@ -1326,6 +1344,10 @@
     "agent-pane.inspector#chat-menu": [],
     "agent-pane.inspector#wire-log": [],
     "agent-pane.instructions-notice#outside-folder": [],
+    "agent-pane.interim-prose-gap#roomy": [],
+    "agent-pane.interim-prose-gap#shipped": [],
+    "agent-pane.interim-prose-gap#snug": [],
+    "agent-pane.interim-prose-gap#tight": [],
     "agent-pane.lane-notices#inbox-collapsed": [],
     "agent-pane.lane-notices#inbox-expanded": [],
     "agent-pane.lane-notices#reports-collapsed": [],
@@ -1713,6 +1735,7 @@
     "agent-pane.new-tab-dots#claude-minimal": [],
     "agent-pane.new-tab-dots#codex-minimal": [],
     "agent-pane.new-tab-headline-stability#long": [],
+    "agent-pane.new-tab-headline#machine": [],
     "agent-pane.new-tab-headline#on": [],
     "agent-pane.new-tab-headline#picked": [],
     "agent-pane.new-tab-headline#picker-open": [
@@ -2001,6 +2024,9 @@
     "agent-pane.project-chooser#long-no-actions": [
       "menu-fit:div[aria-label=\"Project\"]"
     ],
+    "agent-pane.project-chooser#machine-tags": [
+      "menu-fit:div[aria-label=\"Project\"]"
+    ],
     "agent-pane.project-chooser#no-matches": [],
     "agent-pane.project-chooser#open-app-icons": [
       "menu-fit:div[aria-label=\"Project\"]"
@@ -2118,6 +2144,9 @@
     "agent-pane.reply-image#remote-placeholder": [],
     "agent-pane.reply-paths#fleet-reply": [],
     "agent-pane.reply-paths#path-forms": [],
+    "agent-pane.repo-recovery#ambiguous": [],
+    "agent-pane.repo-recovery#needs-github": [],
+    "agent-pane.repo-recovery#no-access": [],
     "agent-pane.retry-model-menu#closed": [],
     "agent-pane.retry-model-menu#open": [
       "menu-fit:div[aria-label=\"Retry with another model\"]"
@@ -2649,6 +2678,7 @@
     "agent-pane.transcript-row-grammar#plain": [],
     "agent-pane.transcript-row-tidy#hover": [],
     "agent-pane.transcript-row-tidy#rows": [],
+    "agent-pane.transcript-spacing-reference#shipped": [],
     "agent-pane.transcript-spacing#balanced": [
       "center-line:row spacing-received-a",
       "center-line:row spacing-received-b"
@@ -2673,6 +2703,8 @@
       "center-line:row spacing-received-a",
       "center-line:row spacing-received-b"
     ],
+    "agent-pane.transcript-type#claude-code-entry": [],
+    "agent-pane.transcript-type#codex-code": [],
     "agent-pane.transcript-type#reading": [],
     "agent-pane.transcript-view-menu#a-submenu-recommended": [],
     "agent-pane.transcript-view-menu#b-inline-group": [],
@@ -2956,6 +2988,13 @@
       "menu-fit:div[aria-label=\"Environment\"]"
     ],
     "app.window#new-tab": [],
+    "cloud.environment-sheet#network": [],
+    "cloud.environment-sheet#network-full": [],
+    "cloud.environment-sheet#overview": [],
+    "cloud.environment-sheet#save-failure": [],
+    "cloud.environment-sheet#script": [],
+    "cloud.environment-sheet#secrets": [],
+    "cloud.environment-sheet#variables": [],
     "cloud.file-save#failure": [],
     "cloud.file-save#pending": [],
     "cloud.file-save#success": [],
@@ -3503,6 +3542,9 @@
     "pages.settings#appearance-group-7": [],
     "pages.settings#appearance-group-8": [],
     "pages.settings#appearance-group-9": [],
+    "pages.settings#appearance-presets": [
+      "menu-fit:\"Solid✓FrostedGlassClear\""
+    ],
     "pages.settings#appearance-undo-bar": [],
     "pages.settings#art-browser": [],
     "pages.settings#backdrops": [],
