@@ -10,7 +10,8 @@
 //
 //   - the rows draw when the attach answers, with the permission and handoff reads still out,
 //     and each read fills in when it lands;
-//   - an older acpmux's turn opener is read after the rows draw, then drawn above them;
+//   - an older acpmux's chat waits for its turn opener's read only, never the side reads, and
+//     draws the opener above its rows on the first frame (agent-pane-restore-long-turn);
 //   - a frame drawn before the attach shows the chat's listed title, harness and model.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -266,8 +267,8 @@ test("a cold switch draws the chat's rows with its permission and handoff reads 
   }
 });
 
-test("an older acpmux's turn opener is read after the rows draw, then drawn above them", async () => {
-  const daemon = new Daemon("late-opener");
+test("an older acpmux's chat draws with its turn opener once that read alone answers", async () => {
+  const daemon = new Daemon("opener-only");
   const [A, B] = [daemon.sessionA, daemon.sessionB];
   daemon.servesOpener = false;
   daemon.pages.set(A, { steps: [prompt("Retry path"), reply(A, "Retry added.")] });
@@ -283,17 +284,20 @@ test("an older acpmux's turn opener is read after the rows draw, then drawn abov
       message.params?.promptIndex !== true &&
       Array.isArray(message.params?.kinds) &&
       message.params.kinds.includes("user_message");
-    daemon.holding = openerRead;
+    // B's opener read and its side reads are all out; only the opener's answers.
+    daemon.holding = (message) => message.params?.sessionId === B && (openerRead(message) || sideRead(message));
     const switched = client.select(B);
-    expect(await settlesWithin(switched, 1_000)).toBe(true);
-    expect(text(last())).toContain("Still porting the parser.");
-    expect(text(last())).not.toContain("Port the parser");
-    expect(daemon.heldMethods()).toEqual(["_acpmux/events"]);
-    daemon.release();
     await turns();
+    expect(daemon.heldMethods()).toContain("_acpmux/events");
+    daemon.release(openerRead);
+    expect(await settlesWithin(switched, 1_000)).toBe(true);
+    // The first frame of B holds its opener above its rows.
     const shown = text(last());
-    expect(shown).toContain("Port the parser");
+    expect(shown).toContain("Still porting the parser.");
+    expect(shown.indexOf("Port the parser")).toBeGreaterThanOrEqual(0);
     expect(shown.indexOf("Port the parser")).toBeLessThan(shown.indexOf("Still porting the parser."));
+    expect(daemon.heldMethods().sort()).toEqual([HANDOFF_OPS.get, PERMISSION_GROUP_OPS.groups].sort());
+    daemon.release();
   } finally {
     client.close();
   }
