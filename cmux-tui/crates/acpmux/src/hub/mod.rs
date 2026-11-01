@@ -1323,6 +1323,10 @@ impl Hub {
         }
     }
 
+    pub(super) fn remove_live_session_index(&self, id: &str) {
+        self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
     /// from `sessions` only by an explicit id/name request.
     pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
