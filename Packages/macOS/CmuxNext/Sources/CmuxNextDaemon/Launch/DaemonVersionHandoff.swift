@@ -90,7 +90,7 @@ extension DaemonLauncher {
     /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
     /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
     /// commits decide. With neither, the owner is kept and the reason names the unknown side.
-    static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
+    public static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
         if let runningID = running.id, let bundledID = bundled?.id {
             return runningID == bundledID ? .keep("same build") : .restart(running: runningID, bundled: bundledID)
         }

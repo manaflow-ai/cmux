@@ -204,12 +204,10 @@ public final class DaemonService {
         // task-owner: one `--version --json` run per start; the handoff check awaits it
         let bundledBuild = prestart?.bundledBuild ?? Task { try? await launcher.bundledBuild() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
-            // A bundled binary that did not report its build keeps the owner; the decision names why.
-            let decision: DaemonVersionDecision
-            if let bundled = await bundledBuild.value {
+            let bundled = await bundledBuild.value
+            var decision = DaemonService.launchVersionCheck(identity: identity, bundled: bundled)
+            if case .restart = decision {
                 decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
-            } else {
-                decision = .keep("bundled build unknown")
             }
             guard case .restart(let running, let target) = decision else {
                 if case .keep(let reason) = decision, reason != "same build" {
