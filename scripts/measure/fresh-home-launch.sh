@@ -63,7 +63,7 @@ work="$(mktemp -d)"
 # Steps run with a per-step HOME; bun and node for the Debug build's web bundles live under the
 # account's real home (as crash-gate.sh and tab-switch.sh).
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
+for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
 RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh || exit 3
@@ -74,6 +74,10 @@ export PATH
 # that will not come, as reload.sh does for nx-remote builds (CMUX_TUI_CLIENT_LOCAL).
 if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
   echo "FRESH-HOME cmux-tui tree not published: building the client set on this host"
+  # Cargo's target survives this scratch worktree, so the next launch compiles incrementally
+  # (the builder makes its output under cmux-tui/target, which a fresh worktree lacks).
+  export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/fresh-home-launch/cmux-tui-target}"
+  mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
   # CI=1: this is a fleet step, where the builder may run Cargo (never on a developer Mac).
   CMUX_TUI_CLIENT_LOCAL="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$out/cmux-tui-build.log")" || {
     echo "FRESH-HOME cannot run: building cmux-tui failed" >&2
