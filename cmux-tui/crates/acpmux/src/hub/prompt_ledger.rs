@@ -63,6 +63,73 @@ impl Hub {
         held || (resend && self.logged_prompt(session, prompt_id).is_some())
     }
 
+    /// Read one trigger delivery from the durable event log. This deliberately does not use
+    /// `lastTurn` or the live preview: another human turn may have advanced those fields.
+    pub(crate) fn trigger_delivery(&self, session: &Session, delivery: &str) -> Value {
+        const MAX_REPLY: usize = 16 * 1024;
+        let mut turn_id = None::<String>;
+        let mut status = None::<Value>;
+        let mut reply = String::new();
+        let mut started = false;
+        let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            if turn_id.is_none() && matches!(rec.kind.as_str(), "queued" | "user_message") {
+                let delivery_id = rec
+                    .msg
+                    .pointer("/_meta/provenance/deliveryId")
+                    .and_then(Value::as_str)
+                    .or_else(|| rec.msg.get("promptId").and_then(Value::as_str));
+                if delivery_id == Some(delivery) {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                }
+            }
+            let Some(id) = turn_id.as_deref() else { return true };
+            if rec.msg.get("turnId").and_then(Value::as_str) != Some(id) {
+                return true;
+            }
+            if rec.kind == "turn_started" {
+                started = true;
+            }
+            if rec.kind == "agent_message_chunk" && rec.dir == "in" {
+                if let Some(text) =
+                    rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                {
+                    if reply.chars().count() < MAX_REPLY {
+                        let remaining = MAX_REPLY - reply.chars().count();
+                        reply.extend(text.chars().take(remaining));
+                    }
+                }
+            }
+            if matches!(rec.kind.as_str(), "turn_result" | "turn_error" | "turn_end") {
+                status = Some(rec.msg.clone());
+            }
+            true
+        });
+        let mut out = serde_json::Map::new();
+        out.insert("delivery".into(), Value::String(delivery.to_owned()));
+        if let Some(id) = turn_id {
+            out.insert("turnId".into(), Value::String(id));
+            out.insert(
+                "state".into(),
+                if status.is_some() {
+                    Value::String("completed".into())
+                } else if started {
+                    Value::String("running".into())
+                } else {
+                    Value::String("queued".into())
+                },
+            );
+        } else {
+            out.insert("state".into(), Value::String("unknown".into()));
+        }
+        if let Some(status) = status {
+            out.insert("result".into(), status);
+        }
+        if !reply.is_empty() {
+            out.insert("reply".into(), Value::String(reply));
+        }
+        Value::Object(out)
+    }
+
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
     /// else `interrupted` (the daemon stopped during the turn).

@@ -23,6 +23,18 @@ fn required(input: &Value, key: &str, max: usize) -> Result<String> {
         .ok_or_else(|| anyhow!("trigger-chat: missing or invalid {key}"))
 }
 
+fn prompt(input: &Value, key: &str) -> Result<String> {
+    let value = input
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty() && v.len() <= 64 * 1024)
+        .ok_or_else(|| anyhow!("trigger-chat: missing or invalid {key}"))?;
+    if value.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) {
+        return Err(anyhow!("trigger-chat: prompt contains a forbidden control"));
+    }
+    Ok(value.to_owned())
+}
+
 fn operation(input: Value) -> Result<&'static str> {
     match input.get("operation").and_then(Value::as_str) {
         Some("ensure") => Ok("ensure"),
@@ -82,7 +94,7 @@ pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
                 .await?
         }
         "send" => {
-            let prompt = required(&input, "prompt", 64 * 1024)?;
+            let prompt = prompt(&input, "prompt")?;
             client
                 .request(
                     method::TRIGGER_CHAT_SEND,
@@ -104,6 +116,7 @@ pub async fn run(protocol: &str, principal_fd: i32) -> Result<()> {
                         "workspace": required(&input, "workspace", 256)?,
                         "session": required(&input, "session", 256)?,
                         "delivery": required(&input, "delivery", 512)?,
+                        "turn": required(&input, "turn", 256)?,
                     }),
                 )
                 .await?
