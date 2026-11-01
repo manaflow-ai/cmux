@@ -107,8 +107,8 @@ extension ScreenContentView {
             ? host.setStripClip(nil)
             : host.setStripClip(visible.isNull ? .zero : visible, cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
-        // Chromium pages re-read their clip shapes, which carry this mask.
-        if changed { context.stripClipsDidChange() }
+        // Chromium pages re-read their clip shapes, which carry this mask, once per overlay sync.
+        if changed { context.stripClipsChanged = true }
         return changed
     }
 
