@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { cdFolder, cmuxCommandRefusal, composerCommand, mergedCommands } from "./cmuxCommands";
-import { type SessionAuth, slashLogin } from "./sessionAuth";
+import { type SessionAuth, slashLogin, UNKNOWN_AUTH } from "./sessionAuth";
 
 test("status is available before harness commands and stays cmux-owned", () => {
   const commands = mergedCommands([
@@ -113,6 +113,10 @@ test("/login signs in with acpmux's command, else the harness's own login on a p
   expect(slashLogin({ ...ready, routeId: "claude-two" }, "claude /login")).toBeUndefined();
   // Another host's harness signs in there, not in a terminal here.
   expect(slashLogin({ ...ready, host: "mini-3" }, "claude /login")).toBeUndefined();
+  // Only acpmux's `host: null` says this Mac: an unknown or hostless answer gets no default login.
+  expect(slashLogin(UNKNOWN_AUTH, "claude /login")).toBeUndefined();
+  expect(slashLogin({ ...ready, host: undefined }, "claude /login")).toBeUndefined();
+  expect(slashLogin(undefined, "claude /login")).toBeUndefined();
   expect(slashLogin(ready, undefined)).toBeUndefined();
   expect(slashLogin(ready, "  ")).toBeUndefined();
 });
