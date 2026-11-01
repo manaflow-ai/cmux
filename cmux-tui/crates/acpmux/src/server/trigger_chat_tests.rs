@@ -219,8 +219,18 @@ async fn send_refuses_a_human_prompt_that_reused_the_delivery_id() {
         "user_message",
         json!({"promptId": scoped.delivery, "turnId": "human-turn", "text": "human prompt"}),
     );
-    hub.append(&session, "mux", "turn_started", json!({"promptId": scoped.delivery, "turnId": "human-turn"}));
-    hub.append(&session, "mux", "turn_result", json!({"promptId": scoped.delivery, "turnId": "human-turn", "status": "completed"}));
+    hub.append(
+        &session,
+        "mux",
+        "turn_started",
+        json!({"promptId": scoped.delivery, "turnId": "human-turn"}),
+    );
+    hub.append(
+        &session,
+        "mux",
+        "turn_result",
+        json!({"promptId": scoped.delivery, "turnId": "human-turn", "status": "completed"}),
+    );
     let error = send(&hub, &scoped, "trigger prompt".into()).await.expect_err("collision accepted");
     assert!(error.to_string().contains("prior delivery"), "{error}");
 }

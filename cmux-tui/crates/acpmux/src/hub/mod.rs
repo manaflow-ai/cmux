@@ -42,6 +42,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
+mod host_notice_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod shutdown_tests;
