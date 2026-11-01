@@ -1,17 +1,21 @@
 // l10n-allow-file: bench fixture prompts and replies, not shipped UI.
 // Opening a chat, stage by stage: the production pane (a vite build of the pane's dev entry) joins a
-// stand-in acpmux that holds a TURNS-turn chat, as test/support/papercutChat.ts does. Each round loads a
-// fresh page and records, from navigation start (performance.now()):
+// stand-in acpmux that holds a TURNS-turn chat, as test/support/papercutChat.ts does. Each round is a
+// cold page load (a fresh browser context: no HTTP or compiled-code cache), so what comes before
+// `attach` is a first launch's cost, and the stages after it are what a chat switch shares. Each round
+// records, from navigation start (performance.now()):
 //   attach     the stand-in answered `_acpmux/attach` (the history left the daemon);
 //   firstRow   the first transcript row painted;
 //   latest     the newest message ("Answer N:") painted;
-//   settled    nothing moved for 400 ms after that: no long task, layout shift or DOM change.
+//   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
+//              position and height unchanged.
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
-// Long tasks (count, total), layout-shift sum and the transcript's scroll drift after `latest` say how
-// much the page still moved after the newest messages appeared.
+// Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
+// after `latest` says how much the page still moved after the newest messages appeared.
 //   bun bench/chat-open.bench.ts [rounds=7] [turns=300]
-// PROFILE=1 adds a CPU profile of one load (the build is then unminified so functions keep their names)
-// and prints the functions with the most self time between navigation and `settled`.
+// PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
+// navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
+// names) and every timed round runs on it, so the stage times are not the production build's.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -282,7 +286,19 @@ try {
       { timeout: 120_000, polling: 100 },
     );
     const got = await page.evaluate(() => {
-      const state = (window as unknown as { __open: Record<string, number> }).__open;
+      const state = (
+        window as unknown as {
+          __open: {
+            firstRow: number;
+            latest: number;
+            activity: number;
+            longTasks: number;
+            longMs: number;
+            shift: number;
+            drift: number;
+          };
+        }
+      ).__open;
       const forced = (window as unknown as { __forced: unknown }).__forced;
       const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
       const scripts = performance.getEntriesByType("resource").filter((r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js")) as PerformanceResourceTiming[];
@@ -303,18 +319,18 @@ try {
     void started;
     return {
       attach,
-      firstRow: got.firstRow!,
-      latest: got.latest!,
-      settled: Math.max(got.latest!, got.activity!),
-      longTasks: got.longTasks!,
-      longMs: got.longMs!,
-      shift: got.shift!,
-      drift: got.drift!,
+      firstRow: got.firstRow,
+      latest: got.latest,
+      settled: Math.max(got.latest, got.activity),
+      longTasks: got.longTasks,
+      longMs: got.longMs,
+      shift: got.shift,
+      drift: got.drift,
       socket: at(socketOpenedAt),
       initialize: at(arrivals.get("initialize")),
       watch: at(arrivals.get("_acpmux/watch")),
-      dcl: got.dcl!,
-      scriptKiB: got.scriptKiB!,
+      dcl: got.dcl,
+      scriptKiB: got.scriptKiB,
       scripts: got.scripts as unknown as string[],
       forced: got.forced as Round["forced"],
     };
