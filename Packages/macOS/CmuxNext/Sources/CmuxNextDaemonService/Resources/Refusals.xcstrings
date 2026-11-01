@@ -22540,6 +22540,138 @@
         }
       }
     },
+    "handlers.refusal.incognitoUnanswered": {
+      "comment": "Toast and CLI error when a new incognito window's workspace got no answer from cmux's local background service within the safety bound and the service made no workspace: no window opens.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The incognito window did not open: cmux’s background service did not answer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットウィンドウを開けませんでした: cmux のバックグラウンドサービスが応答しませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح نافذة التصفح المتخفي: لم تستجب خدمة cmux في الخلفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anonimni prozor se nije otvorio: pozadinska usluga cmux-a nije odgovorila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet blev ikke åbnet: cmux’ baggrundstjeneste svarede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Inkognito-Fenster wurde nicht geöffnet: Der Hintergrunddienst von cmux hat nicht geantwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ventana de incógnito no se abrió: el servicio en segundo plano de cmux no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fenêtre de navigation privée ne s’est pas ouverte : le service d’arrière-plan de cmux n’a pas répondu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La finestra in incognito non si è aperta: il servizio in background di cmux non ha risposto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចអនាមិកមិនបានបើកទេ៖ សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនបានឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시크릿 창이 열리지 않았습니다: cmux 백그라운드 서비스가 응답하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inkognitovinduet ble ikke åpnet: Bakgrunnstjenesten til cmux svarte ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno incognito się nie otworzyło: usługa w tle cmux nie odpowiedziała."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A janela anônima não abriu: o serviço em segundo plano do cmux não respondeu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окно инкогнито не открылось: фоновая служба cmux не ответила."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างไม่ระบุตัวตนไม่เปิด: บริการเบื้องหลังของ cmux ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizli pencere açılmadı: cmux’un arka plan hizmeti yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вікно інкогніто не відкрилося: фонова служба cmux не відповіла."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ ẩn danh không mở: dịch vụ nền của cmux không phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无痕窗口未打开：cmux 的后台服务没有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無痕視窗未開啟：cmux 的背景服務沒有回應。"
+          }
+        }
+      }
+    },
     "handlers.refusal.personalStateLoading": {
       "extractionState": "manual",
       "localizations": {

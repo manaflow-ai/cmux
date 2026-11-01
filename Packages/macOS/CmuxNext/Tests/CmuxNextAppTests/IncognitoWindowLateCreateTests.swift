@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 import Testing
 
@@ -69,6 +70,35 @@ struct IncognitoWindowLateCreateTests {
             })
             try await PinnedPageTests.until({ !Self.tabs(window, services).contains { $0.kind == .pty } }, report: { "its terminal tab stayed" })
             #expect(Self.incognitoWindows(services) == [window], "a second incognito window opened")
+        }
+    }
+
+    /// A daemon that never answers the create (past `createReplyBound`) but made the workspace: the store decides, and
+    /// the workspace it lists opens in the window that waited for it, with the page.
+    @Test func anUnansweredCreateWhoseWorkspaceTheStoreListsOpensItWithItsPage() async throws {
+        try await PinnedPageTests.withApp(bridge: Proxy.all.bridge) { services, _ in
+            services.daemon.createReplyBound = .seconds(3)
+            let url = try #require(URL(string: "https://incognito-\(UUID().uuidString.prefix(6).lowercased()).example/"))
+            let window = services.windows.newIncognitoWindow(url: url)
+            try await PinnedPageTests.until({ Self.tabs(window, services).contains { $0.url == url.absoluteString } }, within: .seconds(30), report: {
+                "the window shows \(Self.tabs(window, services).map { ($0.kind, $0.url) }); incognito windows \(Self.incognitoWindows(services))"
+            })
+            try await PinnedPageTests.until({ !Self.tabs(window, services).contains { $0.kind == .pty } }, report: { "its terminal tab stayed" })
+            #expect(Self.incognitoWindows(services) == [window], "a second incognito window opened")
+        }
+    }
+
+    /// A daemon that never got the create: past the bound the store lists nothing, and the person is told; no window opens.
+    @Test func anUnansweredCreateThatMadeNothingTellsThePerson() async throws {
+        try await PinnedPageTests.withApp(bridge: Proxy.requests.bridge) { services, _ in
+            services.daemon.createReplyBound = .seconds(3)
+            var refusals: [String] = []
+            services.registry.refusalObserver = { reason, _ in refusals.append(reason) }
+            _ = services.windows.newIncognitoWindow(url: URL(string: "https://incognito.example/"))
+            try await PinnedPageTests.until({ !refusals.isEmpty }, within: .seconds(30), report: { "nothing was shown to the person" })
+            #expect(refusals == [RefusalStrings.incognitoUnanswered])
+            #expect(services.windows.pendingEphemeralWindows.isEmpty)
+            #expect(Self.incognitoWindows(services).isEmpty, "an incognito window opened with no workspace made")
         }
     }
 

@@ -31,15 +31,15 @@ extension StateResourceClient {
         "cmux-next-" + (DaemonCommandScope.current?.nextMutationID() ?? UUID().uuidString.lowercased())
     }
 
-    /// Sends one state mutation and returns its `value`. `timeout` replaces the request deadline.
+    /// Sends one state mutation and returns its `value`. `key`: its idempotency key; a mutation sent again passes
+    /// the first send's key, so the daemon replays it (`ResourceMutationResult.replayed`) instead of doing it twice.
     @discardableResult
     func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
-                                                 as type: R.Type = JSONValue.self, timeout: Duration? = nil,
+                                                 as type: R.Type = JSONValue.self, key: String = StateResourceClient.stateKey(),
                                                  requiring capability: String? = nil) async throws -> R {
-        let key = Self.stateKey()
-        return try await connection.resourceRequest({ id in
+        try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
-        }, as: ResourceMutationResult<R>.self, timeout: timeout, requiring: capability).value
+        }, as: ResourceMutationResult<R>.self, requiring: capability).value
     }
 
     static func ids(_ ids: [ResourceID]) -> JSONValue { .array(ids.map { .string($0.rawValue) }) }
@@ -163,16 +163,28 @@ extension StateResourceClient {
     /// `workspace.create`; `ephemeral` workspaces are closed by the daemon at
     /// its next start and leave no closed history. `focus` makes the new
     /// workspace the daemon's focused one, as the person's own creations
-    /// are; without it the daemon keeps its focused workspace. With `terminal` the daemon starts
-    /// the workspace's terminal inside the create and answers once its host is up, so the create
-    /// has the terminal start deadline (`spawnTimeout`), as `new-tab` does.
+    /// are; without it the daemon keeps its focused workspace.
+    ///
+    /// With `terminal` the daemon starts the workspace's terminal inside the create and answers once its host is up
+    /// (a new terminal, R3): the create is sent again under one idempotency key while it misses its reply deadline
+    /// (the daemon replays it), and ends on the reply, a refusal, the connection's end or cancellation, never on a
+    /// client clock (principled-audit R5, ``DaemonConnection/waitingThroughLateReplies(_:_:)``). A caller that must
+    /// end bounds it by cancelling (`DaemonService.createWorkspaceAwaitingReply`). An empty create keeps the deadline.
     @discardableResult
     public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
         let supportsFocus = await connection.identity?.supports(DaemonCapability.workspaceCreateFocus.rawValue) == true
         let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
                                                                      focus: focus, daemonSupportsFocus: supportsFocus)
-        let deadline = terminal ? connection.configuration.spawnTimeout : nil
-        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self, timeout: deadline)
+        guard terminal else { return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self) }
+        let key = Self.stateKey()
+        do {
+            return try await DaemonConnection.waitingThroughLateReplies("workspace.create") {
+                try await stateMutation("workspace.create", params, as: CreatedWorkspace.self, key: key)
+            }
+        } catch {
+            DaemonConnection.checkNoLateStart(error, "workspace.create") // R3 (DEBUG)
+            throw error
+        }
     }
 
     /// The `workspace.create` params. `focus` is sent only to a daemon with
