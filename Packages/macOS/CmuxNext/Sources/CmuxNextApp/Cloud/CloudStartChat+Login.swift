@@ -49,10 +49,6 @@ extension CloudStartChat {
     /// The guest's own kind, as the transfer's preflight reads it. Exits 0 on an owner machine.
     static let ownerGuestProbe = #"[ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]"#
 
-    /// The probe for a login already on the machine: the image's own detection, with its config
-    /// sourced as the launcher does. Exits 0 when Claude has its own sign-in there.
-    static let machineLoginProbe = ". /etc/cmux/agent-config.sh >/dev/null 2>&1; . /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude"
-
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws.
     func passHarnessLogin(_ start: AgentPaneCloudStart, machine: CloudMachineSession) async -> Bool {
@@ -66,9 +62,10 @@ extension CloudStartChat {
             let owns = try await cloud.callerOwnsVM(machineID)
             var ownerGuest = false, hasLogin = false, cached = false
             if owns { ownerGuest = (try? await api.exec(machineID, command: Self.ownerGuestProbe, timeoutMs: 20_000).exitCode) == 0 }
+            // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
             if ownerGuest {
-                hasLogin = (try? await api.exec(machineID, command: Self.machineLoginProbe, timeoutMs: 20_000).exitCode) == 0
-                if !hasLogin { cached = await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) }
+                let read = await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID)
+                (hasLogin, cached) = (!read.login.needsLogin, read.cached)
             }
             switch Self.loginStep(enabled: enabled, provider: provider, signedInUser: true, callerOwns: owns,
                                   ownerGuest: ownerGuest, machineHasLogin: hasLogin, cachedLogin: cached) {

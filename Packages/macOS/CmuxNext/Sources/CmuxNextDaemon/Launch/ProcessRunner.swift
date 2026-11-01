@@ -32,6 +32,9 @@ public struct ProcessRunner {
         // Opt-in diagnostic/reply retention, independent of the child's upload/file size. Both
         // streams are bounded; nil preserves the complete-output contract for existing callers.
         outputTailBytes: Int? = nil,
+        // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
+        // the last one once the child exits. Nil reads stderr only after exit, as before.
+        stderrLine: (@Sendable (String) -> Void)? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         guard timeout != nil || progressIdle != nil else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
@@ -68,6 +71,9 @@ public struct ProcessRunner {
         // file; the child's writes land on the same file).
         let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor) }
         defer { progress?.cancel() }
+        // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
+        let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
+        defer { lines?.cancel() }
 
         let box = ProcessBox(process)
         // A cancelled caller kills the child, so the waiter below ends now
@@ -115,6 +121,7 @@ public struct ProcessRunner {
         } onCancel: {
             box.cancel()
         }
+        lines?.finish()
         return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
 

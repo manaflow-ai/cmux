@@ -39,7 +39,7 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSurface"),
     ]
 
-    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off; Leo, relayed
+    /// Workspaces as tabs (the `sidebar.workspacesAsTabs` setting or Debug tunable, off; Leo, relayed
     /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab` with `scope`
     /// `workspaces`: sidebar order, across groups, a collapsed group one stop, wrapping, never Home
     /// or another top item). They go after the catalog defaults and ``tabCycleAliases``, so they win

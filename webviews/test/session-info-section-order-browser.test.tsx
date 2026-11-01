@@ -146,19 +146,25 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
             return before.content !== "none";
           };
+          const ruled = ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"];
           return {
-            about: [box("context").top - box("environment").bottom, box("connectors").top - box("context").bottom],
+            // Usage sits after Context in the top block (#28773).
+            about: [
+              box("context").top - box("environment").bottom,
+              box("usage").top - box("context").bottom,
+              box("connectors").top - box("usage").bottom,
+            ],
             made: box("sources").top - box("changes").bottom,
             between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
-            rules: ["environment", "context", "changes", "sources", "subagents", "tasks"].map(rule),
+            rules: ruled.map(rule),
           };
         });
-        expect(geometry.about).toEqual([0, 0]);
+        expect(geometry.about).toEqual([0, 0, 0]);
         expect(geometry.made).toBeCloseTo(6, 1);
         // This page has no desktop.css, so the hairline is its 0.5px fallback.
         for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
         // The hairline over the first section of each block but the first, and nowhere else.
-        expect(geometry.rules).toEqual([false, false, true, false, true, false]);
+        expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
       } finally {
         await page.close();
       }
