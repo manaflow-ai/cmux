@@ -17,9 +17,12 @@ extension SidebarListViewComponents {
             // A right-click on a group (or its empty row) shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
             // click on the name or the more button still opens the editor (cx-rcby).
-            target = .group(id)
+            // A remote group (`SidebarSection.wrappedAsHostGroup`) shows its machine's menu.
+            target = SidebarGroup.hostMachine(id).map { .section(.machine($0)) } ?? .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .doneFold(fold)? where fold.kind == .archive:
+            target = .background // the Archive row belongs to no list
         case let .doneFold(fold)?, let .showMore(fold)?:
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:

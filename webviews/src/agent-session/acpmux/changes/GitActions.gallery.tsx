@@ -20,6 +20,7 @@ const fakeGit = (state?: GitWriteState, statusFailed = false): GitWrite => ({
   push: async () => true,
   retry: () => undefined,
   refresh: () => undefined,
+  recheck: () => undefined,
   dismiss: () => undefined,
 });
 

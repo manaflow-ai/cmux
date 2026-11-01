@@ -1,9 +1,9 @@
-//! Runs every `cmux vm …` command in the agent guide
+//! Runs every `cmux machine …` (or old `cmux vm …`) command in the agent guide
 //! (skills/cmux-cloud-vm/references/headless.md) against a local mock of the
 //! cmux VM API, so a command the guide shows is one the CLI accepts and
-//! finishes. `cmux vm` passes its words to this CLI after renaming `new`, `ls`
-//! and `rm` (cmux-tui/crates/cmux-tui/src/cli/vm.rs); the guide's `VM_ID` is
-//! the id `new` answered.
+//! finishes. `cmux machine` passes its words to this CLI after renaming `new`,
+//! `ls` and `rm` (cmux-tui/crates/cmux-tui/src/cli/vm.rs); the guide's `VM_ID`
+//! is the id `new` answered.
 
 use cmux_vm::exit;
 use serde_json::json;
@@ -11,12 +11,12 @@ use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const GUIDE: &str = include_str!("../../../../../../skills/cmux-cloud-vm/references/headless.md");
-/// The `cmux vm` wrapper whose verb renames [`cmux_vm_args`] repeats.
+/// The `cmux machine` wrapper whose verb renames [`cmux_vm_args`] repeats.
 const WRAPPER: &str = include_str!("../../../../../../cmux-tui/crates/cmux-tui/src/cli/vm.rs");
 const VM_ID: &str = "vm_0123456789abcdefghjkmnpqrs";
 const KEY: &str = "cmuxvm_sk_test";
 
-/// The words of each `cmux vm` line in the guide's sh blocks, as typed.
+/// The words of each `cmux machine` or `cmux vm` line in the guide's sh blocks, as typed.
 fn guide_commands() -> Vec<Vec<String>> {
     let mut commands = Vec::new();
     let mut in_sh = false;
@@ -26,7 +26,7 @@ fn guide_commands() -> Vec<Vec<String>> {
             in_sh = line == "```sh";
             continue;
         }
-        if in_sh && line.starts_with("cmux vm ") {
+        if in_sh && (line.starts_with("cmux machine ") || line.starts_with("cmux vm ")) {
             commands.push(shell_words(line));
         }
     }
@@ -47,9 +47,13 @@ fn shell_words(line: &str) -> Vec<String> {
         .collect()
 }
 
-/// The `cmux-vm` arguments `cmux vm` runs for `words` (`cmux vm …`).
+/// The `cmux-vm` arguments `cmux machine` runs for `words` (`cmux machine …`
+/// or `cmux vm …`).
 fn cmux_vm_args(words: &[String]) -> Vec<String> {
-    assert_eq!(&words[..2], ["cmux", "vm"], "{words:?}");
+    assert!(
+        words[..2] == ["cmux", "machine"] || words[..2] == ["cmux", "vm"],
+        "{words:?}"
+    );
     words[2..]
         .iter()
         .enumerate()
@@ -107,9 +111,9 @@ async fn mount_body(
 #[test]
 fn the_wrapper_still_renames_the_verbs_the_guide_uses() {
     for arm in [
-        r#""new" | "create" => "create""#,
-        r#""ls" | "list" => "list""#,
-        r#""rm" | "delete" => "delete""#,
+        r#""new" | "create" => ("create""#,
+        r#""ls" | "list" => ("list""#,
+        r#""rm" | "delete" => ("delete""#,
     ] {
         assert!(
             WRAPPER.contains(arm),

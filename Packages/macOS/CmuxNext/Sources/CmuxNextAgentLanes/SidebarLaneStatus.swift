@@ -91,12 +91,20 @@ enum SidebarLaneStatus {
         .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
 
-    /// The first line of the step of the working lane that started last, nil when none works or
-    /// says what it does.
+    /// Activity from the most recently started working lane that has any. acpmux derives
+    /// lane.step from turn.prompt whenever it exists, then masks, folds and truncates it:
+    /// comparing the strings would leak long prompts. Keep the opt-in Now line, using the
+    /// turn's activity/plan instead, or the lane step only when it has no prompt source.
     static func step(_ lanes: [AgentActivityLane]) -> String? {
-        let step = lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
-            .max { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }?.step
-        return step?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        func firstLine(_ text: String?) -> String? {
+            text?.split(whereSeparator: \.isNewline).first
+                .map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return lanes.filter { $0.state == .working }.compactMap { lane -> (Date, String)? in
+            guard let text = firstLine(lane.turnActivity) ?? firstLine(lane.turnPlanStep)
+                ?? (lane.turnPrompt == nil ? firstLine(lane.step) : nil) else { return nil }
+            return (lane.since ?? .distantPast, text)
+        }.max { $0.0 < $1.0 }?.1
     }
 
     /// Each usage warning of `lanes`, once, in lane order.

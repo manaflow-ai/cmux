@@ -77,20 +77,24 @@ extension Metrics {
         return scale(ChromeTunables.mainPaneCornerRadius.value)
     }
     /// Corner radius of the main pane in a window whose own corners have
-    /// `windowCornerRadius`: concentric with them (the window radius less
-    /// the gutter). Without a gutter the pane's corners at the window's are
+    /// `windowCornerRadius`: Helium's 14 pt content corner
+    /// (`heliumContentCornerRadius`), at most the window's radius. It was
+    /// concentric with the window (the window radius less the gutter, 10 pt),
+    /// which read too square (Lawrence 2026-10-31); with a 6 pt gutter the
+    /// gap at a bottom corner now widens by about 1.7 pt. Without a gutter the pane's corners at the window's are
     /// the window's own, so the two are one outline; a square window
     /// (fullscreen) gets a square pane, rounding only at real edges. Under a
     /// standard titlebar strip the pane's top corners sit below it, against
     /// the window's straight side, so the pane is square too (the window
     /// still rounds its own corners). A Debug
-    /// Settings override wins; with a gutter in fullscreen it is
-    /// `mainPaneCornerRadius`.
+    /// Settings override wins.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : windowCornerRadius }
-        return windowCornerRadius > 0 ? max(0, windowCornerRadius - gutter) : mainPaneCornerRadius
+        // Helium's content corner (Lawrence 2026-10-31: "round the pane bg thing more"), never
+        // rounder than the window's own; fullscreen (square window) keeps it too.
+        return windowCornerRadius > 0 ? min(heliumContentCornerRadius, windowCornerRadius) : heliumContentCornerRadius
     }
     /// Black's alpha over the chrome around the main pane: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the

@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A Priority row the person drags past the drag threshold moves to where they drop it and asks the
 /// App to keep it there (`SidebarPriorityAction.place`); a click, jitter included, still opens the
 /// chat (Leo 2026-10-21: "the click and drag doesn't quite work for moving guys up").
 @MainActor
+@Suite(.closesItsWindows)
 struct SidebarPriorityDragTests {
     static let entries = ["a", "b", "c"].map { SidebarPriorityEntry(id: $0, title: $0, state: .idle) }
 
@@ -38,10 +40,13 @@ struct SidebarPriorityDragTests {
             for dy in moves { row.mouseDragged(with: try event(.leftMouseDragged, dy)) }
             row.mouseUp(with: try event(.leftMouseUp, moves.last ?? 0))
         }
+
+        func close() { window.closeAfterTest() }
     }
 
     @Test func draggingARowUpPlacesItWhereItDrops() throws {
         let harness = Harness()
+        defer { harness.close() }
         let height = try #require(harness.panel.rows["c"]).frame.height
         try harness.press("c", moves: [-3, -height, -2.2 * height])
         #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
@@ -51,6 +56,7 @@ struct SidebarPriorityDragTests {
 
     @Test func rowHitTestingTargetsTheRowForDragPresses() throws {
         let harness = Harness()
+        defer { harness.close() }
         let row = try #require(harness.panel.rows["b"])
         // FlippedDocument forwards its document-space point to the row. A non-top row must
         // convert that point before checking its local bounds.
@@ -59,6 +65,7 @@ struct SidebarPriorityDragTests {
 
     @Test func draggingARowDownOneSlotPlacesItThere() throws {
         let harness = Harness()
+        defer { harness.close() }
         let height = try #require(harness.panel.rows["a"]).frame.height
         try harness.press("a", moves: [height * 0.4, height * 1.1])
         #expect(harness.actions == [.place("a", order: ["b", "a", "c"])])
@@ -66,6 +73,7 @@ struct SidebarPriorityDragTests {
 
     @Test func aClickWithJitterOpensTheChatAndMovesNothing() throws {
         let harness = Harness()
+        defer { harness.close() }
         try harness.press("b", moves: [3])
         try harness.press("a", moves: [])
         #expect(harness.actions == [.open("b"), .open("a")])
@@ -74,6 +82,7 @@ struct SidebarPriorityDragTests {
 
     @Test func aDropBackInItsOwnPlaceAsksForNothing() throws {
         let harness = Harness()
+        defer { harness.close() }
         let height = try #require(harness.panel.rows["b"]).frame.height
         try harness.press("b", moves: [-height * 0.3, 0])
         #expect(harness.actions.isEmpty)

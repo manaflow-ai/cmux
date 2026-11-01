@@ -64,6 +64,13 @@ const INFO = {
   frames: [5300, 15900, 26500, 37100].map((atMs) => ({ atMs, data: "/9j/AA==" })),
 };
 
+/// What the host heard in it (`video.transcript`).
+const SPEECH = {
+  segments: [{ startMs: 1_200, endMs: 4_800, text: "The sidebar jumps when I resize the window." }],
+  heardMs: 42_400,
+  durationMs: 42_400,
+};
+
 /// Each host call, with a way to answer it later.
 type Call = { method: string; params: Record<string, unknown>; answer(value: unknown): void; fail(error: Error): void };
 let calls: Call[] = [];
@@ -130,8 +137,15 @@ try {
     expect(state?.reading).toBe(1);
 
     await act(async () => calls[0]!.answer(INFO));
-    expect(state?.reading).toBe(0);
     expect(state?.attachments[0]?.video).toEqual(INFO);
+    // Then the speech in it: the send waits for that too (within the same deadline), and nothing spins.
+    expect(calls.at(-1)?.method).toBe("video.transcript");
+    expect(calls.at(-1)?.params).toEqual({ src: PATH });
+    expect(state?.reading).toBe(1);
+    expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+    await act(async () => calls.at(-1)!.answer(SPEECH));
+    expect(state?.reading).toBe(0);
+    expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
     const tile = host.querySelector(".acpmux-attachment-video")!;
     expect(tile.getAttribute("title")).toBe(video().name);
     expect(tile.querySelector("img")?.getAttribute("src")).toBe(POSTER);
@@ -150,8 +164,8 @@ try {
     expect(calls.filter((call) => call.method === "video.info").length).toBe(1);
   });
 
-  test("a chat's kept draft never carries a video's poster and frames: they are read again", () => {
-    const read = { ...video(), video: INFO };
+  test("a chat's kept draft never carries a video's poster, frames or transcript: they are read again", () => {
+    const read = { ...video(), video: INFO, transcript: SPEECH };
     expect(keptChips([read])).toEqual([video()]);
     expect(keptChips([video()])).toEqual([video()]);
   });
@@ -212,6 +226,8 @@ try {
     expect(state?.reading).toBe(1);
     expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
     await act(async () => second!.answer(INFO));
+    // No speech in it: the send waits no more.
+    await act(async () => calls.at(-1)!.answer({ segments: [] }));
     expect(state?.reading).toBe(0);
   });
 
@@ -272,6 +288,7 @@ try {
     expect(state?.reading).toBe(1);
     await act(async () => reads[1]!.answer(INFO));
     expect(state?.attachments[0]?.video).toEqual(INFO);
+    await act(async () => calls.at(-1)!.answer(SPEECH));
     expect(state?.reading).toBe(0);
 
     // A settled chip is still marked complete across another hide/reveal and is not re-read.
@@ -321,7 +338,9 @@ try {
     expect(state?.reading).toBe(1);
     await act(async () => second!.answer(INFO));
     expect(state?.attachments[0]?.video).toEqual(INFO);
+    await act(async () => calls.at(-1)!.fail(new Error("video.transcript unavailable")));
     expect(state?.reading).toBe(0);
+    expect(state?.attachments[0]?.transcript).toBeUndefined();
   });
 
   test("a chat that turns remote while its video is read ends the read: a late answer adds nothing", async () => {
@@ -360,6 +379,42 @@ try {
     expect(state?.reading).toBe(0);
     await act(async () => calls[0]!.answer(INFO));
     expect(host.querySelector(".acpmux-attachment-video img")?.getAttribute("src")).toBe(POSTER);
+  });
+  test("a video's speech is asked once and goes on its chip", async () => {
+    await render([video()]);
+    await act(async () => calls[0]!.answer(INFO));
+    const listen = calls.at(-1)!;
+    expect(listen.method).toBe("video.transcript");
+    expect(state?.reading).toBe(1);
+    await act(async () => listen.answer(SPEECH));
+    expect(state?.reading).toBe(0);
+    // Read once: a later render asks nothing again.
+    await act(async () => state!.add({ ...linkAttachment("/tmp/other.zip", false), mimeType: "application/zip" }));
+    expect(calls.filter((call) => call.method === "video.transcript")).toHaveLength(1);
+    expect(state?.attachments[0]?.transcript).toEqual(SPEECH);
+  });
+
+  test("removing a video while its speech is heard ends the wait, and a late answer adds nothing", async () => {
+    await render([video()]);
+    await act(async () => calls[0]!.answer(INFO));
+    const listen = calls.at(-1)!;
+    expect(state?.reading).toBe(1);
+    await act(async () => state!.remove(video().id));
+    expect(state?.reading).toBe(0);
+    await act(async () => listen.answer(SPEECH));
+    expect(state?.attachments).toEqual([]);
+  });
+
+  test("a chat that turns remote while its video's speech is heard ends that wait too", async () => {
+    await render([video()], true, "hears-remote");
+    await act(async () => calls[0]!.answer(INFO));
+    expect(state?.reading).toBe(1);
+    await act(async () => {
+      root.render(<Harness key="hears-remote" initial={[]} local={false} />);
+    });
+    expect(state?.reading).toBe(0);
+    await act(async () => calls.at(-1)!.answer(SPEECH));
+    expect(state?.attachments[0]?.transcript).toBeUndefined();
   });
 } finally {
   afterAll(() => {

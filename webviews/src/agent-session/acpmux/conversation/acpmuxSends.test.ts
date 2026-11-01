@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSend, acpmuxSendCall, recordedMessageBodyChanges, shellCommands } from "./acpmuxSends";
-import { sendLabel } from "../inspector/processes";
+import { sendLabel } from "../session-info/processes";
 import type { Translate } from "../i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

@@ -21,14 +21,18 @@ import { isDeniedPath, pathName, textLinks } from "./paths";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { useHoverCard } from "./useHoverCard";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
 export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
   const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
-  // Another machine's file: never asked about or opened here (chips/messageScope.ts).
-  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
+  // Another machine's file: never asked about or opened here (chips/messageScope.ts). A read-only
+  // reader's every path is on the owner's machine.
+  if (scope?.host !== undefined || readOnly)
+    return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
   return <HostPathChip path={path} label={label} written={written} />;
 }
 
@@ -53,7 +57,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
-      {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
+      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileDoc size={16} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </button>
   );
@@ -71,7 +75,7 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
       /* tooltip-allow: the chip shows the file's name only; the tooltip says where it is */ title={where}
       aria-label={where}
     >
-      <FileDoc size={15} className="cv-chip__icon" />
+      <FileDoc size={16} className="cv-chip__icon" />
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </span>
   );
@@ -91,12 +95,12 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
   // link with the GitHub mark and its text. Its title goes to the hover card only.
   const ref = githubRefLabel(href);
-  const mark = ref ? <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
+  const mark = ref ? <GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
   // The hover card always has an icon to show; a favicon cmux has fits there, not in the line.
   const favicon = site?.icon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
   ) : undefined;
-  const cardMark = mark ?? favicon ?? <Globe size={15} strokeWidth={1.1} className="cv-chip__icon" />;
+  const cardMark = mark ?? favicon ?? <Globe size={16} strokeWidth={1.1} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const pullRequest = pullRequestRef(href);

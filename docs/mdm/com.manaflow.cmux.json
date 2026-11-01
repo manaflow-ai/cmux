@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -97,6 +98,17 @@
         "right"
       ],
       "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptView" : {
+      "default" : "normal",
+      "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+      "enum" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Transcript View",
       "type" : "string"
     },
     "agentPane.display.vscodeMinimap" : {
@@ -277,7 +289,7 @@
       "type" : "boolean"
     },
     "agents.subsessions.maxChildren" : {
-      "default" : 50,
+      "default" : 1000,
       "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -293,7 +305,7 @@
       "type" : "number"
     },
     "agents.subsessions.maxRunning" : {
-      "default" : 16,
+      "default" : 1000,
       "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -1022,6 +1034,13 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabFontSize" : {
+      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
+      "maximum" : 18,
+      "minimum" : 10,
+      "title" : "Tab Text Size",
+      "type" : "number"
+    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1048,6 +1067,13 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabStripHeight" : {
+      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+      "maximum" : 44,
+      "minimum" : 22,
+      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1774,6 +1800,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.autoRouteSubagents" : {
+      "default" : true,
+      "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+      "title" : "Route Subagents to the Best Agent",
+      "type" : "boolean"
+    },
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -1796,6 +1828,22 @@
       "default" : true,
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
+      "type" : "boolean"
+    },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -2521,16 +2569,20 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
@@ -3659,7 +3711,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 1300,
+      "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -5024,6 +5076,14 @@
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
     },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,

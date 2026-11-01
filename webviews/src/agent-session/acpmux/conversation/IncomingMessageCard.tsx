@@ -18,8 +18,8 @@
 // fuck do you even have this instead of just being able to click on the fucking name of the thing,
 // the open chat? ... Just click the left name thing."). The rest of the line opens the message.
 // The sender's mark is its harness's: the listed chat's, else the one the message names (a peer's
-// relayed message, `fromHarness`), else its name's (agentBrand), and a small bot only when none
-// says (Leo, 2026-10-29: "why are some of these icons still only placeholders?"). Reply, at the line's end,
+// relayed message, `fromHarness`), and a small bot when neither says, never a mark guessed from the
+// sender's name (a Codex lane called `claude-…` drew Claude's; cmux#30247). Reply, at the line's end,
 // answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor in the panel. An open reply and its draft last while
 // the page does; closing the message closes the reply and keeps the draft.
@@ -33,7 +33,7 @@ import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { dedupeReferences } from "./messageRefs";
 import { PromptEditor, SentImages } from "./UserBubble";
-import { FindReveal } from "./chatFind";
+import { FindReveal, foldFind } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
@@ -54,6 +54,7 @@ import { laneNotice } from "./laneReport";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -62,6 +63,46 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   ancestor: "message.from.ancestor",
   descendant: "message.from.descendant",
 };
+
+/// A harness logo's size in the sender's glyph slot (see SenderName).
+const SENDER_LOGO_SIZE = 12;
+
+/// The harness whose mark a sender draws: the listed chat's, else the one the message names (acpmux's
+/// bound `fromHarness`), the first of them with a mark today, else that harness id itself, so a
+/// profile icon that arrives later still replaces the fallback. Never one guessed from the sender's
+/// name: a Codex lane called `claude-…` drew Claude's mark (cmux#30247). With neither, undefined,
+/// and the line draws the neutral agent glyph.
+export function senderHarness(listed: string | undefined, named: string | undefined): string | undefined {
+  return knownMark(listed, named, listed ?? named);
+}
+
+/// The sender's mark alone (a received line's, an inbox group's): its avatar, a Chief's face, else
+/// its harness's mark, else the neutral agent glyph in its own stable tone.
+export function SenderMark({ message }: { message: IncomingMessage }) {
+  const chief = useChiefFace(message.chief);
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const avatar = useAgentAvatar(sender.sessionId);
+  const harness = senderHarness(sender.harness, message.harness);
+  const picture = message.chief ? chief?.src : avatar;
+  return picture ? (
+    <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
+  ) : message.chief && chief?.text ? (
+    <span className="cv-chief-text-avatar" aria-hidden="true">
+      {chief.text}
+    </span>
+  ) : (
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell
+    // apart. A logo fills its whole box while the envelope and the bot leave a margin in their 16px
+    // one: at 12px its ink is the stroke glyphs' (about 12px), so a sender's logo and a send's
+    // envelope read as one size in the shared glyph slot (transcript-icon-column.test.ts).
+    <AgentIdentity
+      harness={harness}
+      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
+      size={SENDER_LOGO_SIZE}
+      fallbackNode={<Bot size={16} />}
+    />
+  );
+}
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
@@ -72,39 +113,16 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const chief = useChiefFace(message.chief);
   const name = (message.chief && chief?.name) || message.name;
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
-  const sessionId = message.chief ? undefined : sender.sessionId;
-  const avatar = useAgentAvatar(sender.sessionId);
+  // Read only (a guest): the sender's chat is not this reader's to open.
+  const readOnly = useTranscriptReadOnly();
+  const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
   const notice = laneNotice(message);
   const inboxNames =
     notice?.kind === "inbox"
       ? [...new Set((notice.threads ?? []).map(({ sender }) => sender).filter(Boolean))].join(", ")
       : "";
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
-  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
-  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
-  const harness = knownMark(
-    sender.harness,
-    message.harness,
-    message.name,
-    message.name.split("/")[0],
-    sender.harness ?? message.harness,
-  );
-  const picture = message.chief ? chief?.src : avatar;
-  const icon = picture ? (
-    <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
-  ) : message.chief && chief?.text ? (
-    <span className="cv-chief-text-avatar" aria-hidden="true">
-      {chief.text}
-    </span>
-  ) : (
-    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell apart.
-    <AgentIdentity
-      harness={harness}
-      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
-      size={14}
-      fallbackNode={<Bot size={16} />}
-    />
-  );
+  const icon = <SenderMark message={message} />;
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
     ? t("subagents.openOnHost", { name, host: sender.host })
@@ -161,6 +179,8 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  // Read only (a guest): nobody replies.
+  const readOnly = useTranscriptReadOnly();
   const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
@@ -187,10 +207,8 @@ export function IncomingMessageLine({
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(
-    needle && (notice?.body ?? unsigned(message.text, message.name)).toLocaleLowerCase().includes(needle),
-  );
-  const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
+  const inText = Boolean(needle && foldFind(notice?.body ?? unsigned(message.text, message.name)).includes(needle));
+  const inRaw = Boolean(needle && !inText && foldFind(message.raw).includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
     played.current = false;
@@ -218,7 +236,7 @@ export function IncomingMessageLine({
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );

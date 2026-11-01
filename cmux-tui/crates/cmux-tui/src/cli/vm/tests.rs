@@ -6,12 +6,14 @@ fn args(words: &[&str]) -> Vec<String> {
 
 fn planned(words: &[&str]) -> Result<Vec<String>, UsageError> {
     let all = args(words);
-    plan(split(&all).expect("a vm command"), OutputMode::Human)
+    plan(split(&all).expect("a vm command").1, OutputMode::Human)
 }
 
 #[test]
-fn only_the_vm_scope_is_owned() {
+fn only_the_vm_scope_and_the_machine_vm_verbs_are_owned() {
     assert!(split(&args(&["vm", "ls"])).is_some());
+    assert!(split(&args(&["machine", "new"])).is_some());
+    assert!(split(&args(&["machine", "list"])).is_none());
     assert!(split(&args(&["workspace", "new"])).is_none());
     assert!(split(&args(&[])).is_none());
 }
@@ -47,7 +49,7 @@ fn exec_keeps_everything_after_the_double_dash() {
 #[test]
 fn json_output_is_a_global_flag_of_cmux_vm() {
     let all = args(&["vm", "ls"]);
-    let plan = plan(split(&all).unwrap(), OutputMode::Json).unwrap();
+    let plan = plan(split(&all).unwrap().1, OutputMode::Json).unwrap();
     assert_eq!(plan, args(&["--json", "list"]));
 }
 
@@ -56,8 +58,8 @@ fn a_vm_with_no_verb_or_an_unknown_verb_lists_the_wrapper_verbs() {
     for words in [&["vm"][..], &["vm", "frobnicate"][..]] {
         let error = planned(words).unwrap_err();
         for verb in [
-            "new", "ls", "get", "pause", "resume", "start", "stop", "rm", "exec", "fork",
-            "snapshot",
+            "new", "show", "pause", "resume", "start", "stop", "rm", "exec", "fork", "snapshot",
+            "access", "key",
         ] {
             assert!(error.0.contains(verb), "{verb} missing from: {}", error.0);
         }
@@ -184,15 +186,17 @@ fn mint_params_hold_the_budget_and_never_scopes() {
 #[test]
 fn vm_help_runs_in_process_without_a_cmux_vm_binary() {
     let env = |_: &str| None;
-    assert_eq!(run_in_process(args(&["--help"]), &env), 0);
-    assert_eq!(run_in_process(args(&["run", "--help"]), &env), 0);
-    assert_eq!(run_in_process(args(&["token", "--help"]), &env), 0);
+    for scope in [Scope::Machine, Scope::Vm] {
+        assert_eq!(run_in_process(args(&["--help"]), scope, &env), 0);
+        assert_eq!(run_in_process(args(&["run", "--help"]), scope, &env), 0);
+        assert_eq!(run_in_process(args(&["token", "--help"]), scope, &env), 0);
+    }
 }
 
 #[test]
 fn words_after_vm_reach_cmux_vm_verbatim_through_the_global_scanner() {
     let all = args(&["vm", "run", "--sync", "--keep", "--", "echo", "--json", "--sync"]);
-    let (global, rest) = split_raw(&all).expect("a vm command");
+    let (global, _, rest) = split_raw(&all).expect("a vm command");
     assert!(global.output == OutputMode::Human);
     assert_eq!(rest, &all[1..]);
     let plan = plan(rest, global.output).unwrap();
@@ -202,7 +206,7 @@ fn words_after_vm_reach_cmux_vm_verbatim_through_the_global_scanner() {
 #[test]
 fn globals_before_vm_still_apply() {
     let all = args(&["--json", "vm", "ls"]);
-    let (global, rest) = split_raw(&all).expect("a vm command");
+    let (global, _, rest) = split_raw(&all).expect("a vm command");
     assert!(global.output == OutputMode::Json);
     assert_eq!(plan(rest, global.output).unwrap(), args(&["--json", "list"]));
     assert!(split_raw(&args(&["workspace", "vm"])).is_none());
@@ -227,7 +231,7 @@ fn app_mint_errors_keep_the_vm_cli_exit_codes() {
 
 /// The words `run_if_requested` hands `cmux-vm` for a whole `cmux …` command line.
 fn forwarded(words: &[&str]) -> Vec<String> {
-    let (global, rest) = prepared(&args(words)).expect("a vm command");
+    let (global, _, rest) = prepared(&args(words)).expect("a vm command");
     plan_with_globals(&rest, &global).expect("a plan")
 }
 
@@ -368,4 +372,171 @@ fn a_key_on_a_nested_verb_that_takes_none_is_dropped_across_global_options() {
         forwarded(&["vm", "snapshot", "--", "create", "--idempotency-key", "K"]),
         args(&["snapshot", "--", "create", "--idempotency-key", "K"])
     );
+}
+
+/// Every renamed verb: the new `cmux machine` spelling and the old `cmux vm`
+/// one hand `cmux-vm` the same words (cmuxterm-hq docs/naming.md).
+#[test]
+fn old_and_new_spellings_forward_the_same_words() {
+    let pairs: &[(&[&str], &[&str])] = &[
+        (&["machine", "new", "--name", "t"], &["vm", "create", "--name", "t"]),
+        (&["machine", "new", "--name", "t"], &["vm", "new", "--name", "t"]),
+        (&["machine", "show", "vm_1"], &["vm", "get", "vm_1"]),
+        (&["machine", "get", "vm_1"], &["vm", "get", "vm_1"]),
+        (&["machine", "pause", "vm_1"], &["vm", "pause", "vm_1"]),
+        (&["machine", "resume", "vm_1"], &["vm", "resume", "vm_1"]),
+        (&["machine", "start", "vm_1"], &["vm", "start", "vm_1"]),
+        (&["machine", "stop", "vm_1"], &["vm", "stop", "vm_1"]),
+        (&["machine", "fork", "vm_1"], &["vm", "fork", "vm_1"]),
+        (&["machine", "rm", "vm_1", "--yes"], &["vm", "delete", "vm_1", "--yes"]),
+        (&["machine", "delete", "vm_1", "--yes"], &["vm", "rm", "vm_1", "--yes"]),
+        (&["machine", "exec", "vm_1", "--", "uname"], &["vm", "exec", "vm_1", "--", "uname"]),
+        (&["machine", "run", "--sync", "--", "ls"], &["vm", "run", "--sync", "--", "ls"]),
+        (&["machine", "snapshot", "new", "vm_1"], &["vm", "snapshot", "create", "vm_1"]),
+        (&["machine", "snapshot", "show", "s_1"], &["vm", "snapshot", "get", "s_1"]),
+        (&["machine", "snapshot", "ls"], &["vm", "snapshot", "list"]),
+        (&["machine", "snapshot", "rm", "s_1"], &["vm", "snapshot", "delete", "s_1"]),
+        (&["machine", "creation", "list"], &["vm", "creation", "list"]),
+        (&["machine", "access", "new", "vm_1"], &["vm", "client-session", "create", "vm_1"]),
+        (&["machine", "access", "ls", "vm_1"], &["vm", "client-session", "list", "vm_1"]),
+        (
+            &["machine", "access", "revoke", "vm_1", "vcs_1"],
+            &["vm", "client-session", "revoke", "vm_1", "vcs_1"],
+        ),
+        (&["machine", "key", "new", "--ttl", "8h"], &["vm", "token", "create", "--ttl", "8h"]),
+        (&["machine", "key", "status"], &["vm", "token", "status"]),
+        (&["machine", "key", "revoke"], &["vm", "token", "revoke"]),
+        // The new nouns under the old scope, and the old ones under the new.
+        (&["vm", "access", "new", "vm_1"], &["machine", "client-session", "create", "vm_1"]),
+        (&["vm", "key", "new"], &["machine", "token", "create"]),
+    ];
+    for (new, old) in pairs {
+        assert_eq!(forwarded(new), forwarded(old), "{new:?} vs {old:?}");
+    }
+    assert_eq!(forwarded(&["machine", "show", "vm_1"]), args(&["get", "vm_1"]));
+    assert_eq!(forwarded(&["machine", "key", "new"]), args(&["token", "create"]));
+    assert_eq!(forwarded(&["vm", "ls"]), args(&["list"]));
+}
+
+#[test]
+fn json_and_an_idempotency_key_reach_cmux_vm_under_machine_too() {
+    assert_eq!(
+        forwarded(&["machine", "new", "--json", "--idempotency-key", "k"]),
+        args(&["--json", "create", "--idempotency-key", "k"])
+    );
+    assert_eq!(
+        forwarded(&["--json", "machine", "snapshot", "new", "vm_1", "--idempotency-key=k"]),
+        args(&["--json", "snapshot", "create", "vm_1", "--idempotency-key", "k"])
+    );
+    // The nested verb is found across cmux-vm's global options.
+    assert_eq!(
+        forwarded(&["machine", "snapshot", "--team", "T", "new", "vm_1"]),
+        args(&["snapshot", "--team", "T", "create", "vm_1"])
+    );
+    // A global's value is never renamed as the nested verb.
+    assert_eq!(
+        forwarded(&["machine", "snapshot", "--team", "new", "ls"]),
+        args(&["snapshot", "--team", "new", "list"])
+    );
+    // `key new` is the app-mintable `token create`.
+    assert!(is_token_create(&forwarded(&["machine", "key", "new", "--ttl", "8h"])));
+}
+
+/// `cmux machine` keeps its catalog and joined-machine verbs: a verb word wins
+/// over a machine name only for [`MACHINE_VERBS`], so `machine SELECTOR show`
+/// and `machine list|ls|add|revoke|rotate|doctor` are not this module's.
+#[test]
+fn a_verb_word_wins_over_a_machine_name_only_for_the_reserved_verbs() {
+    for words in [
+        &["machine", "list"][..],
+        &["machine", "ls", "--json"],
+        &["--json", "machine", "ls"],
+        &["machine", "mac-mini", "show"],
+        &["machine", "mac-mini", "session", "list"],
+        &["machine", "add", "--name", "box"],
+        &["machine", "revoke", "m_1", "--yes"],
+        &["machine", "rotate", "m_1"],
+        &["machine", "doctor"],
+        &["machine", "--help"],
+        &["machine"],
+        &["workspace", "new", "--name", "machine"],
+    ] {
+        assert!(prepared(&args(words)).is_none(), "{words:?} is not a VM command");
+    }
+    // `machine show ID` is the VM API's `get`; `machine ID show` the catalog's.
+    assert_eq!(forwarded(&["machine", "show", "mac-mini"]), args(&["get", "mac-mini"]));
+    // A machine named like a reserved verb: the verb wins (`machine:run`
+    // still names it as a selector).
+    assert_eq!(forwarded(&["machine", "run", "show"]), args(&["run", "show"]));
+    assert!(prepared(&args(&["machine", "machine:run", "show"])).is_none());
+    // `vm` owns every word, so its usage error lists the verbs.
+    assert!(prepared(&args(&["vm", "frobnicate"])).is_some());
+}
+
+#[test]
+fn vm_is_machine_for_the_verbs_other_modules_own() {
+    assert_eq!(machine_alias(&args(&["vm", "add"])), Some(args(&["machine", "add"])));
+    assert_eq!(
+        machine_alias(&args(&["--json", "vm", "revoke", "m_1", "--yes"])),
+        Some(args(&["--json", "machine", "revoke", "m_1", "--yes"]))
+    );
+    assert_eq!(
+        machine_alias(&args(&["vm", "rotate", "m_1"])),
+        Some(args(&["machine", "rotate", "m_1"]))
+    );
+    assert_eq!(machine_alias(&args(&["vm", "doctor"])), Some(args(&["machine", "doctor"])));
+    // Flags typed between `vm` and the verb move before `machine`.
+    assert_eq!(
+        machine_alias(&args(&["vm", "--json", "add"])),
+        Some(args(&["--json", "machine", "add"]))
+    );
+    assert_eq!(
+        machine_alias(&args(&["vm", "--idempotency-key", "k", "doctor"])),
+        Some(args(&["--idempotency-key", "k", "machine", "doctor"]))
+    );
+    assert_eq!(machine_alias(&args(&["vm", "ls"])), None);
+    assert_eq!(machine_alias(&args(&["machine", "add"])), None);
+    assert_eq!(machine_alias(&args(&["vm", "exec", "vm_1", "--", "add"])), None);
+}
+
+#[test]
+fn access_with_a_target_or_exec_is_the_cmux_api_client_session() {
+    assert_eq!(
+        cloud_access(&args(&["access", "new", "--target", "machine:vm_1", "--ttl", "60"])),
+        Some(args(&["create", "--target", "machine:vm_1", "--ttl", "60"]))
+    );
+    assert_eq!(
+        cloud_access(&args(&["access", "create", "--target=machine:vm_1"])),
+        Some(args(&["create", "--target=machine:vm_1"]))
+    );
+    assert_eq!(
+        cloud_access(&args(&["access", "exec", "--target", "machine:vm_1", "--", "uname"])),
+        Some(args(&["exec", "--target", "machine:vm_1", "--", "uname"]))
+    );
+    // The VM API's `access new VM_ID`, `ls` and `revoke` stay with cmux-vm,
+    // and the old `client-session` spelling is cmux-vm's as it always was.
+    assert_eq!(cloud_access(&args(&["access", "new", "vm_1"])), None);
+    assert_eq!(cloud_access(&args(&["access", "new", "vm_1", "--", "--target"])), None);
+    assert_eq!(cloud_access(&args(&["access", "ls", "vm_1"])), None);
+    assert_eq!(cloud_access(&args(&["client-session", "exec", "--target", "machine:vm_1"])), None);
+    // The words it hands over parse as `cloud client-session create|exec`'s.
+    let words = cloud_access(&args(&[
+        "access",
+        "exec",
+        "--target",
+        "machine:vm_abcdefghij0123456789",
+        "--",
+        "uname",
+    ]))
+    .unwrap();
+    assert!(super::super::cloud_client_session::parse(&words).is_ok());
+}
+
+#[test]
+fn machine_help_names_every_new_verb_and_the_old_spellings() {
+    let text = help();
+    for verb in ["run", "new", "show", "pause", "resume", "rm", "exec", "access", "key"] {
+        assert!(text.contains(&format!("\n  {verb} ")), "{verb} missing:\n{text}");
+    }
+    assert!(text.contains("cmux vm"), "{text}");
 }

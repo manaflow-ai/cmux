@@ -58,6 +58,8 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Swift Testing emits type suites without quotes and custom suite names in quotes.
+SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
 # A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
 # it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
 # `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
@@ -266,6 +268,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if match := SUITE_FAILED.search(text):
+            found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
     return found
@@ -626,6 +630,27 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
+
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
 
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
 # a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,

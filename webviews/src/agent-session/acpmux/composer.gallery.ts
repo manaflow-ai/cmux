@@ -870,7 +870,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      note: "A 40-line paste: a Pasted text card (its first lines faded, Pasted text · 40 lines) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -888,6 +888,32 @@ export default agentPaneEntry({
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
         await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+      },
+    },
+    // Leo (2026-11-01): "bro this is a TERRIBLE text preview we need to do better for these text
+    // type attachments' previews". In the default inline view the paste is a small page of its first
+    // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
+    "text-pasted-inline": {
+      note: "A 41-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 41 lines, after the typed words.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+        const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
+        if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
+          throw new Error("the inline paste card must show the paste's first lines");
+        if (!/41 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+          throw new Error("the inline paste card must say its line count");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
@@ -1898,6 +1924,49 @@ export default agentPaneEntry({
             throw new Error(`the + menu lost ${id}`);
       },
     },
+    // Leo, 2026-10-31: "our + button is ass" / "inside chat and in the composer it's ass". The chat
+    // advertises 30 skills (synthetic names), Plan and Goal: + lists attach, then Plan, Goal, @, then one
+    // Commands and skills… row, then the searches, each row one line, in a bounded panel; no skill is
+    // a row (recent ones: gallery agent-pane.composer-plus).
+    "add-menu-skills": {
+      note: "Play: open + in a chat with 30 skills, Plan and Goal: attach rows, then Plan, Goal, Mention, then one Commands and skills… row (no skill rows), then Search; icon, title and a muted description on one line, in a bounded panel.",
+      snapshot: ((base) => ({
+        ...base,
+        summary: {
+          ...base.summary!,
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "default",
+            availableModes: [
+              { id: "default", name: "Ask before edits" },
+              { id: "plan", name: "Plan" },
+            ],
+          },
+        },
+      }))(
+        chat(finished, {
+          commands: [
+            { name: "goal", description: "Set a goal for this chat", source: "agent" },
+            { name: "compact", description: "Clear conversation history but keep a summary in context" },
+            ...Array.from({ length: 30 }, (_, index) => ({
+              name: `${["cloud", "deploy", "review", "search", "docs"][index % 5]}-skill-${index + 1}`,
+              description: `Sample skill ${index + 1}: a long description that runs past the menu's right edge`,
+              source: "skill" as const,
+            })),
+          ],
+        }),
+      ),
+      native: { "composer.capture": null },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
+        // test/composer-plus-menu-shape.browser.test.ts holds the shape: no skill rows, one-line rows,
+        // a bounded panel. The play only opens it, so the same state draws the menu before the fix.
+        const rows = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+        for (const id of ["add.files", "add.screenshot", "add.window", "add.mode.plan", "add.goal", "add.mention"])
+          if (!rows.some((row) => row.dataset.value === id)) throw new Error(`the + menu lost ${id}`);
+      },
+    },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
@@ -2192,7 +2261,7 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
         await ctx.type("Read @ini");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[role=option]") !== null);
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
         await ctx.type("now");

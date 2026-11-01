@@ -94,9 +94,15 @@ function textRects(root: Element, skip?: string): Rect[] {
   return rects;
 }
 
+/** A key that survives copy edits: the row id, a data id or value attribute, the accessible name (never a generated id), and
+ * only then the element's text (a copy-only PR would otherwise rename a listed violation). */
 function labelOf(element: Element): string {
   const row = element.getAttribute("data-row-id");
   if (row) return `row ${row}`;
+  for (const name of ["data-id", "data-value", "value", "aria-label"]) {
+    const value = element.getAttribute(name);
+    if (value) return `${element.tagName.toLowerCase()}[${name}=${JSON.stringify(value.slice(0, 40))}]`;
+  }
   const text = (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
   return text ? JSON.stringify(text) : element.tagName.toLowerCase();
 }
@@ -182,7 +188,8 @@ function transcriptViolations(doc: Document): Violation[] {
   return violations;
 }
 
-const MENU = ".ui-popup, [role='menu'], [role='listbox']";
+// A listbox counts only inside a popup: a list panel the width of its pane is no menu.
+const MENU = ".ui-popup, [role='menu'], [popover] [role='listbox'], [role='dialog'] [role='listbox']";
 const ITEM = ".ui-menu-item, [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']";
 const NOT_LABEL = ".ui-menu-check, .ui-menu-shortcut, kbd, [aria-hidden='true']";
 
@@ -193,7 +200,7 @@ function menuViolations(doc: Document): Violation[] {
   );
   const rowHeight = Number.parseFloat(getComputedStyle(doc.documentElement).getPropertyValue("--ds-control-row")) || 28;
   for (const menu of menus) {
-    const name = menu.getAttribute("aria-label") ?? labelOf(menu).slice(0, 24);
+    const name = labelOf(menu).slice(0, 48);
     const items = [...menu.querySelectorAll(ITEM)].filter((item) => visible(item.getBoundingClientRect()));
     if (items.length < 2) continue;
     violations.push(

@@ -37,7 +37,10 @@ extension SidebarTransientItem {
         var items: [SidebarTransientItem] = []
         var previous = LayoutItemRef.builtIn(.chief)
         for lane in subagents where showsIdle || lane.state != .idle {
-            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle", brand: lane.harness)
+            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle",
+                                      brand: SidebarItemInfo.agentBrand(forHarness: lane.harness))
+            row.agentColor = SidebarItemInfo.stableAgentColor(for: lane.id)
+            if row.title.isEmpty { row.accessibilityTitle = ChiefToolStrings.subagent }
             row.activity = activity(of: lane.state)
             row.indent = 1
             // Each row draws right after the one before it, so the list keeps its order under the Chief.
@@ -96,10 +99,11 @@ extension AgentActivityLane {
         return Int(parts[3].dropFirst())
     }
 
-    /// The subagent's task title (acpmux's title when it has one of its own), else "Subagent":
-    /// its `a7` id is the Chief's to use, never shown (Leo 2026-10-21).
+    /// The subagent's task title (acpmux's title when it has one of its own). An untitled child
+    /// leaves its row title empty because the Chief header already labels this list; its icon and
+    /// accessibility label carry the type (Leo 2026-10-29).
     nonisolated var subagentTitle: String {
-        guard title != name, let task = title.chiefTaskTitle else { return ChiefToolStrings.subagent }
+        guard title != name, let task = title.chiefTaskTitle else { return "" }
         return task
     }
 }

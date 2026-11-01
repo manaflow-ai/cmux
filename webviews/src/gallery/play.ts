@@ -221,17 +221,20 @@ export function judgeStep(
   const failMs = checks.longFrameFailMs?.value ?? DEFAULT_CHECKS.longFrameFailMs;
   const shiftMax = checks.layoutShiftMax?.value ?? DEFAULT_CHECKS.layoutShiftMax;
   const settleMax = checks.settleMaxMs?.value;
-  for (const move of measured.anchorMoves)
-    if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
-  // A wait's frames are the page loading what it waits for; only its shift is judged.
+  // A wait is the page loading what it waits for: its moves, shift and frames are not judged here
+  // (an entry's popupLayer check still is). Its shift is still measured and scored against the
+  // state's row in gallery health's shift baseline (scripts/gallery-matrix/shift-baseline.ts), so a
+  // wait that starts shifting past its row fails there.
   const waiting = measured.action === "wait";
+  for (const move of waiting ? [] : measured.anchorMoves)
+    if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
   const failing = waiting ? [] : measured.longFrames.filter((ms) => ms > failMs);
   // Only Long Animation Frames data gates; rAF timing on a software-rendered VM only warns.
   if (failing.length && measured.frameSource === "long-animation-frame")
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
-  if (measured.layoutShift > shiftMax)
+  if (!waiting && measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
-  if ((measured.boxShift ?? 0) > shiftMax)
+  if (!waiting && (measured.boxShift ?? 0) > shiftMax)
     problems.push(
       `box shift ${measured.boxShift!.toFixed(4)} (limit ${shiftMax}): ${(measured.boxMoves ?? [])
         .slice(0, 3)
