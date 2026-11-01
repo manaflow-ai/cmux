@@ -68,6 +68,21 @@ class PromotionAdmissionTests(unittest.TestCase):
             return pending if method == "POST" else dict(done, created_at="2026-11-01T00:00:01Z")
         with self.assertRaises(ValueError): n.place(request, reset, "overflow")
 
+    def test_terminal_tenth_poll_is_consumed(self):
+        request, pending = fixture()
+        _, done = fixture("overflow")
+        polls = 0
+        def call(method, path, body):
+            nonlocal polls
+            if method == "POST":
+                return pending
+            polls += 1
+            return pending if polls < 10 else done
+        runner, lease = n.place(request, call, "overflow")
+        self.assertEqual(runner, "overflow")
+        self.assertEqual(lease, done)
+        self.assertEqual(polls, 10)
+
     def test_main_workflow_has_no_promotion_blacksmith_first_escape(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
         picker = text.split("  pick-nightly-promotion-runner:\n", 1)[1].split("\n  promote-nightly-next:", 1)[0]
@@ -120,6 +135,12 @@ class Transport(unittest.TestCase):
             self.assertEqual(transport.exchange("https://controller.example/v1"), {"status": "pending"})
             self.assertEqual(build.call_args.args[0].proxies, {})
             self.assertIsInstance(build.call_args.args[1], transport.NoRedirect)
+
+    def test_exchange_rejects_an_oversized_response(self):
+        with mock.patch.object(transport.urllib.request, "build_opener") as build:
+            build.return_value.open.return_value = io.BytesIO(b"{}" * (transport.MAX_RESPONSE_BYTES // 2 + 1))
+            with self.assertRaises(ValueError):
+                transport.exchange("https://controller.example/v1")
 
 
 if __name__ == "__main__":

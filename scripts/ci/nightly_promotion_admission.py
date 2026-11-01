@@ -14,6 +14,7 @@ from fleet_admission_transport import exchange
 
 JOB = "promote-nightly-next"
 PATH = "/v1/nightly-promotion-admission"
+MAX_CLOCK_SKEW_SECONDS = 30
 
 
 def timestamp(value):
@@ -41,11 +42,13 @@ def select(request, lease, overflow, now=None):
     if any(lease.get(key) != value for key, value in request.items()) or lease.get("lease_id") != lease_id(request):
         raise ValueError("promotion admission identity mismatch")
     created, expires = timestamp(lease["created_at"]), timestamp(lease["expires_at"])
-    if expires - created != 180 or created > now:
+    if expires - created != 180 or created > now + MAX_CLOCK_SKEW_SECONDS:
         raise ValueError("promotion admission window is not 180 seconds")
     if lease.get("status") == "pending":
         return None
     decided = timestamp(lease["decided_at"])
+    # A decision is readiness evidence, so it must already be in the past;
+    # allowing future-dated no-start receipts would bypass the 180-second wait.
     if decided > now:
         raise ValueError("promotion decision is dated in the future")
     if lease.get("status") == "fleet":
@@ -73,6 +76,9 @@ def place(request, call, overflow):
         lease = call("GET", PATH + "/" + lease_id(request) + "?wait=30", None)
         if any(lease.get(key) != value for key, value in first.items()):
             raise ValueError("controller changed promotion lease deadline")
+    runner = select(request, lease, overflow)
+    if runner:
+        return runner, lease
     raise TimeoutError("promotion admission did not reach a terminal decision")
 
 
@@ -83,7 +89,9 @@ def main(env=os.environ):
         raise ValueError("existing CMUX_FLEET_CONTROLLER repository variable is required")
     declared = json.loads(Path(".github/runners.json").read_text())["pools"]["promotion"]["members"]
     candidate = json.loads(env.get("RUNNER_POOLS") or "{}").get("promotion")
-    overflow = candidate if candidate in declared else declared[0]
+    if candidate not in declared:
+        raise ValueError("RUNNER_POOLS.promotion must name a declared live overflow runner")
+    overflow = candidate
 
     def call(method, path, body):
         return exchange(controller + path, body)

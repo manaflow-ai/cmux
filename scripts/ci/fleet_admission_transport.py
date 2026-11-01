@@ -17,6 +17,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+MAX_RESPONSE_BYTES = 1 << 20
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -60,7 +62,10 @@ def exchange(url: str, payload: Mapping[str, Any] | None = None) -> dict[str, An
     request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(request, timeout=35) as response:
-        value = json.load(response)
+        body = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise ValueError("admission response exceeds the bounded size")
+    value = json.loads(body)
     if not isinstance(value, dict):
         raise ValueError("admission response must be an object")
     return value
