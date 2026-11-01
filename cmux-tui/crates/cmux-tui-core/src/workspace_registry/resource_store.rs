@@ -10,7 +10,7 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
-pub(crate) use topology_load::load_resource_topology;
+pub(crate) use topology_load::{load_resource_topology, load_topology_frame};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -813,17 +813,45 @@ impl WorkspaceRegistry {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, None)
+    }
+
+    /// Hooks committed before a live projection, including records whose caller timed
+    /// out after commit admission. Reading the retry queue avoids scanning terminal history.
+    /// Quarantined rows (at the attempt cap) are skipped, so one permanently failing hook
+    /// cannot stall every later hook of its terminal.
+    pub(crate) fn pending_agent_hook_projections_before(
+        &self,
+        terminal_id: &TerminalPublicId,
+        sequence: u64,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        self.pending_agent_hooks_for_terminal(terminal_id, Some(sequence))
+    }
+
+    fn pending_agent_hooks_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+        before: Option<u64>,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        let before =
+            before.map(i64::try_from).transpose().context("pending hook sequence is too large")?;
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE terminal_id = ?1 AND attempt < ?2
+               AND (?4 IS NULL OR event_sequence < ?4)
              ORDER BY event_sequence ASC, idempotency_key ASC
              LIMIT ?3",
         )?;
         let rows = statement
             .query_map(
-                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                params![
+                    terminal_id.as_str(),
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    AGENT_HOOK_RETRY_PAGE_SIZE,
+                    before
+                ],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -1419,6 +1447,17 @@ impl WorkspaceRegistry {
         ))
     }
 
+    /// The topology's frame only: its revision, generation, active
+    /// workspace and active screens, without screens, panes, tabs or
+    /// browsers (a workspace list and a session ping need no more).
+    pub(crate) fn resource_topology_frame(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        load_topology_frame(
+            &self.connection.get(),
+            self.session_id.clone(),
+            self.generation.clone(),
+        )
+    }
+
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
         load_resource_topology(
             &self.connection.get(),
@@ -1602,8 +1641,8 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let fingerprint = canonical_json(fingerprint)?;
         let projection_json = canonical_json(projection)?;
-        if projection_json.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+        if projection_json.len() > MAX_RESOURCE_API_PROJECTION_BYTES {
+            anyhow::bail!("frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
         let db = self.connection.get();

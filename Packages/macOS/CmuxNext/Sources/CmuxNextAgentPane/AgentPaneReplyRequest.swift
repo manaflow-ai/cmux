@@ -33,7 +33,7 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
-///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
+///   `cached: true` (Session Info's Changes, which asks for many links) answers from the cache
 ///   only and never starts a read: its links are read in batches when it registers them.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
 ///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under

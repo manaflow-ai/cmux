@@ -156,7 +156,7 @@
   font: inherit;
   letter-spacing: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-bg__name,
 .acpmux-bg__task-open {
@@ -234,7 +234,7 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-text);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-bg__stop:hover:not(:disabled) {
   background: color-mix(in srgb, var(--agent-text) 16%, transparent);

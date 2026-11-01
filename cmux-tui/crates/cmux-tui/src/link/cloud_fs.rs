@@ -12,9 +12,11 @@
 //!   not writable by group or others, and are not symlinks, so a normal
 //!   user cannot create or plant it;
 //! - the Cloud model plane identity (`CMUX_CODEROUTER_URL` and
-//!   `CMUX_VM_ID`, in the process environment or in
-//!   `$HOME/.config/cmux/model-plane.env`; the source the machine spend
-//!   readout uses).
+//!   `CMUX_VM_ID`, from the process environment,
+//!   `$HOME/.config/cmux/model-plane.env`, the image's
+//!   `/etc/cmux/model-plane.env` and the bound `/etc/cmux/daemon-instance-id`;
+//!   the source the machine spend readout uses,
+//!   `coderouter_usage::machine_source`).
 //!
 //! No argv flag is added, so an upgraded daemon starts with the guest's
 //! existing command line.
@@ -74,11 +76,7 @@ pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
 
 /// True when this machine is a cmux Cloud host (the module's test).
 fn this_is_a_cloud_host() -> bool {
-    let env_file = crate::coderouter_usage::default_env_file_path()
-        .and_then(|path| std::fs::read_to_string(path).ok());
-    let identity =
-        crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
-            .is_some();
+    let identity = crate::coderouter_usage::machine_source().is_some();
     let linux = cfg!(target_os = "linux");
     // The root-owned stamp of a Cloud image (`/etc/cmux/image-stamp`).
     let etc = crate::agent_start_host::cloud_etc();

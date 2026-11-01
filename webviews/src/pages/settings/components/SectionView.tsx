@@ -9,7 +9,7 @@ import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
-import { ComputerUseCard } from "./ComputerUseCard";
+import { COMPUTER_USE_ROWS, ComputerUseCard } from "./ComputerUseCard";
 import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -26,6 +26,7 @@ import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } f
 import { PlaceholderSection } from "./PlaceholderSection";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -38,7 +39,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   themeStudio: (focus) => <ThemeStudio focus={focus} />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
-  computerUse: () => <ComputerUseCard />,
+  computerUse: (focus) => <ComputerUseCard focus={focus} />,
   harnesses: () => <HarnessesCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
@@ -61,6 +62,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  contextMenus: (focus) => <ContextMenusCard focus={focus} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -87,6 +89,8 @@ export function SectionView({
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
+  // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
+  const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
@@ -101,6 +105,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
+          !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))

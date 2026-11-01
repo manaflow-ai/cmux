@@ -346,6 +346,9 @@ impl Outbox {
 /// Where a channel's inbound events go.
 struct Route {
     tx: mpsc::Sender<ChannelEvent>,
+    /// The channel's sender's closed flag: the peer's close sets it, so a send
+    /// in progress stops instead of streaming into a channel the peer dropped.
+    closed: Arc<AtomicBool>,
 }
 
 struct Inner {
@@ -681,14 +684,15 @@ impl Link {
         let class = Class::from(lane);
         let id = self.inner.next_channel.fetch_add(2, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-        self.inner.lock_channels().insert(id, Route { tx });
+        let closed = Arc::new(AtomicBool::new(false));
+        self.inner.lock_channels().insert(id, Route { tx, closed: Arc::clone(&closed) });
         let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
             self.inner.lock_channels().remove(&id);
             return Err(error);
         }
-        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx))
+        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed))
     }
 
     /// The next channel the peer opened, or `None` once the link is closed.
@@ -878,8 +882,9 @@ async fn read_loop<R>(
                 // priority of the lane the peer asked for.
                 let class = Class::from(request.lane);
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
-                inner.lock_channels().insert(frame.channel, Route { tx });
-                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx);
+                let closed = Arc::new(AtomicBool::new(false));
+                inner.lock_channels().insert(frame.channel, Route { tx, closed: Arc::clone(&closed) });
+                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
                 let accepted = IncomingChannel {
                     service: request.service,
                     args: request.args,
@@ -921,6 +926,12 @@ async fn read_loop<R>(
                     .unwrap_or_else(|_| CloseInfo::new("closed", ""));
                 let route = inner.lock_channels().remove(&frame.channel);
                 if let Some(route) = route {
+                    // The peer is gone from this channel: our sends stop, a
+                    // send waiting for room included, and no close goes back.
+                    route.closed.store(true, Ordering::Release);
+                    for outbox in &inner.outboxes {
+                        outbox.room.notify_waiters();
+                    }
                     let _ = route.tx.send(ChannelEvent::Closed(info)).await;
                 }
             }
@@ -941,7 +952,8 @@ pub struct ChannelSender {
     stream: usize,
     class: Class,
     inner: Arc<Inner>,
-    closed: AtomicBool,
+    /// Set by our close or drop, or by the peer's close (see [`Route`]).
+    closed: Arc<AtomicBool>,
 }
 
 impl ChannelSender {
@@ -1046,9 +1058,10 @@ impl Channel {
         class: Class,
         inner: Arc<Inner>,
         rx: mpsc::Receiver<ChannelEvent>,
+        closed: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed: AtomicBool::new(false) },
+            sender: ChannelSender { id, stream, class, inner, closed },
             receiver: ChannelReceiver { rx, done: false },
         }
     }
@@ -1144,6 +1157,25 @@ mod tests {
             .unwrap();
         assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
         drop(phone);
+    }
+
+    /// The peer's close stops our sends: a Mac that refuses an upload before
+    /// reading it must not have the phone stream the whole file anyway.
+    #[tokio::test]
+    async fn the_peers_close_stops_our_sends() {
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let incoming = mac.accept().await.expect("incoming");
+            incoming.channel.send(Bytes::from_static(b"refused")).await.unwrap();
+            incoming.channel.close("forbidden", "no").await;
+            mac
+        });
+        let mut channel = phone.open("upload", serde_json::json!({})).await.unwrap();
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(_))));
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(_))));
+        let sent = channel.send(Bytes::from(vec![0u8; 16])).await;
+        assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
+        let _mac = server.await.unwrap();
     }
 
     /// A stream that accepts at most `chunk` bytes every `pause`, like a

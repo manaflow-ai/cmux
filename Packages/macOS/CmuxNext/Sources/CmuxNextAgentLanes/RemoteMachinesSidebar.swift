@@ -22,7 +22,6 @@ public import Observation
 /// per `refreshInterval`, from the lanes' states and titles only (a new step changes nothing).
 @Observable @MainActor
 public final class RemoteMachinesSidebar {
-    public static let shared = RemoteMachinesSidebar()
     /// Rows shown per page of an unfolded group; Show More adds one.
     public static let pageSize = 10
     /// The longest a lane change waits before the groups show it.
@@ -376,7 +375,8 @@ public final class RemoteMachinesSidebar {
             }
             let shown = pageSize * max(1, pages[machine.peer] ?? 1)
             for chat in machine.chats.prefix(shown) {
-                var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: chat.harness)
+                var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: SidebarItemInfo.agentBrand(forHarness: chat.harness))
+                row.agentColor = SidebarItemInfo.stableAgentColor(for: chat.id)
                 row.activity = chat.activity
                 row.indent = 1
                 add(sessionPrefix + chat.id, row)
@@ -392,7 +392,9 @@ public final class RemoteMachinesSidebar {
             add(olderPrefix + machine.peer, olderRow)
             guard olderShown.contains(machine.peer), let read = older[machine.peer] else { continue }
             for chat in read.chats {
-                var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", isMissing: true, brand: chat.harness)
+                var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", isMissing: true,
+                                          brand: SidebarItemInfo.agentBrand(forHarness: chat.harness))
+                row.agentColor = SidebarItemInfo.stableAgentColor(for: chat.id)
                 row.indent = 2
                 add(olderSessionPrefix + machine.peer + "/" + chat.id, row)
             }

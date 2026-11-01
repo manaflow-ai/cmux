@@ -714,6 +714,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (key === "hideWhitespace" || key === "hideImports") refresh();
   };
   const refresh = () => {
+    // A folder found outside a repository is checked again, so a `git init` brings Commit and Push back.
+    git.recheck();
     // Pages with nothing to re-stream (baked status messages, or a pending
     // replacement without a typed session) still need the full reload so a
     // native replacement page can resolve.
@@ -776,11 +778,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
     [config, shownSource],
   );
+  const [machineUnavailable, setMachineUnavailable] = useState<string>();
   const filesChanged = useDiffFreshness(
     readFingerprint,
     state.renderGeneration,
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
+    setMachineUnavailable,
   );
 
   return (
@@ -885,9 +889,9 @@ export function App({ config, initialStatus }: ConfigProps) {
             <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           </span>
         ) : null}
-        {filesChanged && (
-          <output className="diff-files-changed">
-            <span>{label("filesChangedSinceLoad")}</span>
+        {(filesChanged || machineUnavailable) && (
+          <output className="diff-files-changed" aria-live="polite">
+            <span>{machineUnavailable ?? label("filesChangedSinceLoad")}</span>
             <button type="button" className="file-review-load" onClick={refresh}>
               {label("refresh")}
             </button>

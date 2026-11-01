@@ -112,6 +112,16 @@ nonisolated enum PaletteStrings {
     static func openIn(_ app: String) -> String {
         String(localized: "palette.openIn", defaultValue: "Open in \(app)", bundle: .module)
     }
+    static var added: String { String(localized: "palette.accessory.added", defaultValue: "Added", bundle: .module) }
+    static func continueWith(_ names: String) -> String {
+        String(localized: "palette.members.continue", defaultValue: "Continue with \(names)", bundle: .module)
+    }
+    static func addTyped(_ text: String) -> String {
+        String(localized: "palette.members.add", defaultValue: "Add “\(text)”", bundle: .module)
+    }
+    static func removeToken(_ name: String) -> String {
+        String(localized: "palette.members.remove", defaultValue: "Remove \(name)", bundle: .module)
+    }
     static func chooseArgument(_ name: String) -> String {
         String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)
     }

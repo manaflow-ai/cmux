@@ -722,3 +722,27 @@ fn stale_run_folders_are_swept() {
     assert!(other.exists(), "only run folders are swept");
     assert!(places.cwd().exists());
 }
+
+#[test]
+fn finish_cleans_stderr_without_changing_raw_output() {
+    for raw in [
+        "\x1b[2m2026-10-25T01:44:57Z\x1b[0m \x1b[31mERROR\x1b[0m \x1b[2mcodex_models_manager::manager: failed to refresh available models: request timed out\x1b[0m\n\x1b[0m",
+        "\x1b]8;;https://example.com\x1b\\codex_models_manager::manager: failed to refresh available models: request timed out\x1b]8;;\x1b\\",
+        "codex_models_manager::manager: failed to refresh available models: request timed out\x1b",
+    ] {
+        let out = ran("", raw, false);
+        assert_eq!(
+            finish("codex", &out, b"", 16),
+            Err(CompleteError::Failed {
+                harness: "codex".into(),
+                detail: "exit status 1: codex_models_manager::manager: failed to refresh available models: request timed out".into(),
+            })
+        );
+        assert_eq!(out.stderr, raw.as_bytes());
+    }
+    let out = ran("", "\x1b[0m\n\x1b]title\x07\n\x1b", false);
+    assert_eq!(
+        finish("codex", &out, b"", 16),
+        Err(CompleteError::Failed { harness: "codex".into(), detail: "exit status 1".into() })
+    );
+}

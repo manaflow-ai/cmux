@@ -41,6 +41,109 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+#[test]
+fn space_mutations_use_the_catalog_actions_and_name_targets() {
+    for (words, action, target, action_args) in [
+        (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
+        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
+        (
+            &["space", "rename", "Work", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "close", "Work"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "move", "workspace", "ws_1", "Work"][..],
+            "workspace move-to-space",
+            Some("workspace:ws_1"),
+            json!({"space": "Work"}),
+        ),
+        (
+            &["space", "move", "tab", "tab_1", "Work"][..],
+            "tab move-to-space",
+            Some("tab:tab_1"),
+            json!({"space": "Work"}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], action);
+        assert_eq!(params.get("target").and_then(Value::as_str), target);
+        // `run_action` leaves `args` out when the action takes none.
+        assert_eq!(params.get("args").cloned().unwrap_or_else(|| json!({})), action_args);
+    }
+}
+
+#[test]
+fn space_catalog_actions_keep_their_generic_cli_routes() {
+    let (method, params) = call(parse(&args(&["space", "new-window"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "space new-window");
+    assert_eq!(params["cli"], true);
+}
+
+/// A flag is never a positional space name: `space rename --name Office`
+/// renames the current space through the catalog action, as it did before the
+/// positional forms, instead of targeting a space called `--name`.
+#[test]
+fn space_flags_are_not_positional_names() {
+    for (words, action, target, action_args) in [
+        (
+            &["space", "rename", "--name", "Office"][..],
+            "space rename",
+            None,
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "rename", "--target", "room:Work", "--name", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "delete", "--target", "room:Work", "--confirm"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "switch", "--target", "room:Work"][..],
+            "space switch",
+            Some("room:Work"),
+            json!({}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run", "{words:?}");
+        assert_eq!(params["action"], action, "{words:?}");
+        assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
+        assert_eq!(
+            params.get("args").cloned().unwrap_or_else(|| json!({})),
+            action_args,
+            "{words:?}"
+        );
+    }
+}
+
+/// Options after a positional form still reach the action.
+#[test]
+fn space_positional_forms_keep_trailing_options() {
+    let (_, params) =
+        call(parse(&args(&["space", "rename", "Work", "Office", "--no-wait"])).unwrap().unwrap());
+    assert_eq!(params["action"], "space rename");
+    assert_eq!(params["target"], "room:Work");
+    assert_eq!(params["args"], json!({"name": "Office"}));
+    assert_eq!(params["wait"], false);
+}
+
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
 /// a folder of the caller's working directory, so the app gets it absolute:
 /// the app runs elsewhere, and a space's default directory must be absolute.
@@ -172,6 +275,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
     assert_eq!(params["action"], "app quit");
     assert_eq!(params["args"], json!({ "keepSessions": true, "browserProfile": "work" }));
     assert!(parse(&args(&["action", "run", "quit", "--target"])).is_err());
+}
+
+#[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
 }
 
 #[test]
@@ -1421,20 +1544,27 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
-/// The agent cursor's tag says who drives and where, and goes there on a click
-/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
-/// the agent's terminal or chat. Reads and navigation do not need it.
+/// Every page verb sends its caller: the app runs a verb without a tab on the
+/// browser nearest the caller, not the person's focused tab in another window
+/// (#26648), and an input verb's agent cursor tag says who drives and where
+/// (user, 2026-10-20).
 #[test]
-fn page_input_verbs_send_the_caller() {
-    for method in
-        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
-    {
+fn page_verbs_send_the_caller() {
+    for method in [
+        "browser.page.click",
+        "browser.page.fill",
+        "browser.page.press",
+        "browser.page.drag",
+        "browser.page.text",
+        "browser.page.navigate",
+        "browser.page.screenshot",
+        "browser.page.snapshot",
+        "browser.page.tabs",
+    ] {
         assert!(takes_caller(method), "{method}");
     }
-    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
-        assert!(!takes_caller(method), "{method}");
-    }
     assert!(takes_caller("action.run"));
+    assert!(!takes_caller("settings.get"));
 }
 
 #[path = "right_tests.rs"]
@@ -1516,4 +1646,128 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
             "{stray:?} needs --link"
         );
     }
+}
+
+/// The app's `not_found` for an unknown CLI action has no reason; an action whose target names
+/// nothing gives one, and that reaches the caller instead of reading as a missing command.
+#[test]
+fn a_missing_target_is_not_a_missing_action() {
+    let unknown =
+        serde_json::json!({"code": "not_found", "message": "Unknown action 'share chat'"});
+    assert!(!names_a_target(&unknown));
+    let missing = serde_json::json!({"code": "not_found", "message": "No agent chat is on surface 99.",
+        "data": {"action": "share chat", "reason": "No agent chat is on surface 99."}});
+    assert!(names_a_target(&missing));
+}
+
+/// `cmux workspace group create --remote HOST` is the app's New Remote Group
+/// (plans/cmux-next/remote-groups-DESIGN.md): the sidebar document holds remote
+/// groups, so the app makes it, with the group's name when one is given.
+#[test]
+fn workspace_group_create_remote_runs_new_remote_group() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--remote", "mini", "--name", "Mini"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "remote.newGroup");
+    assert_eq!(params["args"], json!({ "destination": "mini", "name": "Mini" }));
+    assert_eq!(params["wait"], true);
+    let (_, params) =
+        call(parse(&args(&["workspace", "group", "create", "--remote=box"])).unwrap().unwrap());
+    assert_eq!(params["args"], json!({ "destination": "box" }));
+}
+
+/// `--parent GROUP` makes a nested group (New Subgroup) inside GROUP, named.
+#[test]
+fn workspace_group_create_parent_runs_new_subgroup() {
+    let (method, params) = call(
+        parse(&args(&["workspace", "group", "create", "--parent", "grp_1", "--name", "API"]))
+            .unwrap()
+            .expect("an app command"),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "workspaceGroup.newSubgroup");
+    assert_eq!(params["args"], json!({ "group": "grp_1", "name": "API" }));
+}
+
+/// A plain group stays the daemon's (`workspace_group.create`); a flag with no
+/// value, or a remote group inside a parent, is a usage error.
+#[test]
+fn workspace_group_create_without_remote_or_parent_stays_with_the_daemon() {
+    assert_eq!(parse(&args(&["workspace", "group", "create", "--name", "Work"])).unwrap(), None);
+    assert_eq!(parse(&args(&["workspace", "group", "list"])).unwrap(), None);
+    assert!(parse(&args(&["workspace", "group", "create", "--remote"])).is_err());
+    assert!(parse(&args(&["workspace", "group", "create", "--parent", "grp_1"])).is_err());
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--parent", "grp_1"]))
+            .is_err()
+    );
+    assert!(
+        parse(&args(&["workspace", "group", "create", "--remote", "a", "--color", "red"])).is_err()
+    );
+}
+
+/// u18462: `cmux open --as-text FILE` (alias `--source`) asks the app to open
+/// HTML, SVG and Markdown as their source in the code editor; a plain open
+/// sends no `as_text`, and the flag never applies to URLs from stdin or --link.
+#[test]
+fn open_as_text_sends_as_text_with_the_files() {
+    let environment = std::collections::HashMap::new();
+    for flag in ["--as-text", "--source"] {
+        let AppCommand::Open { requests, .. } = parse_open_with(
+            &args(&[flag, "/tmp/site/index.html", "/tmp/site/README.md"]),
+            false,
+            &environment,
+            &mut std::io::empty(),
+        )
+        .unwrap() else {
+            panic!("expected open command")
+        };
+        assert_eq!(requests.len(), 1, "{flag}");
+        assert_eq!(requests[0].method, "file.open");
+        assert_eq!(requests[0].params["as_text"], json!(true), "{flag}");
+        assert_eq!(
+            requests[0].params["paths"],
+            json!(["/tmp/site/index.html", "/tmp/site/README.md"])
+        );
+    }
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["/tmp/site/index.html"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(requests[0].params.get("as_text").is_none());
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "-"]),
+            false,
+            &environment,
+            &mut "https://a.example/\n".as_bytes()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "--link", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text=yes", "/tmp/a.html"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
 }

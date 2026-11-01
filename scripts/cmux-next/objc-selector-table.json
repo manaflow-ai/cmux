@@ -701,6 +701,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSTextView call:draggingEntered/1": {
+   "27.0.1": true
+  },
+  "NSTextView call:draggingUpdated/1": {
+   "27.0.1": true
+  },
   "NSTextView call:keyDown/1": {
    "26.5.2": true,
    "26.7": true,
@@ -723,6 +729,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSTextView call:performDragOperation/1": {
    "27.0.1": true
   },
   "NSTextView call:resignFirstResponder/0": {

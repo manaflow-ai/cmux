@@ -27,6 +27,8 @@ struct ContextMenuStandardTests {
                 nested += levels(children, path: "\(path) › \(id.rawValue)")
             case .folder(let folder, let children):
                 nested += levels(children, path: "\(path) › \(folder.title)")
+            case .group(let group, let children):
+                nested += levels(children, path: "\(path) › \(group.title)")
             }
         }
         return [(path, ids)] + nested

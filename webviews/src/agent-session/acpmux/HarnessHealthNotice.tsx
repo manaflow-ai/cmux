@@ -10,13 +10,17 @@ export type HarnessHealth = {
   version?: string | null;
   latest?: string | null;
   outdated?: boolean;
-  /// Only from evidence (a profile's check, or a probe's sign-in error).
-  auth?: "signedIn" | "signedOut" | "unknown";
+  /// Only from evidence (a profile's check, or a probe's sign-in error); `expired`: a credential the
+  /// check or probe said expired.
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /// The command that signs it in.
   login?: string | null;
   /// How to update it; `elevated`: it needs sudo, so the pane never offers it.
   update?: { command: string; elevated: boolean } | null;
 };
+
+/// Whether a health row's sign-in needs the person to log in: signed out, or its credential expired.
+export const needsLogin = (auth: HarnessHealth["auth"]): boolean => auth === "signedOut" || auth === "expired";
 
 /// The agent CLI versions the person chose to skip, by harness id (this browser profile).
 const SKIPPED = "cmux.acpmux.skippedUpdates";
@@ -110,7 +114,7 @@ export function HarnessHealthNotice({
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
-  const signedOut = health && health.auth === "signedOut" && health.login ? health.login : undefined;
+  const signedOut = health && needsLogin(health.auth) && health.login ? health.login : undefined;
   const update =
     health &&
     health.outdated &&
@@ -235,7 +239,7 @@ export function HarnessHealthNotice({
   let text: string;
   let buttons: ReactNode;
   if (kind === "signedOut") {
-    text = t("harness.signedOut", { agent: name });
+    text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
     buttons = (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
         {t("harness.logIn")}

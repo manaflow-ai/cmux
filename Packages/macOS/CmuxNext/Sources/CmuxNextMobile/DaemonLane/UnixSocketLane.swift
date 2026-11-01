@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Network
 
@@ -9,6 +10,8 @@ public final class UnixSocketLane: MobileByteLane {
     public enum Failure: Error, Equatable, Sendable {
         case connectTimedOut(path: String)
         case connectFailed(path: String, detail: String)
+        /// The path does not fit a Unix socket address (`sun_path`); nothing can listen there.
+        case pathTooLong(path: String)
     }
 
     private let connection: NWConnection
@@ -22,7 +25,9 @@ public final class UnixSocketLane: MobileByteLane {
     /// Connects to `path`, failing after `deadline`.
     public static func connect(path: String, deadline: Duration = .seconds(2)) async throws -> UnixSocketLane {
         let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane")
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let endpoint: NWEndpoint
+        do { endpoint = try NWEndpoint.unixSocket(path: path) } catch { throw Failure.pathTooLong(path: path) }
+        let connection = NWConnection(to: endpoint, using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
         // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady
         try await withThrowingTaskGroup(of: Void.self) { group in

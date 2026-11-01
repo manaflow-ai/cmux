@@ -83,6 +83,7 @@ pub async fn serve(
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
+        "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -123,7 +124,9 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 2] = ["removal-v1", "file-preview-v1"];
+/// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
+/// reaches a port on this Mac's loopback).
+pub const CAPABILITIES: [&str; 3] = ["removal-v1", "file-preview-v1", "localhost-forward-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -1563,14 +1566,14 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
+        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1", "localhost-forward-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
         assert_eq!(
             capabilities(&config),
-            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+            ["removal-v1", "file-preview-v1", "localhost-forward-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
         );
     }
 

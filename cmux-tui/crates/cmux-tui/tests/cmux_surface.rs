@@ -180,6 +180,35 @@ fn a_classic_verb_names_its_resource_command() {
     }
 }
 
+/// An app action the CLI offers (`cmux pane screenshot`) with no app to run it says it
+/// needs the app, not "unknown or incomplete pane action", which sent agents looking
+/// for another way (tests/tool-evals r13d).
+#[test]
+fn an_app_action_with_no_app_says_it_needs_the_app() {
+    let names = Names::new("no-app-action");
+    let dir = cmux_unix_socket::short_test_dir("cmux-noapp");
+    let missing = dir.path().join("app.sock");
+    let socket = missing.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--app-socket",
+            socket.as_str(),
+            "pane",
+            "screenshot",
+            "--target",
+            "pane_1",
+            "--out",
+            "x.png",
+        ],
+    );
+    let stderr = text(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    // `--app-socket` names a socket where nothing listens: the error says so.
+    assert!(stderr.contains("nothing is listening at"), "{stderr}");
+    assert!(!stderr.contains("unknown or incomplete"), "{stderr}");
+}
+
 /// A one-connection app socket that answers every request with `result`.
 /// The socket lives in a short directory from the shared helper, so its path
 /// fits sun_path whatever $TMPDIR is. The returned guard removes it.

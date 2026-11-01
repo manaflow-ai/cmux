@@ -40,10 +40,122 @@ const KEY_A: u32 = 0x0007_0004;
 /// The bench's upstream stream id (any id the host does not use for a display).
 const UP_STREAM: u16 = 100;
 
+/// How the bench reaches the host: the development sockets, or a device hub
+/// session's secure link (`--link`, the same path `cmux-rd serve` serves).
+enum ViewerIo {
+    Socket {
+        tcp: TcpStream,
+        reader: FrameReader,
+        udp: Option<(UdpSocket, SocketAddr)>,
+    },
+    #[cfg(feature = "link")]
+    Link(cmux_rd_link::net::Net),
+}
+
+/// One control record or datagram that arrived.
+enum Arrived {
+    Control(Vec<u8>),
+    Datagram(Vec<u8>),
+    Closed(String),
+}
+
+impl ViewerIo {
+    fn send_datagram(&mut self, d: &[u8]) -> io::Result<()> {
+        match self {
+            Self::Socket { udp: Some((sock, host)), .. } => sock.send_to(d, *host).map(|_| ()),
+            Self::Socket { tcp, .. } => write_frame(tcp, FRAME_DATAGRAM, d),
+            #[cfg(feature = "link")]
+            Self::Link(net) => {
+                net.send_datagram(d.to_vec());
+                Ok(())
+            }
+        }
+    }
+
+    fn send_control(&mut self, c: &Control) -> io::Result<()> {
+        match self {
+            Self::Socket { tcp, .. } => write_control(tcp, c),
+            #[cfg(feature = "link")]
+            Self::Link(net) => {
+                net.send_control(serde_json::to_vec(c).map_err(io::Error::other)?);
+                Ok(())
+            }
+        }
+    }
+
+    fn fds(&self) -> Vec<std::os::fd::RawFd> {
+        match self {
+            Self::Socket { tcp, udp, .. } => {
+                let mut fds = vec![tcp.as_raw_fd()];
+                if let Some((s, _)) = udp {
+                    fds.push(s.as_raw_fd());
+                }
+                fds
+            }
+            #[cfg(feature = "link")]
+            Self::Link(net) => vec![net.event_fd()],
+        }
+    }
+
+    fn receive(&mut self, out: &mut Vec<Arrived>) -> Res<()> {
+        match self {
+            Self::Socket { tcp, reader, udp } => {
+                if let Err(e) = reader.fill(tcp) {
+                    out.push(Arrived::Closed(format!("host closed: {e}")));
+                }
+                while let Some((ty, payload)) = reader.next()? {
+                    match ty {
+                        FRAME_DATAGRAM => out.push(Arrived::Datagram(payload)),
+                        FRAME_CONTROL => out.push(Arrived::Control(payload)),
+                        _ => {}
+                    }
+                }
+                if let Some((sock, _)) = udp {
+                    let mut buf = vec![0u8; 65536];
+                    loop {
+                        match sock.recv_from(&mut buf) {
+                            Ok((n, _)) => out.push(Arrived::Datagram(buf[..n].to_vec())),
+                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                            Err(e) => return Err(e.into()),
+                        }
+                    }
+                }
+            }
+            #[cfg(feature = "link")]
+            Self::Link(net) => {
+                use cmux_rd_link::net::NetEvent;
+                use cmux_rd_link::{EndpointEvent, Event};
+                for event in net.events() {
+                    match event {
+                        NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
+                            out.push(Arrived::Datagram(d))
+                        }
+                        NetEvent::Endpoint(EndpointEvent::Link(Event::Control(r))) => {
+                            out.push(Arrived::Control(r))
+                        }
+                        NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
+                            out.push(Arrived::Closed("host closed the link".into()))
+                        }
+                        NetEvent::Failed(e) => {
+                            out.push(Arrived::Closed(format!("link failed: {e}")))
+                        }
+                        NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
+                            eprintln!(
+                                "{}",
+                                json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 struct Viewer {
-    tcp: TcpStream,
-    udp: Option<(UdpSocket, SocketAddr)>,
-    reader: FrameReader,
+    io: ViewerIo,
     reassembler: Reassembler,
     decoder: Decoder,
     sender: InputSender,
@@ -68,6 +180,20 @@ struct Viewer {
     stream_answer: Option<Result<(), String>>,
     /// The host closed the upstream stream.
     upstream_closed_by_host: bool,
+    /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
+    snapshot: Option<(usize, usize, Vec<u8>)>,
+    /// The newest hardware-decoded picture for `--snapshot`, converted to RGB once, at the end.
+    #[cfg(target_os = "macos")]
+    newest_picture: Option<crate::vtdecode::Picture>,
+    want_snapshot: bool,
+    /// `--record PATH`: every received access unit (Annex-B), the stream the viewer decoded.
+    record: Option<std::fs::File>,
+    /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
+    marker_origin: (usize, usize),
+    /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
+    /// default there); OpenH264 decodes constrained baseline only.
+    #[cfg(target_os = "macos")]
+    vt: Option<crate::vtdecode::VtDecoder>,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -81,10 +207,7 @@ fn pct(xs: &mut [f64]) -> serde_json::Value {
 
 impl Viewer {
     fn send_datagram(&mut self, d: &[u8]) -> io::Result<()> {
-        match &self.udp {
-            Some((sock, host)) => sock.send_to(d, host).map(|_| ()),
-            None => write_frame(&mut self.tcp, FRAME_DATAGRAM, d),
-        }
+        self.io.send_datagram(d)
     }
 
     fn on_datagram(&mut self, d: &[u8]) {
@@ -100,13 +223,56 @@ impl Viewer {
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
                     self.frames += 1;
+                    if let Some(file) = self.record.as_mut() {
+                        let _ = io::Write::write_all(file, &frame.body.access_unit);
+                    }
                     let t0 = now_ns();
+                    #[cfg(target_os = "macos")]
+                    if let Some(vt) = self.vt.as_mut() {
+                        let decoded = vt.decode(&frame.body.access_unit);
+                        let t1 = now_ns();
+                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                        match decoded {
+                            Ok(Some(picture)) => {
+                                let origin = self.marker_origin;
+                                let read = picture.with_luma(|y, stride| {
+                                    marker::decode_luma_at(y, stride, true, origin)
+                                });
+                                if let Some(v) = read {
+                                    if self.marker != Some(v) {
+                                        self.marker = Some(v);
+                                        self.marker_at_ns = t1;
+                                        self.marker_capture_us = frame.body.t_capture_us;
+                                    }
+                                }
+                                if self.want_snapshot {
+                                    self.newest_picture = Some(picture);
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(_) => self.decode_errors += 1,
+                        }
+                        continue;
+                    }
                     let decoded = self.decoder.decode(&frame.body.access_unit);
                     let t1 = now_ns();
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
                     match decoded {
                         Ok(Some(yuv)) => {
-                            if let Some(v) = marker::decode_luma(yuv.y(), yuv.strides().0, true) {
+                            // OpenH264 lends its picture only for this call, so a snapshot
+                            // converts every frame: use --snapshot for pictures, not timing.
+                            if self.want_snapshot {
+                                let (w, h) = yuv.dimensions();
+                                let mut rgb = vec![0u8; w * h * 3];
+                                yuv.write_rgb8(&mut rgb);
+                                self.snapshot = Some((w, h, rgb));
+                            }
+                            if let Some(v) = marker::decode_luma_at(
+                                yuv.y(),
+                                yuv.strides().0,
+                                true,
+                                self.marker_origin,
+                            ) {
                                 if self.marker != Some(v) {
                                     self.marker = Some(v);
                                     self.marker_at_ns = t1;
@@ -137,53 +303,41 @@ impl Viewer {
     }
 
     fn pump(&mut self, timeout_ns: u64) -> Res<()> {
-        let mut fds = vec![self.tcp.as_raw_fd()];
-        if let Some((s, _)) = &self.udp {
-            fds.push(s.as_raw_fd());
-        }
-        wait_readable(&fds, Some(timeout_ns))?;
-        if let Err(e) = self.reader.fill(&mut self.tcp) {
-            self.ended.get_or_insert(format!("host closed: {e}"));
-        }
-        while let Some((ty, payload)) = self.reader.next()? {
-            match ty {
-                FRAME_DATAGRAM => self.on_datagram(&payload),
-                FRAME_CONTROL => match serde_json::from_slice::<Control>(&payload)? {
-                    Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                    Control::Welcome { max_datagram, .. } => {
-                        // Upstream datagrams use the size the host agreed to.
-                        self.max_datagram = max_datagram;
-                        self.welcome = Some(serde_json::from_slice(&payload)?)
-                    }
-                    Control::Refused { reason } | Control::Ended { reason } => {
-                        self.ended.get_or_insert(reason);
-                    }
-                    Control::StreamOpened { stream } if stream == UP_STREAM => {
-                        self.stream_answer = Some(Ok(()));
-                    }
-                    Control::StreamRefused { stream, reason } if stream == UP_STREAM => {
-                        self.stream_answer = Some(Err(reason));
-                    }
-                    Control::StreamClose { stream } if stream == UP_STREAM => {
-                        self.upstream_closed_by_host = true;
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-        if let Some((sock, _)) = &self.udp {
-            let sock = sock.try_clone()?;
-            let mut buf = vec![0u8; 65536];
-            loop {
-                match sock.recv_from(&mut buf) {
-                    Ok((n, _)) => {
-                        let d = buf[..n].to_vec();
-                        self.on_datagram(&d);
-                    }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) => return Err(e.into()),
+        wait_readable(&self.io.fds(), Some(timeout_ns))?;
+        let mut arrived = Vec::new();
+        self.io.receive(&mut arrived)?;
+        for item in arrived {
+            let payload = match item {
+                Arrived::Datagram(d) => {
+                    self.on_datagram(&d);
+                    continue;
                 }
+                Arrived::Closed(reason) => {
+                    self.ended.get_or_insert(reason);
+                    continue;
+                }
+                Arrived::Control(payload) => payload,
+            };
+            match serde_json::from_slice::<Control>(&payload)? {
+                Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
+                Control::Welcome { max_datagram, .. } => {
+                    // Upstream datagrams use the size the host agreed to.
+                    self.max_datagram = max_datagram;
+                    self.welcome = Some(serde_json::from_slice(&payload)?)
+                }
+                Control::Refused { reason } | Control::Ended { reason } => {
+                    self.ended.get_or_insert(reason);
+                }
+                Control::StreamOpened { stream } if stream == UP_STREAM => {
+                    self.stream_answer = Some(Ok(()));
+                }
+                Control::StreamRefused { stream, reason } if stream == UP_STREAM => {
+                    self.stream_answer = Some(Err(reason));
+                }
+                Control::StreamClose { stream } if stream == UP_STREAM => {
+                    self.upstream_closed_by_host = true;
+                }
+                _ => {}
             }
         }
         self.reassembler.tick(now_ns() / 1000);
@@ -298,10 +452,12 @@ fn run_upstream(v: &mut Viewer, which: &str, frames: usize) -> Res<serde_json::V
         "camera" | "screen" => (StreamKind::UpVideo, "h264", 33_333_333u64, false),
         other => return Err(format!("--upstream {other}: expected mic, camera or screen").into()),
     };
-    write_control(
-        &mut v.tcp,
-        &Control::StreamOpen { stream: UP_STREAM, kind, codec: codec.into(), of: None },
-    )?;
+    v.io.send_control(&Control::StreamOpen {
+        stream: UP_STREAM,
+        kind,
+        codec: codec.into(),
+        of: None,
+    })?;
     let asked = now_ns();
     while v.stream_answer.is_none() {
         v.pump(5_000_000)?;
@@ -357,7 +513,7 @@ fn run_upstream(v: &mut Viewer, which: &str, frames: usize) -> Res<serde_json::V
     {
         v.pump(5_000_000)?;
     }
-    let _ = write_control(&mut v.tcp, &Control::StreamClose { stream: UP_STREAM });
+    let _ = v.io.send_control(&Control::StreamClose { stream: UP_STREAM });
     let stats = v.upstream.take().map(|up| up.stats());
     Ok(json!({
         "kind": which,
@@ -390,20 +546,30 @@ pub fn run(opts: &Opts) -> Res<()> {
     let carrier = opts.str_or("carrier", "udp");
     // key (default) | click | scroll: which input moves the marker (cloud browser page).
     let input = opts.str_or("input", "key");
-    let tcp = TcpStream::connect(addr)?;
-    tcp.set_nodelay(true)?;
-    tcp.set_nonblocking(true)?;
-    let udp = if carrier == "udp" {
-        let s = UdpSocket::bind("0.0.0.0:0")?;
-        s.set_nonblocking(true)?;
-        crate::wire::grow_udp_buffers(&s);
-        Some((s, addr))
+    let (io, udp_port) = if opts.get("link").is_some() {
+        #[cfg(feature = "link")]
+        {
+            (link_io()?, None)
+        }
+        #[cfg(not(feature = "link"))]
+        return Err("--link needs a build with the link feature".into());
     } else {
-        None
+        let tcp = TcpStream::connect(addr)?;
+        tcp.set_nodelay(true)?;
+        tcp.set_nonblocking(true)?;
+        let udp = if carrier == "udp" {
+            let s = UdpSocket::bind("0.0.0.0:0")?;
+            s.set_nonblocking(true)?;
+            crate::wire::grow_udp_buffers(&s);
+            Some((s, addr))
+        } else {
+            None
+        };
+        let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
+        (ViewerIo::Socket { tcp, reader: FrameReader::default(), udp }, udp_port)
     };
     let mut v = Viewer {
-        tcp,
-        reader: FrameReader::default(),
+        io,
         reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
         decoder: Decoder::new()?,
         sender: InputSender::new(),
@@ -420,45 +586,65 @@ pub fn run(opts: &Opts) -> Res<()> {
         stats: Vec::new(),
         ended: None,
         welcome: None,
-        udp: None,
         max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
         upstream: None,
         stream_answer: None,
         upstream_closed_by_host: false,
+        snapshot: None,
+        #[cfg(target_os = "macos")]
+        newest_picture: None,
+        want_snapshot: opts.get("snapshot").is_some(),
+        record: opts.get("record").map(std::fs::File::create).transpose()?,
+        #[cfg(target_os = "macos")]
+        vt: match opts.str_or("decoder", "videotoolbox").as_str() {
+            "videotoolbox" => Some(crate::vtdecode::VtDecoder::new()),
+            "openh264" => None,
+            other => return Err(format!("--decoder {other}: use videotoolbox or openh264").into()),
+        },
+        marker_origin: match opts.get("marker-origin") {
+            Some(at) => {
+                let (x, y) = at.split_once(',').ok_or("--marker-origin takes X,Y")?;
+                (x.trim().parse()?, y.trim().parse()?)
+            }
+            None => (0, 0),
+        },
+    };
+    // `--at X,Y`: where click and scroll input lands, in stream pixels.
+    let (at_x, at_y) = match opts.get("at") {
+        Some(at) => {
+            let (x, y) = at.split_once(',').ok_or("--at takes X,Y")?;
+            (x.trim().parse::<i32>()?, y.trim().parse::<i32>()?)
+        }
+        None => (960, 600),
     };
     let upstream = opts.get("upstream").map(str::to_owned);
-    let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
-    v.udp = udp;
     let pid = std::process::id();
     let user = opts.str_or("user", "owner");
-    write_control(
-        &mut v.tcp,
-        &Control::Hello {
-            user,
-            install: format!("bench-{pid}"),
-            class: "user".into(),
-            interactive: true,
-            udp_port,
-            max_datagram: v.max_datagram,
-            token: match opts.get("token-fd") {
-                Some(fd) => Some(cmux_rd_proto::control::SecretHex(
-                    crate::token::Token::read_fd(fd.parse()?)?.to_hex(),
-                )),
-                None => None,
-            },
-            service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-            // Upstream media needs both caps (rd change C4).
-            caps: if upstream.is_some() {
-                vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
-            } else {
-                Vec::new()
-            },
+    v.io.send_control(&Control::Hello {
+        user,
+        install: format!("bench-{pid}"),
+        class: "user".into(),
+        interactive: true,
+        udp_port,
+        max_datagram: v.max_datagram,
+        token: match opts.get("token-fd") {
+            Some(fd) => Some(cmux_rd_proto::control::SecretHex(
+                crate::token::Token::read_fd(fd.parse()?)?.to_hex(),
+            )),
+            None => None,
         },
-    )?;
-    write_control(
-        &mut v.tcp,
-        &Control::Start { key: format!("bench-{pid}-{}", now_ns()), mode: "control".into() },
-    )?;
+        service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
+        // Upstream media needs both caps (rd change C4).
+        caps: if upstream.is_some() {
+            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
+        } else {
+            Vec::new()
+        },
+    })?;
+    v.io.send_control(&Control::Start {
+        key: format!("bench-{pid}-{}", now_ns()),
+        mode: "control".into(),
+    })?;
     // Wait for the first decoded marker (the first frame is an IDR).
     let start = now_ns();
     while v.marker.is_none() {
@@ -467,6 +653,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             return Err(format!("ended before the first frame: {e}").into());
         }
         if now_ns() - start > 15_000_000_000 {
+            write_snapshot(opts, &v)?;
             return Err(format!(
                 "no marker within 15 s (bytes {}, frames released {}, decode errors {}, losses {:?})",
                 v.bytes,
@@ -504,12 +691,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
             "click" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 v.sender.push(InputEvent::Button { button: 0, down: true });
                 v.sender.push(InputEvent::Button { button: 0, down: false });
             }
             "scroll" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
                 v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
             }
@@ -559,6 +746,81 @@ pub fn run(opts: &Opts) -> Res<()> {
         "ended": v.ended,
     });
     println!("{report}");
-    let _ = write_control(&mut v.tcp, &Control::Stop);
+    write_snapshot(opts, &v)?;
+    let _ = v.io.send_control(&Control::Stop);
     Ok(())
+}
+
+/// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
+fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
+    #[cfg(target_os = "macos")]
+    let converted = v.newest_picture.as_ref().map(crate::vtdecode::Picture::rgb);
+    #[cfg(not(target_os = "macos"))]
+    let converted: Option<(usize, usize, Vec<u8>)> = None;
+    if let (Some(path), Some((w, h, rgb))) =
+        (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
+    {
+        let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+        ppm.extend_from_slice(rgb);
+        std::fs::write(path, ppm)?;
+    }
+    Ok(())
+}
+
+/// `--link`: the viewer side of a device hub session, set up in JSON lines on
+/// stdin and stdout the way the app does it (a test stands in for the hub):
+/// prints {"key"}, reads {"session","peer_key","stun":[..],"candidates":[..]},
+/// then prints {"candidate"} lines while it connects.
+#[cfg(feature = "link")]
+fn link_io() -> Res<ViewerIo> {
+    use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
+    use cmux_rd_link::{KeyPair, Role};
+    use std::io::BufRead;
+    #[derive(serde::Deserialize)]
+    struct Answer {
+        session: String,
+        peer_key: String,
+        #[serde(default)]
+        stun: Vec<String>,
+        #[serde(default)]
+        candidates: Vec<String>,
+    }
+    let keys = KeyPair::generate()?;
+    println!(
+        "{}",
+        json!({"key": keys.public.iter().map(|b| format!("{b:02x}")).collect::<String>()})
+    );
+    let mut line = String::new();
+    io::stdin().lock().read_line(&mut line)?;
+    let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
+    let mut peer = [0u8; 32];
+    if answer.peer_key.len() != 64 {
+        return Err("peer_key must be 64 hex characters".into());
+    }
+    for (i, b) in peer.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&answer.peer_key[2 * i..2 * i + 2], 16)?;
+    }
+    let stun = answer
+        .stun
+        .iter()
+        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
+        .collect();
+    let net = Net::start(NetConfig {
+        role: Role::Initiator,
+        session: answer.session.into_bytes(),
+        local: keys,
+        expected_remote: peer,
+        stun,
+        bind: "0.0.0.0:0".parse()?,
+    })?;
+    for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
+        net.add_remote_candidate(c);
+    }
+    // This side's candidates go out through the test's stand-in hub.
+    for event in net.events() {
+        if let NetEvent::Candidate(c) = event {
+            println!("{}", json!({"candidate": c.to_wire()}));
+        }
+    }
+    Ok(ViewerIo::Link(net))
 }

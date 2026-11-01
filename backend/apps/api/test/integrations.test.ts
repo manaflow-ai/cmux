@@ -109,6 +109,15 @@ describe("provider clients (fake HTTP)", () => {
     ])
   })
 
+  it("GitHub: accepts canonical owner and repo casing in the comment receipt", async () => {
+    const f = fakeHttp({
+      "https://api.github.com/app/installations/42/access_tokens": () => ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/acme/web/issues/9/comments": () => ok({ id: 2, html_url: "https://github.com/Acme/Web/issues/9#issuecomment-2" }, 201),
+    })
+    const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "acme/web", issue: 9, body: "hi" })
+    expect(r.value).toEqual({ id: 2, url: "https://github.com/Acme/Web/issues/9#issuecomment-2" })
+  })
+
   it("Linear: refresh returns a new credential only when expired; the call uses what it is given", async () => {
     const f = fakeHttp({
       "https://api.linear.app/oauth/token": (req) => {
@@ -274,6 +283,50 @@ describe("connections end to end (workerd)", () => {
     // The key stays decided: a retry replays the indeterminate answer instead of creating a second issue.
     const retry = await op(token, "linear.issue.create", params, "lin-5xx")
     expect(retry.json).toMatchObject({ ok: false, replayed: true, error: { code: "mutation.indeterminate" } })
+  })
+
+  it("GitHub: a 401 evicts the narrowed token so reconnect fetches a fresh token", async () => {
+    const { token, team } = await signedIn("conn-gh-reconnect-401")
+    const installation = 984322
+    let mints = 0
+    const posts: Array<string | null> = []
+    const fake = fakeHttp({
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_synthetic" }),
+      [`https://api.github.com/user/installations/${installation}/repositories`]: () => ok({ repositories: [{ full_name: "acme/web" }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: installation, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
+      [`https://api.github.com/app/installations/${installation}/access_tokens`]: async (req) => {
+        expect(await req.json()).toEqual({ repositories: ["web"], permissions: { issues: "write" } })
+        return ok({ token: `ghs_synthetic_${++mints}`, expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
+      },
+      "https://api.github.com/repos/acme/web/issues/9/comments": (req) => {
+        const auth = req.headers.get("authorization")
+        posts.push(auth)
+        return auth === "Bearer ghs_synthetic_1" ? ok({ message: "Bad credentials" }, 401) : ok({ id: 2, html_url: "https://github.com/acme/web/issues/9#issuecomment-2" }, 201)
+      }
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => { instance.http = fake.http })
+    const connect = async () => {
+      const started = await op(token, "integration.connect", { provider: "github" })
+      const state = new URL(started.json.value.authorize_url).searchParams.get("state")!
+      const done = await op(token, "integration.complete", { state, code: "synthetic", installation_id: String(installation) })
+      expect(done.json).toMatchObject({ ok: true, value: { status: "active" } })
+      return started.json.value.connection.id as string
+    }
+    const connection = await connect()
+    const params = { connection, repo: "acme/web", issue: 9, body: "synthetic comment" }
+    expect((await op(token, "github.issue.comment", params, "revoked-token")).json).toMatchObject({ ok: false, error: { code: "integration.unavailable" } })
+    await inDO(connections, async (instance) => { expect(instance.boundEngine.currentState.connections[connection].status).toBe("needs_reauth") })
+    expect(mints).toBe(1)
+    expect(posts).toEqual(["Bearer ghs_synthetic_1"])
+
+    const reconnected = await connect() // same GitHub installation and repo, new OAuth authorization
+    expect((await op(token, "github.issue.comment", { ...params, connection: reconnected }, "fresh-token")).json).toMatchObject({ ok: true, value: { id: 2 } })
+    expect(mints).toBe(2)
+    expect(posts).toEqual(["Bearer ghs_synthetic_1", "Bearer ghs_synthetic_2"])
+    // Replaying the failed effect keeps its recorded refusal; eviction never repeats that POST.
+    expect((await op(token, "github.issue.comment", params, "revoked-token")).json).toMatchObject({ ok: false, replayed: true })
+    expect(posts).toHaveLength(2)
   })
 
   it("GitHub team policy: ops and webhooks stay inside the linking user's repositories and the allowlist; managed policies lock", async () => {

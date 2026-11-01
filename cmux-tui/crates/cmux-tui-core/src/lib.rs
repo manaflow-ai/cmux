@@ -81,6 +81,7 @@ mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod scripts;
+mod serial_lanes;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
@@ -219,3 +220,6 @@ pub enum SplitDir {
     /// Split into top/bottom rows.
     Down,
 }
+
+#[cfg(unix)]
+pub mod cloud_repos;
