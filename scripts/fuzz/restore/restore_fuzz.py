@@ -999,7 +999,10 @@ def iteration(seed, targets, keep=None, label="i"):
             state = rec_rec.pop("state")
             rec["recovery"] = rec_rec
             if not rec_rec["recovered"]:
-                rec["problems"].append(f"no recovery after the space came back: {rec_rec['problem']}")
+                rec["problems"].append(
+                    f"no recovery by itself after the space came back ({rec_rec['problem']}); Restart offered: "
+                    f"{rec_rec['offers_restart']}; after Restart: "
+                    f"{'recovered' if rec_rec.get('recovered_after_restart') else rec_rec.get('restart_problem')}")
             else:
                 # Recovered by itself: nothing confirmed may be lost, and the full-disk stretch must have been visible.
                 rec["problems"] += judge(state, confirmed, inflight)
@@ -1276,8 +1279,21 @@ def recover_after_space(target, old_daemons):
     sampler = VisibleSampler()
     state, timings, problem = restore(target, freed_at, old_daemons)
     seen, n = sampler.finish(target)
-    out = {"recovered": problem is None, "state": state, "after_free_s": timings.get("settled_s"), "problem": problem,
+    last = rpc("debug.daemon", timeout=3)
+    offered = isinstance(last, dict) and ((last.get("recovery") or {}).get("offers_restart") is True)
+    out = {"recovered": problem is None, "state": state, "debug_daemon_last": last if isinstance(last, dict) else None,
+           "offers_restart": offered, "after_free_s": timings.get("settled_s"), "problem": problem,
            "visible_problems": seen[:4], "visible_states": getattr(sampler, "seen", {}), "samples": n}
+    if problem is not None:
+        # The person's way out: press Restart cmux-tui (the button's path, as restore-journey's daemon-stop does).
+        pressed = rpc("debug.daemon", {"action": "restart"}, timeout=10)
+        pressed_at = time.time()
+        state2, timings2, problem2 = restore(target, pressed_at, old_daemons)
+        out.update(restart_pressed=pressed if isinstance(pressed, dict) else str(pressed)[:200],
+                   recovered_after_restart=problem2 is None, after_restart_s=timings2.get("settled_s"),
+                   restart_problem=problem2)
+        if problem2 is None:
+            out["state"] = state2
     say(f"  diskfull: recovery {'OK' if problem is None else 'FAILED'} "
         f"{json.dumps({k: v for k, v in out.items() if k != 'state'})[:400]}")
     return out
