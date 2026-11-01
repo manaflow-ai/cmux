@@ -366,7 +366,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local(
             "terminal.send_stable_target_required",
             format!(
-                "a keyed send needs the full terminal ID {id}; use that ID to retry,                  even if the tab or title has moved"
+                "a keyed send requires the full terminal ID {id}; use that ID on retry"
             ),
             json!({"terminal": id, "target": request.target}),
             2,
