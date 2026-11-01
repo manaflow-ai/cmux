@@ -152,6 +152,26 @@ test("a reply lists the account's machines only once the app holds the signed-in
   ).toEqual(machines);
 });
 
+test("shared chat helpers use the authenticated grant contract and keep the returned ACL", async () => {
+  const { readCloudMachineChat, shareCloudMachineChat, unshareCloudMachineChat } = await import(
+    "../src/agent-session/acpmux/cloudMachines"
+  );
+  const calls: unknown[][] = [];
+  const access = { machineId: "vm-1", creator: "owner", chatStart: "owner", canShare: true, grants: ["user_mate"] };
+  const call = async (method: string, params?: Record<string, unknown>) => {
+    calls.push([method, params]);
+    return access;
+  };
+  expect(await readCloudMachineChat("vm-1", call)).toEqual(access);
+  expect(await shareCloudMachineChat("vm-1", "user_new", call)).toEqual(access);
+  expect(await unshareCloudMachineChat("vm-1", "user_mate", call)).toEqual(access);
+  expect(calls).toEqual([
+    ["cloudMachine.chatAccess", { id: "vm-1" }],
+    ["cloudMachine.shareChat", { id: "vm-1", user: "user_new" }],
+    ["cloudMachine.unshareChat", { id: "vm-1", user: "user_mate" }],
+  ]);
+});
+
 test("a machine acpmux already lists keeps acpmux's row; a paused one resumes, any other opens", async () => {
   const { cloudMachineRows, cloudMachineAction } = await import("../src/agent-session/acpmux/cloudMachines");
   const rows = cloudMachineRows(account, [{ id: "gpu-box", label: "gpu-box" }]);

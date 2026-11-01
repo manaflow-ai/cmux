@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 
 extension AgentPaneCloudMachines {
+    private struct ChatUnavailable: Error {}
+
     /// How old the App's machine list may be when a picker reads it: an open picker reads every
     /// few seconds, the server's list at most this often (the store also follows each machine's
     /// own link between reads).
@@ -28,6 +30,33 @@ extension AgentPaneCloudMachines {
         resume = { [weak services] id in
             services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false
         }
+        chatAccess = { [weak services] id in
+            guard let services else { throw ChatUnavailable() }
+            let session = try Self.loadedChatMachine(id, services: services)
+            return Self.chatAccess(try await services.cloud.api.teamMachineChatAccess(session.machineID))
+        }
+        shareChat = { [weak services] id, user in
+            guard let services else { throw ChatUnavailable() }
+            let session = try Self.loadedChatMachine(id, services: services)
+            return Self.chatAccess(try await services.cloud.api.shareTeamMachineChat(session.machineID, with: user))
+        }
+        unshareChat = { [weak services] id, user in
+            guard let services else { throw ChatUnavailable() }
+            let session = try Self.loadedChatMachine(id, services: services)
+            return Self.chatAccess(try await services.cloud.api.unshareTeamMachineChat(session.machineID, user: user))
+        }
+    }
+
+    private static func loadedChatMachine(_ id: String, services: AppServices) throws -> CloudMachineSession {
+        guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+              let session = services.machines.cloud.first(where: { $0.machineID == id }),
+              session.effectiveStatus != .destroyed else { throw ChatUnavailable() }
+        return session
+    }
+
+    private static func chatAccess(_ access: CloudAPIClient.TeamMachineChatAccess) -> ChatAccess {
+        ChatAccess(machineID: access.machineID, creator: access.creator, chatStart: access.chatStart,
+                   canShare: access.canShare, grants: access.grants)
     }
 
     /// Runs `action` on machine `id` when it is one of the loaded list's and `allowed`; false otherwise.

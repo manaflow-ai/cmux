@@ -10,15 +10,24 @@ import Foundation
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.open {id}` -> `{}`: Open Machine (its first workspace; a paused one resumes).
 /// - `cloudMachine.resume {id}` -> `{}`: Resume Machine, for a paused machine only.
+/// - `cloudMachine.chatAccess {id}` -> the caller's server-side chat grant.
+/// - `cloudMachine.shareChat {id, user}` -> the updated grant after sharing with a member.
+/// - `cloudMachine.unshareChat {id, user}` -> the updated grant after removing a member.
 ///
 /// Open and Resume start a machine: each takes the person's own click (one gesture).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
     case open(id: String)
     case resume(id: String)
+    case chatAccess(id: String)
+    case shareChat(id: String, user: String)
+    case unshareChat(id: String, user: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["cloudMachine.list", "cloudMachine.open", "cloudMachine.resume"]
+    public static let methods: Set<String> = [
+        "cloudMachine.list", "cloudMachine.open", "cloudMachine.resume",
+        "cloudMachine.chatAccess", "cloudMachine.shareChat", "cloudMachine.unshareChat",
+    ]
     /// Longest id the page may send back (the API's ids are far shorter).
     static let maximumIDLength = 128
     /// Most rows one list answers.
@@ -31,9 +40,17 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case "cloudMachine.list":
             guard params.isEmpty else { return nil }
             self = .list
-        case "cloudMachine.open", "cloudMachine.resume":
+        case "cloudMachine.open", "cloudMachine.resume", "cloudMachine.chatAccess":
             guard Set(params.keys) == ["id"], let id = Self.machineID(params["id"]) else { return nil }
-            self = method == "cloudMachine.open" ? .open(id: id) : .resume(id: id)
+            switch method {
+            case "cloudMachine.open": self = .open(id: id)
+            case "cloudMachine.resume": self = .resume(id: id)
+            default: self = .chatAccess(id: id)
+            }
+        case "cloudMachine.shareChat", "cloudMachine.unshareChat":
+            guard Set(params.keys) == ["id", "user"],
+                  let id = Self.machineID(params["id"]), let user = Self.memberID(params["user"]) else { return nil }
+            self = method == "cloudMachine.shareChat" ? .shareChat(id: id, user: user) : .unshareChat(id: id, user: user)
         default:
             return nil
         }
@@ -47,11 +64,17 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         return id
     }
 
+    /// Team member ids use the same bounded ASCII route-segment contract as machine ids.
+    static func memberID(_ raw: Any?) -> String? { machineID(raw) }
+
     var method: String {
         switch self {
         case .list: "cloudMachine.list"
         case .open: "cloudMachine.open"
         case .resume: "cloudMachine.resume"
+        case .chatAccess: "cloudMachine.chatAccess"
+        case .shareChat: "cloudMachine.shareChat"
+        case .unshareChat: "cloudMachine.unshareChat"
         }
     }
 }
@@ -83,11 +106,33 @@ public final class AgentPaneCloudMachines {
         }
     }
 
+    public struct ChatAccess: Equatable, Sendable {
+        public var machineID: String
+        public var creator: String
+        public var chatStart: String
+        public var canShare: Bool
+        public var grants: [String]
+
+        public init(machineID: String, creator: String, chatStart: String, canShare: Bool, grants: [String]) {
+            self.machineID = machineID
+            self.creator = creator
+            self.chatStart = chatStart
+            self.canShare = canShare
+            self.grants = grants
+        }
+    }
+
     public var list: (@MainActor () async -> Inventory)?
     /// Runs Open Machine on a machine of the loaded list; false when it is not one.
     public var open: (@MainActor (String) -> Bool)?
     /// Runs Resume Machine on a paused machine of the loaded list; false otherwise.
     public var resume: (@MainActor (String) -> Bool)?
+    /// Reads the caller's server-side access to the machine's existing chat.
+    public var chatAccess: (@MainActor (String) async throws -> ChatAccess)?
+    /// Shares the existing chat with a current team member.
+    public var shareChat: (@MainActor (String, String) async throws -> ChatAccess)?
+    /// Removes a current team member's chat grant.
+    public var unshareChat: (@MainActor (String, String) async throws -> ChatAccess)?
 
     init() {}
 }
@@ -104,6 +149,9 @@ extension AgentPaneCloudMachineRequest {
             return AgentPaneReply.success(["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows] as [String: Any])
         case .open(let id): return run(machines.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines.resume, on: id, gestures: gestures)
+        case .chatAccess(let id): return await read(machines.chatAccess, id: id)
+        case .shareChat(let id, let user): return await mutate(machines.shareChat, id: id, user: user, gestures: gestures)
+        case .unshareChat(let id, let user): return await mutate(machines.unshareChat, id: id, user: user, gestures: gestures)
         }
     }
 
@@ -113,5 +161,26 @@ extension AgentPaneCloudMachineRequest {
         guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         guard action(id) else { return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(method) on that Cloud machine.") }
         return AgentPaneReply.success()
+    }
+
+    @MainActor
+    private func read(_ action: (@MainActor (String) async throws -> AgentPaneCloudMachines.ChatAccess)?, id: String) async -> [String: Any] {
+        guard let action else { return AgentPaneModel.unsupported(method) }
+        do { return AgentPaneReply.success(value(try await action(id))) }
+        catch { return AgentPaneReply.failure(code: "cloud_machine_chat_failed", message: "The Cloud machine chat request failed.") }
+    }
+
+    @MainActor
+    private func mutate(_ action: (@MainActor (String, String) async throws -> AgentPaneCloudMachines.ChatAccess)?, id: String, user: String,
+                        gestures: AgentPaneUserGestures) async -> [String: Any] {
+        guard let action else { return AgentPaneModel.unsupported(method) }
+        guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        do { return AgentPaneReply.success(value(try await action(id, user))) }
+        catch { return AgentPaneReply.failure(code: "cloud_machine_chat_failed", message: "The Cloud machine chat request failed.") }
+    }
+
+    private func value(_ access: AgentPaneCloudMachines.ChatAccess) -> [String: Any] {
+        ["machineId": access.machineID, "creator": access.creator, "chatStart": access.chatStart,
+         "canShare": access.canShare, "grants": access.grants]
     }
 }

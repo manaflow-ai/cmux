@@ -371,6 +371,12 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { handoffTurns } from "./cloudHandoffTurn";
+import {
+  readCloudMachineChat,
+  shareCloudMachineChat,
+  unshareCloudMachineChat,
+  type CloudMachineChatAccess,
+} from "./cloudMachines";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { avatarRows } from "./header/avatarRow";
@@ -4541,6 +4547,25 @@ function AcpmuxPane() {
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudChatAccess, setCloudChatAccess] = useState<CloudMachineChatAccess>();
+  const [cloudChatNotice, setCloudChatNotice] = useState<string>();
+  useEffect(() => {
+    let current = true;
+    setCloudChatAccess(undefined);
+    setCloudChatNotice(undefined);
+    if (!cloudMachineID) return () => undefined;
+    void readCloudMachineChat(cloudMachineID).then(
+      (access) => {
+        if (current) setCloudChatAccess(access);
+      },
+      () => {
+        if (current) setCloudChatNotice("Cloud machine chat access could not be read.");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [cloudMachineID]);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
@@ -8367,6 +8392,49 @@ function AcpmuxPane() {
             },
           ]
         : [];
+    const sharedChat: ChatMenuItem[] =
+      cloudMachineID && cloudChatAccess?.canShare
+        ? [
+            {
+              key: "shareChat",
+              label: "Share chat…",
+              icon: "account",
+              children: [
+                {
+                  key: "shareChatWith",
+                  label: "Share with team member…",
+                  onSelect: () => {
+                    const user = window.prompt("Team member ID");
+                    if (!user?.trim()) return;
+                    const member = user.trim();
+                    setCloudChatNotice(undefined);
+                    void shareCloudMachineChat(cloudMachineID, member).then(
+                      (access) => {
+                        setCloudChatAccess(access);
+                        setCloudChatNotice(`Chat shared with ${member}.`);
+                      },
+                      () => setCloudChatNotice("Cloud machine chat could not be shared."),
+                    );
+                  },
+                },
+                ...cloudChatAccess.grants.map((member) => ({
+                  key: `unshareChat-${member}`,
+                  label: `Remove ${member}`,
+                  onSelect: () => {
+                    setCloudChatNotice(undefined);
+                    void unshareCloudMachineChat(cloudMachineID, member).then(
+                      (access) => {
+                        setCloudChatAccess(access);
+                        setCloudChatNotice(`Chat access removed for ${member}.`);
+                      },
+                      () => setCloudChatNotice("Cloud machine chat access could not be removed."),
+                    );
+                  },
+                })),
+              ],
+            },
+          ]
+        : [];
     // New side chat, New terminal and New browser: something new beside the chat, every time.
     const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
@@ -8444,7 +8512,7 @@ function AcpmuxPane() {
         : []),
     ];
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups([...fork, ...continueIn], copy ? [copy] : [], tools);
+    if (quick) return menuGroups([...fork, ...sharedChat, ...continueIn], copy ? [copy] : [], tools);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -8463,7 +8531,7 @@ function AcpmuxPane() {
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
       ],
-      [...opensBeside, ...fork, ...continueIn],
+      [...opensBeside, ...fork, ...sharedChat, ...continueIn],
       copy ? [copy] : [],
       [
         {
@@ -9259,6 +9327,11 @@ function AcpmuxPane() {
         <Notice id="background" tier="status" when={background.notice}>
           <output className="acpmux-switch-notice acpmux-background-notice">
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
+          </output>
+        </Notice>
+        <Notice id="cloud-chat-sharing" tier="status" when={cloudChatNotice}>
+          <output className="acpmux-switch-notice" role="status">
+            {cloudChatNotice}
           </output>
         </Notice>
         <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>

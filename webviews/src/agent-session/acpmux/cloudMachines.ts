@@ -12,10 +12,57 @@ import { postNative } from "./native";
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
 /// `requesting`, `creating`, `booting`, `connecting`, `failed`).
 export type CloudMachine = { id: string; name: string; stage: string };
+/// The platform's authenticated chat ACL. `grants` is visible only to a caller who may share.
+export type CloudMachineChatAccess = {
+  machineId: string;
+  creator: string;
+  chatStart: "owner" | "granted" | "none";
+  canShare: boolean;
+  grants: string[];
+};
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+function chatAccessFromReply(reply: unknown): CloudMachineChatAccess {
+  const value = (reply ?? {}) as Record<string, unknown>;
+  const grants = Array.isArray(value.grants) ? value.grants.filter((user): user is string => typeof user === "string") : [];
+  const chatStart = value.chatStart;
+  if (
+    typeof value.machineId !== "string" ||
+    typeof value.creator !== "string" ||
+    (chatStart !== "owner" && chatStart !== "granted" && chatStart !== "none") ||
+    typeof value.canShare !== "boolean"
+  ) {
+    throw new Error("Invalid Cloud machine chat access reply");
+  }
+  return { machineId: value.machineId, creator: value.creator, chatStart, canShare: value.canShare, grants };
+}
+
+/// Reads the server-side grant for the currently shown Cloud machine. This never exposes or moves
+/// a harness credential: it only describes access to the machine's existing workspace transcript.
+export function readCloudMachineChat(machineID: string, call: Call = postNative): Promise<CloudMachineChatAccess> {
+  return call("cloudMachine.chatAccess", { id: machineID }).then(chatAccessFromReply);
+}
+
+/// Grants a current team member access to the existing Cloud machine transcript.
+export function shareCloudMachineChat(
+  machineID: string,
+  user: string,
+  call: Call = postNative,
+): Promise<CloudMachineChatAccess> {
+  return call("cloudMachine.shareChat", { id: machineID, user }).then(chatAccessFromReply);
+}
+
+/// Removes a current team member's access to the existing Cloud machine transcript.
+export function unshareCloudMachineChat(
+  machineID: string,
+  user: string,
+  call: Call = postNative,
+): Promise<CloudMachineChatAccess> {
+  return call("cloudMachine.unshareChat", { id: machineID, user }).then(chatAccessFromReply);
+}
 
 /// A row id no acpmux peer name takes (`cloud-machine:` and the machine's id).
 const ROW_PREFIX = "cloud-machine:";
