@@ -45,8 +45,10 @@
    scrolls itself (the pull request dock, the question card in a short pane) keeps its wheel and its
    scrollbar. The composer passes the pointer through around its card and queue, which take it, so
    the wheel beside the card reaches the transcript itself. */
+/* The `/` and `@` lists' layer (backdropLayer.tsx) lies over the card: it passes the pointer to the
+   card, and only its list takes it (styles.css). */
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > :not(.acpmux-composer-list-layer) {
   pointer-events: auto;
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned

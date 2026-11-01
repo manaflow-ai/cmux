@@ -250,7 +250,8 @@ impl LinuxPlatform {
         );
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
-        let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        let mut spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
+        spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
         let pid = child.id();
@@ -616,6 +617,10 @@ impl Platform for LinuxPlatform {
                     id,
                 )
                 .ok()
+            })
+            .or_else(|| {
+                let mut store = crate::cloud::role::FileStore::new(self.cfg.paths.clone());
+                crate::identity::scoped(&mut store, &self.cfg.paths).ok()
             });
         if let Some(listener) = &mut self.identity {
             listener.reply(identity.as_ref());

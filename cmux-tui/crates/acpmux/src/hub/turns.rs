@@ -236,12 +236,18 @@ impl Hub {
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
-                f(duplicate(logged.clone()));
+                let value = match &logged {
+                    Ok(value) => value.clone(),
+                    Err(error) => json!({"_meta": {"acpmux": {
+                        "turnId": error.data.as_ref().and_then(|d| d.get("turnId"))
+                    }}}),
+                };
+                f(duplicate(value));
             }
             let mut ledger = session.prompts.lock().unwrap();
-            outcome.send_replace(Some(Ok(logged.clone())));
+            outcome.send_replace(Some(logged.clone()));
             prompt_ledger::prune(&mut ledger);
-            return Ok(logged);
+            return logged;
         }
         // Message events are acknowledged at the same point as the prompt. This covers direct
         // sends and automatic lane reports, both of which can call `prompt_with` without passing
@@ -2192,6 +2198,8 @@ impl Hub {
             if sessions.get(&session.id).is_some_and(|current| Arc::ptr_eq(current, session)) {
                 sessions.remove(&session.id);
             }
+            drop(sessions);
+            self.remove_live_session_index(&session.id);
         }
         Ok(())
     }

@@ -86,7 +86,9 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
       className="acpmux-shell"
       data-cu-preview-fixture
       data-session-info-chat-placement={sessionInfo}
-      style={{ position: "relative", height: "100%" }}
+      // The stage's viewport is the pane. A component stage's #root has no height of its own, so 100%
+      // here was 0 and the shell's overflow clip hid the card: a click on Hide Preview missed it.
+      style={{ position: "relative", height: "100vh" }}
     >
       {/* With Session Info open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
       <div className="acpmux-main" data-cu-preview={shown && !sessionInfo ? "" : undefined}>

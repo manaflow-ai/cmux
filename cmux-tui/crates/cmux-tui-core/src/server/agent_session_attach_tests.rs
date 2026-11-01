@@ -279,6 +279,15 @@ fn serve(
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             "session/set_model" | "session/set_mode" => Some(json!({})),
+            // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
+            "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
+                "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
+            "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
+                Some(json!({FAKE_ERROR: "bad code", FAKE_ERROR_DATA: {"reason": "bad_code"}}))
+            }
+            "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
+            "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
+            "_acpmux/agent_login/cancel" => Some(json!({})),
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),
@@ -947,6 +956,92 @@ fn cancel_goes_to_the_pinned_session() {
     assert_eq!(sent["method"], json!("session/cancel"));
     assert_eq!(sent["params"], json!({"sessionId": SESSION}));
     assert!(sent.get("id").is_none(), "cancel is a notification");
+}
+
+// MARK: Sign-in
+
+/// A Cloud chat's own sign-in (`agent-session-login-v1`): each step goes to acpmux's
+/// `_acpmux/agent_login/*` with the tab's own session where it names one, and acpmux's refusal
+/// comes back as an answer with its reason, so the app's card says why.
+#[test]
+fn login_steps_go_to_acpmux_on_the_pinned_session() {
+    let fake = FakeAcpmux::start("login");
+    let mux = mux_with(&fake, "asa-login");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "login");
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-login","surface":surface,"op":"start",
+                               "agent":"claude"})),
+        "agent_session.not_attached",
+    );
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    for (frame, method, params, data) in [
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"claude"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "claude", "sessionId": SESSION}),
+            json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
+                   "needsCode": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"wrong"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "sessionId": SESSION, "code": "wrong"}),
+            json!({"refused": {"reason": "bad_code"}}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"abc#def"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "sessionId": SESSION, "code": "abc#def"}),
+            json!({"signedIn": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"codex","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "codex", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId": "login_1", "sessionId": SESSION}),
+            json!({}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "the session is the tab's own; nothing else is passed");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"claude",
+               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"finish","login_id":"l",
+               "code":"x".repeat(5000)}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
 }
 
 // MARK: Settings

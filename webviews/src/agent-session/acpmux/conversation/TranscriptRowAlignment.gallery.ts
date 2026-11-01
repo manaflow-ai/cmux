@@ -5,8 +5,9 @@
 // does: a reply, a tool call, a reply, a subagent that finished, a reply, a background command that
 // ended, a reply, another agent's message, a reply. The turns above it end with a "Worked for" line (a folded turn)
 // and a footer that says its time and tokens beside the reply's action row. Every row's first ink
-// sits on the prose's left edge, an icon's text one icon column in, and each status row sits in
-// the middle of the gap between the replies around it (transcript-row-alignment.test.ts).
+// sits on the prose's left edge, an icon's text one icon column in, and each status row has one room
+// above and one below; the reply over it keeps its 2026-10-30 room, so above is the larger
+// (transcript-row-alignment.test.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { minutesAgo } from "../../../gallery/clock";
@@ -99,7 +100,7 @@ export default agentPaneEntry({
   ],
   variants: {
     mix: {
-      note: "A reply, a tool call, a reply, a subagent that finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge, and each status row sits in the middle of the gap between the replies around it.",
+      note: "A reply, a tool call, a reply, a subagent that finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge; the reply over each status row keeps its 2026-10-30 room (model.ts keepsReplyRoom), so the line has 26px more room above than below.",
       snapshot,
     },
     roomy: {

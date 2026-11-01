@@ -131,7 +131,7 @@ export default agentPaneEntry({
         const data = new view.DataTransfer();
         data.setData(
           "text/plain",
-          Array.from({ length: 40 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
+          Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`).join(
             "\n",
           ),
         );

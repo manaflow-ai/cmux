@@ -270,6 +270,11 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_overflow_pick_reads_pool.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -841,6 +846,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_spend.py"
 lane = "linux-guard"
 
 [[test]]

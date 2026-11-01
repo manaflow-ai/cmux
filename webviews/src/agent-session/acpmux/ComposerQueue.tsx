@@ -49,6 +49,7 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
+import { skillDollarsOf, withSkillDollars, withoutSkillDollars } from "./slashCommands";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -129,7 +130,7 @@ function reveal(list: HTMLElement, row: HTMLElement) {
 /// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
 export function shownText(entry: QueuedEntry, t: Translate): string {
   const retry = entry.retry;
-  if (!retry) return entry.prompt;
+  if (!retry) return withoutSkillDollars(entry.prompt);
   return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
     .filter(Boolean)
     .join("\n");
@@ -728,7 +729,8 @@ export function ComposerQueue({
     recovered.current.delete(entry.id);
     reopenRecovered();
     focusRow(shown.indexOf(entry));
-    const next = text.trim();
+    // The editor shows a Codex skill `/name` (withoutSkillDollars); its `/$name` goes back.
+    const next = withSkillDollars(text.trim(), skillDollarsOf(entry.prompt));
     // Text alone keeps every image; an image removed sends the ones left.
     const removed = kept.length < images.length;
     if (!next || (next === entry.prompt && !removed) || !onChange) return;
@@ -981,7 +983,7 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              entry.prompt
+              withoutSkillDollars(entry.prompt)
             )}
           </span>
         </button>
@@ -1145,7 +1147,7 @@ function QueuedEdit({
       className="acpmux-queued-edit"
       aria-label={label}
       rows={1}
-      defaultValue={initial ?? entry.prompt}
+      defaultValue={initial ?? withoutSkillDollars(entry.prompt)}
       onInput={(event) => {
         fit();
         onInput(event.currentTarget.value);

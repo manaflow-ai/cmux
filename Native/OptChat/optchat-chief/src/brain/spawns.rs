@@ -141,7 +141,11 @@ impl Brain {
     /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
     /// VM never pauses; the pool tool also refuses while a turn or a
     /// background process runs on the VM, and that pause is tried again.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_tick(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -567,7 +571,11 @@ impl Brain {
     /// The host stops: each cloud VM with no live subagent pauses now, on
     /// this thread (the process exits next); one with a subagent mid-turn
     /// keeps running, and its report waits in acpmux for the next host.
+    /// Only with `cloud.autoPause` on (default off: no auto pause).
     pub(super) fn cloud_shutdown(&mut self) {
+        if !self.chief.cloud_auto_pause {
+            return;
+        }
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
@@ -1477,6 +1485,7 @@ impl Brain {
             effort: None,
             floor: policy,
             harness: Some(harness.to_owned()),
+            model: None,
         };
         if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Queued;
@@ -2908,6 +2917,7 @@ impl Brain {
                 effort: None,
                 floor: sub.policy.clone(),
                 harness: None,
+                model: None,
             });
         let s = self
             .state

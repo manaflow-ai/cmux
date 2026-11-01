@@ -18,6 +18,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
+import { BoltIcon } from "./BoltIcon";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -1203,6 +1204,8 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
+  const fastOn = fastMode !== undefined && fastModeIsOn(fastMode);
+  const fastModeText = t("picker.fastMode");
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={16} />
@@ -1236,6 +1239,14 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
+      {/* Fast mode on: a bolt right beside the model, for every harness, Claude included (Leo
+          2026-10-23: "even on, I think Claude mode, you just want the lightning bolt to be right
+          beside the model"). Only a mark: the toggle stays the menu's Fast mode row. */}
+      {fastOn && (
+        <span className="acpmux-model-bolt" data-fast-on="">
+          <BoltIcon size={12} />
+        </span>
+      )}
     </>
   );
   return (
@@ -1264,7 +1275,9 @@ export function ModelPicker(props: ModelPickerProps) {
               "data-menu": modelText,
               label: modelText,
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · "),
+              title: [chipLabel, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+                .filter(Boolean)
+                .join(" · "),
             }}
             menu={{
               ...quick,
@@ -1356,7 +1369,9 @@ export function ModelPicker(props: ModelPickerProps) {
             data-menu={modelText}
             aria-label={modelText}
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · ")}
+            title={[chipLabel, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+              .filter(Boolean)
+              .join(" · ")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}

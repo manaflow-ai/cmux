@@ -3,7 +3,8 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?}}`: the chat stops
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?},
+//!    gatesQueueApproval?}`: the chat stops
 //!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
 //!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
 //!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
@@ -169,7 +170,10 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
-                self.transfer_begin(&session, interrupt, socket, ssh, host).await
+                // The client hands the bundle only to a receiver whose own `initialize` listed
+                // queue approval when it carries approved prompts that still wait.
+                let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
+                self.transfer_begin(&session, interrupt, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -201,6 +205,7 @@ impl Hub {
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
+        gates_receiver: bool,
     ) -> Result<Value, RpcError> {
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
@@ -291,13 +296,29 @@ impl Hub {
             ));
         }
         let dir = transfers_dir().join(&transfer_id);
-        let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                // Check exactly what the target will restore, even if the live queue changed.
+                let approved_waiting = self.held_prompts(&bundle)?;
+                // A prompt the owner approved that still waits goes only to a receiver whose own
+                // `initialize` listed queue approval, which only the move's client sees (it holds
+                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
+                // does not say it checks that is refused (review of #28859).
+                if !approved_waiting.is_empty() && !gates_receiver {
+                    let why = "the move's client does not check that its receiver approves";
+                    return Err(approved_prompts_error(json!(approved_waiting), why));
+                }
+                let files = bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                Ok((files, approved_waiting))
+            });
         drop(guard);
-        let files = match made {
-            Ok(files) => files,
-            Err(e) => {
+        let (files, approved_waiting) = match made {
+            Ok(made) => made,
+            Err(error) => {
                 let _ = std::fs::remove_dir_all(&dir);
-                let error = RpcError::internal(format!("transfer: bundle: {e}"));
                 let record = json!({"transferId": transfer_id});
                 // Its `transfer_out` is logged: it stays frozen unless its end is too.
                 let (_, logged) =
@@ -335,6 +356,11 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        // The receiver refuses the bundle unless it understands them (`transfer_in.rs`), and the
+        // client hands it only to one that listed queue approval.
+        if !approved_waiting.is_empty() {
+            answer.set("approvedWaiting", json!(approved_waiting));
         }
         if let Some(manifest) = std::fs::read_to_string(dir.join(&session.id).join("manifest.json"))
             .ok()
@@ -501,10 +527,47 @@ impl Hub {
     /// queue (an inbox digest's messages included) stays as it is.
     fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         self.restore_queue_only(session, Some(prompt_id));
+        self.reword_unmoved(session, prompt_id);
         let _ = self.move_queued(session, prompt_id, 0, None);
         if !self.hold_in_protected_folder(session) {
             self.start_restored(session);
         }
+    }
+
+    /// The carried continuation was written for the machine the chat was going to: here it says
+    /// the chat stayed (`Cut::unmoved`), or the agent reports its turn finished there. Logged as
+    /// an edit that keeps its provenance (`queue.rs` restores `queue_updated`), so a restart
+    /// restores the same words.
+    fn reword_unmoved(&self, session: &Arc<Session>, prompt_id: &str) {
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
+            return;
+        };
+        let Some(text) = q.run.blocks.first().and_then(|b| b.get("text")).and_then(Value::as_str)
+        else {
+            return;
+        };
+        let Some(text) = super::auto_resume::Cut::unmoved(text) else {
+            return;
+        };
+        let mut run = (*q.run).clone();
+        if let Some(block) = run.blocks.first_mut() {
+            block.set("text", json!(text));
+        }
+        q.run = Arc::new(run);
+        q.preview = short_text(&text, 200);
+        let run = &q.run;
+        let mut msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
+        // Its images, kept and named as `queued` names them (`prompt_images.rs`).
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
+        if !images.is_empty() {
+            msg.set("images", Value::Array(images));
+        }
+        if let Some(display_parts) = &run.display_parts {
+            msg.set("displayParts", display_parts.clone());
+        }
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append(session, "mux", "queue_updated", msg);
     }
 
     /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy

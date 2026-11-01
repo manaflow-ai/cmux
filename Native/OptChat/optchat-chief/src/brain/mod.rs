@@ -1810,6 +1810,16 @@ impl Brain {
             (self.log)(&format!("setting {key} = {days}"));
             return Ok(format!("{key} = {days}"));
         }
+        if key == crate::chief_settings::CLOUD_AUTO_PAUSE {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.cloud_auto_pause = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;
@@ -1892,7 +1902,8 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE
         ))
     }
 
