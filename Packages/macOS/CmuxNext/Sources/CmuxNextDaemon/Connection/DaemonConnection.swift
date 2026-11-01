@@ -256,15 +256,15 @@ public actor DaemonConnection {
     public func eventSequence() -> UInt64? { ready?.eventSequence }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
-    /// on the control socket and decodes its `result`; `timeout` replaces the request deadline, `awaitingReply` drops it (the reply or the connection's end).
-    func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope, as type: R.Type,
-                                       timeout: Duration? = nil, awaitingReply: Bool = false, requiring capability: String? = nil) async throws -> R {
+    /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
+    func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
+                                       as type: R.Type, timeout: Duration? = nil, requiring capability: String? = nil) async throws -> R {
         await waitOutHandoff()
         guard let ready else { throw DaemonError.notConnected }
         if let capability, !ready.identity.supports(capability) { throw DaemonError.missingCapabilities([capability]) }
         requestStarted()
         defer { requestEnded() }
-        let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: awaitingReply ? nil : timeout ?? configuration.requestTimeout) { id in
+        let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)

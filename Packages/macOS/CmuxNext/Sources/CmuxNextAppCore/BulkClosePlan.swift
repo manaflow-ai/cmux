@@ -57,13 +57,19 @@ extension WorkspaceClose {
                                      hasTabs: { $0.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } } })
             if !plan.bulk.isEmpty {
                 for (workspace, _) in plan.bulk { _ = WorkspaceClose.closing(workspace, on: daemon) }
-                let ids = plan.bulk.map(\.id)
-                send(daemon, "close-workspaces") { try await $0.state.closeBulk(.workspace, ids: ids, endTerminals: true) }
+                let ids = plan.bulk.map(\.id), keys = plan.bulk.compactMap(\.object.key), bound = daemon.closeReplyBound
+                send(daemon, "close-workspaces") { connection in
+                    do {
+                        try await connection.state.closeBulk(.workspace, ids: ids, endTerminals: true, within: bound)
+                    } catch DaemonError.timedOut(_) {
+                        try await WorkspaceClose.unanswered(keys, on: daemon) // the store decides past the bound
+                    }
+                }
             }
             for workspace in plan.each {
                 guard let key = workspace.key else { continue }
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
-                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
+                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0, decidedBy: daemon) }
             }
         }
     }

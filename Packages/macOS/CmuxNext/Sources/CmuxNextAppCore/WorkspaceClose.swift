@@ -1,3 +1,4 @@
+public import CmuxNextActions
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 
@@ -38,28 +39,52 @@ public struct WorkspaceClose {
     ///
     /// The close ends when the daemon answers it (its reply or refusal) or the connection ends, never on the 2 s client
     /// deadline (`DaemonConnection.closeWorkspaceAwaitingReply`): a busy daemon commits a close it answers late, and a
-    /// close that gave up first listed the row again as refused and left it out of Undo. `waitsForReply` false keeps the
-    /// control deadline for a caller that must end on time and ignores the outcome (quit's incognito closes).
-    public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
-                      reason: CloseReason? = nil, ifEmpty: Bool = false, waitsForReply: Bool = true) async throws {
+    /// close that gave up first listed the row again as refused and left it out of Undo. Its safety net is a bound
+    /// (`DaemonService.closeReplyBound`, 60 s) for a daemon that keeps its socket open and never answers: past it the
+    /// store of `daemon` decides (``unanswered(_:on:)``), not the timeout. `waitsForReply` false keeps the control
+    /// deadline for a caller that must end on time and ignores the outcome (quit's incognito closes).
+    public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection, reason: CloseReason? = nil,
+                             ifEmpty: Bool = false, waitsForReply: Bool = true, decidedBy daemon: DaemonService? = nil) async throws {
+        let bound: Duration? = waitsForReply ? await daemon?.closeReplyBound ?? DaemonConnection.closeReplyBound : nil
         do {
             if await connection.supportsBatchClose {
-                if waitsForReply {
-                    _ = try await connection.closeWorkspaceAwaitingReply(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+                if let bound {
+                    _ = try await connection.closeWorkspaceAwaitingReply(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty, within: bound)
                 } else {
                     _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
                 }
                 return
             }
             for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }
-            if waitsForReply {
-                _ = try await connection.closeWorkspaceAwaitingReply(key, ifEmpty: ifEmpty)
+            if let bound {
+                _ = try await connection.closeWorkspaceAwaitingReply(key, ifEmpty: ifEmpty, within: bound)
             } else {
                 _ = try await connection.closeWorkspace(key, ifEmpty: ifEmpty)
             }
         } catch where isAlreadyClosed(error) {
             return
+        } catch DaemonError.timedOut(_) where bound != nil {
+            try await unanswered([key], on: daemon)
         }
+    }
+
+    /// A close whose daemon did not answer within its bound, decided from the store and not from the timeout: it went
+    /// through when the store of `daemon` lists none of `keys` (the close's events came, its reply did not). Else it
+    /// throws the reason (`RefusalStrings.closeUnanswered`), and the caller lists the rows again with it. With no store
+    /// to read, it is the reason too.
+    public static func unanswered(_ keys: [WorkspaceKey], on daemon: DaemonService?) async throws {
+        if let daemon, await !lists(keys, on: daemon) { return }
+        throw ActionFailure(message: RefusalStrings.closeUnanswered)
+    }
+
+    @MainActor private static func lists(_ keys: [WorkspaceKey], on daemon: DaemonService) -> Bool {
+        daemon.store.workspaces.contains { $0.key.map(keys.contains) ?? false }
+    }
+
+    /// What a close's toast says for `failure`: the reason of a typed refusal (the machine did not answer), else nil
+    /// (the generic "could not be closed").
+    public static func shownReason(_ failure: ActionWorkFailure?) -> String? {
+        failure?.refusal == nil ? nil : failure?.message
     }
 
     /// Whether `error` is the daemon saying the workspace is already gone: closed before this request came
