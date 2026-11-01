@@ -390,6 +390,22 @@ export function QuickModelMenu({
     const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
     selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [open, tab]);
+  // A compact width (not `fit`) never narrows while the menu is open: a tab switch keeps the
+  // menu's width and the rail's place (#25796), though each tab's rows (Account and Effort show only
+  // on the chat's tab) want their own. The floor is the widest the menu has been since it opened.
+  const widest = useRef(0);
+  useLayoutEffect(() => {
+    const node = rail.current?.closest<HTMLElement>(".ui-popup");
+    if (!open || !node || menu.widthLook === "fit" || menu.widthLook === "wide") {
+      widest.current = 0;
+      return;
+    }
+    // A fresh open measures the rows alone, never the floor the last open left.
+    if (!widest.current) node.style.minWidth = "";
+    const width = node.getBoundingClientRect().width;
+    widest.current = Math.max(widest.current, width);
+    node.style.minWidth = `${widest.current}px`;
+  }, [open, tab, menu.widthLook]);
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
     setScrolled(false);

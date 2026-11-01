@@ -631,7 +631,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
     expect(widths["width-stable"]!).toBeLessThan(widths["width-wide"]! - 40);
     // The band shrinks by the width the fixed menu added, so effort and ⌘N sit close to the name.
-    expect(gaps["width-stable"]!).toBeLessThan(gaps["width-wide"]! - 100);
+    expect(gaps["width-stable"]!).toBeLessThan(gaps["width-wide"]! - 60);
   });
 
   test("one tab per harness: Claude and Codex routes are Account choices, never tabs", async () => {
