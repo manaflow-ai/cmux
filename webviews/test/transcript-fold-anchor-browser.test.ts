@@ -219,6 +219,10 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       (node as HTMLElement).dataset.aboveProbe = "true";
       return (node as HTMLElement).getBoundingClientRect().top;
     });
+    const earlierBefore = await page.locator('[data-row-id="t7-answer"]').evaluate((node) => {
+      (node as HTMLElement).dataset.earlierProbe = "true";
+      return (node as HTMLElement).getBoundingClientRect().top;
+    });
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
 
     const opened = await clickAndWatch(page);
@@ -231,7 +235,9 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
     await settle(page);
     const aboveAfter = await page.locator("[data-above-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    const earlierAfter = await page.locator("[data-earlier-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
     expect(aboveAfter).toBeLessThan(aboveBefore - 1);
+    expect(earlierAfter).toBeLessThan(earlierBefore - 1);
     expect(await atLatest(page)).toBe(true);
 
     const expandedEnd = await scrollHeight(page);
