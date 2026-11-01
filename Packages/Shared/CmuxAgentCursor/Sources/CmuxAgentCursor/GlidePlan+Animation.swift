@@ -1,5 +1,3 @@
-// CoreAnimation exists only on Apple platforms; on Linux the package keeps the
-// plan, palette and event model, so its other suites run there.
 #if canImport(QuartzCore)
 import QuartzCore
 
