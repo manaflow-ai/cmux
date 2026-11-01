@@ -64,6 +64,7 @@ pub mod rpc;
 pub mod run;
 pub mod screen_share;
 pub mod session_dir;
+pub mod spawn_route;
 pub mod settle_status;
 pub mod show;
 pub mod single_flight;
