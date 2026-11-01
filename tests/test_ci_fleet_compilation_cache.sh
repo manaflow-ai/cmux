@@ -30,4 +30,5 @@ grep -Fq 'fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas"
 grep -Fq 'glaeda-compile-telemetry.json' "$WORKFLOW" || fail 'compile admission must publish the host telemetry sidecar'
 
 grep -Fq 'bash "$SCRIPT_DIR/fleet-compilation-cache.sh"' "$COMPILE" || fail 'admission must use the shared settings'
+python3 "$ROOT_DIR/tests/test_ci_fleet_compilation_cache.py"
 echo 'PASS: fleet compiler-cache settings and host telemetry are wired'

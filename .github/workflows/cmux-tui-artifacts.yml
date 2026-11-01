@@ -677,6 +677,27 @@ jobs:
           fi
           echo "owns_key=$owns_key" >> "$GITHUB_OUTPUT"
 
+      # Observation only: an unavailable marker must never hold up a build.
+      - name: Record tree owner observation
+        id: tree-source
+        continue-on-error: true
+        env:
+          TREE_KEY: ${{ steps.inspect.outputs.key }}
+          OWNS_KEY: ${{ steps.inspect.outputs.owns_key }}
+          TREE_READY: ${{ steps.inspect.outputs.tree_ready }}
+        run: python3 scripts/ci/nightly_tree_source.py owner
+      - name: Upload tree owner observation
+        if: steps.tree-source.outputs.name != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.tree-source.outputs.name }}
+          path: ${{ steps.tree-source.outputs.path }}
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+
   tree-owner-wait:
     name: wait for same-key tree publisher
     # A superseded push (tree-preflight's stale step: a moved lane branch, a
@@ -731,6 +752,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux-tui-tree-claim.sh
             scripts/ci/cmux_tui_publisher_testing.py
+            scripts/ci/nightly_tree_source.py
           sparse-checkout-cone-mode: false
       - name: Wait for the owning tree publisher
         id: wait
@@ -1067,6 +1089,27 @@ jobs:
             echo "Owner run $OWNER_RUN_ID ended without publishing tree $KEY, and the claim authority could not be asked; taking over."
           fi
           echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
+
+      # Observation only: an unavailable marker must never hold up a build.
+      - name: Record tree owner observation
+        id: tree-source
+        continue-on-error: true
+        env:
+          TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
+          OWNS_KEY: ${{ steps.recheck.outputs.takeover == 'true' && 'true' || steps.wait.outputs.takeover }}
+          TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
+        run: python3 scripts/ci/nightly_tree_source.py owner
+      - name: Upload tree owner observation
+        if: steps.tree-source.outputs.name != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.tree-source.outputs.name }}
+          path: ${{ steps.tree-source.outputs.path }}
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
 
   build:
     if: >-
