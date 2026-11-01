@@ -188,20 +188,27 @@ pub(super) async fn await_upload_link(
     peer: &crate::peer::Peer,
     within: std::time::Duration,
 ) -> bool {
+    let mut stopped = peer.stopped();
+    if *stopped.borrow() {
+        return false;
+    }
     if peer.ready() {
         return true;
     }
     let mut settled = peer.settled();
     peer.want();
     let deadline = tokio::time::Instant::now() + within;
-    while !peer.ready() {
-        match tokio::time::timeout_at(deadline, settled.changed()).await {
-            Ok(Ok(())) => {}
-            // The deadline passed, or the peer went (its sender dropped).
-            _ => break,
+    while !peer.ready() && !*stopped.borrow() {
+        tokio::select! {
+            // A settled connect attempt may restore the link or produce an error.
+            changed = settled.changed() => if changed.is_err() { break },
+            // An explicit remove/replacement can have no connect attempt in flight.
+            // Every upload waiter hears this broadcast instead of sitting for 30 s.
+            changed = stopped.changed() => if changed.is_err() { break },
+            () = tokio::time::sleep_until(deadline) => break,
         }
     }
-    peer.ready()
+    peer.ready() && !*stopped.borrow()
 }
 
 pub(super) async fn forward(
