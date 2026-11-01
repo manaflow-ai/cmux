@@ -25,7 +25,9 @@ extension AppServices: AgentShareHost {
 /// decline before the caller's person deadline, so the waiting CLI or agent always gets an answer.
 @MainActor
 enum AgentShareConsentSheet {
-    static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
+    /// The sheet closes early enough that an Allow at its last second still has the daemon's create
+    /// (``AgentShareActions/createDeadline``) and a margin inside the caller's person deadline.
+    static let answerWithin: Duration = ActionDescriptor.personDeadline - AgentShareActions.createDeadline - .seconds(10)
 
     static func spec(_ ask: AgentShareConsentAsk) -> CmuxDialogSpec {
         CmuxDialogSpec(title: ask.title, lines: ask.lines,

@@ -115,5 +115,14 @@ struct AgentShareConsentTests {
         invocation.callerAgentSession = nil
         invocation.viaControlSocket = true
         #expect(!AgentShareActions.ownerStarted(invocation))
+        invocation.viaControlSocket = false
+        invocation.callerApp = "com.example.helper"
+        #expect(!AgentShareActions.ownerStarted(invocation), "a run naming a calling app is not the owner's gesture")
+    }
+
+    /// An Allow at the sheet's last second still gets the daemon's create inside the caller's deadline.
+    @Test func theSheetClosesBeforeTheCallerGivesUp() {
+        #expect(AgentShareConsentSheet.answerWithin + AgentShareActions.createDeadline < ActionDescriptor.personDeadline)
+        #expect(ActionRegistry.standard().descriptor(for: AgentShareActions.share)?.waitsForPerson == true)
     }
 }

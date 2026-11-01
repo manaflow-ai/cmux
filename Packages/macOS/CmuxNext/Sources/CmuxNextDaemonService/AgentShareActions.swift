@@ -16,7 +16,7 @@ public struct AgentShareActions {
     public static let kick: ActionID = "agent.share.kick"
 
     /// How long a create waits for the daemon: the room's 15 s provisioning budget and some margin.
-    static let createDeadline: Duration = .seconds(20)
+    public static let createDeadline: Duration = .seconds(20)
 
     let host: any AgentShareHost
 
@@ -143,12 +143,12 @@ public struct AgentShareActions {
     }
 
     /// Whether the owner started the run in this app (palette, menu, key): their gesture is their
-    /// consent. Everything else asks first: the CLI, MCP, a script, a page, another client, an agent's
-    /// run naming its own chat, and any control socket run, whose `user` origin is only the caller's
-    /// claim. A nested run is judged by the run that encloses it (``ActionRunScope``).
+    /// consent. Everything else asks first: the CLI, MCP, a script, a page, another client, a run that
+    /// names a caller (an app, an agent chat, a terminal), and any control socket run, whose `user`
+    /// origin is only the caller's claim (``ActionInvocation/isPersonsOwnRun``). A nested run is also
+    /// judged by the run that encloses it (``ActionRunScope``).
     static func ownerStarted(_ invocation: ActionInvocation) -> Bool {
-        let origin = ActionRunScope.current?.origin ?? invocation.origin
-        return origin == .user && !invocation.viaControlSocket && invocation.callerAgentSession == nil
+        invocation.isPersonsOwnRun && (ActionRunScope.current?.origin ?? .user) == .user
     }
 
     /// A target that names nothing answers `not_found` (``ActionRegistry/refuseNotFound(_:)``); any
