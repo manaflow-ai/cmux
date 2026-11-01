@@ -18,15 +18,22 @@ final class VirtualDisplay120 {
 
     static let hz: Double = 120
 
-    /// One display per scale for the whole test process: displays made and dropped per test
-    /// case stopped reaching AppKit's screen list after the first (green 38dc511f, 2026-11-01).
-    private static var made: [Int: VirtualDisplay120] = [:]
+    /// The CoreGraphics displays of this process, by scale, made together on first use and kept
+    /// (never dropped, also when a check fails) until the process exits. AppKit reads its screen
+    /// list once in a test process and then does not see a later display (red5 83b25c26: CoreGraphics
+    /// online [201], AppKit screens [199]): so both scales are made before anything reads it.
+    private static var made: [Int: (id: CGDirectDisplayID, display: AnyObject)] = [:]
+    private static var ready: [Int: VirtualDisplay120] = [:]
 
-    /// The process's `scale`x display, made on first use and kept until the process exits.
+    /// The process's `scale`x display (1 or 2), listed by AppKit and ticking at 120 Hz.
     static func shared(scale: Int) async throws -> VirtualDisplay120 {
-        if let display = made[scale] { return display }
-        let display = try await VirtualDisplay120(points: CGSize(width: 1600, height: 1000), scale: scale)
-        made[scale] = display
+        if let display = ready[scale] { return display }
+        if made.isEmpty {
+            for each in [1, 2] { made[each] = try makeDisplay(points: CGSize(width: 1600, height: 1000), scale: each) }
+        }
+        guard let entry = made[scale] else { throw Failure(description: "no \(scale)x virtual display (only 1x and 2x are made)") }
+        let display = try await VirtualDisplay120(id: entry.id, display: entry.display, scale: scale)
+        ready[scale] = display
         return display
     }
 
@@ -38,7 +45,8 @@ final class VirtualDisplay120 {
     /// The display exists while this reference does.
     private let display: AnyObject
 
-    private init(points: CGSize, scale: Int) async throws {
+    /// Makes a CoreGraphics virtual display; reads nothing of AppKit.
+    private static func makeDisplay(points: CGSize, scale: Int) throws -> (id: CGDirectDisplayID, display: AnyObject) {
         guard let descriptorType = NSClassFromString("CGVirtualDisplayDescriptor") as? NSObject.Type,
               let settingsType = NSClassFromString("CGVirtualDisplaySettings") as? NSObject.Type,
               let modeType = NSClassFromString("CGVirtualDisplayMode"),
@@ -53,13 +61,12 @@ final class VirtualDisplay120 {
         descriptor.setValue(NSNumber(value: height * factor), forKey: "maxPixelsHigh")
         descriptor.setValue(NSValue(size: NSSize(width: 600, height: 600 * points.height / points.width)), forKey: "sizeInMillimeters")
         descriptor.setValue(NSNumber(value: UInt32(0x6370)), forKey: "productID")
-        descriptor.setValue(NSNumber(value: UInt32(0x6370)), forKey: "vendorID")
+        descriptor.setValue(NSNumber(value: UInt32(0x6370 + scale)), forKey: "vendorID")
         // A new serial each time: macOS keeps per-display settings by serial.
         descriptor.setValue(NSNumber(value: UInt32.random(in: 1...UInt32.max)), forKey: "serialNum")
         guard let made = Self.make(displayType, initializer: "initWithDescriptor:", argument: descriptor) else {
             throw Failure(description: "CGVirtualDisplay initWithDescriptor: gave nil (no window server session?)")
         }
-        display = made
         guard let mode = Self.makeMode(modeType, width: width, height: height, hz: Self.hz) else {
             throw Failure(description: "CGVirtualDisplayMode initWithWidth:height:refreshRate: gave nil")
         }
@@ -70,14 +77,22 @@ final class VirtualDisplay120 {
         guard let number = (made as? NSObject)?.value(forKey: "displayID") as? NSNumber else {
             throw Failure(description: "CGVirtualDisplay has no displayID")
         }
-        let id = number.uint32Value
+        return (number.uint32Value, made)
+    }
+
+    /// Waits until AppKit lists display `id` at `scale` (running the main run loop and handing on
+    /// AppKit's events meanwhile, as vdisplay.m does: AppKit learns of a new display there), then
+    /// measures its refresh, again up to 3 times while it settles.
+    private init(id: CGDirectDisplayID, display: AnyObject, scale: Int) async throws {
         displayID = id
-        // AppKit lists a new display on the main run loop, after its screen-parameters change.
+        self.display = display
+        self.scale = CGFloat(scale)
         var listed: NSScreen?
         for _ in 0..<100 {
             listed = NSScreen.screens.first { Self.number(of: $0) == id }
             if let listed, listed.backingScaleFactor == CGFloat(scale) { break }
-            try await Task.sleep(for: .milliseconds(50))
+            Self.pumpEvents(for: 0.05)
+            await Task.yield()
         }
         guard let listed else {
             var online = [CGDirectDisplayID](repeating: 0, count: 16), count: UInt32 = 0
@@ -89,11 +104,27 @@ final class VirtualDisplay120 {
             throw Failure(description: "virtual display \(id) is \(listed.backingScaleFactor)x, not \(scale)x")
         }
         screen = listed
-        self.scale = CGFloat(scale)
-        let period = try await Self.measurePeriod(listed)
-        refreshPeriod = period
-        guard abs(period - 1 / Self.hz) < 0.0005 else {
-            throw Failure(description: "virtual display \(id) ticks every \(period * 1000) ms, not \(1000 / Self.hz) ms")
+        var periods: [Double] = []
+        for _ in 0..<3 {
+            let period = try await Self.measurePeriod(listed)
+            periods.append(period)
+            if abs(period - 1 / Self.hz) < 0.0005 { break }
+        }
+        refreshPeriod = periods.last ?? 0
+        guard abs(refreshPeriod - 1 / Self.hz) < 0.0005 else {
+            throw Failure(description: "virtual display \(id) ticks every \(periods.map { String(format: "%.2f", $0 * 1000) }) ms, not \(1000 / Self.hz) ms")
+        }
+    }
+
+    /// Runs the main run loop and hands AppKit's queued events on for `seconds`.
+    static func pumpEvents(for seconds: Double) {
+        _ = NSApplication.shared
+        let end = Date(timeIntervalSinceNow: seconds)
+        while Date() < end {
+            if let event = NSApp.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.01), inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
         }
     }
 

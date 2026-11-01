@@ -90,7 +90,13 @@ struct CmdHintPixelTests {
             let monitor = WindowScopedShortcutHintModifierMonitor(window: window) { [overlay] flags in overlay.hints = flags == nil ? [] : hints }
             self.monitor = monitor
             monitor.setEnabled(true)
-            for _ in 0..<100 where !(NSApp.isActive && NSApp.keyWindow === window) { try await Task.sleep(for: .milliseconds(20)) }
+            for _ in 0..<150 where !(NSApp.isActive && NSApp.keyWindow === window) {
+                // Activation reaches the app as an AppKit event: hand the queued events on.
+                VirtualDisplay120.pumpEvents(for: 0.02)
+                if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+                if NSApp.keyWindow !== window { window.makeKeyAndOrderFront(nil) }
+                await Task.yield()
+            }
             guard window.screen == display.screen, window.backingScaleFactor == CGFloat(scale), NSApp.isActive, NSApp.keyWindow === window else {
                 let state = "screen \(window.screen?.localizedName ?? "none") \(window.backingScaleFactor)x, active \(NSApp.isActive), key \(NSApp.keyWindow === window)"
                 close()
