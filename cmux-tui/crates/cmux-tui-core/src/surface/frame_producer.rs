@@ -220,6 +220,8 @@ fn run() {
             // queues the terminal again, so none is lost.
             slot.queued.store(false, Ordering::Release);
             let announce = slot.announce.swap(false, Ordering::AcqRel);
+            #[cfg(test)]
+            run_after_clear_hook(&slot);
             let requested = slot.requested.swap(0, Ordering::AcqRel);
             if requested == 0 {
                 continue;
@@ -229,6 +231,31 @@ fn run() {
                 slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
             }
         }
+    }
+}
+
+/// Tests: runs right after the producer cleared a slot's `queued` and took
+/// its announce flag, before it takes the generation (the window a request
+/// can land in).
+#[cfg(test)]
+type AfterClearHook = Arc<dyn Fn(usize) + Send + Sync>;
+
+#[cfg(test)]
+static AFTER_CLEAR_HOOK: Mutex<Option<AfterClearHook>> = Mutex::new(None);
+
+#[cfg(test)]
+fn run_after_clear_hook(slot: &Arc<Slot>) {
+    let hook = AFTER_CLEAR_HOOK.lock().recover_poison().clone();
+    if let Some(hook) = hook {
+        hook(Arc::as_ptr(slot) as usize);
+    }
+}
+
+#[cfg(test)]
+impl FrameRequests {
+    /// The slot's identity, as [`AFTER_CLEAR_HOOK`] sees it.
+    pub(super) fn slot_id_for_test(&self) -> usize {
+        Arc::as_ptr(&self.slot) as usize
     }
 }
 
