@@ -99,11 +99,16 @@ class IndexNowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 6", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
 
-    def test_retire_legacy_workflow_filename_to_disable_old_identity(self):
-        # deployment_status can execute the workflow file from an old PR ref.
-        # The original workflow ID is retired after the replacement is active;
-        # keeping the file on main would preserve the noisy legacy identity.
-        self.assertFalse((ROOT / ".github/workflows/indexnow.yml").exists())
+    def test_legacy_identity_remains_disableable_after_hourly_replacement(self):
+        # Keep the old workflow ID active as a manual-only placeholder, so its
+        # registration can be disabled after the new hourly workflow works.
+        # Deleting it first may mark it deleted and refuse the disable action.
+        legacy = (ROOT / ".github/workflows/indexnow.yml").read_text()
+        triggers = legacy.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("workflow_dispatch:", triggers)
+        self.assertNotIn("deployment_status", triggers)
+        self.assertNotIn("schedule:", triggers)
+        self.assertNotIn("notify-indexnow.py", legacy)
         self.assertTrue((ROOT / ".github/workflows/indexnow-hourly.yml").is_file())
 
     def test_workflow_is_scheduled_not_triggered_by_every_deployment_status(self):
