@@ -160,7 +160,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             expect(state.occluded).toBe(state.distance! < -0.5);
           }
           expect(closed.scrollbarPinned).toBe(true);
-          expect(open.scrollbarPinned).toBe(true);
+          // By default it floats only where the gutter holds it (1600px); narrower, it pushes too.
+          expect(open.scrollbarPinned).toBe(width >= 1600);
           expect(pushed.scrollbarPinned).toBe(false);
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
