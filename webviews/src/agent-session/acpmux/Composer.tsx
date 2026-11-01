@@ -1808,9 +1808,16 @@ export function Composer({
 
   // Stop was sent and the turn has not ended: Stop turns and says so.
   const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
-  const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt held while the chat's agent starts (harnessSwitch.ts) reads as its turn already
+  // running: Stop is there from the send on and takes the held prompts back to the composer (the
+  // transcript draws no Cancel for them, Leo 2026-11-01), then stops the turn once it runs.
+  const holding =
+    !snapshot.isWorking &&
+    snapshot.switching?.phase === "starting" &&
+    snapshot.rows.some((row) => row.queued !== undefined);
+  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && snapshot.isWorking;
+  const running = !shell && (snapshot.isWorking || holding);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
