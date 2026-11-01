@@ -350,7 +350,7 @@ export default agentPaneEntry({
       snapshot: panel(116),
     },
     "workflow-progress": {
-      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is the Inspector's).",
+      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is Session Info's).",
       play: trayLines(1),
       snapshot: chat(
         [

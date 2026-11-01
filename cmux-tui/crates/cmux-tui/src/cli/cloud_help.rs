@@ -388,7 +388,8 @@ USAGE
 These actions run through the cmux app, signed in (`cmux cloud sign-in`).
 An action on one machine needs --target machine:MACHINE_ID, even with one
 machine: `cmux cloud list-machines` prints each machine's target. Without the
-app (CI, a headless agent), `cmux vm --help` talks to the cmux VM API directly.
+app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
+directly.
 
 QUICK START
   cmux cloud list-machines --json
@@ -407,7 +408,7 @@ const INTRO_JA: &str = "\
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
 特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
-（CI、画面のないエージェント）は、`cmux vm --help` で cmux VM API を直接使えます。
+（CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
 
 クイックスタート
   cmux cloud list-machines --json
