@@ -15,22 +15,26 @@ internal import Security
 /// `withoutUI` turns it off for `body` and back to what it was after. The switch is the process's,
 /// so another thread's Keychain call that overlaps `body` is also refused rather than prompting;
 /// guarded calls are short reads and writes of cmux's own items, so the window is milliseconds.
-/// Nested and concurrent guards share one switch: the last one out restores it.
+/// Nested and concurrent guards share one switch: the last one out restores it. That count is this
+/// instance's, so a process makes one: the composition root (`AppServices`) owns it and passes it to
+/// every store that reads cmux's own items (a second instance would restore the switch under the
+/// first one's guard).
 ///
 /// Use it for items cmux itself creates and reads without the user asking (keys, salts, seals). Do
 /// not use it where the prompt is the consent (reading another app's item on the user's request,
 /// such as a browser's Safe Storage key during an import).
-public struct LoginKeychain {
-    public init() {}
+public final class LoginKeychain: Sendable {
     private struct State {
         var depth = 0
         var previous = true
     }
 
-    private static let state = Mutex(State())
+    private let state = Mutex(State())
+
+    public init() {}
 
     /// Runs `body` with Keychain user interaction off.
-    public static func withoutUI<Result, E: Error>(_ body: () throws(E) -> Result) throws(E) -> Result {
+    public func withoutUI<Result, E: Error>(_ body: () throws(E) -> Result) throws(E) -> Result {
         enter()
         defer { leave() }
         return try body()
@@ -44,20 +48,20 @@ public struct LoginKeychain {
         return allowed != 0
     }
 
-    private static func enter() {
+    private func enter() {
         state.withLock { state in
             if state.depth == 0 {
-                state.previous = userInteractionAllowed
-                _ = set?(0)
+                state.previous = Self.userInteractionAllowed
+                _ = Self.set?(0)
             }
             state.depth += 1
         }
     }
 
-    private static func leave() {
+    private func leave() {
         state.withLock { state in
             state.depth -= 1
-            if state.depth == 0 { _ = set?(state.previous ? 1 : 0) }
+            if state.depth == 0 { _ = Self.set?(state.previous ? 1 : 0) }
         }
     }
 

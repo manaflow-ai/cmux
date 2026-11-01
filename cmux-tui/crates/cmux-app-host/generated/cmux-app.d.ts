@@ -351,7 +351,7 @@ declare namespace Cmux {
   type ScreenSnapshot = { id: string /* screen_… */; workspace_id: string /* workspace_… */; name: string | null; index: number; focused: boolean; layout: Cmux.LayoutDocument; extra?: Record<string, Cmux.JsonValue> }
   type Selector = { machine?: unknown; session?: unknown; workspace?: unknown; screen?: unknown; pane?: unknown; tab?: unknown; terminal?: unknown; browser?: unknown; client?: unknown; split?: unknown; stream?: unknown; notification?: unknown; agent?: unknown; frontend_projection?: unknown; pairing_request?: unknown; sidebar_view?: unknown; sidebar_plugin?: unknown }
   type ServerCapability = string
-  type ServerNetworkBinding = { state: "confirmed"; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; device: Cmux.NativeDeviceId; confirmed_at: number }
+  type ServerNetworkBinding = { state: "confirmed"; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; device: Cmux.NativeDeviceId; confirmed_at: number; install_grant?: Cmux.GrantId }
   type ServerNetworkProof = { signedAt: number; nonce: string; signature: string }
   type ServerNetworkReservation = { state: "reserved"; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; device: Cmux.NativeDeviceId }
   type ServerNetworkState = unknown
@@ -1693,7 +1693,7 @@ interface CmuxGlobal {
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
+    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; focus?: boolean; placement?: "top" | "after_current" | "bottom"; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
     /** `workspace.ensure_app` (mutation, scope `workspace:write`) */
     ensure_app: CmuxOp<{ machine?: string; session?: string; app: string; route?: string; name?: string }, Cmux.MutationResult<Cmux.CreatedWorkspaceOnly>>
     /** `workspace.ensure_home` (mutation, scope `workspace:write`) */

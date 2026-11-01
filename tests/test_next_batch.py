@@ -639,8 +639,7 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
-    def test_an_old_gh_without_the_escape_flag_is_asked_again_without_it(self):
-        # gh 2.45 refuses --allow-escape-sequences as an unknown flag and reads nothing (2026-10-30).
+    def test_job_log_uses_the_flag_with_old_gh_fallback(self):
         controller = self.controller()
         controller.gh.gh.side_effect = [
             subprocess.CompletedProcess([], 1, "", "unknown flag: --allow-escape-sequences\n\nUsage:  gh api"),
@@ -828,8 +827,24 @@ class BaseReds(unittest.TestCase):
         steps = [{"name": "Build", "conclusion": "failure"}]
         controller.gh.gh.return_value = subprocess.CompletedProcess(
             [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
-        self.assertIn("cmux app scheme compile (Debug): crash signal 11",
+        self.assertIn("cmux app scheme compile (Debug): the test process crashed (signal 11) (job 5, never a base red)",
                       controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+
+    def test_a_non_test_job_cut_short_or_crash_never_matches_a_base_red(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        # No test name is present: test_reds still records the abnormal end, and the
+        # job must remain keyed to its own run instead of inheriting a base job red.
+        cut_short = ("2026-10-19T03:02:59.1Z ##[error]no \"Test run with\" summary line "
+                     "(crash, kill or truncation); 0 tests started\n")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, cut_short, "")
+        result = controller.expand_job("cmux-next generated files", 5, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
+
+        crashed = "2026-10-19T03:02:59.1Z ##[error]Process completed with exit code 139.\n"
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crashed, "")
+        result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps})
+        self.assertTrue(any("never a base red" in item for item in result), result)
 
     def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
         controller = self.controller()

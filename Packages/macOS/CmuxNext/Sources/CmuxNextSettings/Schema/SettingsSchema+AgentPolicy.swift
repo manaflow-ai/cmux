@@ -261,6 +261,8 @@ extension SettingsSchema {
     private static let refusedTable: [String: AgentRefusal] = [
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
+        // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
+        "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
@@ -269,6 +271,7 @@ extension SettingsSchema {
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
+        "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
