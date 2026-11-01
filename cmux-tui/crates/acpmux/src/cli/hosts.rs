@@ -1003,7 +1003,7 @@ mod tests {
             unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
         }
         let mut cmd = Command::new("/bin/sh");
-        cmd.args(["-c", "sleep 60 >&2 & wait"]);
+        cmd.args(["-c", "sleep 60 </dev/null >/dev/null 2>&1 & wait"]); // SCRATCH: the child holds only fd 3
         // SAFETY: only dup2 between fork and exec (async-signal-safe); dup2 clears close-on-exec.
         unsafe {
             cmd.pre_exec(move || {
