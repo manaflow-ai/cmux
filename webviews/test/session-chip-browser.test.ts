@@ -47,7 +47,8 @@ await requireBrowserLane("session-chip-browser.test.ts", async () => {
     received: {
       chip: '[data-chip-row="received"] button.cv-agent-tag',
       line: '[data-chip-row="received"] .cv-disclosure__line',
-      icon: '[data-chip-row="received"] .cv-received__mark > *',
+      // The glyph itself, not its wrapper's line box.
+      icon: '[data-chip-row="received"] .cv-received__mark :is(svg, img)',
     },
     sent: {
       chip: '[data-chip-row="sent"] button.cv-agent-tag',

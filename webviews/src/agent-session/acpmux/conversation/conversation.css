@@ -2881,8 +2881,13 @@ pre.cv-math-source {
   justify-content: center;
   color: var(--cv-text-muted);
 }
-.cv-received__mark > :is(svg, img, span) {
+.cv-received__mark > :is(svg, img) {
   display: block;
+}
+/* A harness mark's wrapper centres its glyph too; the Chief's text avatar keeps its own box. */
+.cv-received__mark > span:not(.cv-chief-text-avatar) {
+  display: inline-flex;
+  align-items: center;
 }
 .cv-received__from {
   min-width: 0;
