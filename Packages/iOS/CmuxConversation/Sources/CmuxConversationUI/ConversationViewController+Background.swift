@@ -23,6 +23,16 @@ extension ConversationViewController {
         return false
     }
 
+    var wantsSystemTopPocket: Bool {
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
+        return Self.usesSystemTopPocket
+    }
+
+    private var wantsTopEdgeBlur: Bool {
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
+        return Self.blursTopEdge
+    }
+
     func installBackground() {
         backdropView.frame = view.bounds
         backdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -49,11 +59,11 @@ extension ConversationViewController {
         // conversation background Messages uses the system pocket (ChatKit
         // sets its color to nil); where that pocket falls short of the
         // header's bottom the transcript is masked with the same ramp too.
-        topEdgeFade.isHidden = background != nil || Self.blursTopEdge
+        topEdgeFade.isHidden = background != nil || wantsTopEdgeBlur
         if #available(iOS 26.0, *) {
-            collectionView.topEdgeEffect.isHidden = background == nil && !Self.blursTopEdge
+            collectionView.topEdgeEffect.isHidden = background == nil && !wantsTopEdgeBlur
         }
-        collectionView.topFadeHeaderBottom = background == nil || Self.usesSystemTopPocket
+        collectionView.topFadeHeaderBottom = background == nil || wantsSystemTopPocket
             ? nil : header.frame.maxY - collectionView.frame.minY
         detailsController?.background = background
     }

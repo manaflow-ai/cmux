@@ -79,7 +79,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        const selector = '[data-context-meter-fixture="five-equal-categories"] .acpmux-chat-inspector-context__bar';
+        const selector = '[data-context-meter-fixture="five-equal-categories"] .acpmux-session-info-context__bar';
         await page.waitForSelector(selector);
         if (shots) {
           const dir = path.join(shots, item.name);
@@ -134,7 +134,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        const selector = '[data-context-meter-fixture="tiny-positive-category"] .acpmux-chat-inspector-context__bar';
+        const selector = '[data-context-meter-fixture="tiny-positive-category"] .acpmux-session-info-context__bar';
         await page.waitForSelector(selector);
         const geometry = await page.$eval(selector, (bar) => {
           const spans = [...bar.querySelectorAll<HTMLElement>(":scope > span")];

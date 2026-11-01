@@ -4,7 +4,7 @@
 //! pending requests once per input transition, then use the live-event classifier
 //! so recovery preserves actions and shares its permission-ID deduplication.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use cmux_mobile_link::api::NotifyEvent;
@@ -14,6 +14,9 @@ use crate::notify::Classifier;
 
 /// A read that never answers reconnects the existing watch; no polling task.
 const INFO_TIMEOUT: Duration = Duration::from_secs(10);
+/// A page of the watch list that never answers reconnects the watch too. A page is up
+/// to acpmux's largest reply, and acpmux may hold it back while it paces list builds.
+const PAGE_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_LIMIT: usize = 4096;
 
 #[derive(Default)]
@@ -23,6 +26,12 @@ pub(crate) struct Waiting {
     requests: HashMap<u64, Pending>,
     queued: VecDeque<u64>,
     active: Option<u64>,
+    /// The `_acpmux/sessions` reading the watch list's next page, and when it is due; none
+    /// once the list is whole.
+    page: Option<u64>,
+    page_deadline: Option<Instant>,
+    /// The page cursors this watch list gave: one given twice would page it forever.
+    cursors: HashSet<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -40,7 +49,8 @@ struct Pending {
 
 impl Waiting {
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.active.and_then(|id| self.requests.get(&id)?.deadline)
+        let lookup = self.active.and_then(|id| self.requests.get(&id)?.deadline);
+        lookup.into_iter().chain(self.page_deadline).min()
     }
 
     /// Outgoing acpmux queries and push requests for one watch frame.
@@ -49,14 +59,27 @@ impl Waiting {
         message: &Value,
         classifier: &mut Classifier,
     ) -> Result<(Vec<Value>, Vec<NotifyEvent>), String> {
-        if message.get("id").and_then(Value::as_u64) == Some(2) {
+        let id = message.get("id").and_then(Value::as_u64);
+        if id == Some(2) || (id.is_some() && id == self.page) {
+            let mut queries = Vec::new();
             if let Some(result) = message.get("result") {
+                if id == Some(2) {
+                    self.cursors.clear();
+                } else if !result.get("sessions").is_some_and(Value::is_array) {
+                    // A page that lists nothing would pass the rest of the list for read.
+                    return Err("acpmux session page lists no sessions".into());
+                }
                 classifier.load(result);
                 for session in result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
                     self.observe(session)?;
                 }
+                queries.extend(self.next_page(result)?);
+            } else if id != Some(2) {
+                // The next watch reads the list again from its start.
+                return Err("acpmux session page failed".into());
             }
-            return Ok((self.start_next(), vec![]));
+            queries.extend(self.start_next());
+            return Ok((queries, vec![]));
         }
         if let Some(id) = message.get("id").and_then(Value::as_u64)
             && self.active == Some(id)
@@ -130,8 +153,29 @@ impl Waiting {
         Ok(())
     }
 
-    /// This dedicated connection has only auth/watch plus one recovery lookup,
-    /// staying below acpmux's per-connection request limit even for a large snapshot.
+    /// The `_acpmux/sessions` for the rest of a list too large for one reply: acpmux
+    /// answers the watch with its first rows and a string `nextCursor`, the rest by that
+    /// cursor until a page has none (acpmux `Client::whole_list`).
+    fn next_page(&mut self, result: &Value) -> Result<Option<Value>, String> {
+        self.page = None;
+        self.page_deadline = None;
+        let cursor = match result.get("nextCursor") {
+            None | Some(Value::Null) => return Ok(None),
+            Some(Value::String(cursor)) => cursor,
+            Some(other) => return Err(format!("acpmux gave the page cursor {other}")),
+        };
+        if !self.cursors.insert(cursor.clone()) {
+            return Err(format!("acpmux gave the page cursor {cursor:?} twice"));
+        }
+        self.next_id = self.next_id.checked_add(1).ok_or("pending-input request IDs exhausted")?.max(10);
+        self.page = Some(self.next_id);
+        self.page_deadline = Some(Instant::now() + PAGE_TIMEOUT);
+        Ok(Some(json!({"jsonrpc":"2.0","id":self.next_id,"method":"_acpmux/sessions",
+            "params":{"cursor":cursor}})))
+    }
+
+    /// This dedicated connection has only auth/watch (and its list's next page) plus one
+    /// recovery lookup, staying below acpmux's per-connection request limit even for a large snapshot.
     fn start_next(&mut self) -> Vec<Value> {
         if self.active.is_some() {
             return vec![];
@@ -225,6 +269,53 @@ mod tests {
             .1
             .is_empty()
         );
+    }
+
+    #[test]
+    fn a_watch_list_past_one_reply_reads_its_rest_from_the_cursor() {
+        let mut waiting = Waiting::default();
+        let mut classifier = Classifier::default();
+        let first = json!({"id":2,"result":{"sessions":[],"nextCursor":"c1"}});
+        let (queries, _) = receive(&mut waiting, &first, &mut classifier);
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0]["method"], "_acpmux/sessions");
+        assert_eq!(queries[0]["params"], json!({"cursor":"c1"}));
+        let rest = json!({"id":queries[0]["id"],"result":{"sessions":[session("waiting", 10)]}});
+        let (queries, _) = receive(&mut waiting, &rest, &mut classifier);
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0]["method"], "_acpmux/info");
+        assert_eq!(queries[0]["params"]["sessionId"], "s1");
+    }
+
+    #[test]
+    fn a_watch_list_page_it_cannot_trust_fails_the_watch() {
+        let mut classifier = Classifier::default();
+        let first = json!({"id":2,"result":{"sessions":[],"nextCursor":"c1"}});
+        let page = |waiting: &mut Waiting, classifier: &mut Classifier, result: Value| {
+            let (queries, _) = receive(waiting, &first, classifier);
+            let reply = json!({"id":queries[0]["id"],"result":result});
+            waiting.receive(&reply, classifier).map(|(queries, _)| queries)
+        };
+        let mut waiting = Waiting::default();
+        let twice = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":"c1"}));
+        assert!(twice.is_err_and(|why| why.contains("twice")));
+        let mut waiting = Waiting::default();
+        let number = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":7}));
+        assert!(number.is_err_and(|why| why.contains("page cursor 7")));
+        let mut waiting = Waiting::default();
+        let nothing = page(&mut waiting, &mut classifier, json!({"nextCursor":null}));
+        assert!(nothing.is_err_and(|why| why.contains("lists no sessions")));
+        let mut waiting = Waiting::default();
+        let empty = page(&mut waiting, &mut classifier, json!({"sessions":[],"nextCursor":"c2"})).unwrap();
+        assert_eq!(empty[0]["params"], json!({"cursor":"c2"}), "an empty page's cursor is followed");
+        // The page asked for has a deadline (the watch reconnects past it); the whole list none.
+        let due = waiting.next_deadline().expect("a page asked for is due");
+        assert!(due > Instant::now() + PAGE_TIMEOUT - Duration::from_secs(5));
+        let last = json!({"id":empty[0]["id"],"result":{"sessions":[]}});
+        receive(&mut waiting, &last, &mut classifier);
+        assert_eq!(waiting.next_deadline(), None);
+        // A new watch reads the list again from its start, and may give the same cursors.
+        assert_eq!(receive(&mut waiting, &first, &mut classifier).0[0]["params"], json!({"cursor":"c1"}));
     }
 
     #[test]

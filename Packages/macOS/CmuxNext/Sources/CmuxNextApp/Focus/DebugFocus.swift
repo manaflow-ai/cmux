@@ -1,15 +1,17 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextPalette
 
-/// `debug.focus`: per window, the coordinator state next to what AppKit,
-/// Ghostty and the layout actually show, and whether they agree
-/// (plans/cmux-next/focus.md section 6). Pane and tab ids match
+/// `debug.focus`: per window, the coordinator state next to what AppKit, Ghostty and the layout show, whether they
+/// agree (plans/cmux-next/focus.md section 6), and its key holds: the New Tab hold and the creation hold (`creation_hold`
+/// open now, `creation_hold_end` how the last one ended), so a held key names its holder. Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs
-        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty) }
+        let creations = services.keyRouter.creationInputCoordinator
+        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty, creations: creations) }
         let context = services.registry.context
         let windowProblems = WindowInvariants.problems(services.windows)
         return .object([
@@ -30,8 +32,20 @@ enum DebugFocus {
                 "agent_focused": .bool(context.contains(.agentPaneFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
+            "palette": palette(services.palette),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
         ])
+    }
+
+    /// The open palette as drawn: its field's text, the model's query and the selected row, so a
+    /// capture asserts what its still shows (an empty field over a set query is a failure).
+    private static func palette(_ palette: PaletteController) -> JSONValue {
+        guard let field = palette.visibleFieldText else { return ["open": .bool(false)] }
+        let model = palette.model
+        return ["open": .bool(true), "field": .string(field), "query": .string(model.query),
+                "page": .string(model.pageTitle), "ranking": .bool(model.isRanking), "loading": .bool(model.isLoading),
+                "selected": model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                "selected_title": model.selectedItem.map { .string($0.title) } ?? .null]
     }
 
     /// No-activate mode: how often the keyboard was given back, and the last time.
@@ -44,7 +58,7 @@ enum DebugFocus {
         return ["count": JSONValue(guardian.giveBackCount), "last": last]
     }
 
-    private static func window(of controller: WindowController, ghostty: [String]) -> JSONValue {
+    private static func window(of controller: WindowController, ghostty: [String], creations: CreationInputCoordinator) -> JSONValue {
         let state = controller.focus.state
         let resolved = state.resolved
         let window = controller.window
@@ -57,7 +71,10 @@ enum DebugFocus {
         return .object([
             "id": .string(controller.state.id),
             "workspace": state.topology.workspace.map(JSONValue.string) ?? .null,
+            "workspace_name": controller.content.map { .string($0.workspace.displayName) } ?? .null,
             "is_key": .bool(isKey),
+            "creation_hold": .bool(creations.isHolding(in: window)),
+            "creation_hold_end": creations.lastHoldEnd(in: window).map { .string(String(describing: $0)) } ?? .null,
             "model": .object([
                 "pane": state.pane.map(JSONValue.string) ?? .null,
                 "target": .string(String(describing: state.target)),
@@ -73,9 +90,12 @@ enum DebugFocus {
                 "generation": .number(Double(state.generation)),
             ]),
             "topology": .array(state.topology.panes.map { pane in
-                .object([
+                let selectedIndex = pane.selected.flatMap { selected in pane.tabs.firstIndex { $0.id == selected } }
+                return .object([
                     "pane": .string(pane.id),
                     "selected": pane.selected.map(JSONValue.string) ?? .null,
+                    "selected_index": selectedIndex.map { .number(Double($0)) } ?? .null,
+                    "tab_count": .number(Double(pane.tabs.count)),
                     "tabs": .array(pane.tabs.map { .string("\($0.id):\($0.kind.rawValue)") }),
                 ])
             }),
@@ -106,12 +126,7 @@ enum DebugFocus {
             problems.append("appkit \(FocusResponderClassifier.describe(actual)) != model \(resolved.kind)")
         }
         let ownTabs = Set(controller.content?.panes.values.compactMap(\.currentTabKey) ?? [])
-        let focusedHere = ghostty.filter(ownTabs.contains)
-        if case .terminal(_, let tab) = resolved, isKey {
-            if focusedHere != [tab] { problems.append("ghostty focused \(focusedHere) != [\(tab)]") }
-        } else if !focusedHere.isEmpty {
-            problems.append("ghostty focused \(focusedHere) while model is \(resolved.kind)\(isKey ? "" : " (window not key)")")
-        }
+        if let ghosttyProblem = resolved.ghosttyMismatch(focused: ghostty, ownTabs: ownTabs, isKey: isKey) { problems.append(ghosttyProblem) }
         return problems
     }
 }

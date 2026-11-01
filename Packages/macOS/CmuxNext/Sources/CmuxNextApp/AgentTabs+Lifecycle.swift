@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -42,9 +43,15 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: refusal)
         }
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
-        // that machine's own chat, filed under its store, which checks it against its own list.
+        // that machine's own chat, filed under its store, which checks it against its own list. Its
+        // lineage is read under that store's `registry:<id>` (the wire notes it there too); with no
+        // store id yet the tab could not be filed under it either, so the open is refused below.
+        let remoteHost = !daemon.isLocal ? Self.registryHost(of: daemon) : nil
         let remoteChild = !daemon.isLocal && host == nil && adopt == nil
-            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil } == true
+            && session.map { id in
+                guard let remoteHost else { return false }
+                return RemoteAgentSessionLinks.shared.parent(of: id, host: remoteHost) != nil
+            } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
@@ -230,6 +237,36 @@ extension AgentTabStore {
         spare.adoptNewTab(page)
     }
 
+    /// Local tab `key`, which shows this Mac's chat `session`, adopts the prewarmed, connected `spare`:
+    /// the page switches to the chat in place (``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
+    /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
+    /// and the tab gets nothing from it.
+    @discardableResult
+    func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool {
+        let moved: @MainActor () -> Void = { [weak spare] in
+            // A Chromium page's window follows its view only when told (CEFHostView.pagesNeedUpdate).
+            guard let window = spare?.window else { return }
+            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        }
+        guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
+            NewTabSparePool.traceSpare(.refused, note: Self.spareRefusal(spare.model))
+            if let revealTurn { pendingTurns[key] = revealTurn }
+            if recycle?(spare) != true { retirer.retire(spare) }
+            return false
+        }
+        NewTabSparePool.traceSpare(.adopted)
+        standaloneViews.remove(spare)
+        (views[key], spare.model.allowsTabConversion) = (spare, true)
+        wire(spare.model, key: key)
+        return true
+    }
+
+    /// Why `model` refused to become an existing chat (``AgentPaneModel/adoptSpareSession(_:)``), for the open's trace.
+    static func spareRefusal(_ model: AgentPaneModel) -> String {
+        model.sessionId != nil ? "has a session" : model.newTab == nil ? "no new tab page" : !model.hasHandshake ? "no handshake"
+            : model.userTouched ? "touched by \(model.touchedBy ?? "?")" : model.remoteChat ? "remote chat" : model.neverPooled ? "never pooled" : "?"
+    }
+
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat
     /// in this tab): a compare-and-swap from the session the tab shows, as a store intent
     /// (`Intent.bindAgentSession`): the record shows the new session at once, and a refusal (a
@@ -307,6 +344,8 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         if let view = views.removeValue(forKey: key) {
+            // Its machine link is no longer pushed; the last page gone ends that observation.
+            machineLink.forget(view)
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
             // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {

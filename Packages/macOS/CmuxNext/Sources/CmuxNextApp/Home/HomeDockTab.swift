@@ -55,9 +55,11 @@ final class HomeDockTab: InternalPageProvider {
         pending[tabID, default: []].append(body)
     }
 
-    /// The docked Home's view in the live tree, once its tab has shown.
+    /// The active window's docked Home view in the live tree (cmux#27880: each window has its own),
+    /// once its tab has shown.
     static func view(_ services: AppServices) -> HomeDockView? {
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
+        let home = services.windows.active.map { services.windowHomes.home(in: $0.state.id) } ?? services.home.homeWorkspace
+        guard let tab = home.flatMap(HomeDock.pageTab(in:))?.tab,
               let provider = services.pages.provider(.homeDock) as? HomeDockTab else { return nil }
         let key = services.pages.storeKey(of: tab.id) ?? tab.id
         return provider.views[key]

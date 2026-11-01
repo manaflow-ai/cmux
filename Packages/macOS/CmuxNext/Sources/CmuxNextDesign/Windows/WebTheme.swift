@@ -74,6 +74,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         }
     }
 
+    /// The page background (`--cmux-surface-background`) of a page made with these arguments, in the
+    /// active scope: the surface's own background (`appearance.surfaces`) when it has one, else the
+    /// surface token, opaque in an opaque window and clear over a material. A host asks it for what
+    /// the page paints under its content (an agent page's saved picture, `PageImageBackground`).
+    @MainActor
+    public static func pageBackground(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
+                                      backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
+        let surface = tokens.surfaceBackground
+        let windowTint = WindowBackdrop.currentTint(tokens)
+        return surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
+            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+    }
+
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter surface: The surface the page is (agent chat, new tab
@@ -88,11 +102,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
                 app: AppTheme? = nil, glass: GlassLensMode? = nil) {
-        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
-        let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
-            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+        let page = Self.pageBackground(tokens, reduceTransparency: reduceTransparency, surface: surfaceKind, backgrounds: backgrounds)
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
         let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)

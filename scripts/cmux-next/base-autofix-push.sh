@@ -94,6 +94,8 @@ output_areas() {
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
       cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+      # The namespace lint's safe rewrites (base-autofix.sh 1f').
+      Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
       webviews/*) echo webviews ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;

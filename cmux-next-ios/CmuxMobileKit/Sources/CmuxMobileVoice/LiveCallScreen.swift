@@ -175,9 +175,9 @@ public struct LiveCallScreen: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
                                          .init(color: .black, location: 0.94), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
-            .onChange(of: session.lines.last?.text) { _, _ in
-                withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("end", anchor: .bottom) }
-            }
+            // A caption growing word by word stays on the bottom through the size-change
+            // anchor above; an animated scroll per word fought it (and each one ran a scroll
+            // animation for every token). A new line still scrolls into view once.
             .onChange(of: session.lines.count) { _, _ in
                 withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("end", anchor: .bottom) }
             }
@@ -200,6 +200,7 @@ public struct LiveCallScreen: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .textSelection(.enabled)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -461,7 +462,7 @@ extension VoiceCallFailure {
         case .keyMissing, .keyRejected: "key"
         case .quota: "creditcard"
         case .network, .dropped: "wifi.exclamationmark"
-        case .modelUnavailable, .refused: "exclamationmark.triangle"
+        case .modelUnavailable, .refused, .server: "exclamationmark.triangle"
         }
     }
 
@@ -472,7 +473,7 @@ extension VoiceCallFailure {
         case .keyRejected: LiveCallText.failKeyRejected
         case .quota: LiveCallText.failQuota
         case .modelUnavailable: LiveCallText.failModel
-        case .refused: LiveCallText.failRefused
+        case .refused, .server: LiveCallText.failRefused
         case .network: LiveCallText.failNetwork
         case .dropped: LiveCallText.failDropped
         }
@@ -484,12 +485,15 @@ extension VoiceCallFailure {
         case .keyMissing, .keyRejected: LiveCallText.failKeyDetail
         case let .quota(message), let .modelUnavailable(message), let .refused(message), let .network(message): message
         case .dropped: LiveCallText.failDroppedDetail
+        case let .server(status, requestID):
+            [LiveCallText.failServerDetail(status: status), requestID.map(LiveCallText.requestID)]
+                .compactMap { $0 }.joined(separator: "\n")
         }
     }
 
     var retries: Bool {
         switch self {
-        case .network, .dropped, .refused, .quota: true
+        case .network, .dropped, .refused, .quota, .server: true
         case .microphoneDenied, .keyMissing, .keyRejected, .modelUnavailable: false
         }
     }

@@ -6,6 +6,8 @@ import CmuxNextDesign
 final class PaneTypeMenuButton: NSView {
     private let glyph = TitlebarBandButton(symbol: "chevron.down")
     var onPress: (() -> Void)?
+    /// VoiceOver moved its focus onto (true) or off (false) the chooser.
+    var onAccessibilityFocus: ((Bool) -> Void)?
     var isHighlighted = false {
         didSet {
             glyph.isHighlighted = isHighlighted
@@ -42,4 +44,9 @@ final class PaneTypeMenuButton: NSView {
     }
 
     override func accessibilityPerformShowMenu() -> Bool { accessibilityPerformPress() }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        onAccessibilityFocus?(accessibilityFocused)
+    }
 }

@@ -114,14 +114,22 @@ pub(crate) fn record_feed_local_folded(
 
 /// Drop folded rows that no ledger window can name again: the notification
 /// was cleared, or its `notification.create` receipt is gone.
-fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+/// Drop folded entries whose notification was cleared or whose receipt is
+/// gone. The kept list comes from `resource_effect_receipts_notification_ids`
+/// alone: SQLite's planner picks the operation index for it, which reads
+/// every notification receipt's row (0.40 s cold on a 41.6 GB registry), so
+/// the index is named. Only a committed receipt has an outcome (a CHECK on
+/// the table), so `state = 'committed'` keeps the same rows.
+pub(super) fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute(
         "DELETE FROM feed_local_folded
          WHERE notification_id IN (SELECT notification_id FROM resource_notification_clears)
             OR notification_id NOT IN (
               SELECT json_extract(outcome_json, '$.value.id')
               FROM resource_effect_receipts
+                INDEXED BY resource_effect_receipts_notification_ids
               WHERE operation = 'notification.create'
+                AND state = 'committed'
                 AND json_extract(outcome_json, '$.value.id') IS NOT NULL)",
         [],
     )?;

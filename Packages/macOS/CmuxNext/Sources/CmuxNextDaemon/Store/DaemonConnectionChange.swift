@@ -12,6 +12,7 @@ enum DaemonConnectionChange {
             store.sideEvents.noteControl(envelope)
             store.session.connected(servesStateResources: identity.supports(DaemonCapability.stateResources.rawValue))
             store.connectionState = .connected(identity)
+            store.noteRetriesSpent(false)
             store.noteHandshake(identity)
             return .resync
         case .disconnected(let reason):

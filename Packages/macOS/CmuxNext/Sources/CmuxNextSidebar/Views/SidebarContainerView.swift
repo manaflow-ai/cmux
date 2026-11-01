@@ -74,7 +74,7 @@ public final class SidebarContainerView: NSView {
     public var onWidthMotionChange: ((Bool) -> Void)?
     /// Called each time a width animation starts or turns around mid-flight, with the
     /// sidebar's on-screen width and the width it animates to, before the first frame. The
-    /// window sizes its content once for the whole slide from these (`MainPaneCardView.contentHold`).
+    /// window can opt into holding content size for the slide (`MainPaneCardView.contentHold`).
     public var onWidthMotionStart: ((_ from: CGFloat, _ to: CGFloat) -> Void)?
     /// Paces hover refreshes while the width animates. Hover follows views
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
@@ -148,6 +148,7 @@ public final class SidebarContainerView: NSView {
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
+        handle.yieldsPress = { [weak self] point in self?.scrollerTakesPress(at: point) ?? false }
         mountRail()
         observe()
     }
@@ -309,13 +310,17 @@ public final class SidebarContainerView: NSView {
     private func snap() {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
-        isWidthAnimating = false
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width
         panel.isHidden = isPanelCollapsed
         panel.alphaValue = 1
         syncHandleVisibility()
         syncRail()
+        // A layout callback can start a newer width animation; that one owns the motion flag.
+        let generation = animationGeneration
+        superview?.layoutSubtreeIfNeeded()
+        guard generation == animationGeneration else { return }
+        isWidthAnimating = false
     }
 
     /// Animates to the model's presentation with the appear / disappear tokens (instant with
@@ -364,6 +369,11 @@ public final class SidebarContainerView: NSView {
             Motion.animator(widthConstraint, in: self).constant = target
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
+            // Flush the final constraint layout before publishing settlement. Content and
+            // terminal geometry must already be at the target when they hear the motion ended.
+            self.superview?.layoutSubtreeIfNeeded()
+            // A layout callback that retargeted the sidebar started a newer leg: leave its motion flag set.
+            guard generation == self.animationGeneration else { return }
             self.widthCompletedGeneration = generation
             self.isWidthAnimating = false
             self.refreshHover()

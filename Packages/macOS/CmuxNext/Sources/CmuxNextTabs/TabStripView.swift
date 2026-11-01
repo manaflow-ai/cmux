@@ -171,6 +171,13 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
+    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
+    var pressedZoomID: TabID?
+    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
+    var zoomHoveredID: TabID?
+    /// The tab whose zoom indicator the click sequence began on: its remaining presses do not
+    /// activate the tab or another button that moves into the indicator's old slot.
+    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -252,6 +259,10 @@ public final class TabStripView: NSView {
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
+        }
+        newTabMenuButton.onAccessibilityFocus = { [weak self, weak newTabMenuButton] focused in
+            guard let newTabMenuButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabMenuButton), focused)
         }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -363,6 +374,9 @@ public final class TabStripView: NSView {
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()
+        _ = newTabHold.end()
+        pressedNewTab = false
+        newTabButton.isPressed = false
         buttonReveal.pointerInStrip = false
     }
 
@@ -446,7 +460,7 @@ public final class TabStripView: NSView {
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
-        let font = Typography.body
+        let font = Typography.tabTitle
         for cell in cells.values {
             cell.metrics = metrics
             cell.titleFont = font

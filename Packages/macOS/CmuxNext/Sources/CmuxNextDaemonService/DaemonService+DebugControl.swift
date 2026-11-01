@@ -13,7 +13,9 @@ extension DaemonService {
     /// The report: `startup` (`connecting`, `connected`, `unavailable` with
     /// `startup_error`), `connection` (`connected`, `connecting`,
     /// `disconnected`, `failed` with `connection_reason`), the daemon's `pid`
-    /// while connected, `recovery`, and `windows`: each window's id and what it
+    /// while connected, `answering` (false while the connected daemon leaves its heartbeat
+    /// unanswered and its connection stays open), `recovery` (`start_failure`: `disk_full` or `failed` while the last
+    /// start failed, with `start_failure_detail`), and `windows`: each window's id and what it
     /// shows, from `windows` (`content`, `connecting` or `none`).
     @MainActor
     public func debugControlMethod(windows: @escaping @MainActor @Sendable () -> [(id: String, shows: String)]) -> ControlMethod {
@@ -53,10 +55,16 @@ extension DaemonService {
                 report["connection_reason"] = .string(why)
             }
             if let pid = store.identity?.pid { report["pid"] = .number(Double(pid)) }
+            report["answering"] = .bool(!self.recovery.daemonNotAnswering)
             recovery["can_retry"] = .bool(self.recovery.canRetry)
             recovery["offers_restart"] = .bool(self.recovery.offersRestart)
             recovery["is_restarting"] = .bool(self.recovery.isRestarting)
             if let failure = self.recovery.restartFailure { recovery["restart_failure"] = .string(failure) }
+            // Why the last start failed (restore fuzz h2): `disk_full` or `failed`, and the launcher's text.
+            if let start = self.recovery.startFailure {
+                recovery["start_failure"] = .string(start.kind.rawValue)
+                recovery["start_failure_detail"] = .string(start.detail)
+            }
             report["recovery"] = .object(recovery)
             report["windows"] = .array(windows().map { .object(["id": .string($0.id), "shows": .string($0.shows)]) })
             return .value(.object(report))

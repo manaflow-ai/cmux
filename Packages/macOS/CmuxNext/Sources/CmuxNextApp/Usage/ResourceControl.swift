@@ -31,7 +31,7 @@ enum ResourceControl {
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
         if let raw = params["tab"]?.stringValue {
             let tab = normalizedTabID(raw)
-            guard services.locateTab(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
+            guard services.locateTabOnAnyMachine(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }
         if let raw = params["workspace"]?.stringValue {

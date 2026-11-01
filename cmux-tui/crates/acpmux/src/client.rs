@@ -16,6 +16,8 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The session this connection proved at initialize, never the caller's claim.
+    proven_caller_session: std::sync::OnceLock<String>,
     /// Absolute path to the CLI bundled with the app that started the daemon,
     /// when the daemon was launched by an app. A standalone acpmux CLI does
     /// not inherit the app's environment, so this is how `--group` finds the
@@ -23,6 +25,8 @@ pub struct Client {
     daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
+    /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
+    daemon_capabilities: std::sync::Mutex<Vec<String>>,
     /// The person challenge `{nonce, connection}` of this connection, when the
     /// daemon offered one at initialize (`hub/person.rs`).
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
@@ -36,6 +40,16 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, true).await
+    }
+
+    /// Connect a single-purpose trigger client without inheriting ambient
+    /// ACPMUX caller credentials from the invoking shell/session.
+    pub async fn connect_without_caller(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_with_caller(path, false).await
+    }
+
+    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -96,8 +110,10 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             daemon_features: std::sync::Mutex::new(Vec::new()),
+            daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
             out,
             next_id: AtomicI64::new(1),
@@ -113,11 +129,13 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
-        ) {
+        if include_caller
+            && let (Some(id), Some(token), true) = (
+                caller("ACPMUX_SESSION_ID"),
+                caller(crate::hub::person::CALLER_TOKEN_ENV),
+                issuer.is_some_and(|socket| Path::new(&socket) == path),
+            )
+        {
             let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
@@ -126,6 +144,10 @@ impl Client {
             hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
+        if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
+        {
+            let _ = client.proven_caller_session.set(session.to_owned());
+        }
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         *client.daemon_cli_path.lock_or_recover() = init
@@ -137,6 +159,10 @@ impl Client {
             *client.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
         }
+        if let Some(Value::Array(capabilities)) = init.pointer("/_meta/acpmux/capabilities") {
+            *client.daemon_capabilities.lock_or_recover() =
+                capabilities.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        }
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
             init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
@@ -145,6 +171,12 @@ impl Client {
                 Some((n.to_owned(), c.to_owned()));
         }
         Ok(client)
+    }
+
+    /// The session the daemon authenticated on this connection. Older daemons
+    /// report none, so consumers requiring a caller binding fail closed.
+    pub fn proven_caller_session(&self) -> Option<&str> {
+        self.proven_caller_session.get().map(String::as_str)
     }
 
     /// Proves this connection is the person (`_acpmux/person_prove`) with the
@@ -170,9 +202,10 @@ impl Client {
         self.daemon_cli_path.lock_or_recover().clone()
     }
 
-    /// Whether the daemon listed `feature` at initialize.
+    /// Whether the daemon listed `feature` or stable capability at initialize.
     pub fn daemon_lists(&self, feature: &str) -> bool {
         self.daemon_features.lock_or_recover().iter().any(|f| f == feature)
+            || self.daemon_capabilities.lock_or_recover().iter().any(|f| f == feature)
     }
 
     /// The error for a connection that ended: says why, as far as the pid
@@ -205,6 +238,57 @@ impl Client {
         let tool_call = std::env::var(crate::hub::lineage::TOOL_CALL_ENV).ok();
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
+        Ok(reply)
+    }
+
+    /// The whole session list `m` (`_acpmux/sessions` or `_acpmux/watch`) answers for `params`
+    /// with no `limit`: every page of it. A list too large for one message comes in pages, each
+    /// with the `nextCursor` of the rest (`server/list_reply.rs`), read here with
+    /// `_acpmux/sessions` and the same filters. The pages go in an order updates do not change,
+    /// so their rows are sorted back newest first, as one reply lists them; the result is one
+    /// `{sessions}`. A cursor that comes again, or a page with no `sessions`, is an error,
+    /// never a loop or a short list. With a `limit`, the one page it asks for.
+    pub async fn whole_list(&self, m: &str, params: Value) -> Result<Value> {
+        if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+            return self.request(m, params).await;
+        }
+        let mut reply = self.request(m, params.clone()).await?;
+        let mut rest = params;
+        if let Some(p) = rest.as_object_mut() {
+            p.remove("enabled");
+        }
+        let mut seen = std::collections::HashSet::new();
+        while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+            let cursor = match cursor {
+                Value::String(cursor) => cursor,
+                Value::Null => break,
+                other => anyhow::bail!("{m}: the daemon gave the page cursor {other}"),
+            };
+            if !seen.insert(cursor.clone()) {
+                anyhow::bail!("{m}: the daemon gave the page cursor {cursor:?} twice");
+            }
+            if !rest.set("cursor", Value::String(cursor.clone())) {
+                anyhow::bail!(
+                    "{m}: the params {rest} are not an object, so no page after cursor {cursor:?}"
+                );
+            }
+            let mut page = self.request(method::MUX_SESSIONS, rest.clone()).await?;
+            let (Some(Value::Array(rows)), Some(all)) = (
+                page.get_mut("sessions").map(Value::take),
+                reply.get_mut("sessions").and_then(Value::as_array_mut),
+            ) else {
+                anyhow::bail!("{m}: the page after cursor {cursor:?} lists no sessions");
+            };
+            all.extend(rows);
+            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+                reply.set("nextCursor", next);
+            }
+        }
+        if !seen.is_empty()
+            && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
+        {
+            crate::hub::session_pages::sort_session_summaries(rows);
+        }
         Ok(reply)
     }
 
@@ -365,8 +449,8 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         (None, _, false) => "the daemon was shut down".to_owned(),
     };
     let build = match daemon_build {
-        Some(b) if b != crate::hub::BUILD => {
-            format!(" It ran build {b}; this command is build {}.", crate::hub::BUILD)
+        Some(b) if b != crate::hub::build() => {
+            format!(" It ran build {b}; this command is build {}.", crate::hub::build())
         }
         _ => String::new(),
     };

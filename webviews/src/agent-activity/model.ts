@@ -106,8 +106,11 @@ export function connectionText(connection: ActivityConnection, strings: Activity
 export const isLive = (status: ActivityStatus) => typeof status === "string";
 export const displayFrame = (event: ActivityEvent) => event.afterFrame ?? event.beforeFrame;
 
-export function matches(session: ActivitySession, filter: string): boolean {
-  const needle = filter.trim().toLocaleLowerCase();
+export function normalizeFilter(filter: string): string {
+  return filter.trim().toLocaleLowerCase();
+}
+
+function matchesNeedle(session: ActivitySession, needle: string): boolean {
   if (!needle) return true;
   return [
     session.label,
@@ -120,13 +123,31 @@ export function matches(session: ActivitySession, filter: string): boolean {
   ].some((value) => value.toLocaleLowerCase().includes(needle));
 }
 
+export function matches(session: ActivitySession, filter: string): boolean {
+  return matchesNeedle(session, normalizeFilter(filter));
+}
+
 export function listOrder(a: ActivitySession, b: ActivitySession): number {
   if (isLive(a.status) !== isLive(b.status)) return isLive(a.status) ? -1 : 1;
   if (a.lastActionAt !== b.lastActionAt) return b.lastActionAt - a.lastActionAt;
   return a.id.localeCompare(b.id);
 }
 
+let lastGroups: { inputs: unknown[]; result: ActivityGroup[] } | undefined;
+
+/** The grouped, filtered, ordered session list. One render asks for it from several places (the
+ * follow subscription, then the layout), and a frame event changes none of its inputs, so the last
+ * projection is reused while the inputs are the same values. Callers treat the result as read-only. */
 export function groups(state: ActivityState): ActivityGroup[] {
+  const inputs = [state.sessionsByMachine, state.machineNames, state.connections, state.filter, state.strings.thisMac];
+  if (lastGroups && inputs.every((input, index) => input === lastGroups!.inputs[index])) return lastGroups.result;
+  const result = projectGroups(state);
+  lastGroups = { inputs, result };
+  return result;
+}
+
+function projectGroups(state: ActivityState): ActivityGroup[] {
+  const needle = normalizeFilter(state.filter);
   const machines = new Set([...Object.keys(state.sessionsByMachine), ...Object.keys(state.connections)]);
   return [...machines]
     .sort((a, b) => {
@@ -137,7 +158,7 @@ export function groups(state: ActivityState): ActivityGroup[] {
       id,
       name: state.machineNames[id] ?? (id === "local" ? state.strings.thisMac : id),
       connection: state.connections[id] ?? "connected",
-      sessions: (state.sessionsByMachine[id] ?? []).filter((s) => matches(s, state.filter)).sort(listOrder),
+      sessions: (state.sessionsByMachine[id] ?? []).filter((s) => matchesNeedle(s, needle)).sort(listOrder),
     }));
 }
 

@@ -277,6 +277,163 @@ fn server_connection_permits_enforce_and_release_the_cap() {
     assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
 }
 
+/// Agents in the session's terminals cannot take every connection: the app's
+/// own connections still get the rest, so it can close their workspaces
+/// (#27698: 55,162 refusals locked the app out of its daemon).
+#[test]
+fn terminal_connections_leave_slots_for_the_app() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let claim_terminal = || claim_terminal_connection(&connections);
+    let terminal: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| claim_terminal().expect("terminal slot below its share"))
+        .collect();
+    // One more terminal connection is refused and gives its slot back.
+    assert!(claim_terminal().is_none());
+    assert_eq!(connections.active(), MAX_TERMINAL_CONNECTIONS as u64);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.accepted, MAX_TERMINAL_CONNECTIONS as u64, "a refusal is not accepted");
+    assert_eq!(snapshot.refused, 1);
+
+    let app: Vec<ConnectionPermit> = (MAX_TERMINAL_CONNECTIONS..MAX_SERVER_CONNECTIONS)
+        .map(|_| claim_connection(&connections).expect("slot left for the app"))
+        .collect();
+    assert!(claim_connection(&connections).is_none());
+
+    drop(terminal);
+    assert!(claim_terminal().is_some(), "a released terminal slot is free again");
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
+/// One terminal opening connections in a loop (an agent's hooks, a script
+/// running `cmux` in a pane) cannot take the terminal lane from the others: a
+/// terminal's first connection gets in whenever the lane has room, a further
+/// one only while that terminal then holds no more than the lane has left free.
+#[test]
+fn one_terminal_cannot_take_the_terminal_lane_from_the_others() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let first: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert!(
+        first.len() < MAX_TERMINAL_CONNECTIONS / 2 + 1,
+        "terminal 101 took {} of the {MAX_TERMINAL_CONNECTIONS} terminal connections",
+        first.len()
+    );
+    let second = claim_terminal_connection_from(&connections, 102)
+        .expect("another terminal's first connection finds room");
+    let third =
+        claim_terminal_connection_from(&connections, 103).expect("and so does a third terminal's");
+    assert!(
+        claim_connection(&connections).is_some(),
+        "the app's slots are untouched by the terminal lane"
+    );
+    let taken = first.len();
+    drop((first, second, third));
+    assert_eq!(connections.active(), 0);
+    let again: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map_while(|_| claim_terminal_connection_from(&connections, 101))
+        .collect();
+    assert_eq!(again.len(), taken, "a terminal's released connections count no more against it");
+}
+
+/// #27669: connection threads parked on the registry lock outlived their CLI
+/// clients and held every slot, so the app's reconnects were refused
+/// `server.busy`. A client that hung up gives its slot to the next one; a live
+/// client keeps its own.
+#[cfg(unix)]
+#[test]
+fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut clients = Vec::new();
+    let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+        .map(|_| {
+            let (daemon_side, client) = UnixStream::pair().unwrap();
+            clients.push(client);
+            claim_watched_connection(&connections, &daemon_side).expect("slot below the cap")
+        })
+        .collect();
+    let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
+    assert!(
+        claim_watched_connection(&connections, &live_daemon_side).is_none(),
+        "every client is still connected: the limit holds"
+    );
+
+    // The clients give up; their connection threads are still parked.
+    clients.truncate(MAX_SERVER_CONNECTIONS - 2);
+    let app = claim_watched_connection(&connections, &live_daemon_side)
+        .expect("a slot of a client that hung up serves the next connection");
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64 - 1);
+    assert_eq!(snapshot.hung_up, 2);
+    assert_eq!(snapshot.reclaimed, 2);
+    assert_eq!(snapshot.refused, 1);
+
+    // A parked thread ending frees its place in the pool, not a live slot.
+    drop(permits);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!((snapshot.active, snapshot.hung_up), (1, 0));
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
+/// A terminal client that hung up gives back its terminal slot with its main
+/// one, so parked agent CLIs do not hold the terminals' share (#27698, #27669).
+#[cfg(unix)]
+#[test]
+fn hung_up_terminal_clients_give_back_their_terminal_slots() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut clients = Vec::new();
+    let parked: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| {
+            let (daemon_side, client) = UnixStream::pair().unwrap();
+            clients.push(client);
+            claim_watched_terminal_connection(&connections, &daemon_side, None)
+                .expect("terminal slot below its share")
+        })
+        .collect();
+    let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
+    assert!(claim_watched_terminal_connection(&connections, &live_daemon_side, None).is_none());
+
+    clients.pop();
+    let next = claim_watched_terminal_connection(&connections, &live_daemon_side, None)
+        .expect("the terminal slot of a client that hung up serves the next one");
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.hung_up, 1);
+    assert_eq!(snapshot.active, MAX_TERMINAL_CONNECTIONS as u64);
+    drop((parked, next));
+    assert_eq!(connections.active(), 0);
+    assert!(
+        claim_terminal_connection(&connections).is_some(),
+        "every terminal slot was given back"
+    );
+}
+
+/// The hung-up pool is bounded by the limit, so connection threads stay
+/// bounded at twice it however long the registry lock is held.
+#[cfg(unix)]
+#[test]
+fn hung_up_pool_is_bounded_by_the_connection_limit() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut parked = Vec::new();
+    for _ in 0..MAX_SERVER_CONNECTIONS * 2 {
+        let (daemon_side, client) = UnixStream::pair().unwrap();
+        parked.push(claim_watched_connection(&connections, &daemon_side).expect("slot"));
+        drop(client);
+    }
+    let (daemon_side, _client) = UnixStream::pair().unwrap();
+    assert!(claim_watched_connection(&connections, &daemon_side).is_none());
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.hung_up, MAX_SERVER_CONNECTIONS as u64);
+    // One parked thread ends: its pool place takes the next hung-up slot.
+    parked.remove(0);
+    assert!(claim_watched_connection(&connections, &daemon_side).is_some());
+}
+
 #[test]
 fn server_stats_report_lock_writer_and_connection_metrics() {
     let mux = test_mux();
@@ -563,7 +720,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(id)), cmd },
+            request: Request { id: Some(json!(id)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -601,7 +758,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(1)), cmd },
+            request: Request { id: Some(json!(1)), cmd, remote_line: None },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -629,6 +786,7 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mut clear = Some(Request {
             id: Some(json!(id)),
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            remote_line: None,
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     }
@@ -657,6 +815,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -666,6 +825,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
             pattern: "never-matches".to_string(),
             timeout_ms: 500,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -710,6 +870,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     let mut clear = Some(Request {
         id: Some(json!(1)),
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
@@ -719,6 +880,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
             pattern: "release-wait".to_string(),
             timeout_ms: 1_000,
         },
+        remote_line: None,
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
@@ -730,6 +892,80 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
     mux.close_surface(surface.id).unwrap();
 
     assert!(drained, "connection shutdown did not cancel an active wait-for request");
+}
+
+/// A legacy `wait-for` holds a terminal-wait worker permit (the same budget as v2
+/// `terminal.wait`: 8 per connection), not the connection's request queue. One more wait
+/// is refused at once under its own id, and a later request on the connection is still
+/// answered while the admitted waits are pending. Closing the connection ends every wait
+/// and returns its permit.
+#[test]
+fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let wait = |id: usize| {
+        json!({
+            "id":id,
+            "cmd":"wait-for",
+            "surface":surface.id,
+            "pattern":"cmux-wait-for-never-matches",
+            "timeout_ms":30_000,
+        })
+        .to_string()
+    };
+    for id in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+        assert!(handle_connection_message(&mux, client, &wait(id), &writer, &scheduler));
+    }
+    let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
+    assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
+    let identify = json!({"id":"identify","cmd":"identify"}).to_string();
+    assert!(handle_connection_message(&mux, client, &identify, &writer, &scheduler));
+
+    let refused = pop_json(&outbound);
+    assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
+    assert_eq!(refused["ok"], false, "a wait over capacity was admitted: {refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
+        "the refusal does not name wait-for: {refused}"
+    );
+    let identified = pop_json(&outbound);
+    assert_eq!(identified["id"], "identify", "identify waited behind pending waits");
+    assert_eq!(identified["ok"], true, "{identified}");
+    assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
+    // A one-shot check does not wait: it runs in request order and is not
+    // refused for want of a worker.
+    let one_shot = json!({
+        "id":"one-shot",
+        "cmd":"wait-for",
+        "surface":surface.id,
+        "pattern":"cmux-wait-for-never-matches",
+        "timeout_ms":0,
+    })
+    .to_string();
+    assert!(handle_connection_message(&mux, client, &one_shot, &writer, &scheduler));
+    let checked = pop_json(&outbound);
+    assert_eq!(checked["id"], "one-shot", "{checked}");
+    assert_eq!(
+        checked["error"], "timeout waiting for pattern",
+        "a one-shot wait-for must check the screen, not take a wait worker: {checked}"
+    );
+    assert_eq!(
+        mux.control_clients.resource_wait_admission.active(),
+        RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        "each pending wait-for must hold one terminal-wait worker permit"
+    );
+
+    let drained = scheduler.close_and_wait(Duration::from_secs(2));
+    let leaked = mux.control_clients.resource_wait_admission.active();
+    disconnect_client(&mux, client, false);
+    mux.close_surface(surface.id).unwrap();
+
+    assert!(drained, "closing the connection did not end its pending waits");
+    assert_eq!(leaked, 0, "a closed connection's wait-for kept its worker permit");
 }
 
 #[test]

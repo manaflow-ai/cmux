@@ -20,8 +20,8 @@ final class SuggestionRowView: NSView {
     var leadingIconCenter: CGFloat = 16 { didSet { needsLayout = true } }
     var textLeading: CGFloat = 33 { didSet { needsLayout = true } }
 
-    private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    let icon = NSImageView()
+    let label = NSTextField(labelWithString: "")
     private var tracking: NSTrackingArea?
     private var title = ""
     private var detail = ""
@@ -53,7 +53,20 @@ final class SuggestionRowView: NSView {
         setAccessibilityRole(.button)
         setAccessibilitySelected(false)
         show(suggestion, force: true)
+        // A density or `browser.omnibar.*` size change while the card is open redraws the row's
+        // text and glyph at the new size (the card re-lays out the rows' height).
+        density.update { [weak self] in
+            guard let self else { return }
+            let iconSize = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+            if let iconKind, !showsFavicon { icon.image = NSImage.icon(iconKind, size: iconSize) }
+            if showsFavicon, let image = icon.image { image.size = NSSize(width: iconSize, height: iconSize) }
+            applyColors()
+            needsLayout = true
+        }
+        density.start()
     }
+
+    private let density = DensityBinding()
 
     /// Shows `suggestion` in this row, in place (Chromium
     /// `OmniboxResultView::SetMatch`): typing changes the rows' text, it
@@ -114,7 +127,8 @@ final class SuggestionRowView: NSView {
 
     private func showFavicon(_ image: NSImage) {
         let sized = image.copy() as? NSImage ?? image
-        sized.size = NSSize(width: 16, height: 16)
+        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
+        sized.size = NSSize(width: side, height: side)
         showsFavicon = true
         iconKind = nil
         icon.image = sized
@@ -123,7 +137,8 @@ final class SuggestionRowView: NSView {
     override func layout() {
         super.layout()
         layer?.cornerRadius = OmnibarStyle.rowCornerRadius
-        let side: CGFloat = 16
+        // 16 pt at Standard (13 pt glyph size), larger with the bar's text.
+        let side = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height
         label.frame = NSRect(

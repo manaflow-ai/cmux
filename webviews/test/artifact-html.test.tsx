@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
 import { artifactKind } from "../src/agent-session/acpmux/conversation/artifactPreview";
-import { outputArtifacts } from "../src/agent-session/acpmux/inspector/OutputsSection";
+import { outputArtifacts } from "../src/agent-session/acpmux/session-info/OutputsSection";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { artifactGallery, artifactNeedsRun } from "../src/agent-session/acpmux/conversation/artifactSandbox";
+import {
+  artifactCanRender,
+  artifactFrameURL,
+  artifactGallery,
+  artifactNeedsRun,
+} from "../src/agent-session/acpmux/conversation/artifactSandbox";
 import { uniqueArtifacts } from "../src/agent-session/acpmux/conversation/artifactDedupe";
 import { writtenArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
 
@@ -35,6 +40,29 @@ test("offline artifacts use the sandbox in dev and built gallery frame routes on
 test("JSX fences use the HTML artifact surface", () => {
   expect(artifactKind("jsx", "export default () => <button>Hi</button>")).toBe("html");
   expect(artifactKind("tsx", "export default () => <svg />")).toBe("html");
+});
+
+test("artifact frames select only the native pane endpoints", () => {
+  const before = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [href, frame] of [
+      ["cmux-agent://pane/index.html", "cmux-agent://render/artifact"],
+      ["cmux-page://cmux.agent/", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.agent/index.html", "cmux-page://cmux.agent/__artifact"],
+      ["cmux-page://cmux.agent.evil/", undefined],
+      ["cmux-page://cmux.agent:1234/", undefined],
+      ["cmux-page://user@cmux.agent/", undefined],
+      ["cmux-page://cmux.settings/", undefined],
+      ["https://cmux.agent/", undefined],
+    ] as const) {
+      Object.defineProperty(globalThis, "location", { configurable: true, value: new URL(href) });
+      expect(artifactCanRender()).toBe(frame !== undefined);
+      expect(artifactFrameURL()).toBe(frame);
+    }
+  } finally {
+    if (before) Object.defineProperty(globalThis, "location", before);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
 });
 
 test("artifact script consent conservatively catches parsed handlers and encoded javascript URLs", () => {
@@ -73,6 +101,9 @@ test("full write inputs are detected without reading the file; malformed inputs 
     ["Write", "file_path"],
     ["write", "path"],
     ["write_file", "file_path"],
+    // OpenCode and Gemini name the written file differently (toolPaths.ts).
+    ["write", "filePath"],
+    ["write_file", "absolute_path"],
   ]) {
     const tool = {
       id: title!,

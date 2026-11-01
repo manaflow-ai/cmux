@@ -90,7 +90,7 @@ enum RoomConfirmation {
         let prompt = DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
                                                     button: RoomStrings.clearDefaults)
         if let defaults = room.defaults, !defaults.isEmpty { return prompt }
-        if RoomDefaultsUpdates.inFlight(room.id) { return prompt }
+        if context.services.roomDefaults.inFlight(room.id) { return prompt }
         guard let connection = context.services.machines.local.connection else { return nil }
         let id = room.id
         guard let personal = try? await connection.listPersonal() else { return prompt }

@@ -11,8 +11,9 @@ import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
 import { newTabHeadline } from "./headline.experiment";
 
 const PROJECTS = [CWD, "/Users/you/src/cmux", "/Users/you/src/manaflow"];
-const page = (pageWidgets: string[]) => ({
+const page = (pageWidgets: string[], host?: string) => ({
   newTab: {
+    ...(host ? { host } : {}),
     layout: "b",
     kind: "agent",
     cwd: CWD,
@@ -29,17 +30,19 @@ const button = ".nt-headline .acpmux-project-button";
 /// Picks `name` from the headline's picker, as a click on the project's name and then on its row.
 const pick = async (ctx: PlayContext, name: string) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
-  const stable = [
-    ".nt-composer",
-    '.nt-foot .acpmux-location-picker[data-kind="computer"]',
-    ".nt-foot .acpmux-access-trigger",
+  // The computer pill sits beside the folder pill above the box, so a project name of another
+  // width moves it sideways; only its row and size must hold.
+  const stable: [selector: string, keepsX: boolean][] = [
+    [".nt-composer", true],
+    ['.nt-above .acpmux-location-picker[data-kind="computer"]', false],
+    [".nt-foot .acpmux-access-trigger", true],
   ];
   const rects = () =>
-    stable.map((selector) => {
+    stable.map(([selector, keepsX]) => {
       const element = ctx.document.querySelector(selector);
       if (!element) throw new Error(`missing stable New Tab control: ${selector}`);
       const { x, y, width, height } = element.getBoundingClientRect();
-      return [x, y, width, height];
+      return [keepsX ? x : 0, y, width, height];
     });
   const before = rects();
   await ctx.click({ selector: button });
@@ -98,6 +101,16 @@ export default agentPaneEntry({
       ready: page(["greeting"]),
       snapshot: noChat(manySessions(12)),
       play: (ctx) => pick(ctx, "cmux"),
+    },
+    machine: {
+      note: 'The machine the chat starts on named too: "What should we work on in cmux on studio-mini?", the machine plain text that follows the location row\'s pick.',
+      ready: page(["greeting"], "studio-mini"),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx) => {
+        await pick(ctx, "cmux");
+        const text = ctx.document.querySelector(".nt-headline-text")?.textContent ?? "";
+        if (!text.includes("studio-mini")) throw new Error(`headline names no machine: ${text}`);
+      },
     },
     "picker-open": {
       note: "The headline's picker open under the question: the recent projects with a search field, Browse and Do not work in a project.",

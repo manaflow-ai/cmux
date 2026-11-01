@@ -53,23 +53,41 @@ public actor AgentSessionAttachClient {
     /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
     /// (`CloudMachineLink.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
+    /// Whether a Cloud machine's link says it is a teammate's (`CloudMachineLinks.teammate`).
+    public typealias Teammate = @Sendable () async -> Bool
+    /// Asked once when a connection fails (its endpoint, its socket or its handshake): true once
+    /// the machine's link came back, and the connection is tried once more.
+    public typealias Reconnect = @Sendable () async -> Bool
 
     private let surface: UInt64
     private let mode: Mode
     private let endpoint: EndpointProvider
+    private let reconnect: Reconnect?
     private let requestTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
     private var transport: LineTransport?
     private var connecting: Task<(LineTransport, Served), any Error>?
     private let handler = HandlerBox()
+    /// The newest ``attach(afterSeq:beforeSeq:limit:kinds:events:)``, which the next one waits for.
+    private var attachTail: Task<Void, Never>?
     private var closed = false
+    /// A quiet try (``sharedConnection(quiet:)``) lost its connection in its handshake and told no
+    /// one yet.
+    private var quietLoss = false
     /// What ``transport``'s daemon serves, read from its own `identify` on that connection and
     /// replaced only together with it.
     private var served = Served()
+    /// Counts the connections this client began to make (``connect(quiet:)``).
+    private var connectsBegun = 0
+    /// The newest connection made: its number in ``connectsBegun`` and whether its close tells
+    /// the attachment (cleared to retire it silently).
+    private var newest: (transport: ObjectIdentifier, number: Int, tells: OSAllocatedUnfairLock<Bool>)?
 
     private struct Served: Sendable {
         /// `agent-session-start-v1`.
         var start = false
+        /// `agent-session-start-no-cwd-v1`.
+        var startNoCwd = false
         /// `agent-session-trust-v1`.
         var trust = false
         /// `agent-session-start-keyed-reason-v1`.
@@ -84,6 +102,12 @@ public actor AgentSessionAttachClient {
         var children = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-folders-v1`.
+        var folders = false
+        /// `agent-session-settings-v1`.
+        var settings = false
+        /// `agent-session-login-v1`.
+        var login = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -94,19 +118,36 @@ public actor AgentSessionAttachClient {
     }
 
     /// `surface`: the tab's surface id in the daemon's store.
+    /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
-                endpoint: @escaping EndpointProvider) {
+                reconnect: Reconnect? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface
         self.mode = mode
         self.endpoint = endpoint
+        self.reconnect = reconnect
         self.requestTimeout = requestTimeout
     }
 
     /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set(events)
-        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
+        // One attach at a time: the daemon refuses a second attach of the tab while the first still
+        // connects (its slot is reserved: `agent_session.limit`, "too many attached agent tabs"), and
+        // the remote wire asks two at once (the page's session list and its attach, sent together
+        // since #27755). The later one waits and is then a page of the live attachment.
+        let previous = attachTail
+        let command = mode.command, params = page(afterSeq, beforeSeq, limit, kinds)
+        // task-owner: this attach; the next attach waits on it, and the caller's cancel cancels it
+        let task = Task {
+            await previous?.value
+            // A caller that cancelled while this attach waited gets nothing sent and keeps no
+            // handler: the earlier attach's pushes still go to its own.
+            try Task.checkCancellation()
+            self.handler.set(events)
+            return try await self.call(command, params)
+        }
+        attachTail = Task { _ = await task.result }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -128,25 +169,25 @@ public actor AgentSessionAttachClient {
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
-    /// that link still runs), through any daemon; anything else is refused here
-    /// (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
+    /// that link still runs), through any daemon; a link that came up while the start connected is
+    /// asked again on the live connection (``ownedConnection(_:check:)``), and anything else is
+    /// refused here (`agent_session.host_unverified`). The daemon then gets `vm_kind: "owner"` when this
     /// connection's own `identify` lists `agent-session-start-vm-kind-v1`. The start goes over
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
-    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
+    public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
-        let before = await ownerLink?()
-        let (transport, served) = try await liveConnection()
-        guard served.start else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.start else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+            }
+            guard model == nil || served.model else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
+            }
         }
-        guard model == nil || served.model else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
-        }
-        let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model)
@@ -163,10 +204,11 @@ public actor AgentSessionAttachClient {
 
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
-    static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
+    static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
-        var params: [String: any Sendable] = ["cwd": cwd]
+        var params: [String: any Sendable] = [:]
+        if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
         if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
@@ -189,15 +231,15 @@ public actor AgentSessionAttachClient {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
-        let before = await ownerLink?()
-        let (transport, served) = try await liveConnection()
-        guard served.trust else {
-            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.trust else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
+            }
         }
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
-        if try await Self.ownerAnswer(ownerLink, before: before), served.trustVMKind { params["vm_kind"] = "owner" }
+        if callerOwnsVM, served.trustVMKind { params["vm_kind"] = "owner" }
         // The call goes over the connection its owner answer and capabilities were checked for.
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the trust call was sent")
@@ -205,14 +247,56 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-trust", params, on: transport)
     }
 
+    /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
+    static let ownerAnswerReads = 3
+
+    /// The live connection, what its daemon serves (`check` refuses what it lacks) and, for a
+    /// Cloud machine, the owner answer of the link it goes over: the same id read before the
+    /// connection began to be made and once it is live (``ownerAnswer(_:before:)``), so an owner
+    /// answer never carries over to another link. When the reads differ, or the connection was
+    /// made before the first read, the link came up or came back while the call connected (a new
+    /// Cloud machine's first start, a down machine that reconnects on use): that connection is
+    /// retired, telling no attachment, and both reads are taken again around a new one over the
+    /// live link, at most ``ownerAnswerReads`` times, with no wait between. A client with an
+    /// attachment keeps its connection and is refused instead. A link that never gives one owner
+    /// answer twice in a row (no link, a team machine, a link that keeps restarting) is refused.
+    private func ownedConnection(_ ownerLink: OwnerLink?, check: (Served) throws -> Void) async throws
+        -> (LineTransport, Served, callerOwnsVM: Bool) {
+        guard let ownerLink else {
+            let (transport, served) = try await liveConnection()
+            try check(served)
+            return (transport, served, false)
+        }
+        for read in 1...Self.ownerAnswerReads {
+            let before = await ownerLink()
+            let begun = connectsBegun
+            let (transport, served) = try await liveConnection()
+            try check(served)
+            let madeInside = newest.map { $0.transport == ObjectIdentifier(transport) && $0.number > begun } ?? false
+            if madeInside, let owns = try? await Self.ownerAnswer(ownerLink, before: before) { return (transport, served, owns) }
+            guard read < Self.ownerAnswerReads, handler.current == nil else { break }
+            retire(transport)
+        }
+        throw Self.notOwner
+    }
+
+    /// Ends `transport` without telling the attachment it ended (``ownedConnection(_:check:)``).
+    private func retire(_ transport: LineTransport) {
+        if let newest, newest.transport == ObjectIdentifier(transport) { newest.tells.withLock { $0 = false } }
+        if self.transport === transport { self.transport = nil }
+        transport.close()
+    }
+
+    private static var notOwner: AgentSessionAttachError {
+        AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
+    }
+
     /// For a Cloud machine (`ownerLink` set): true when the link gives the same id now as `before`
     /// (read before the connection), so the owner answer is the one of the link the call goes over;
     /// refused otherwise. False for a machine that is not a Cloud one.
     private static func ownerAnswer(_ ownerLink: OwnerLink?, before: Int?) async throws -> Bool {
         guard let ownerLink else { return false }
-        guard let before, await ownerLink() == before else {
-            throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
-        }
+        guard let before, await ownerLink() == before else { throw notOwner }
         return true
     }
 
@@ -247,6 +331,28 @@ public actor AgentSessionAttachClient {
     /// `agent-session-children` (`agent-session-children-v1`): the chats the attached tab's session
     /// started on the daemon's machine (`{sessions}`, acpmux summaries); the attachment then
     /// streams their changes too. A daemon without the verb lists none.
+    /// That machine's folders for a new chat (`agent-session-folders-v1`): its work folder
+    /// (`default`, nil when it has none) and the folders under it. A daemon without the verb
+    /// answers none (the app then asks the person for a folder).
+    public func folders() async throws -> (work: String?, folders: [String]) {
+        guard mode == .attach else { return (nil, []) }
+        _ = try await liveTransport()
+        guard served.folders else { return (nil, []) }
+        let data = try await call("agent-session-folders", [:])
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let absolute = { (path: String) in path.hasPrefix("/") }
+        let work = (object["default"] as? String).flatMap { absolute($0) ? $0 : nil }
+        return (work, (object["folders"] as? [String] ?? []).filter(absolute))
+    }
+
+    /// Whether this daemon accepts an omitted cwd on `agent-session-start`.
+    /// Older daemons require a folder and must keep the work-folder fallback.
+    public func supportsNoCwd() async throws -> Bool {
+        guard mode == .attach else { return false }
+        _ = try await liveTransport()
+        return served.startNoCwd
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -269,11 +375,85 @@ public actor AgentSessionAttachClient {
         _ = try await call("agent-session-view", ["visible": visible])
     }
 
+    /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
+    public static let settingsUnsupported = "agent_session.settings_unsupported"
+
+    /// `agent-session-set-model` (`agent-session-settings-v1`): the attached chat's model, as
+    /// acpmux's `session/set_model` on the tab's own session; acpmux's answer.
+    public func setModel(_ modelId: String) async throws -> Data {
+        try await setting("agent-session-set-model", ["model_id": modelId])
+    }
+
+    /// `agent-session-set-mode` (`agent-session-settings-v1`): acpmux's `session/set_mode`.
+    public func setMode(_ modeId: String) async throws -> Data {
+        try await setting("agent-session-set-mode", ["mode_id": modeId])
+    }
+
+    /// `agent-session-set-config` (`agent-session-settings-v1`): acpmux's
+    /// `session/set_config_option`, which answers the agent's whole `configOptions`.
+    public func setConfig(id configId: String, value: String) async throws -> Data {
+        try await setting("agent-session-set-config", ["config_id": configId, "value": value])
+    }
+
+    private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.settings else {
+            throw AgentSessionAttachError(code: Self.settingsUnsupported,
+                                          message: "update cmux on that machine to change this chat's model, mode or options from here")
+        }
+        return try await call(cmd, params)
+    }
+
+    /// Whether the daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
+    public func servesLogin() async -> Bool {
+        (try? await liveConnection())?.1.login ?? false
+    }
+
+    /// How long each login step may wait, past the daemon's own wait for it: start waits for the
+    /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's
+    /// approval in the browser (Codex, 15 min).
+    static let loginFinishTimeout: Duration = .seconds(15 * 60)
+    static func loginTimeout(_ op: String) -> Duration? {
+        switch op {
+        case "finish": loginFinishTimeout
+        case "start": Duration.seconds(35)
+        case "api_key": Duration.seconds(80)
+        default: nil
+        }
+    }
+
+    /// `agent-session-login` (`agent-session-login-v1`): one step of the attached chat's agent's own
+    /// sign-in on that machine, as acpmux's `_acpmux/agent_login/<op>` on the tab's own session.
+    /// acpmux's refusal is an answer (`{refused: {reason}}`); a daemon without the verb answers
+    /// `unsupported`, so the card is not offered.
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.login else { return Data(#"{"refused":{"reason":"unsupported"}}"#.utf8) }
+        var params: [String: any Sendable] = ["op": op]
+        for (key, value) in fields { params[key] = value }
+        return try await call("agent-session-login", params,
+                              timeout: Self.loginTimeout(op) ?? requestTimeout)
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
         return try await call("agent-session-media", ["path": path])
     }
+
+    /// Sends one Cloud repository action over this chat's authenticated daemon attachment.
+    /// Repository actions are cmux-tui frame commands, so they share this connection rather
+    /// than going through acpmux's JSON-RPC socket.
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration? = nil) async throws -> Data {
+        guard Self.cloudRepositoryMethods.contains(method) else {
+            throw AgentSessionAttachError(code: "cloud_repo.unsupported", message: "unsupported Cloud repository action")
+        }
+        return try await call(method, params, timeout: timeout)
+    }
+
+    private static let cloudRepositoryMethods: Set<String> = [
+        "cloud.repo.sync", "cloud.repo.list", "cloud.repo.add", "cloud.repo.attached", "cloud.repo.wait_github",
+    ]
 
     /// Ends the attachment and the connection; no push after it.
     public func close() {
@@ -300,7 +480,7 @@ public actor AgentSessionAttachClient {
     /// (a question's answers and annotations, as JSON) goes in the request as it is.
     /// `on`: that connection only (no reconnect), else the live one.
     private func call(_ cmd: String, _ params: [String: any Sendable], json: [String: Data?] = [:],
-                      on pinned: LineTransport? = nil) async throws -> Data {
+                      timeout: Duration? = nil, on pinned: LineTransport? = nil) async throws -> Data {
         let transport: LineTransport
         if let pinned { transport = pinned } else { transport = try await liveTransport() }
         var object: [String: Any] = params
@@ -313,7 +493,7 @@ public actor AgentSessionAttachClient {
         let fields = try JSONSerialization.data(withJSONObject: object)
         let response: LineTransport.Response
         do {
-            response = try await transport.request(cmd: cmd, timeout: requestTimeout) { id in
+            response = try await transport.request(cmd: cmd, timeout: timeout ?? requestTimeout) { id in
                 Data(#"{"id":\#(id),"#.utf8) + fields.dropFirst()
             }
         } catch DaemonError.command(_, let message, let code, let details, _) {
@@ -326,13 +506,49 @@ public actor AgentSessionAttachClient {
         try await liveConnection().0
     }
 
-    /// The live connection and what its daemon serves.
+    /// The live connection and what its daemon serves. With ``reconnect``, a connection that fails
+    /// (its endpoint, its socket or its handshake) asks it and is tried once more. The wait runs in
+    /// the caller's task, so a cancelled call stops waiting, and nothing is sent after it. A failed
+    /// first try ends no attachment: its loss is told only when no retry follows or it fails too.
     private func liveConnection() async throws -> (LineTransport, Served) {
+        guard let reconnect else { return try await sharedConnection(quiet: false) }
+        do {
+            let connection = try await Self.retrying({ last in try await self.sharedConnection(quiet: !last) }, reconnect: reconnect)
+            quietLoss = false
+            return connection
+        } catch {
+            // The quiet first try's lost connection, unless the retry's own close told it.
+            if quietLoss, let current = handler.take() {
+                current("agent-session-closed", Data(#"{"event":"agent-session-closed","reason":"connection_lost"}"#.utf8))
+            }
+            quietLoss = false
+            throw error
+        }
+    }
+
+    /// `body(false)`, which asks `reconnect` when it throws, and runs `body(true)` (the last try)
+    /// when that answers true. A cancelled call reconnects nothing and is not retried; a failure
+    /// that is not the link's, or a link that does not come back, throws as it did.
+    public static func retrying<T: Sendable>(_ body: @Sendable (_ last: Bool) async throws -> T, reconnect: Reconnect) async throws -> T {
+        do {
+            return try await body(false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard !Task.isCancelled, await reconnect() else { throw error }
+            try Task.checkCancellation()
+            return try await body(true)
+        }
+    }
+
+    /// The connection one try opens, shared with a try already running. `quiet`: its close before
+    /// its handshake finished ends no attachment (``quietLoss`` remembers it).
+    private func sharedConnection(quiet: Bool) async throws -> (LineTransport, Served) {
         if closed { throw AgentSessionAttachError(code: "agent_session.closed", message: "closed") }
         if let transport, !transport.isClosed { return (transport, served) }
         transport = nil
         if let connecting { return try await connecting.value }
-        let task = Task { try await self.connect() }
+        let task = Task { try await self.connect(quiet: quiet) }
         connecting = task
         defer { connecting = nil }
         let (transport, served) = try await task.value
@@ -345,11 +561,21 @@ public actor AgentSessionAttachClient {
         return (transport, served)
     }
 
-    private func connect() async throws -> (LineTransport, Served) {
-        let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath)
+    private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
+        connectsBegun += 1
+        let number = connectsBegun
+        let transport: LineTransport
+        do {
+            let endpoint = try await self.endpoint()
+            transport = try LineTransport(path: endpoint.socketPath)
+        } catch {
+            if quiet { quietLoss = true }
+            throw error
+        }
         let handler = handler
         let surface = surface
+        // A quiet try's close tells the attachment only once its handshake finished.
+        let tells = OSAllocatedUnfairLock(initialState: !quiet)
         transport.start(
             onEvent: { name, line, _ in
                 guard name.hasPrefix("agent-session-"), Self.surface(of: line) == surface else { return }
@@ -357,7 +583,7 @@ public actor AgentSessionAttachClient {
                 if name == "agent-session-closed" { handler.set(nil) }
             },
             onClose: { [logger] reason in
-                guard let current = handler.current else { return }
+                guard tells.withLock({ $0 }), let current = handler.current else { return }
                 handler.set(nil)
                 logger.info("agent attach connection ended: \(String(describing: reason), privacy: .public)")
                 current("agent-session-closed", Data(#"{"event":"agent-session-closed","reason":"connection_lost"}"#.utf8))
@@ -370,13 +596,17 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
             served = Served(start: identity.supports(DaemonCapability.agentSessionStart.rawValue),
+                            startNoCwd: identity.supports(DaemonCapability.agentSessionStartNoCwd.rawValue),
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
-                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
+                            presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
+                            settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
+                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
@@ -384,9 +614,12 @@ public actor AgentSessionAttachClient {
                                      capabilities: served.presence ? [DaemonCapability.agentSessionPresence.rawValue] : []),
                 on: transport, timeout: requestTimeout)
         } catch {
+            if quiet { quietLoss = true }
             transport.close()
             throw error
         }
+        tells.withLock { $0 = true }
+        newest = (ObjectIdentifier(transport), number, tells)
         return (transport, served)
     }
 
@@ -424,6 +657,14 @@ public struct AgentSessionAttachError: Error, Sendable, Equatable {
     }
 
     public static let needsKeyedStart = "agent_session.needs_keyed_start"
+    /// The refusal of a start on a teammate's Cloud machine (the card's New Cloud Machine, startRefusal.ts).
+    public static let teamMachine = "agent_session.team_vm_blocked"
+
+    /// The code the card sees: an owner check's refusal (`host_unverified`) on a machine its link
+    /// says is a teammate's is that teammate refusal; every other code is as it came.
+    public static func classified(_ code: String, teammate: Bool) -> String {
+        code == "agent_session.host_unverified" && teammate ? teamMachine : code
+    }
 }
 
 /// The current push handler, read on the transport's reader thread.
@@ -431,4 +672,6 @@ private final class HandlerBox: Sendable {
     private let lock = OSAllocatedUnfairLock<AgentSessionAttachClient.EventHandler?>(initialState: nil)
     var current: AgentSessionAttachClient.EventHandler? { lock.withLock { $0 } }
     func set(_ handler: AgentSessionAttachClient.EventHandler?) { lock.withLock { $0 = handler } }
+    /// The handler, which is cleared: one caller tells it the attachment ended.
+    func take() -> AgentSessionAttachClient.EventHandler? { lock.withLock { current in defer { current = nil }; return current } }
 }

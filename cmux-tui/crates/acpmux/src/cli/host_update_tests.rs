@@ -558,19 +558,83 @@ fn a_pushed_binary_that_does_not_run_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
+/// own, or one the `~/.acpmux` daemon does not run under, or a unit someone
+/// else wrote. `cmux link machine update --to-bundled` owns that daemon.
+#[cfg(unix)]
+const CLOUD_SHAPES: [&str; 3] = ["no unit", "daemon outside the unit", "unit someone else wrote"];
+
+#[cfg(unix)]
+fn cloud_vm(tag: &str, shape: &str) -> FakePeer {
+    let peer = FakePeer::new(tag);
+    peer.write("etc/cmux/vm-kind", "team\n");
+    let unit = format!("{UNITS}/acpmux.service");
+    match shape {
+        "no unit" => {
+            std::fs::remove_file(peer.home.join(&unit)).unwrap();
+            std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+            peer.under("run-cmux-tui-0123.scope");
+        }
+        "daemon outside the unit" => peer.under("session-26.scope"),
+        "unit someone else wrote" => peer.write(&unit, &format!("{SYSTEMD_UNIT}# theirs\n")),
+        other => panic!("no shape {other}"),
+    }
+    peer
+}
+
 #[test]
 #[cfg(unix)]
 fn a_cloud_vm_is_left_to_cmux_link_machine_update() {
-    let peer = FakePeer::new("cloud-vm");
-    peer.write("etc/cmux/vm-kind", "cloud\n");
-    peer.offer(NEW, Some(NEW));
-    for if_idle in [false, true] {
-        let up = peer.update(if_idle);
-        assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
-        assert_eq!(up.reason.as_deref(), Some("cloudMachine"));
-        assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
-        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-vm-{}", shape.replace(' ', "-")), shape);
+        peer.offer(NEW, Some(NEW));
+        for if_idle in [false, true] {
+            let up = peer.update(if_idle);
+            assert_eq!(up.outcome, Outcome::Failed, "{shape}: {up:?}");
+            assert_eq!(up.reason.as_deref(), Some("cloudMachine"), "{shape}");
+            assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
+            peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+        }
     }
+}
+
+/// A cmux Cloud VM the fleet set up as a lane host (2026-10-30)
+/// runs acpmux's own `acpmux.service` from `~/.local/bin/acpmux`, beside
+/// cmux Cloud's `~/.cmux/bin/acpmux`, which is the only one `cmux link
+/// machine update` replaces. Nobody else updates that daemon, so `host
+/// update` (and the self-update timer) does.
+#[test]
+#[cfg(unix)]
+fn a_cloud_vm_whose_daemon_is_acpmux_service_is_updated() {
+    let peer = FakePeer::new("cloud-vm-own-unit");
+    peer.write("etc/cmux/vm-kind", "team\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
+}
+
+/// The check both probes share: only acpmux's own unit with the daemon
+/// under it lifts the Cloud VM mark, and a host without the mark is never one.
+#[test]
+#[cfg(unix)]
+fn the_cloud_check_lifts_the_mark_only_for_acpmux_service() {
+    let said = |peer: &FakePeer| {
+        let script = format!("{}echo \"cloud=$acpmux_cloud\"", cloud_vm_check());
+        let out = peer.exec(&script, None).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        out.stdout.lines().last().unwrap_or_default().to_owned()
+    };
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-check-{}", shape.replace(' ', "-")), shape);
+        assert_eq!(said(&peer), "cloud=1", "{shape}");
+    }
+    let own = FakePeer::new("cloud-check-own");
+    assert_eq!(said(&own), "cloud=", "no mark");
+    own.write("etc/cmux/vm-kind", "team\n");
+    assert_eq!(said(&own), "cloud=", "acpmux.service runs the daemon");
 }
 
 #[test]
@@ -1286,6 +1350,55 @@ impl Remote for Unreachable {
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         panic!("a held peer was reached: {script}")
     }
+
+    fn reachable(&self) -> Result<()> {
+        panic!("a held peer was reached")
+    }
+}
+
+/// A host that does not answer: down, or behind a hop that stalls.
+struct Down;
+
+impl Remote for Down {
+    fn host(&self) -> &str {
+        "leo@big-box"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a host that does not answer was asked to run {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a host that does not answer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a host that does not answer was asked to lock: {script}")
+    }
+
+    fn reachable(&self) -> Result<()> {
+        Err(anyhow!("leo@big-box is unreachable over ssh: no answer within 20 s"))
+    }
+}
+
+/// Leo, 2026-10-29: "Couldn't update big-red: acpmux ran past its 900.0 seconds deadline and was
+/// stopped; it exited". A host that does not answer fails at once as `unreachable`, before its lock
+/// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
+#[test]
+fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let up = update_locked(&Down, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let row = up.to_json("big-box", "leo@big-box");
+    assert_eq!(
+        row["error"].as_str(),
+        Some("leo@big-box is unreachable over ssh: no answer within 20 s"),
+        "{row}"
+    );
 }
 
 /// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen
@@ -1559,6 +1672,51 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
     assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
     assert!(peer.exists("loaded"));
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+}
+
+/// cosmic-gray (2026-10-31): the cmux NIGHTLY app installs acpmux as a
+/// link into its bundle and runs the daemon as its own LaunchAgent, with no
+/// `com.acpmux.daemon.plist`. The update refused only at the restart, after
+/// it had replaced the app's link with a hard link to the old binary. Now it
+/// refuses before it pushes anything, and the link is as it was.
+#[test]
+#[cfg(unix)]
+fn a_mac_whose_acpmux_the_cmux_app_runs_is_left_as_it_was() {
+    let bin = "Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    for (shape, app_link, app_job) in
+        [("app", true, true), ("app-link", true, false), ("app-job", false, true)]
+    {
+        let peer = FakePeer::new(shape);
+        peer.under_launchd();
+        let link = peer.home.join(".local/bin/acpmux");
+        let target = peer.home.join(bin);
+        if app_link {
+            peer.exe(bin, &fake_acpmux(OLD, Some(OLD)));
+            std::fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        }
+        if app_job {
+            std::fs::remove_file(peer.home.join("Library/LaunchAgents/com.acpmux.daemon.plist"))
+                .unwrap();
+            peer.write("Library/LaunchAgents/com.cmux.acpmux.daemon.3f9c2a.plist", "<plist/>\n");
+        }
+        peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+        let up = peer.update_with(true, true);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("appManaged")),
+            "{shape}: {up:?}"
+        );
+        assert!(up.error.as_deref().unwrap_or("").contains("cmux app"), "{shape}: {up:?}");
+        if app_link {
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{shape}: the app's link is still a link");
+            assert_eq!(std::fs::read_link(&link).unwrap(), target, "{shape}");
+            assert_eq!(peer.read(bin), fake_acpmux(OLD, Some(OLD)), "{shape}: the app's binary");
+        }
+        assert!(peer.exists("loaded"), "{shape}: launchd was not touched");
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
 }
 
 #[cfg(unix)]

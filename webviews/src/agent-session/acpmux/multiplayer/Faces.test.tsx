@@ -55,6 +55,11 @@ test("the author chip shows the face and the name", () => {
 test("the header stacks three faces, then +N, and names everyone for screen readers", () => {
   const host = render(<PresenceStack viewing={[ANA, SAM, MEI, JORDAN]} />);
   expect(host.querySelectorAll(".cv-presence__person")).toHaveLength(3);
+  expect([...host.querySelectorAll<HTMLElement>(".cv-presence__person")].map((person) => person.title)).toEqual([
+    "Ana Ruiz",
+    "Sam Okafor",
+    "Mei Lin",
+  ]);
   expect(host.querySelector(".cv-presence__more")?.textContent).toBe("+1");
   expect(host.querySelector(".cv-presence__label")?.textContent).toBe(
     "Also here: Ana Ruiz, Sam Okafor, Mei Lin, Jordan Blake",

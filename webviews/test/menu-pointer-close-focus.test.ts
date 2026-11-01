@@ -101,7 +101,9 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       );
       return {
         ring: ringed ? String(ringed.className).split(" ").slice(0, 2).join(".") : "",
-        focused: String(document.activeElement?.className ?? "").split(" ")[0] ?? "",
+        focused: document.activeElement?.closest(".nt-field")
+          ? "nt-field"
+          : (String(document.activeElement?.className ?? "").split(" ")[0] ?? ""),
       };
     });
 
@@ -142,8 +144,9 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
       ["Model", chip("Model"), ".ui-popup.ui-menu"],
-      // The computer chip's searchable destination popover (#25316: a dialog with a search field).
-      ["Computer", 'button[aria-label^="Computer"]', ".ui-popup.acpmux-location-menu"],
+      // The environment chip's searchable destination popover (#25316: a dialog with a search field;
+      // not behind Labs since Leo's 2026-10-30 order).
+      ["Environment", 'button[aria-label^="Environment"]', ".ui-popup.acpmux-location-menu"],
     ])
       test(`${engine}: ${name}: a press outside the open menu leaves no ring`, async () => {
         const page = await open(engine);
@@ -170,7 +173,7 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
 
     test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
       const page = await open(engine);
-      await press(page, 'button[aria-label^="Computer"]');
+      await press(page, 'button[aria-label^="Environment"]');
       await page.locator(".ui-popup.acpmux-location-menu").first().waitFor();
       await press(page, chip("Model"));
       // The first popover's close lands after its fade; it must not pull focus back out of the picker.

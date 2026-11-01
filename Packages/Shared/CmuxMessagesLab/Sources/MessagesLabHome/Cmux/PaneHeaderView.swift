@@ -200,10 +200,14 @@ final class PaneHeaderView: NSView {
         needsLayout = true
     }
 
-    /// A monogram on the header's avatar disc (white 253, as HeaderView
-    /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home
-    /// conversation shows its participant's initials.
+    /// The header's avatar for `initials`: letters and digits as Messages' grey
+    /// gradient monogram (``MonogramAvatar``, Lawrence 2026-10-30: "CH for chief?
+    /// like in imessage"); anything else (an emoji) on the plain disc (white 253,
+    /// as HeaderView draws it; the theme's secondary grey in a light theme).
     static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
+        if MonogramAvatar.isMonogram(initials) {
+            return MonogramAvatar(initials: initials).image(side: avatarSize, light: light)
+        }
         let disc = light ? Fixture.secondaryText : NSColor(white: 253 / 255, alpha: 1)
         let ink: NSColor = light ? .white : .black
         return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in

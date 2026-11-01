@@ -22,8 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
-    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
-    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
+    /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace
+    /// rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The address of the favicon a link row draws.
     public var iconAddress: String? = nil
@@ -144,6 +144,16 @@ extension SidebarViewComponents {
 
     /// Whether a drag is active now (a tile drag hides no list row, so `dragging` can be empty while it runs).
     public func debugDragActive() -> Bool { list.drag != nil }
+
+    /// The middle of the topmost shown usage warning badge in window coordinates, for a synthetic
+    /// pointer (`debug.pointer_hover {usageWarning: true}`), so a capture shows its tooltip; nil
+    /// when no row shows one.
+    public func debugUsageWarningCenterInWindow() -> CGPoint? {
+        list.rowViews.values.compactMap { ($0 as? WorkspaceRowView)?.usageWarningMark }
+            .filter { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
+            .map { $0.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) }
+            .max { $0.y < $1.y }
+    }
 
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.

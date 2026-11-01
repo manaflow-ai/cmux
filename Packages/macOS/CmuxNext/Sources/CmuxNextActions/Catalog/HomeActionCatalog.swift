@@ -9,13 +9,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // Invite to Team sends only from its dialog, where the person sees the seat cost and
+            // presses Send: a CLI or agent run waits for that answer.
+            descriptor.waitsForPerson = descriptor.id == "home.inviteToTeam"
             // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
             descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
@@ -179,6 +182,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The New Message draft's x (shown on its list row while the pointer is over it, as in
+            // Messages), Escape in an empty To: field, the palette, `cmux home close-new-message`
+            // and MCP: one path that discards the draft, its page and its row.
+            ActionDescriptor(
+                id: "home.closeNewMessage", title: t("action.home.closeNewMessage", "Close New Message"),
+                keywords: ["home", "message", "new message", "draft", "close", "discard", "cancel", "compose"],
+                category: .window, symbol: "xmark.circle", surfaces: [.palette, .keyboard],
+                cliName: "home close-new-message",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
                 keywords: ["home", "invite", "email", "people", "team", "message", "join"],
@@ -187,6 +200,19 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false)],
                 cliName: "home invite", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
+            ),
+            // The active team's email invite (POST /api/teams/:id/invitations), always through its
+            // dialog: the Home compose menu and team menu, New Message's To: row for a typed
+            // address, the palette and the File menu open it; a CLI or agent run opens it prefilled
+            // and waits for the person's Send (a join can bill a seat).
+            ActionDescriptor(
+                id: "home.inviteToTeam", title: t("action.home.inviteToTeam", "Invite to Team…"),
+                keywords: ["home", "team", "invite", "member", "seat", "people", "email", "join", "add"],
+                category: .window, symbol: "person.2.badge.plus", surfaces: [.palette, .menu],
+                arguments: [ActionArgument(name: "email", title: t("argument.home.invite.email", "Email Address"), kind: .string,
+                                           isRequired: false)],
+                cliName: "home invite-to-team", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.newChief", title: t("action.home.newChief", "New Chief…"),
@@ -276,7 +302,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "group", "add", "people", "members", "invite", "person", "conversation"],
                 category: .window, symbol: "person.badge.plus", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,
-                            ActionArgument(name: "people", title: t("argument.home.people", "People (comma-separated)"), kind: .string)],
+                            ActionArgument(name: "people", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true))],
                 cliName: "home add-members",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
@@ -321,7 +349,9 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
                 keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
                 category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
-                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                arguments: [ActionArgument(name: "members", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true)),
                             ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
                                            isRequired: false),
                             Self.replies(isRequired: false)],

@@ -37,8 +37,17 @@ impl Hub {
         if family.is_empty() {
             return Ok(None);
         }
+        // A profile name (`claude-sr2`) reads its store family's store, as `new_session` does.
+        let family = {
+            let cfg = self.config.read().await;
+            cfg.resolve_harness(family)
+                .ok()
+                .and_then(|name| {
+                    cfg.harnesses.get(&name).map(|p| crate::config::store_family(&name, p))
+                })
+                .unwrap_or_else(|| family.to_owned())
+        };
         let homes = self.harness_homes.lock().unwrap().clone();
-        let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (found, _) = tokio::task::spawn_blocking(move || {
@@ -51,9 +60,9 @@ impl Hub {
         Ok(found.cwd.map(|cwd| cwd.to_string_lossy().into_owned()))
     }
 
-    /// Checks `adopt` against the resolved harness and its store. No adopt
-    /// resolves to `Found(None)`. `remote` (a Web-class connection) adopts
-    /// only from a profile's store, never from another store of the index.
+    /// Checks `adopt` against the resolved harness and its store (`family`: the store family,
+    /// `config::store_family`). No adopt resolves to `Found(None)`. `remote` (a Web-class
+    /// connection) adopts only from a profile's store, never from another store of the index.
     pub(super) async fn adoption(
         &self,
         adopt: Option<&AdoptRequest>,
@@ -78,9 +87,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
+        let stores = store_families(&*self.config.read().await);
         // A fork is a new conversation, never the chat that already adopted (or views) this one.
         if a.if_live != IfLive::Fork
-            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+            && let Some(existing) = self.adopted_session(&stores, family, &a.agent_session_id)
         {
             return Ok(Adoption::Existing(existing));
         }
@@ -147,7 +157,7 @@ impl Hub {
             .and_then(|own| {
                 self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
             })
-            .filter(|s| s.meta().family.as_deref() == Some("claude"))
+            .filter(|s| session_store(&stores, &s.meta()).is_some_and(|f| f == "claude"))
         {
             return Ok(Adoption::Existing(existing));
         }
@@ -165,11 +175,16 @@ impl Hub {
         })
     }
 
-    /// The session that already adopted `agent_session_id` in `family`, so
+    /// The session that already adopted `agent_session_id` in store `family`, so
     /// adopting twice opens the same session instead of two resuming one.
-    /// Any profile of the family counts: they share one store.
-    fn adopted_session(&self, family: &str, agent_session_id: &str) -> Option<Arc<Session>> {
-        adopted_in(&self.sessions.lock().unwrap(), family, agent_session_id)
+    /// Any profile that reads the store counts (`adopted_in`).
+    fn adopted_session(
+        &self,
+        stores: &StoreFamilies,
+        family: &str,
+        agent_session_id: &str,
+    ) -> Option<Arc<Session>> {
+        adopted_in(&self.sessions.lock().unwrap(), stores, family, agent_session_id)
     }
 
     /// An agent that could not load the adopted session started a fresh one
@@ -436,9 +451,31 @@ fn normalize_remote(url: &str) -> String {
     format!("{host}/{path}")
 }
 
-/// The session in `sessions` that adopted `agent_session_id` in `family`.
+/// Each configured profile's store family (`config::store_family`), for `adopted_in`.
+pub(super) type StoreFamilies = BTreeMap<String, String>;
+
+pub(super) fn store_families(cfg: &crate::config::Config) -> StoreFamilies {
+    cfg.harnesses
+        .iter()
+        .map(|(name, p)| (name.clone(), crate::config::store_family(name, p)))
+        .collect()
+}
+
+/// The store a session's conversation lives in: its profile's, else its recorded family when
+/// that names a store, else unknown (a profile gone from this config, such as a refused user
+/// file): such a session is never the one an adopt opens.
+fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
+    stores.get(&m.harness).cloned().or_else(|| {
+        m.family.clone().filter(|f| matches!(f.as_str(), "claude" | "codex" | "opencode"))
+    })
+}
+
+/// The session in `sessions` that adopted or ran `agent_session_id` in store `family`, on
+/// whichever profile: adopting the chat again opens it, on the profile it recorded (a
+/// `claude-sr2` chat adopted as `claude` stays on `claude-sr2`).
 pub(super) fn adopted_in(
     sessions: &HashMap<String, Arc<Session>>,
+    stores: &StoreFamilies,
     family: &str,
     agent_session_id: &str,
 ) -> Option<Arc<Session>> {
@@ -446,8 +483,8 @@ pub(super) fn adopted_in(
         .values()
         .find(|s| {
             let m = s.meta();
-            m.family.as_deref() == Some(family)
-                && m.agent_session_id.as_deref() == Some(agent_session_id)
+            m.agent_session_id.as_deref() == Some(agent_session_id)
+                && session_store(stores, &m).is_some_and(|f| f == family)
         })
         .cloned()
 }
@@ -483,25 +520,32 @@ impl Hub {
         // be hundreds of megabytes, and the chat shows its newest turns first.
         let read = tokio::task::spawn_blocking(move || {
             if fam == "claude" {
-                let page =
-                    crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS);
-                (page.turns, page.start)
+                let Ok(mut input) = std::fs::File::open(&file) else {
+                    return (Vec::new(), 0, None);
+                };
+                let page = crate::adopt_replay::claude_page_with_turns_open(
+                    &mut input,
+                    None,
+                    crate::adopt_replay::PAGE_TURNS,
+                );
+                let mark = super::native_history::mark(&mut input, page.start);
+                (page.turns, page.start, mark)
             } else {
-                (crate::adopt_replay::read(&fam, &file), 0)
+                (crate::adopt_replay::read(&fam, &file), 0, None)
             }
         })
         .await;
-        let Ok((turns, before)) = read else { return };
+        let Ok((turns, before, mark)) = read else { return };
         if turns.is_empty() {
             return;
         }
         // Older turns stay in the transcript: `before` is where the next older page ends.
-        if before > 0 {
+        if before > 0 && mark.is_some() {
             self.append(
                 session,
                 "mux",
                 "native_history",
-                json!({"family": family, "before": before, "turns": turns.len()}),
+                json!({"family": family, "before": before, "mark": mark, "turns": turns.len()}),
             );
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
@@ -521,86 +565,22 @@ impl Hub {
         }
         self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
-        let update = |fields: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": fields}});
         for (i, turn) in turns.iter().enumerate() {
-            let turn_id = format!("adopted-{i}");
-            let prompt_id = format!("adopted-prompt-{i}");
+            let ids = (format!("adopted-{i}"), format!("adopted-prompt-{i}"));
             // Each record keeps the transcript's time, so a fork through it cuts Claude's
-            // transcript there (`fork_at.rs`) and the turn shows its real time. The turn ends
-            // with its answer, or its last tool call when that ended later.
-            let started = turn.prompt_at;
-            let answered = turn.answer_at.or(started);
-            let ended = turn.tools.iter().filter_map(|t| t.ended_at).chain(answered).max();
-            let turn_seq = self
-                .append_at(
-                    session,
-                    "mux",
-                    "turn_started",
-                    json!({"prompt": turn.prompt.chars().take(200).collect::<String>(), "client": "adopt", "promptId": prompt_id, "turnId": turn_id, "control": "local"}),
-                    None,
-                    started,
-                )
-                .0
-                .seq;
-            // A page that begins inside a turn has that turn's prompt in the older page.
-            if !turn.prompt.is_empty() {
-                self.append_at(
-                    session,
-                    "mux",
-                    "user_message",
-                    json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
-                    None,
-                    started,
-                );
+            // transcript there (`fork_at.rs`) and the turn shows its real time.
+            let mut turn_seq = 0;
+            for record in super::native_history::turn_records(turn, &agent_sid, &ids.0, &ids.1) {
+                let mut msg = record.msg;
+                if record.names_turn {
+                    msg.set("turnSeq", json!(turn_seq));
+                }
+                let seq =
+                    self.append_at(session, record.dir, record.kind, msg, None, record.at).0.seq;
+                if record.kind == "turn_started" {
+                    turn_seq = seq;
+                }
             }
-            // The turn's tool calls, before its answer, as a live turn sends them: each starts
-            // running and its update settles it, so the pane folds them under "Worked for".
-            for tool in &turn.tools {
-                let start = tool.started_at.or(tool.ended_at).or(started);
-                let mut call = tool.call.clone();
-                call.set("sessionUpdate", json!("tool_call"));
-                call.set("toolCallId", json!(tool.id));
-                call.set("status", json!("in_progress"));
-                self.append_at(session, "in", "tool_call", update(call), None, start);
-                let mut done = tool.done.clone();
-                done.set("sessionUpdate", json!("tool_call_update"));
-                done.set("toolCallId", json!(tool.id));
-                self.append_at(
-                    session,
-                    "in",
-                    "tool_call_update",
-                    update(done),
-                    None,
-                    tool.ended_at.or(start),
-                );
-            }
-            if !turn.answer.is_empty() {
-                self.append_at(
-                    session,
-                    "in",
-                    "agent_message_chunk",
-                    update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}})),
-                    None,
-                    answered,
-                );
-            }
-            self.append_at(
-                session,
-                "mux",
-                "turn_end",
-                json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq}),
-                None,
-                ended,
-            );
-            // A settled turn: clients and restart recovery read `turn_result`, not `turn_end`.
-            self.append_at(
-                session,
-                "mux",
-                "turn_result",
-                json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id}),
-                None,
-                ended,
-            );
         }
     }
 }
@@ -608,6 +588,10 @@ impl Hub {
 #[cfg(test)]
 #[path = "adoption_page_tests.rs"]
 mod page_tests;
+
+#[cfg(test)]
+#[path = "adoption_profile_tests.rs"]
+mod profile_tests;
 
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]

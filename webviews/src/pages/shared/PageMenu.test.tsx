@@ -14,7 +14,22 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  // The page-drawn fallback is a Base UI menu, which schedules its transitions on animation frames.
+  const requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -23,13 +38,20 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame,
+    cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
-  act(() => root?.unmount());
+afterEach(async () => {
+  if (root)
+    await act(async () => {
+      root!.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   root = undefined;
   installNativeMenu(null);
   for (const [key, value] of saved) scope[key] = value;
@@ -74,4 +96,49 @@ test("a page menu opens the app's native menu and runs the chosen row", async ()
   expect(document.querySelector(".page-menu")).toBeNull();
   expect(ran).toEqual(["remove"]);
   expect(closed).toBe(1);
+});
+
+test.each([null, { ok: true, value: null }])(
+  "an older host's empty native-menu reply falls back to an actionable page menu (%#)",
+  async (reply) => {
+    const ran: string[] = [];
+    let closed = 0;
+    installNativeMenu(async () => reply);
+    root = createRoot(installDom());
+    await act(async () => {
+      root!.render(
+        <PageMenu
+          x={12}
+          y={34}
+          items={[{ id: "open", label: "Open", run: () => ran.push("open") }]}
+          onClose={() => closed++}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".page-menu")).not.toBeNull();
+    expect(closed).toBe(0);
+    expect(ran).toEqual([]);
+  },
+);
+
+test("a native host cannot activate a disabled page action", async () => {
+  const ran: string[] = [];
+  let closed = 0;
+  installNativeMenu(async () => ({ picked: "remove" }));
+  root = createRoot(installDom());
+  await act(async () => {
+    root!.render(
+      <PageMenu
+        x={12}
+        y={34}
+        items={[{ id: "remove", label: "Remove", disabled: true, run: () => ran.push("remove") }]}
+        onClose={() => closed++}
+      />,
+    );
+    await Promise.resolve();
+  });
+  expect(document.querySelector(".page-menu")).toBeNull();
+  expect(closed).toBe(1);
+  expect(ran).toEqual([]);
 });

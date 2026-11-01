@@ -21,6 +21,20 @@ import CmuxNextDesignTokens
         #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner))
     }
 
+    /// The agent working-state mark is the settled thin arc turning smoothly, never the macOS activity
+    /// indicator's segmented spokes stepping round (#29903; Leo 2026-11-01: "why the f*** did you make
+    /// the spinner into this????"). Pinned for every icon set that draws work as a spinner.
+    @Test func theWorkingSpinnerIsTheSettledArcNeverSpokes() {
+        #expect(StatusIndicatorPlan.workingGlyph == .arc)
+        for set in StatusIconSet.allCases {
+            let plan = StatusIndicatorPlan.make(.working, style: .arc, animates: true, set: set)
+            #expect(plan.glyph != .native && plan.animation != .step, "\(set): \(plan)")
+            if plan.animation == .spin || plan.glyph == .arc {
+                #expect(plan.glyph == .arc && plan.animation == .spin, "\(set): \(plan)")
+            }
+        }
+    }
+
     @Test func aHiddenOrStillRowHoldsTheDotStill() {
         // Occluded, off screen or loops off: the dot stays a dot, it does not turn into the work ring.
         #expect(Self.plan(.working, look: .breathe, animates: false) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))

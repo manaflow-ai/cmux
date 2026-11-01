@@ -24,6 +24,11 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
 - No polling and no timers. The list changes only from the watch stream; the detail is read on
   selection and after a confirmed change; the plan is read on sign-in and after a confirmed change
   that may move its usage.
+- The page follows the app's account: the host's `cmux.cloud.auth.watch` stream (served by
+  `CloudPageProvider`, not the Cloud app server) sends the current account, then each sign-in,
+  sign-out or team switch made anywhere in the app. On each event the page reads auth again and,
+  when it differs from what it shows, drops the old account's state and loads the new one. A page
+  opened while signed out never keeps its Sign In hero after the app signs in.
 - One pending intent log (OWNERSHIP-PRINCIPLES "Clients are projections"). A machine mutation answers
   `{machine, revision}`: the intent settles when the mirror reaches that projection revision (no
   refetch), or when the record shows the change. The record's own `revision` is a decimal string.

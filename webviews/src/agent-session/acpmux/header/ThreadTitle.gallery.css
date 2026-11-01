@@ -1,0 +1,6 @@
+.acpmux-thread-title-gallery{--acpmux-header-height:44px;background:var(--agent-page-bg)}
+.acpmux-thread-title-gallery-copy{padding:16px 24px;color:var(--agent-soft);font-size:var(--text-detail)}
+.acpmux-thread-title-gallery-copy p{margin:0 0 8px}
+.acpmux-thread-title-gallery--glass{background:color-mix(in srgb,var(--agent-surface-elevated) 62%,var(--agent-page-bg));border:1px solid color-mix(in srgb,var(--agent-border) 70%,transparent)}
+.acpmux-thread-title-gallery--compact .acpmux-header{--acpmux-gallery-compact-header-height:36px;height:var(--acpmux-gallery-compact-header-height);--acpmux-header-height:var(--acpmux-gallery-compact-header-height);padding-inline:4px}
+.acpmux-thread-title-gallery--compact .acpmux-thread-title{max-width:230px;font-size:var(--text-detail)}

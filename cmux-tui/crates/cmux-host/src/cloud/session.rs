@@ -6,12 +6,15 @@
 use crate::json::JsonField;
 use serde_json::Value;
 
-use super::sender::{Answer, EventOutcome, EventQueue, OpRequest, Reporter};
-use super::wire::{ActivityChange, DaemonInfo, EVENT_EMIT_OP, activity_from_daemon};
+use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
+use super::wire::{
+    ATTENTION_EMIT_OP, ActivityChange, DaemonInfo, EVENT_EMIT_OP, activity_from_daemon,
+};
 
 pub struct Session {
     pub reporter: Reporter,
     pub events: EventQueue,
+    pub attention: AttentionQueue,
     /// The daemon block without `activity` (bind's block).
     base: DaemonInfo,
 }
@@ -25,6 +28,7 @@ impl Session {
         Session {
             reporter: Reporter::new(machine, base.clone()).with_heartbeat_ms(heartbeat_ms),
             events: EventQueue::new(machine),
+            attention: AttentionQueue::new(machine),
             base,
         }
     }
@@ -80,6 +84,13 @@ impl Session {
                 Err(e) => note = Some(format!("socket line refused: {e}")),
             }
         }
+        if msg.field("attention").is_object() {
+            match self.attention.emit(msg.field("attention")) {
+                Ok(Some(req)) => out.push(req),
+                Ok(None) => {}
+                Err(e) => note = Some(format!("socket line refused: {e}")),
+            }
+        }
         if *msg.field("resume") == true {
             out.extend(self.reporter.trigger("resume", now));
         }
@@ -90,6 +101,9 @@ impl Session {
     pub fn fire(&mut self, now: u64) -> Vec<OpRequest> {
         let mut out: Vec<OpRequest> = self.reporter.fire(now).into_iter().collect();
         out.extend(self.events.fire(now));
+        if let Some(req) = self.attention.fire(now) {
+            out.push(req);
+        }
         out
     }
 
@@ -109,12 +123,23 @@ impl Session {
             };
             return (next.into_iter().collect(), note);
         }
+        if request.op == ATTENTION_EMIT_OP {
+            let (outcome, next) = self.attention.finished(answer, now, random);
+            let note = match outcome {
+                EventOutcome::Dropped(why) => Some(format!("attention dropped: {why}")),
+                _ => None,
+            };
+            return (next.into_iter().collect(), note);
+        }
         let note = Some(report_note(&request.reason, answer));
         (self.reporter.finished(answer, now, random).into_iter().collect(), note)
     }
 
     pub fn next_deadline(&self) -> Option<u64> {
-        [self.reporter.next_deadline(), self.events.next_deadline()].into_iter().flatten().min()
+        [self.reporter.next_deadline(), self.events.next_deadline(), self.attention.next_deadline()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 }
 
@@ -127,5 +152,42 @@ pub fn report_note(reason: &str, answer: &Answer) -> String {
         }
         Answer::Http { status, .. } => format!("report {reason} failed HTTP {status}"),
         Answer::Transport => format!("report {reason} failed"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn socket_attention_becomes_the_vm_principal_op() {
+        let mut session = Session::new(
+            "vm_m0000000000000000001",
+            DaemonInfo { version: "test".into(), capabilities: vec![] },
+            60_000,
+        );
+        let line = json!({
+            "attention": {
+                "event_id": "attn_1", "kind": "question", "session": "acp_s1",
+                "title": "Cloud chat", "occurred_at": 1_790_000_000_000u64
+            }
+        })
+        .to_string();
+        let (requests, note) = session.line(&line, 1);
+        assert!(note.is_none());
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].op, ATTENTION_EMIT_OP);
+        assert_eq!(requests[0].params["event_id"], "attn_1");
+        assert!(requests[0].params.get("body").is_none());
+        let (next, note) = session.answered(
+            &requests[0],
+            &Answer::Http { status: 200, body: json!({"ok": true}) },
+            2,
+            0.5,
+        );
+        assert!(note.is_none());
+        assert!(next.is_empty());
+        assert_eq!(session.attention.len(), 0);
     }
 }

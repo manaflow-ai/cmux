@@ -1,7 +1,13 @@
 import React, { useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { composerCommand, type CmuxCommand, type CmuxCommandResult } from "../cmuxCommands";
+import {
+  CMUX_PASS_THROUGH,
+  composerCommand,
+  harnessTakesToo,
+  type CmuxCommand,
+  type CmuxCommandResult,
+} from "../cmuxCommands";
 import { useT } from "../i18n";
-import type { ComposerAttachment } from "../attachments";
+import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
   importError?: string | undefined;
@@ -31,7 +37,12 @@ export function useNewTabCommand(
   const currentText = useRef(text);
   currentText.current = text;
   const intercept = (prompt: string, harness?: string, attachmentCount = 0, ownedOnly = false): boolean => {
-    const command = composerCommand(prompt, harness, attachmentCount);
+    // Inline chips mark positions, not command words; pending chips count too.
+    const words = withoutInlineTokens(
+      prompt,
+      (id) => intake.attachments.some((chip) => chip.id === id) || intake.pending.some((chip) => chip.id === id),
+    );
+    const command = composerCommand(words, harness, attachmentCount);
     if (!command) return false;
     const refuse = (message: string) => setRefusal({ text, message });
     if (command.kind === "cliOnly") {
@@ -63,11 +74,14 @@ export function useNewTabCommand(
       }
       return true;
     }
+    if (!actions.onCmuxCommand && harnessTakesToo(command.command)) return false;
     if (!actions.onCmuxCommand) {
       refuse(t("composer.cmuxUnavailable"));
       return true;
     }
     const accepted = actions.onCmuxCommand(command.command, command.args);
+    // A passthrough command is not intercepted: it goes on as a normal prompt.
+    if (accepted === CMUX_PASS_THROUGH) return false;
     if (typeof accepted === "string") refuse(accepted);
     else if (accepted instanceof Promise) {
       // Consume files immediately, but retain the question until the host accepts it.

@@ -1,7 +1,8 @@
 # cmux-rd-host
 
-The Linux host engine of the cmux remote desktop (phase 1: a virtual X display such as
-Xvfb on servers and Cloud VMs) and its bench client. Design and decisions:
+The host engine of the cmux remote desktop and its bench client: on Linux a virtual X display
+such as Xvfb on servers and Cloud VMs (phase 1); on macOS the Mac's own display through
+ScreenCaptureKit, VideoToolbox and CGEvent (`plans/cmux-next/remote-desktop-mac-host.md`). Design and decisions:
 `plans/cmux-next/remote-desktop.md`. Wire format: `cmux-rd-proto`. Pure logic (FEC,
 packetizer, reassembly, frame gate, congestion control, input, sessions and access
 policy): `cmux-rd-core`.
@@ -11,6 +12,19 @@ cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-ov
 cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
+
+## macOS host
+
+```
+cmux-rd host --owner USER --token-fd N [--display main|INDEX] [--max-fps 60] [--profile high|baseline]
+```
+
+The codec is always `videotoolbox`, fed the captured IOSurface with no copy. The process, or
+the app that started it, needs Screen Recording and Accessibility.
+`scripts/mac-host-run.sh BIN_DIR STATE_DIR [--motion]` starts the host and the glass-to-glass
+marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-rd bench`
+from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
+Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
 ## Build
 

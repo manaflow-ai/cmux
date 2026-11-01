@@ -71,7 +71,7 @@ pub(super) async fn handle(
     let text =
         str_param(params, "text").ok_or_else(|| RpcError::invalid_params("text is required"))?;
     if m == method::MUX_DRAFT_SET {
-        let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
+        let draft = hub.set_composer_draft(&s, text)?;
         return Ok(json!({"sessionId": s.id, "draft": draft}));
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).

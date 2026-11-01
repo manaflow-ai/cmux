@@ -1,23 +1,36 @@
 import {
   attachmentBlocks,
+  attachmentSource,
   hasInlineMarks,
   inlineToken,
   orderedDraftParts,
   promptText,
+  type AttachmentSource,
   type ComposerAttachment,
   type PromptBlock,
 } from "./attachments";
 import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
+import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
+/// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
+/// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
+/// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
+/// old shape (its text, then its attachments) has none.
+///
+/// One attachment block's display metadata (`_meta.acpmux.inlineParts`), which acpmux validates and
+/// keeps with the prompt (prompt_images.rs): its name and size, and the app it came from, so the
+/// transcript's copy wears its source after a reload. A block's own `_meta` never reaches acpmux.
 type DisplayPart = {
   kind: string;
   blockIndex: number;
-  name: string;
+  placed?: true;
+  name?: string;
   mimeType?: string;
   size?: number;
   pageCount?: number;
   companionOf?: number;
+  source?: AttachmentSource;
 };
 export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
   if (!hasInlineMarks(input, attachments)) return undefined;
@@ -33,6 +46,8 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       continue;
     }
     const a = run.attachment;
+    // Only an attachment the composer put in the text is placed; the strip's goes after it, unmarked.
+    const placed = run.strip ? {} : { placed: true as const };
     const kind = a.kind === "link" || a.kind === "text" ? "file" : a.kind;
     const text = a.kind === "text" ? promptText("", [a]) : a.kind === "pasted" ? a.text : undefined;
     const blocks: PromptBlock[] = text ? [{ type: "text", text }] : attachmentBlocks(a);
@@ -40,10 +55,12 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     display.push({
       kind,
       blockIndex,
+      ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       size: a.size,
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
+      ...(a.source ? { source: a.source } : {}),
     });
     if (a.kind === "image")
       parts.push({
@@ -53,7 +70,9 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         blockIndex,
         mimeType: a.mimeType,
         name: a.name,
+        ...placed,
         ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(a.source ? { source: a.source } : {}),
       });
     else {
       const first = blocks[0];
@@ -63,16 +82,24 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         name: a.name,
         mimeType: a.mimeType,
         size: a.size,
+        ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
         ...(a.video ? { video: a.video } : {}),
+        ...(a.source ? { source: a.source } : {}),
       } as PromptContentPart);
     }
     if (a.kind === "image" && blocks[1]?.type === "resource_link") {
       const original = blocks[1];
-      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex });
-      display.push({ kind: "file", blockIndex: blockIndex + 1, name: original.name, companionOf: blockIndex });
+      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex, ...placed });
+      display.push({
+        kind: "file",
+        blockIndex: blockIndex + 1,
+        ...placed,
+        name: original.name,
+        companionOf: blockIndex,
+      });
     }
     blockIndex += blocks.length;
   }
@@ -82,9 +109,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   const kind = raw.kind ?? raw.type;
+  const placed = raw.placed === true ? { placed: true as const } : {};
   if (kind === "text" && typeof raw.text === "string")
     return raw.pasted === true
-      ? { kind: "pasted", name: translate("composer.pastedText"), text: raw.text }
+      ? { kind: "pasted", name: translate("composer.pastedText"), text: raw.text, ...placed }
       : { kind: "text", text: raw.text };
   if (kind === "image" && typeof raw.mimeType === "string" && typeof raw.id === "string")
     return {
@@ -98,6 +126,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
         : {}),
       ...(typeof raw.width === "number" ? { width: raw.width } : {}),
       ...(typeof raw.height === "number" ? { height: raw.height } : {}),
+      // This pane's own row keeps its image's bytes until acpmux, which names it otherwise, echoes it.
+      ...(typeof raw.src === "string" && raw.src.startsWith("data:") ? { src: raw.src } : {}),
+      ...placed,
+      ...sourceField(raw.source),
     };
   if (!["file", "document", "audio", "pasted", "resource_link"].includes(String(kind))) return undefined;
   return {
@@ -111,7 +143,15 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }
       : {}),
+    ...placed,
+    ...sourceField(raw.source),
   } as PromptContentPart;
+}
+
+/// `{source}` when acpmux kept a valid one with the part, else nothing.
+function sourceField(value: unknown) {
+  const source = attachmentSource(value);
+  return source ? { source } : {};
 }
 export function recordedPromptParts(msg: any, known?: readonly PromptContentPart[]): PromptContentPart[] | undefined {
   if (!Array.isArray(msg?.inlineParts)) return undefined;
@@ -121,6 +161,8 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
   });
   return parts.map((part, index) => {
     const old = known?.[index];
+    // This pane placed the prompt it sent; an acpmux from before the marker records none.
+    if (part.kind !== "text" && old?.kind === part.kind && old.placed && !part.placed) part = { ...part, placed: true };
     if (part.kind === "file") {
       const file = known?.find((candidate) => candidate.kind === "file" && candidate.uri === part.uri);
       const video = file?.kind === "file" ? parseVideoInfo(file.video) : undefined;
@@ -186,7 +228,49 @@ export async function restoreInline(
 ) {
   const attachments: ComposerAttachment[] = [];
   let input = "";
+  const isFrame = frameTextOf(rowImageNames(row));
+  // A video's frames, note and labels go back on its chip, not in the draft (composer/videoPrompt.ts):
+  // each video's note and its frames as read back, on the chip they follow (the nearest one before
+  // them of that video's name: two videos of one name keep their own).
+  const saved = new Map<
+    ComposerAttachment,
+    { note?: string; frames: { name: string; data: string; scene: boolean }[] }
+  >();
+  const of = (video: string) => {
+    let chip: ComposerAttachment | undefined;
+    for (let at = attachments.length - 1; at >= 0 && !chip; at--)
+      if (attachments[at]!.kind === "link" && attachments[at]!.name === video) chip = attachments[at];
+    if (!chip) return undefined;
+    return saved.get(chip) ?? saved.set(chip, { frames: [] }).get(chip)!;
+  };
+  let scene = false;
   for (const [index, part] of (row.inlineParts ?? []).entries()) {
+    // Only a note, label or frame that follows its video's chip is the chip's; one with no such chip
+    // (a frame restored before as an image of its own) stays what it was.
+    const owner =
+      part.kind === "text" && isFrame(part.text)
+        ? of(
+            isFramesNote(part.text)
+              ? (part.text.match(/^Frames from the video (.+) \(\d[\d:]*, \d+×\d+\)/)?.[1] ?? "")
+              : part.text.replace(/ \(new scene\)$/, "").replace(/ frame at [\d:.]+$/, ""),
+          )
+        : part.kind === "image" && isVideoFrameName(part.name)
+          ? of(part.name!.replace(/ frame at [\d:.]+$/, ""))
+          : undefined;
+    if (owner && part.kind === "text") {
+      if (isFramesNote(part.text)) owner.note = part.text;
+      scene = part.text.endsWith(" (new scene)");
+      continue;
+    }
+    if (owner && part.kind === "image") {
+      // A frame that cannot be read back fails the restore, as any other image does: a resend never
+      // goes without it.
+      const data = await read(part.id);
+      if (!data) throw new Error(translate("attachment.unavailable", { name: part.name ?? part.id }));
+      owner.frames.push({ name: part.name!, data: data.data, scene });
+      scene = false;
+      continue;
+    }
     if (part.kind === "text") {
       input += part.text;
       continue;
@@ -219,6 +303,7 @@ export async function restoreInline(
         ...(companion?.kind === "file" && companion.uri
           ? { originalPath: localPath(companion.uri), originalName: companion.name }
           : {}),
+        ...(part.source ? { source: part.source } : {}),
       };
     } else if (part.kind === "file" && part.uri) {
       attachment = {
@@ -229,6 +314,7 @@ export async function restoreInline(
         size: part.size ?? 0,
         path: localPath(part.uri),
         ...(part.video ? { video: part.video } : {}),
+        ...(part.source ? { source: part.source } : {}),
       };
     } else if (part.kind === "pasted" && part.text)
       attachment = {
@@ -238,10 +324,16 @@ export async function restoreInline(
         mimeType: "text/plain",
         size: part.text.length,
         text: part.text,
+        ...(part.source ? { source: part.source } : {}),
       };
     else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
+  }
+  for (const [index, chip] of attachments.entries()) {
+    const frames = chip.kind === "link" && !chip.video ? saved.get(chip) : undefined;
+    const video = frames && videoFromFrames(frames.note, frames.frames);
+    if (video) attachments[index] = { ...chip, video };
   }
   if (text === (row.resend ?? row.text)) return { input, attachments };
   return { input: carryInline(input, text, attachments), attachments: attachments.filter((a) => a.kind !== "pasted") };
@@ -267,16 +359,34 @@ export function stripFileDisplay(
       originals.set(block.uri, [...(originals.get(block.uri) ?? []), image]);
     }
   }
-  const files = new Map(
+  const links = new Map(
     attachments.flatMap((file) =>
-      file.kind === "link" && !file.mimeType.startsWith("video/")
+      file.kind === "link"
         ? attachmentBlocks(file).flatMap((block) =>
             block.type === "resource_link" ? [[block.uri, file] as const] : [],
           )
         : [],
     ),
   );
+  // Each image block is its own attachment's, taken in order, so byte-identical images keep
+  // their own sources (or none).
+  // A document's and an audio file's likewise.
+  const images = attachments.filter((image) => image.kind === "image");
+  const taken = new Set<ComposerAttachment>();
   return blocks.flatMap((block, blockIndex): DisplayPart[] => {
+    if (block.type === "image") {
+      const image = images.find(
+        (one) =>
+          !taken.has(one) && one.data === block.data && one.name === block.name && one.mimeType === block.mimeType,
+      );
+      if (image) taken.add(image);
+      return image?.source ? [{ kind: "image", blockIndex, source: image.source }] : [];
+    }
+    if (block.type === "document" || block.type === "audio") {
+      const file = attachments.find((one) => !taken.has(one) && one.kind === block.type && one.data === block.data);
+      if (file) taken.add(file);
+      return file?.source ? [{ kind: block.type, blockIndex, source: file.source }] : [];
+    }
     const previous = blocks[blockIndex - 1];
     if (
       block.type === "resource_link" &&
@@ -289,7 +399,10 @@ export function stripFileDisplay(
         )
     )
       return [{ kind: "file", blockIndex, name: block.name, companionOf: blockIndex - 1 }];
-    const file = block.type === "resource_link" ? files.get(block.uri) : undefined;
+    const file = block.type === "resource_link" ? links.get(block.uri) : undefined;
+    // A video keeps its own display; it carries only its source.
+    if (file?.mimeType.startsWith("video/"))
+      return file.source ? [{ kind: "file", blockIndex, source: file.source }] : [];
     return file
       ? [
           {
@@ -298,6 +411,7 @@ export function stripFileDisplay(
             name: file.name,
             ...(file.mimeType ? { mimeType: file.mimeType } : {}),
             ...(file.mimeType || file.size > 0 ? { size: file.size } : {}),
+            ...(file.source ? { source: file.source } : {}),
           },
         ]
       : [];

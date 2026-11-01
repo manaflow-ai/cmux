@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextHomeEngine
@@ -24,9 +26,9 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707) is a Debug/Labs surface: every right-click menu that places it
-    /// (the tab bar's + among them) leaves it out until Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, off by default) is on.
+    /// Inspect Element (#24707): every right-click menu that places it (the tab bar's + among
+    /// them) leaves it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off.
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value
@@ -59,7 +61,9 @@ enum AgentHandlers {
             return .done
         })
         for (id, destination) in forkActions {
-            registry.bindEffect(id, requires: nil, effect: { invocation in
+            // A new row needs rows on and `rows-v1`, as New Row does: disabled with that reason.
+            let gatesOnRows = destination == .row
+            registry.bindEffect(id, requires: nil, unavailable: { gatesOnRows ? ColumnHandlers.newRowUnavailableReason(context) : nil }, effect: { invocation in
                 try fork(destination, offerDestinations: id == "palette.forkAgentConversation", invocation: invocation, context: context)
                 return .done
             })
@@ -154,7 +158,14 @@ enum AgentHandlers {
             }
         })
         gatePointerInspectorMenuRows(in: registry)
-        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
+        registry.bindEffect(.fileOpen, effect: { invocation in
+            do {
+                try openFile(invocation, context: context)
+                return .done
+            } catch {
+                return .refused(ViewerService.reason(error))
+            }
+        })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -165,6 +176,10 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()
+        })
+        // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
+        registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
+            context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
@@ -256,6 +271,7 @@ enum AgentHandlers {
             })
         }
         TerminalChatHandler.bind(into: registry, context: context)
+        AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
         let helper = ComputerUseHelperDaemon.shared
@@ -347,13 +363,8 @@ enum AgentHandlers {
     }
 
     /// Fork Conversation's actions, in the palette step's order (the default destination first).
-    static let forkActions: [(ActionID, AgentForkDestination)] = [
-        ("palette.forkAgentConversation", .default),
-        ("palette.forkAgentConversationRight", .right), ("palette.forkAgentConversationLeft", .left),
-        ("palette.forkAgentConversationTop", .up), ("palette.forkAgentConversationBottom", .down),
-        ("palette.forkAgentConversationNewTab", .tab), ("palette.forkAgentConversationNewWorkspace", .workspace),
-        ("palette.forkAgentConversationNewWindow", .window),
-    ]
+    static let forkActions: [(ActionID, AgentForkDestination)] = [("palette.forkAgentConversation", .default)]
+        + AgentForkDestination.allCases.map { ($0.actionID, $0) }
 
     /// The destination fork action `id` opens at, or nil for another action.
     static func destination(of id: ActionID) -> AgentForkDestination? {
@@ -393,6 +404,8 @@ enum AgentHandlers {
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let cwd = tab.cwd
+        // A new row is as tall as the agent's row (New Row's G3 rule).
+        let rowHeight = pane.workspace?.layoutModel.newRowHeight(below: pane.layoutPaneID) ?? 1000
         let logger = context.daemon.logger
         let refusals = context.services.refusalHUD
         let windows = context.services.windows
@@ -418,20 +431,21 @@ enum AgentHandlers {
                 }
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
-                switch destination {
-                case .right, .left:
-                    surface = try await connection.split(handle, direction: .right, options: options).surface
+                switch TerminalForkPlacement(destination) {
+                case let .split(down, swap):
+                    surface = try await connection.split(handle, direction: down ? .down : .right, options: options).surface
                     // A split always opens right/below; swap to put the fork first.
-                    if destination == .left { try await connection.swapPane(handle, with: .direction(.right)) }
-                case .down, .up:
-                    surface = try await connection.split(handle, direction: .down, options: options).surface
-                    if destination == .up { try await connection.swapPane(handle, with: .direction(.down)) }
+                    if swap { try await connection.swapPane(handle, with: .direction(down ? .down : .right)) }
+                case let .column(left):
+                    surface = try await connection.newColumn(beside: handle, left: left, options: options).surface
+                case .row:
+                    surface = try await RowCommands(connection).newRow(below: handle, height: rowHeight, options: options).surface
                 case .tab:
                     surface = try await connection.newTab(in: handle, options: options).surface
-                case .workspace, .window:
+                case .workspace:
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
-                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
+                        try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }
@@ -444,8 +458,11 @@ enum AgentHandlers {
                 }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
-                // The person asked for a fork: say why there is none (acpmux's reason).
-                refusals.show(error.localizedDescription, in: windows.active?.window)
+                // The person asked for a fork: say why there is none (acpmux's reason). A pane still opening was shown
+                // already where the request was refused (`DaemonConnection.observePaneNotReady`), once.
+                if (error as? PaneNotReady)?.shown != true {
+                    refusals.show(error is PaneNotReady ? MiscHandlerStrings.paneNotReady : error.localizedDescription, in: windows.active?.window)
+                }
             }
         }
     }
@@ -461,22 +478,37 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
-        // run), so the tab check for WebKit page types no longer applies.
-        if target == .tab {
+        // A path named in a Cloud pane belongs to that machine, so a local editor is refused there. The
+        // editor needs no pane: with none named or focused (no window open), the file is this Mac's.
+        let paneless = target == .editor && !context.namesPane(invocation) && context.services.windows.active?.focusedPane == nil
+        let pane = paneless ? nil : context.paneController(invocation)
+        guard paneless || pane != nil else { return }
+        // Open as Text applies on the file's machine, including Cloud Markdown.
+        let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+        if let pane, !pane.daemon.isLocal {
+            guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            let url = URL(fileURLWithPath: path)
+            guard target == .tab else { throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent)) }
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user, asText: asText) {
+                throw ActionFailure(message: reason)
+            }
+            return
+        }
+        // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
+        // renders the page (u18051); Open as Text and Edit Source show its source.
+        if target == .tab, let pane {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
-            guard let pane = context.paneController(invocation) else { return }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening
         do {
-            opening = try AgentPaneFileOpening.plan(path: path, target: target)
+            opening = try AgentPaneFileOpening.plan(path: path, target: target, editor: { context.services.editorApps.application() })
         } catch AgentPaneFileRefusal.relativePath {
             throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
         } catch AgentPaneFileRefusal.notInTab {
@@ -487,7 +519,7 @@ enum AgentHandlers {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
         if let editor = opening.editor {
-            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            context.services.editorApps.open(opening.url, withApplicationAt: editor)
         }
     }
 }

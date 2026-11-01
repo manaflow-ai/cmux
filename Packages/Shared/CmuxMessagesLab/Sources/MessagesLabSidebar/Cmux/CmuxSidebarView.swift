@@ -50,11 +50,21 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
+    /// How the conversation's own `avatar` moves: nil stands still (``SidebarAvatarMotion``).
+    public var avatarMotion: AvatarMotion?
+
+    /// A moving avatar: a Chief's slow idle loop, livelier while it works.
+    public enum AvatarMotion: Hashable, Sendable {
+        case idle
+        case working
+    }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil,
+                avatarMotion: AvatarMotion? = nil) {
         self.avatar = avatar
+        self.avatarMotion = avatarMotion
         self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
@@ -95,6 +105,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
+        s.avatarMotion = own == nil ? nil : avatarMotion.map { $0 == .working ? .working : .idle }
         return s
     }
 }
@@ -157,6 +168,29 @@ public final class CmuxSidebarView: NSView {
 
     let controller = SidebarController()
     private let link = SidebarLink()
+    /// The hover x of the ``closableID`` row (CmuxSidebarRowClose.swift).
+    private(set) lazy var rowClose = CmuxSidebarRowClose(list: self)
+
+    /// The row that shows an x at its trailing edge while the pointer is over it, as Messages'
+    /// New Message row does; nil (the default) shows it on no row. The avatar-only list and a
+    /// pinned tile never show it.
+    public var closableID: String? {
+        get { rowClose.rowID }
+        set { rowClose.rowID = newValue }
+    }
+    /// The ``closableID`` row's x was clicked (its id). The host removes the row.
+    public var onClose: (String) -> Void {
+        get { rowClose.onClose }
+        set { rowClose.onClose = newValue }
+    }
+    /// The x's tooltip and accessibility label ("Close New Message").
+    public var closeTitle: String {
+        get { rowClose.button.toolTip ?? "" }
+        set {
+            rowClose.button.toolTip = newValue
+            rowClose.button.setAccessibilityLabel(newValue)
+        }
+    }
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
     public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
@@ -178,6 +212,13 @@ public final class CmuxSidebarView: NSView {
         // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
         // bubbles already pulsing (CmuxSidebarView+Motion.swift).
         motionObservers = observeReduceMotion()
+        _ = rowClose
+    }
+
+    public override func layout() {
+        super.layout()
+        // A width change can make the list avatar-only (no x) or move the row's trailing edge.
+        rowClose.refresh()
     }
 
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
@@ -229,6 +270,7 @@ public final class CmuxSidebarView: NSView {
         if !Self.animatesMovement { SidebarMotion.enabled = false }
         defer { SidebarMotion.enabled = listMotion }
         controller.reloadData()
+        rowClose.refresh()
     }
 
     /// The search field's text.

@@ -11,6 +11,7 @@ import {
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -101,6 +102,35 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
+  test("bakes the canonical acpmux user service with linger and enable-now", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    expect(command).toContain("loginctl enable-linger \"$CMUX_TUI_USER\"");
+    const startManager = command.indexOf('systemctl start "user@$(id -u "$CMUX_TUI_USER").service"');
+    const waitBus = command.indexOf('while [ "$i" -lt 30 ]');
+    expect(startManager).toBeGreaterThanOrEqual(0);
+    expect(startManager).toBeLessThan(waitBus);
+    expect(command).toContain("acpmux.service");
+    expect(command).toContain("systemctl --user enable --now acpmux.service");
+    expect(command).toContain("systemctl --user restart acpmux.service");
+    expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
+    const stop = command.indexOf("systemctl --user stop acpmux.service");
+    const shutdown = command.indexOf("daemon shutdown --keep-agents");
+    const enable = command.indexOf("systemctl --user enable --now acpmux.service");
+    expect(stop).toBeGreaterThanOrEqual(0);
+    expect(shutdown).toBeGreaterThan(stop);
+    expect(enable).toBeGreaterThan(shutdown);
+  });
+
+  test("keeps the baked unit byte-identical to acpmux's canonical unit", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    const baked = command.match(/<<'ACPMUX_UNIT'\n([\s\S]*?)ACPMUX_UNIT/);
+    expect(baked?.[1]).toBeDefined();
+    const hosts = readFileSync(join(import.meta.dirname, "../../cmux-tui/crates/acpmux/src/cli/hosts.rs"), "utf8");
+    const canonical = hosts.match(/const SYSTEMD_UNIT: &str = "([\s\S]*?)";\n\n\/\/\/ Unit texts earlier/);
+    expect(canonical?.[1]).toBeDefined();
+    expect(baked?.[1]).toBe(canonical?.[1]);
+  });
+
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     // One runtime selection, shared with the daemon launch, so install and

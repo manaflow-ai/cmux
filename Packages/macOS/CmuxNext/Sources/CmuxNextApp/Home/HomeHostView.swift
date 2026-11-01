@@ -43,11 +43,8 @@ final class HomeHostView: NSView {
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
-    /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
-    /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
-    /// else 🫡 if its picture is missing from the bundle.
-    static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { defaultTileAvatar(picture: ChiefPetSettingsRows.avatarURL(of: mascot)) }
-    /// The same from the picture the default Chief wears (`AppServices.characterPicture(of:)`: its upload, else its character).
+    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.chosenPicture(of:)`, its
+    /// upload or picked character), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
@@ -57,6 +54,7 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
@@ -175,8 +173,8 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // settings' last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing, named, hosted, participant) in ObservationStream({
-                () -> (Bool, Int, String, Bool, Bool, String?, Bool, String?) in
+            for await (isChief, _, title, cloud, typing, named, hosted, participant, lastSeq) in ObservationStream({
+                () -> (Bool, Int, String, Bool, Bool, String?, Bool, String?, Seq) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
@@ -187,7 +185,7 @@ final class HomeHostView: NSView {
                 return (chief, store.transcriptVersion[id] ?? 0, name ?? row?.summary.title ?? "", service.isCloudConversation(id),
                         row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
                         service.cloudChiefPlacement(of: conversation)?.placed != true,
-                        row.flatMap { HomeService.soleChief(of: $0.summary.participants) })
+                        row.flatMap { HomeService.soleChief(of: $0.summary.participants) }, row?.summary.lastSeq ?? 0)
             }) {
                 guard let self else { return }
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
@@ -200,9 +198,9 @@ final class HomeHostView: NSView {
                 petRows.chief = participant
                 self.isChief = isChief
                 openPendingSettings()
-                // The Chief types while its turn runs: the compose bar offers Stop.
                 isWorking = isChief && typing
                 transcript.isWorking = isWorking
+                turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {
                     showsCloud = cloud
                     showsHosted = hosted
@@ -217,12 +215,11 @@ final class HomeHostView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation): each Chief of
         // this conversation wears its Home row's avatar beside a group's bubbles, again after a
         // swap (a Chief's picture or text, the pet character a Chief with none wears).
-        avatarsWatch = Task { [weak self, weak service, weak services] in
+        avatarsWatch = Task { [weak self, weak service] in
             for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
                 guard let service else { return [:] }
                 let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-                let fallback = HomeHostView.defaultTileAvatar(picture: services?.characterPicture(of: nil))
-                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
+                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: .chiefDefault)  // own picks: chiefFaces
             }) {
                 self?.transcript.setChiefBubbleAvatars(avatars)
             }
@@ -280,21 +277,29 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
-        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
-        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
-        // page (no messages yet) and is marked shown the moment it does, so it never returns.
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
+        // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage
+        // transcript); a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's
+        // front page (no messages yet). A fresh install hides the first-run panel from the start, so it never
+        // flashes before the welcome.
+        let intro = ChiefIntroStore(defaults: .standard)
+        transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
         chiefIntroWatch = Task { [weak self] in
-            let intro = ChiefIntroStore(defaults: .standard)
             for await kind in ObservationStream({ () -> ChiefIntroKind? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let me = store.me?.id
-                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
                     .filter { $0.kind == .chief && $0.id != id }.count
                 return intro.intro(for: id, otherChiefs: others)
             }) {
                 guard let kind else { continue }
                 guard let self else { return }
+                // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
+                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
+                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                                               intro: intro, text: ChiefWelcome.text(services.registry)) { return }
+                self.transcript.welcomesInChat = false
                 intro.markShown(kind, for: id)
                 self.transcript.showFirstRunIntro(kind)
                 return
@@ -352,7 +357,9 @@ final class HomeHostView: NSView {
                 (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
                  service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
-                self?.transcript.isHidden = !available
+                // An unanswered availability check is still loading: keep Home's existing
+                // transcript loading/connecting treatment visible instead of leaving a blank pane.
+                self?.transcript.isHidden = !available && explained
                 self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
@@ -461,19 +468,19 @@ final class HomeHostView: NSView {
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
-    /// The picture of the pet character the Chief shown here wears (its own pick).
-    private var characterPicture: URL? {
-        control.services.characterPicture(of: petRows.chief)
+    /// The picture the Chief shown here wears where its profile sets none: its upload, else its pick, else nil.
+    private var fallbackPicture: URL? {
+        control.services.chosenPicture(of: petRows.chief)
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,
-    /// else its own pet character.
+    /// else its worn upload, else nil and the header draws its name's monogram.
     private func loadAvatar() {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
         settingsView.pictureStore = store
-        let fallback = characterPicture
+        let fallback = fallbackPicture
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
             let avatar = if let store {
@@ -487,11 +494,11 @@ final class HomeHostView: NSView {
             let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
-                  fallback == characterPicture else { return }
+                  fallback == fallbackPicture else { return }
             let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
-            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
+            let text = avatar.text  // nil: the header and the hero draw the name's monogram (CH)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
-            settingsView.setAvatar(picture: picture, text: text)
+            settingsView.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
         }
     }
 
@@ -504,6 +511,11 @@ final class HomeHostView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
+    /// `debug.home.api` edit_picture: a picture picked or dropped on this view's Chief card (Move and Scale).
+    func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
+        loadAvatar()
+        return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
+    }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif

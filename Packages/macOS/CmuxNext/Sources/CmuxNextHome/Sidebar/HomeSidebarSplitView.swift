@@ -31,6 +31,12 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         didSet { if composing != oldValue { updateChatCompose() } }
     }
     private let list: HomeSidebarView
+    /// The accent band on the divider while it is dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
+    /// The divider's grab area for hover (NSSplitView keeps no hover of its own); moved with it.
+    private var hoverArea: NSTrackingArea?
+    private var isDividerHovered = false
+    private var isDividerDragging = false
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
         didSet { followLoneConversationTunable() }
@@ -49,6 +55,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         addArrangedSubview(chatColumn)
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
+        wantsLayer = true
+        // Above both columns' layers, so the band shows over the list's and the chat's edges.
+        glow.layer.zPosition = 1
+        layer?.addSublayer(glow.layer)
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
         followLoneConversationTunable()
@@ -104,6 +114,66 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // see-through chat (live-qa 2026-10-21: at 320 pt after a clamp to 164).
             super.layout()
         }
+        placeGlow()
+    }
+
+    private func placeGlow() {
+        glow.place(along: dividerRect, vertical: true)
+        updateHoverArea()
+    }
+
+    private var grabRect: NSRect { dividerRect.insetBy(dx: -Self.grab, dy: 0) }
+
+    private func updateHoverArea() {
+        let rect = list.isHidden ? .zero : grabRect
+        if let hoverArea {
+            if hoverArea.rect == rect { return }
+            removeTrackingArea(hoverArea)
+        }
+        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+        // A replaced area sends no exit: the divider moved (a double-click reset, a clamp) or the list
+        // folded under a still pointer, so the hover is read again from where the pointer is now.
+        reconcileHover()
+    }
+
+    private func reconcileHover() {
+        guard !isDividerDragging else { return }
+        let hovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
+        guard hovered != isDividerHovered else { return }
+        isDividerHovered = hovered
+        updateGlow()
+    }
+
+    override public func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // AppKit rebuilds areas here; ours is re-added at the divider's current place.
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        hoverArea = nil
+        updateHoverArea()
+    }
+
+    override public func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { return super.mouseEntered(with: event) }
+        isDividerHovered = true
+        updateGlow()
+    }
+
+    override public func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === hoverArea else { return super.mouseExited(with: event) }
+        isDividerHovered = false
+        updateGlow()
+    }
+
+    private func updateGlow() {
+        glow.applyTheme(self)
+        glow.set(isDividerDragging ? .dragging : isDividerHovered && !list.isHidden ? .hovered : .rest)
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        glow.applyTheme(self)
     }
 
     override public func mouseDown(with event: NSEvent) {
@@ -111,6 +181,21 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         if event.clickCount == 2, !list.isHidden, dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point) {
             resetWidth()
             return
+        }
+        // NSSplitView tracks the drag inside `mouseDown` and returns on the release: the band is
+        // lit for exactly that span, so nothing is left to turn it off.
+        let onDivider = !list.isHidden && grabRect.contains(point)
+        if onDivider {
+            isDividerDragging = true
+            updateGlow()
+        }
+        defer {
+            if onDivider {
+                isDividerDragging = false
+                // Where the release left the pointer: still over the divider keeps the hover band.
+                isDividerHovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
+                updateGlow()
+            }
         }
         super.mouseDown(with: event)
     }
@@ -124,14 +209,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         place(width)
     }
     #endif
-
-    /// The page moved in its window without a resize (the window's sidebar opened or closed
-    /// beside it): the list's header and the chat's compose re-read the traffic lights now.
-    public func windowControlsMoved() {
-        guard window != nil, !isHidden else { return }
-        list.updateWindowControlsAvoidance()
-        chatColumn.updateWindowControlsAvoidance()
-    }
 
     /// Back to the standard width (the divider's double-click).
     public func resetWidth() {
@@ -167,6 +244,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // `layout()` calls this).
             super.layout()
             updateChatCompose()
+            // A folded list has no divider to hover; shown again, its area comes back.
+            updateHoverArea()
         }
         return fold
     }
@@ -221,6 +300,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
+        placeGlow()
         // Only the user's drag is kept (AppKit names the divider it moved).
         guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         widths.save(sidebarWidth, window: windowKey())

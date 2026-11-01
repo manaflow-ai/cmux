@@ -49,6 +49,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py check --notes DIR/B.json         the release gate: fails a build with no or bad What's New entries
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
+import urllib.parse
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -172,18 +173,31 @@ DANGLING = re.compile(r"\b(?:a|an|the|and|or|but|to|of|in|on|for|with|by|even|so
 
 def short_title(text, limit):
     """At most `limit` characters: the text when it fits, else its first clause when that fits, has
-    three words and does not end on a joining word, else None. Never a cut word or an ellipsis
-    (readableChange.ts shortTitle)."""
+    three words and does not end on a joining word, else None. Never a cut word, an ellipsis or a
+    cut inside parentheses (readableChange.ts shortTitle)."""
     text = " ".join(text.split()).rstrip(". ")
     if len(text) <= limit:
         return text
     for match in CLAUSE.finditer(text):
+        if open_parens(text[:match.start()]):
+            continue
         head = text[:match.start()].rstrip(" ,;:—-")
         if len(head) > limit:
             return None
         if len(head.split()) >= 3 and not DANGLING.search(head):
             return head
     return None
+
+
+def open_parens(text):
+    """How many "(" in `text` no ")" closes yet (readableChange.ts openParens)."""
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+    return depth
 
 
 def title_tail(full, title):
@@ -300,8 +314,8 @@ PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
 # (scripts/pr-media.py). The notes carry its URL and hash; the app fetches it and shows it only when
 # the bytes match (ReleaseMediaStore.highlightData). Anything else leaves the highlight without one.
 PR_MEDIA_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/"
-PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<img\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
-# The app's limit (ReleaseMediaStore.maxImageBytes) and the picture types it decodes.
+PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<(?:img|video|source)\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
+# The app's limit (ReleaseMediaStore.maxMediaBytes) and the media types it decodes.
 PR_MEDIA_MAX_BYTES = 4 << 20
 PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
 # Each call waits at most PR_MEDIA_TIMEOUT seconds, and all of them together PR_MEDIA_BUDGET, so a slow
@@ -311,9 +325,41 @@ PR_MEDIA_BUDGET = 120
 
 
 def pr_media_picture(data):
-    """True for bytes the app would show: a PNG, JPEG, GIF or WebP within its size limit."""
+    """True for bytes the app would show: a picture or short video within its size limit."""
     webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or data.startswith(PR_MEDIA_SIGNATURES))
+    video = len(data) >= 12 and data[4:8] == b"ftyp"
+    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or video or data.startswith(PR_MEDIA_SIGNATURES))
+
+
+def public_pr_media_url(url):
+    """Whether a PR body URL is the repository's public media host and branch."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme
+        hostname = parsed.hostname
+        port = parsed.port
+        username = parsed.username
+        password = parsed.password
+        query = parsed.query
+        fragment = parsed.fragment
+        decoded_path = urllib.parse.unquote(parsed.path)
+    except ValueError:
+        return False
+    return (
+        scheme == "https"
+        and hostname == "raw.githubusercontent.com"
+        and port is None
+        and not username
+        and not password
+        and not query
+        and not fragment
+        and decoded_path.startswith("/manaflow-ai/cmux/pr-media/")
+        # A remaining percent sign could be decoded again downstream. Reject it,
+        # and backslashes that URL loaders can interpret as path separators.
+        and "%" not in decoded_path
+        and "\\" not in decoded_path
+        and not any(segment in (".", "..") for segment in decoded_path.split("/"))
+    )
 
 
 def pr_body(pr, fixture):
@@ -361,13 +407,14 @@ def find_pr_media(highlight, path, head):
         return
     for found in PR_MEDIA_IMAGE.finditer(pr_body(int(match["pr"]), fixture)):
         url = found["url"]
-        if not url.startswith(PR_MEDIA_PREFIX):
+        if not public_pr_media_url(url) or not url.startswith(PR_MEDIA_PREFIX):
             continue
         data = pr_download(url, fixture)
         if data is None or not pr_media_picture(data):
             print(f"pr-media: {path}: #{match['pr']} {url} is not a picture the app shows; left out", file=sys.stderr)
             return
-        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": "image",
+        kind = "video" if len(data) >= 12 and data[4:8] == b"ftyp" else "image"
+        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": kind,
                                "alt": highlight["title"]}]
         return
 
@@ -565,13 +612,15 @@ def build(args):
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
-    added = set(p for p in added if p.endswith(".md"))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    from digest import surviving_highlights
+    added = surviving_highlights(args.head, added)
     again = reannounced(args.since, args.head, added)
     for path in sorted(added | set(again)):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
         if highlight["media"]:
             clip_caption(highlight, args.head)
-        elif args.pr_media:
+        elif args.pr_media and highlight.get("category", "new") in {"new", "improved"}:
             add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a

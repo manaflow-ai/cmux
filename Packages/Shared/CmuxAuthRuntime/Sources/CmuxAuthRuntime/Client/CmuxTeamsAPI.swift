@@ -2,7 +2,7 @@ public import CMUXAuthCore
 public import Foundation
 
 /// The cmux team API (`<apiBaseURL>/api/teams`): the signed-in user's teams
-/// with roles, one team's detail, and create, rename and delete. Every request
+/// with roles, one team's detail, create, rename and delete, and email invitations. Every request
 /// carries the native session pair (`Authorization: Bearer <access>` and
 /// `X-Stack-Refresh-Token: <refresh>`), as every other cmux API call does.
 /// Failures are ``CMUXTeamError``.
@@ -61,6 +61,21 @@ public struct CmuxTeamsAPI: Sendable {
         _ = try await perform("DELETE", ["api", "teams", teamID], body: nil)
     }
 
+    /// `POST /api/teams/:id/invitations`: invites each address to the team (admins, or a member
+    /// the team lets invite). The server emails each invitation; joining is a billable member
+    /// change on a paid team (a Team plan's seat count follows its members).
+    ///
+    /// - Parameters:
+    ///   - teamID: The team.
+    ///   - emails: 1 to 20 addresses.
+    ///   - role: The role each gets on joining (`member` unless an admin is meant).
+    /// - Returns: The invitations sent and the addresses refused (already members, unsendable).
+    /// - Throws: ``CMUXTeamError``: `forbidden` without the invite permission, `unavailable` on a
+    ///   rate limit or network failure.
+    public func invite(teamID: String, emails: [String], role: CMUXTeamRole = .member) async throws -> CMUXTeamInviteResult {
+        try await send("POST", ["api", "teams", teamID, "invitations"], body: InviteBody(emails: emails, role: role.rawValue))
+    }
+
     private func send<Reply: Decodable>(_ method: String, _ path: [String], body: (any Encodable)? = nil) async throws -> Reply {
         let data = try await perform(method, path, body: body)
         do {
@@ -105,6 +120,11 @@ public struct CmuxTeamsAPI: Sendable {
 
 private struct NameBody: Encodable {
     let displayName: String
+}
+
+private struct InviteBody: Encodable {
+    let emails: [String]
+    let role: String
 }
 
 private struct TeamReply: Decodable {

@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// `browser.toolbarPosition` bottom (user, 2026-10-20: "move my OmniBar tabs to the bottom side"):
 /// the toolbar rows sit under the page, the band for the pane's tab strip sits between the page and
 /// the rows, and the omnibar's popups and the page's bars open away from the window's bottom edge.
 /// Rects are in window coordinates (y up).
-@MainActor @Suite(.serialized) struct BrowserToolbarBottomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserToolbarBottomTests {
     struct Chrome {
         let window: NSWindow
         let chrome: BrowserChromeView

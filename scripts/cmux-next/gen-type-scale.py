@@ -90,10 +90,14 @@ def css(current, data):
 
 def swift(data):
     steps = "\n".join(
-        "    /// %s.\n    public static let %s: CGFloat = %s\n    public static let %sLineHeight: CGFloat = %s\n"
+        "    /// %s.\n    @MainActor public static var %s: CGFloat { Base.%s * Typography.userScale }\n    @MainActor public static var %sLineHeight: CGFloat { Base.%sLineHeight * Typography.userScale }\n"
         "    public static let %sTracking: CGFloat = %s"
-        % (step["for"][0].upper() + step["for"][1:], step["name"], step["size"], step["name"], step["lineHeight"],
+        % (step["for"][0].upper() + step["for"][1:], step["name"], step["name"], step["name"], step["name"],
            step["name"], step["tracking"])
+        for step in data["steps"])
+    base_steps = "\n".join(
+        "        public static let %s: CGFloat = %s\n        public static let %sLineHeight: CGFloat = %s"
+        % (step["name"], step["size"], step["name"], step["lineHeight"])
         for step in data["steps"])
     weights = "\n".join(
         "    /// %s.\n    public static let %s: NSFont.Weight = %s"
@@ -131,12 +135,18 @@ public nonisolated struct TypeScale: Sendable {{
 
 {steps}
 
-    /// Every step, small to large.
+    /// Reference sizes for off-main probes and surfaces that apply their own text scale.
+    public nonisolated struct Base: Sendable {{
+        public init() {{}}
+{base_steps}
+    }}
+
+    /// Unscaled token values, small to large. The named steps follow Interface Size live.
     public static let sizes: [CGFloat] = [{sizes}]
 
 {weights}
 }}
-""".format(src=SOURCE, steps=steps, weights=weights, sizes=", ".join(str(step["size"]) for step in data["steps"]),
+""".format(src=SOURCE, steps=steps, base_steps=base_steps, weights=weights, sizes=", ".join(str(step["size"]) for step in data["steps"]),
            family=data["font"]["family"], file_family=data["font"]["fileFamily"], native=data["font"]["files"]["native"],
            web=data["font"]["files"]["web"], stack=font_stack(data).replace('"', '\\"'),
            a=data["tracking"]["a"], b=data["tracking"]["b"], c=data["tracking"]["c"])

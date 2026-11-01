@@ -9,7 +9,7 @@ import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
-import { ComputerUseCard } from "./ComputerUseCard";
+import { COMPUTER_USE_ROWS, ComputerUseCard } from "./ComputerUseCard";
 import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -26,9 +26,10 @@ import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } f
 import { PlaceholderSection } from "./PlaceholderSection";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
-import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
+import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
@@ -38,7 +39,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   themeStudio: (focus) => <ThemeStudio focus={focus} />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
-  computerUse: () => <ComputerUseCard />,
+  computerUse: (focus) => <ComputerUseCard focus={focus} />,
   harnesses: () => <HarnessesCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
@@ -61,6 +62,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  contextMenus: (focus) => <ContextMenusCard focus={focus} />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -74,10 +76,11 @@ export function SectionView({
   workspace?: string | null;
 }) {
   const category = categoryById(section);
-  // The theme studio draws appearance.theme, appearance.appTheme and appearance.accent itself; the
-  // schema's group for them would draw each a second time (a second "App Theme" card).
+  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent and
+  // appearance.highlightColor itself; the schema's group for them would draw each a second time (a
+  // second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
+  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
@@ -86,6 +89,8 @@ export function SectionView({
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
+  // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
+  const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
   const machinesCard = [...category.lead, ...category.trail].includes("machines");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
@@ -100,6 +105,7 @@ export function SectionView({
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
+          !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))
@@ -110,7 +116,7 @@ export function SectionView({
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}
-      {groups.length > 0 && <GroupList groups={groups} focus={focus} />}
+      {groups.length > 0 && <GroupList groups={groups} focus={focus} pageTitle={text(category.title)} />}
       {category.trail.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}

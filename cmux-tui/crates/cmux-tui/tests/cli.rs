@@ -436,6 +436,25 @@ fn wait_for_socket_path(path: &std::path::Path) {
     panic!("server did not accept connections at {}", path.display());
 }
 
+/// The server answers ordinary requests as soon as its socket accepts, but
+/// its lifecycle commands (`server status`, `reload-config`, `stop`) only
+/// once it is lifecycle-ready (`Mux::mark_server_lifecycle_ready`); before
+/// that they refuse with "still starting". A test that sends a lifecycle
+/// command right after a start waits for that readiness, not for the socket.
+#[cfg(unix)]
+fn wait_for_lifecycle_ready(path: &std::path::Path) {
+    wait_for_socket_path(path);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        let identity = json_socket_request(path, serde_json::json!({"id":1,"cmd":"identify"}));
+        if identity["lifecycle_ready"].as_bool() == Some(true) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("server at {} never became lifecycle-ready", path.display());
+}
+
 fn lifecycle_cli(args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
@@ -1364,7 +1383,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     };
 
     let mut first = spawn();
-    wait_for_socket_path(&socket);
+    wait_for_lifecycle_ready(&socket);
     let create = lifecycle_cli(&[
         "--json",
         "--socket",
@@ -1404,7 +1423,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     assert!(wait_for_child_exit(&mut first, Duration::from_secs(10)));
 
     let mut restarted = spawn();
-    wait_for_socket_path(&socket);
+    wait_for_lifecycle_ready(&socket);
     let workspaces =
         lifecycle_cli(&["--json", "--socket", socket.to_str().unwrap(), "workspace", "list"]);
     assert_success(&workspaces);
@@ -3764,6 +3783,9 @@ mod left_dock_undock;
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
+#[cfg(unix)]
+#[path = "cli/newtab_agent_identity.rs"]
+mod newtab_agent_identity;
 #[cfg(unix)]
 #[path = "cli/remote_update_need.rs"]
 mod remote_update_need;

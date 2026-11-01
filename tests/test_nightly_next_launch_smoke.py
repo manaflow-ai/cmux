@@ -180,6 +180,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("line 50\n", body)
 
 
+class DmgDigestTests(unittest.TestCase):
+    """The smoke checks the downloaded DMG's bytes against the feed item's edSignature
+    (nightly_next_artifact_check.py), not only its byte length."""
+
+    def test_pick_names_the_items_ed_signature(self) -> None:
+        text = feed(300, 200, channel={300: "cmux-next-dev"})
+        self.assertEqual(smoke.pick(text), (200, f"{BASE}/cmux-nightly-next-macos-arm64-200.dmg", "5", "s"))
+        unsigned = text.replace(' sparkle:edSignature="s"', "")
+        self.assertEqual(smoke.pick(unsigned)[3], "")
+
+    def test_the_download_step_verifies_the_bytes(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["pick"]["outputs"]["ed_signature"], "${{ steps.feed.outputs.ed_signature }}")
+        self.assertEqual(jobs["smoke"]["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        sparse = jobs["smoke"]["steps"][0]["with"]["sparse-checkout"].split()
+        self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
+        self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
+        download = next(step for step in jobs["smoke"]["steps"] if step.get("id") == "dmg")["run"]
+        self.assertIn("nightly_next_artifact_check.py dmg", download)
+        self.assertIn('--ed-signature "$DMG_ED_SIGNATURE"', download)
+        self.assertIn('--length "$DMG_LENGTH"', download)
+
+
 class NothingWaitsOnTheSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -283,8 +306,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertEqual([step.get("id") for step in mints], ["route-token"])
         self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
         self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
-                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read",
-                          "permission-actions": "read"})
+                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read"})
         for name, job in self.jobs.items():
             if name != "pick":
                 self.assertNotIn("secrets.", json.dumps(job), name)
@@ -298,6 +320,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["pick"]["permissions"], {"actions": "read"})
+        pick_steps = {step.get("id"): step for step in self.jobs["pick"]["steps"]}
+        self.assertEqual(pick_steps["in-flight"]["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(pick_steps["place"]["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
 
     def test_it_never_cancels_and_its_mac_job_routes_owned_first(self) -> None:
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*true")

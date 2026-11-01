@@ -90,7 +90,7 @@ struct AcpmuxLostStartRaceTests {
         let fixture = try Fixture(winnerOfAnotherHome: false)
         var started: Result<Void, any Error> = .success(())
         do {
-            try await AcpmuxHost(environment: fixture.environment).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment).prewarm()
         } catch {
             started = .failure(error)
         }
@@ -116,7 +116,7 @@ struct AcpmuxLostStartRaceTests {
         let fixture = try Fixture(winnerOfAnotherHome: true)
         var thrown: (any Error)?
         do {
-            try await AcpmuxHost(environment: fixture.environment).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment).prewarm()
         } catch {
             thrown = error
         }

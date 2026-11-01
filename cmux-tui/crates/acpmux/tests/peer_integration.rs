@@ -778,6 +778,35 @@ async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
     assert!(peers[0]["error"].is_string(), "{peers:?}");
 }
 
+/// A waiting `_acpmux/peer_add` or `_acpmux/peer_reconnect` says what its wait saw: whether the
+/// connect attempt settled, and the peer as it was then, with its error. Before, the reply was
+/// the peer list alone, the same whether the attempt failed, succeeded or was still running
+/// when the 30 s wait ran out, so `host check --fix` printed "does not connect" with no reason
+/// while a 90 s handshake went on (2026-10-30).
+#[tokio::test]
+async fn a_waiting_peer_add_or_reconnect_says_whether_it_settled_and_why() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let url = format!("ws://127.0.0.1:{}", free_port());
+    let added = ca
+        .call("_acpmux/peer_add", json!({"name": "gone", "url": url, "wait": true}))
+        .await
+        .unwrap();
+    assert_eq!(added["wait"]["settled"], true, "{added}");
+    assert_eq!(added["wait"]["peer"]["name"], "gone", "{added}");
+    assert_eq!(added["wait"]["peer"]["connected"], false, "{added}");
+    assert!(added["wait"]["peer"]["error"].is_string(), "no reason: {added}");
+    let again = ca
+        .call("_acpmux/peer_reconnect", json!({"name": "gone", "wait": true, "force": true}))
+        .await
+        .unwrap();
+    assert_eq!(again["wait"]["settled"], true, "{again}");
+    assert!(again["wait"]["peer"]["error"].is_string(), "no reason: {again}");
+    // Without `wait`, the reply is as before.
+    let quick = ca.call("_acpmux/peer_add", json!({"name": "gone", "url": url})).await.unwrap();
+    assert!(quick.get("wait").is_none(), "{quick}");
+}
+
 /// ACP-REMOTE-GUARD P1: a peer proven by its peer token has no mode rule
 /// for its own local user, but a request it forwards for its Web client
 /// carries `via: web`, and the owning daemon applies the Web's rules on its
@@ -2121,10 +2150,10 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// No message on a peer link is larger than one frame every acpmux reads (31 MiB). At
 /// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
 /// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
-/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// 33 MB prompt pushed over the link fails alone, with an error; a 72 MB history comes in a page
 /// that fits, and a record too large for any message comes as a stub; the link never drops.
 #[tokio::test]
 async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
@@ -2134,7 +2163,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = 64 * 1024 * 1024;
 
-    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 32 MB, written straight to its store:
     // no hub runs the chat before B, so no other record lands after them.
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let id = uuid::Uuid::now_v7().to_string();
@@ -2164,7 +2193,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     for _ in 0..40 {
         output(1024 * 1024);
     }
-    output(20 * 1024 * 1024);
+    output(32 * 1024 * 1024);
     let last = seq;
     let b = Hub::new(cfg.clone(), store);
     let _ = b.person.install_spawn_key(PERSON_KEY);
@@ -2190,12 +2219,12 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     let att =
         ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
     let wire = serde_json::to_string(&att).unwrap().len();
-    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert!(wire <= acpmux::rpc::MAX_MESSAGE_BYTES, "the history page was {} MiB", wire >> 20);
     assert_eq!(att["peer"], "b");
     assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
     let events = att["events"].as_array().unwrap();
     assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
-    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    // The 32 MB record, too large for one JSON-RPC message, is a stub that says what it left out.
     let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
     assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
 
@@ -2207,7 +2236,7 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
     cb.call(
         method::SESSION_PROMPT,
-        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:32"}]}),
     )
     .await
     .unwrap();
@@ -2951,17 +2980,23 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    let here =
+        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
-    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
+    let there =
+        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
     assert!(there.contains("already runs on b"), "{there}");
-    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    assert_eq!(
+        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        Some("b")
+    );
     // On two machines: not guessed at, even with --reuse.
-    let two = resolve(&cli, "agent", Some("both"), true).await.unwrap_err().to_string();
+    let two =
+        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
     assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }

@@ -1,0 +1,76 @@
+name: PR design spec check
+
+# A pull request that changes a UI surface's files cites the surface's design spec in its description
+# (.github/design-surfaces.json maps surfaces to their paths and specs; one spec per surface, in
+# leo-workspace design/<surface>.md). The spec records the settled designs and the replaced ones, so a
+# change cannot quietly undo one (2026-10-28: #26071 replaced the model picker's harness tabs across the
+# top as the default, and nobody noticed). It only warns: the job never fails on what it finds.
+# scripts/ci/pr_design_spec_check.py decides and runs from the base branch, never the pull request's
+# code. The map is the base branch's joined with the PR's (data only, from the event's merge commit): a PR
+# that moves a surface's files and maps the new paths is judged on both, and one that drops or shrinks the
+# map is still judged by the base's. Editing the description re-runs it.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-design-spec-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  design-spec:
+    name: pr-design-spec-check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout the check from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_design_spec_check.py
+            .github/design-surfaces.json
+          sparse-checkout-cone-mode: false
+
+      # The changed paths, the merged tree's file list and its map, from the event's merge commit
+      # without blobs but the map's. Any failure leaves `listed` unset and the check is skipped.
+      - name: List the changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
+          git ls-tree -r --name-only "$MERGE_SHA" > "$RUNNER_TEMP/tree.txt"
+          git show "$MERGE_SHA:.github/design-surfaces.json" > "$RUNNER_TEMP/design-surfaces.json" || true
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check the description cites each changed surface's spec
+        if: ${{ steps.paths.outputs.listed == 'true' }}
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_design_spec_check.py ] || [ ! -f .github/design-surfaces.json ]; then
+            # The pull request that adds the check: its base has no check or map yet.
+            echo "::notice::The base branch has no design spec check or surface map yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/body.md" \
+            --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
+            --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
+            || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"

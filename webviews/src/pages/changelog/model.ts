@@ -13,7 +13,7 @@ import type {
 } from "./types";
 import { subjectArea, type AreaKey } from "./areas";
 import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
-import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
+import { openParens, readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -33,6 +33,8 @@ export interface ReleaseItem {
   media?: MediaRef;
   /** An allow-listed action id the page may ask the host to run, and its label (none: "Try it"). */
   action?: { id: string; title?: string };
+  /** Optional GitHub pull request URL for the shared PR chip. */
+  pr?: string;
   docs?: string;
 }
 
@@ -103,6 +105,7 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
           }
         : undefined,
     action: entry.tryIt?.action ? { id: entry.tryIt.action } : undefined,
+    pr: entry.pr,
     docs: entry.docs,
   };
 }
@@ -152,8 +155,17 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
   const clean = (text: string) => (machine ? readableChange(text).title : tidyTitle(text));
   if (machine && readableChange(item.title).internal) return undefined;
   let full = clean(item.title);
+  let itemSummary = item.summary;
+  // An older pipeline cut a long title inside its parentheses and made the rest the summary
+  // ("Routing follow-ups (trim recovered route" / "Prepared presets only, cap before split)."):
+  // the two read as the one line they were.
+  const tail = itemSummary.trim();
+  if (openParens(full) > 0 && tail && !tail.includes("\n") && openParens(`${full} ${tail}`) === 0) {
+    full = `${full}, ${uncapitalized(tail).replace(/[\s.]+$/u, "")}`;
+    itemSummary = "";
+  }
   const stem = stemOf(full);
-  const line = item.summary && !item.summary.includes("\n") ? clean(item.summary) : "";
+  const line = itemSummary && !itemSummary.includes("\n") ? clean(itemSummary) : "";
   // The summary repeats the title, maybe cut with "…" itself: the line the entry was made from.
   const echoes = !!line && (stemOf(line).startsWith(stem) || stem.startsWith(stemOf(line)));
   const lineWhole = echoes && !line.endsWith("…");
@@ -167,7 +179,7 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
     // The cut title may have dropped the words that mark the line internal ("… the Chief Dock squash").
     if (machine && readableChange(full).internal) return undefined;
   }
-  let summary = !echoes ? item.summary : lineWhole ? capitalized(titleTail(line, full)) : "";
+  let summary = !echoes ? itemSummary : lineWhole ? capitalized(titleTail(line, full)) : "";
   let title = full;
   const short = shortTitle(full);
   if (short && short !== full && !distinctSummary(full, summary)) {
@@ -190,7 +202,7 @@ export function readableUpdateItems(items: UpdateHighlightItem[]): UpdateHighlig
       [],
       machine,
     );
-    const key = readable?.title.toLowerCase();
+    const key = readable && titleKey(readable.title);
     if (!readable || !key || seen.has(key)) return [];
     seen.add(key);
     return [{ ...item, title: readable.title, summary: readable.summary || null }];
@@ -214,6 +226,12 @@ function stemOf(text: string): string {
 
 function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "Prepared presets only" reads "prepared presets only"; a word with more capitals ("PR", "iOS") stays. */
+function uncapitalized(text: string): string {
+  const word = text.split(/\s/u)[0] ?? "";
+  return /\p{Lu}/u.test(word.slice(1)) ? text : text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /** A subject without its "(#123)": how a revert names the change it undoes. */
@@ -269,7 +287,7 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     if (byId && ids.has(entryId(item.id))) return;
     const readable = readableItem(item, raw, machine);
     if (!readable) return;
-    const key = readable.title.toLowerCase();
+    const key = titleKey(readable.title);
     if (seen.has(key)) return;
     ids.add(entryId(item.id));
     seen.add(key);
@@ -291,6 +309,7 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   for (const [index, line] of (notes.summary ?? []).entries()) {
     add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);
   }
+  uniqueIds(items, (item, n) => `${item.id}~${n}`);
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
   const groups = CATEGORY_ORDER.map((category) => ({
@@ -310,17 +329,25 @@ export function changeItems(notes: ReleaseNotes): ChangeItem[] {
 export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView {
   const views = notes.map((n) => releaseView(n, language));
   const items: ReleaseItem[] = [];
+  const builds = new Map<ReleaseItem, string>();
   const seen = new Set<string>();
-  const add = (item: ReleaseItem | undefined) => {
-    const key = item?.title.trim().toLowerCase();
+  const add = (item: ReleaseItem | undefined, build: string) => {
+    const key = item && titleKey(item.title);
     if (!item || !key || seen.has(key)) return;
     seen.add(key);
+    builds.set(item, build);
     items.push(item);
   };
-  for (const view of views) {
-    add(view.hero);
-    view.groups.forEach((g) => g.items.forEach(add));
-  }
+  views.forEach((view, index) => {
+    const build = notes[index]!.build;
+    add(view.hero, build);
+    view.groups.forEach((g) => g.items.forEach((item) => add(item, build)));
+  });
+  // Ids are per build: a digest names its entries "summary-0", "summary-1", … in every nightly, so
+  // a day of nightlies repeats them. A repeated id gets its build, and the page's rows (keyed by
+  // id) stay one per change; with keys repeated React kept stale rows and dropped others (Leo
+  // 2026-11-01: the same changes listed twice on What's New).
+  uniqueIds(items, (item, n) => `${item.id}@${builds.get(item)}${n > 2 ? `~${n}` : ""}`);
   const hero = pickHero(items);
   const rest = items.filter((i) => i !== hero);
   const groups = CATEGORY_ORDER.map((category) => ({
@@ -328,6 +355,29 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
     items: rest.filter((i) => i.category === category),
   })).filter((g) => g.items.length > 0);
   return { hero, groups, ...pageChanges(notes.flatMap(changeItems)), count: items.length };
+}
+
+/** A title as two changes compare: case, runs of spaces and a closing period or ellipsis aside. */
+export function titleKey(title: string): string {
+  return title
+    .normalize("NFKC")
+    .replace(/[\u2018\u2019]/gu, "'")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(/[.!…\s]+$/u, "")
+    .toLowerCase();
+}
+
+/** Gives every item an id no earlier item has, in place: the first keeps its own, a repeat takes
+    `renamed(item, n)` for n = 2, 3, … until one is free. */
+function uniqueIds(items: ReleaseItem[], renamed: (item: ReleaseItem, n: number) => string): void {
+  const used = new Set<string>();
+  items.forEach((item, index) => {
+    let id = item.id;
+    for (let n = 2; used.has(id); n++) id = renamed(item, n);
+    used.add(id);
+    if (id !== item.id) items[index] = { ...item, id };
+  });
 }
 
 /** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build

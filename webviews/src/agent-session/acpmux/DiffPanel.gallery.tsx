@@ -230,6 +230,10 @@ const gitSource: ChangesSource = {
   commit: async () => ({}),
   push: async () => ({}),
 };
+/// A git scope whose host left untracked files out to stay responsive: the tracked-only banner.
+const trackedOnlySource: ChangesSource = {
+  diff: async (scope: ChangeScope) => ({ ...loadedScope, scope, untracked_skipped: 1284 }),
+};
 const emptySource: ChangesSource = { diff: async () => ({ files: [] }) };
 const errorSource: ChangesSource = {
   diff: async () => {
@@ -545,6 +549,14 @@ export default componentEntry<GalleryProps>({
       note: "A successful git scope with no files reports an empty result.",
       props: { files, source: emptySource },
       play: showEmpty,
+    },
+    "tracked-only": {
+      note: "A git scope that left untracked files out shows the tracked-only banner, with Copy cleanup command and Refresh, above its diffs.",
+      props: { files, source: trackedOnlySource },
+      play: async (ctx) => {
+        await chooseScope(ctx, "Uncommitted");
+        await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-banner" }));
+      },
     },
     "split-pane": {
       note: "A 280 px split beside the chat: Commit, Push and the view tools wrap under the Last turn pill instead of drawing over it.",

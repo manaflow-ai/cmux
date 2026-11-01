@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
-// The pane header (ChatHeaderStatus.tsx): tools and connection failures only.
-// Where a started chat runs is the Inspector's Environment; the header never repeats it.
+// The pane header: the chat's plain title, tools and connection failures only.
+// Where a started chat runs is Session Info's Environment; the header never repeats it.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -19,11 +19,12 @@ const inTabRow: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-status--inline"));
 };
 
-// The same row while connected: tools only, with no location line below the tab row.
+// The same row while connected: the plain title and tools, with no location line below the tab row.
 const inTabRowConnected: Play = async (ctx) => {
   const { setTabRow } = await import("./tabRow");
   setTabRow({ height: 28, trailingInset: 0 });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header[data-tab-row]"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-thread-title"));
   if (ctx.document.querySelector(".acpmux-env-line, .acpmux-environment-row"))
     throw new Error("The chat header repeated the composer location");
 };
@@ -34,15 +35,15 @@ const sessionInfo =
     const { setTabRow } = await import("./tabRow");
     const { setHeaderState } = await import("./headerState");
     const { setChatDisplay } = await import("../chatDisplay");
-    const { setInspectorOpen } = await import("../inspector/inspectorState");
+    const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
     setTabRow({ height: 28, trailingInset: 0 });
     setHeaderState({ inspector: true });
     setChatDisplay({ "agentPane.display.inspector.placement": placement });
-    setInspectorOpen(open);
+    setSessionInfoOpen(open);
     await ctx.waitFor(() =>
       open
-        ? ctx.document.querySelector(`.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`)
-        : !ctx.document.querySelector(".acpmux-chat-inspector"),
+        ? ctx.document.querySelector(`.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`)
+        : !ctx.document.querySelector(".acpmux-session-info"),
     );
   };
 
@@ -65,6 +66,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderStatus",
     "agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderInlineStatus",
+    "agent-session/acpmux/header/ThreadTitle.tsx#ThreadTitle",
   ],
   variants: {
     "standalone-compact": {
@@ -83,7 +85,7 @@ export default agentPaneEntry({
       play: standaloneHeight(24),
     },
     quiet: {
-      note: "Connected after a turn: tools only, no title, status or repeated machine and folder label.",
+      note: "Connected after a turn: the title opens chat actions; no repeated machine or folder label.",
       snapshot: chat(finished),
     },
     "long-branch": {
@@ -99,7 +101,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
     },
     "tab-row": {
-      note: "The header shares the pane's tab row: tools only, with no extra location row.",
+      note: "The header shares the pane's tab row: the title menu stays available beside the tools, with no extra location row.",
       snapshot: chat(finished),
       play: inTabRowConnected,
     },

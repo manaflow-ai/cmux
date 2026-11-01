@@ -40,6 +40,8 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// by its Chief's participant id, else its `defaultChiefAvatar`); nil
     /// draws the participant's initials.
     public var chiefAvatar: HomeChiefAvatar?
+    /// This row's Chief is working (its turn is running): its avatar moves livelier.
+    public var chiefIsWorking = false
     /// A Chief that runs on another engine than the default: that engine's name
     /// ("UniiChat", "Codex"; ``ChiefBackend/badge(for:)``); nil otherwise.
     public var backendBadge: String?
@@ -123,6 +125,7 @@ public struct HomeSidebarModel: Hashable, Sendable {
             if item.isChief {
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.chiefAvatar = chief.flatMap { chiefAvatars[$0] } ?? defaultChiefAvatar
+                item.chiefIsWorking = row.isTyping
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
                 // The Chief's own name (renamed in its header or Settings), else the title the row has.
                 if let name = chiefNames[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != item.title {
@@ -152,8 +155,8 @@ public struct HomeSidebarModel: Hashable, Sendable {
             // a teammate with a second account (a work and a personal sign-in in one team) gets no row
             // beside the DM or the row of the first. New Message's search still finds each account.
             var listed = Set(dms.flatMap { $0.summary.participants.filter { $0.id != me }.map { Self.nameKey($0.displayName) } })
-            // The Worker's "Member" (a Stack member with no name) names nobody, so it gets no row (the
-            // user, 2026-10-29: an empty "Member" row they could not clear). New Message's search still finds it.
+            // The Worker's "Member" (a Stack member with no name) names nobody, so it gets no row: an empty
+            // row that nothing can clear. New Message's search still finds it.
             teammates = contacts.filter {
                 let key = Self.nameKey($0.name)
                 return $0.source == .team && $0.id != me && !dmPeers.contains($0.id) && key != "member" && listed.insert(key).inserted

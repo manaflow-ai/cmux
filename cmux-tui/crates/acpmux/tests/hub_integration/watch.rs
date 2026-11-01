@@ -22,6 +22,14 @@ async fn watch_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let mut agents = BTreeMap::new();
     agents.insert("fakecodex".to_owned(), profile("codex"));
     agents.insert("fakeclaude".to_owned(), profile("claude"));
+    let root =
+        std::path::PathBuf::from("/tmp").join(format!("acpmux-watch-{}", uuid::Uuid::now_v7()));
+    // A Claude profile whose home is the test's store, as a profile with CLAUDE_CONFIG_DIR runs.
+    let mut homed = profile("claude");
+    homed
+        .env
+        .insert("CLAUDE_CONFIG_DIR".into(), root.join("claude").to_string_lossy().into_owned());
+    agents.insert("homedclaude".to_owned(), homed);
     let mut cfg = Config {
         harnesses: agents,
         default_harness: Some("fakecodex".into()),
@@ -31,8 +39,6 @@ async fn watch_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let root =
-        std::path::PathBuf::from("/tmp").join(format!("acpmux-watch-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(root.join("project")).unwrap();
     hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
     let c = connect(&hub).await;
@@ -186,6 +192,40 @@ async fn a_watched_claude_chat_shows_prompts_and_answers() {
     assert!(k.iter().any(|k| k == "turn_result"), "the ended turn settles: {k:?}");
     append(&file, &[user("now the tests")]);
     assert_eq!(until_prompts(&hub, &sid, 2).await, ["fix the build", "now the tests"]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A watched chat runs in another app: acpmux never started it, so how it runs (its launcher,
+/// its autocompact cap) is unknown, never "no cap", while what its transcript says is read.
+/// (`a_watched_claude_chat_shows_prompts_and_answers` keeps its store out of reach.)
+#[tokio::test]
+async fn a_watched_chats_launcher_and_cap_are_unknown_not_none() {
+    let (hub, mut c, root) = watch_setup().await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let project = root.join("project");
+    let file = root.join(format!("claude/projects/-tmp-watch/{id}.jsonl"));
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // Days old: its call is still the context, and its whole file read says the last day spent 0.
+    let at = "2026-10-18T09:00:01.000Z";
+    let user = json!({"type": "user", "cwd": project, "sessionId": id, "timestamp": at, "message": {"role": "user", "content": "hi"}});
+    let reply = json!({"type": "assistant", "cwd": project, "sessionId": id, "timestamp": at, "message": {
+        "id": "msg_1", "role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "yo"}],
+        "usage": {"input_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 100, "output_tokens": 7}}});
+    append(&file, &[user, reply]);
+    backdate(&file);
+    let s = c.request(method::SESSION_NEW, watch("homedclaude", &id)).await.unwrap();
+    let sid = s["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(until_prompts(&hub, &sid, 1).await, ["hi"]);
+    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
+    let row = list["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == sid).cloned();
+    let stats = row.unwrap()["usageStats"].clone();
+    assert_eq!(stats["autocompact"], "unknown", "{stats}");
+    assert_eq!(
+        (&stats["autocompactCap"], &stats["launcher"]),
+        (&Value::Null, &Value::Null),
+        "{stats}"
+    );
+    assert_eq!((&stats["contextTokens"], &stats["tokens24h"]), (&json!(105), &json!(0)), "{stats}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

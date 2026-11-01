@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 
@@ -26,13 +27,16 @@ const GLOBALS = [
   "Node",
   "HTMLElement",
   "HTMLInputElement",
+  "HTMLTextAreaElement",
   "Element",
   "KeyboardEvent",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of GLOBALS) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -41,6 +45,7 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
@@ -48,7 +53,17 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
+type NativeReplyClient = {
+  receive(raw: string): void;
+  rejectPending(): void;
+  pending: Map<string | number, unknown>;
+};
+const nativeClients: NativeReplyClient[] = [];
+
 afterEach(async () => {
+  await act(async () => {
+    for (const client of nativeClients.splice(0)) client.rejectPending();
+  });
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -165,6 +180,138 @@ test("the app's own message, already in the person's language, follows the card'
 });
 
 test("the pane's own words for a lost connection follow the card's sentence", async () => {
-  const lost = Object.assign(new Error(translate("error.notOpen")), { code: "native.not_connected", origin: "native" });
+  const lost = Object.assign(new Error(translate("error.notOpen")), {
+    code: "native.not_connected",
+    origin: "native",
+  });
   expect(await refusedWith(lost)).toBe(`${translate("question.replyFailed")} ${translate("error.notOpen")}`);
+});
+
+// Exercise the real client's RPC correlation and the real card together. The isolated listener
+// prevented the normal onReply handler; only the native announcement and its string-id reply run.
+async function nativeReturnCard() {
+  const container = installDom();
+  let webReplies = 0;
+  const ask: AgentQuestion = {
+    ...question,
+    id: "synthetic-question-row",
+    items: question.items.map((item) => ({ ...item, allowsOther: true })),
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<QuestionCard question={ask} onReply={() => void webReplies++} />);
+  });
+  await act(async () => container.querySelector<HTMLElement>(".acpmux-question-other-choice")!.click());
+  const field = container.querySelector<HTMLTextAreaElement>(".acpmux-question-other textarea")!;
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setValue.call(field, "x".repeat(4097));
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    field.focus();
+  });
+  const client = Object.assign(Object.create(AcpmuxDirectClient.prototype), {
+    pending: new Map(),
+    wire: { received: () => undefined },
+  }) as NativeReplyClient;
+  nativeClients.push(client);
+  const card = container.querySelector<HTMLElement>(".acpmux-question")!;
+  const announce = async (id: string, sessionId = question.source.session) => {
+    await act(async () =>
+      client.receive(
+        JSON.stringify({
+          method: "_cmux/question_key_request",
+          params: { id, sessionId, permissionId: question.source.permission },
+        }),
+      ),
+    );
+  };
+  const answer = async (id: string, error?: unknown) => {
+    await act(async () => client.receive(JSON.stringify({ id, ...(error ? { error } : { result: {} }) })));
+  };
+  return { container, card, field, client, announce, answer, webReplies: () => webReplies };
+}
+
+test.each([
+  [
+    "local submit",
+    { code: -32602, message: "invalid answer", data: { code: "transport.intent_invalid" } },
+    "transport.intentInvalid",
+  ],
+  [
+    "daemon",
+    {
+      code: -32000,
+      message: "approve this on the Mac app",
+      data: { reason: "permission.person_required" },
+    },
+    "transport.personRequired",
+  ],
+] as const)("a native Return %s refusal reaches the card and permits retry", async (_source, error, reason) => {
+  const { container, card, field, client, announce, answer, webReplies } = await nativeReturnCard();
+  const capturedReply = card.dataset.cmuxQuestionEnterReply;
+  const editing = field.closest(".acpmux-question-other");
+  await announce("question-key-first");
+  expect(card.getAttribute("aria-busy")).toBe("true");
+  // Pending feedback must preserve the DOM evidence until the native host has redeemed it.
+  expect(container.querySelector("textarea")).toBe(field);
+  expect(dom!.window.document.activeElement).toBe(field);
+  expect(field.disabled).toBe(false);
+  expect(editing?.getAttribute("data-row-editing")).toBe("true");
+  expect(card.dataset.cmuxQuestionEnterReply).toBe(capturedReply);
+  await answer("question-key-first", error);
+  expect(container.querySelector("[role=alert]")?.textContent?.trim()).toBe(
+    `${translate("question.replyFailed")} ${translate(reason)}`,
+  );
+  expect(card.hasAttribute("aria-busy")).toBe(false);
+  expect(field.value).toBe("x".repeat(4097));
+  expect(field.disabled).toBe(false);
+  expect(client.pending.size).toBe(0);
+  // The host may have injected the same refusal before its submit completion fallback.
+  await answer("question-key-first", error);
+  await announce("question-key-retry");
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  expect(card.getAttribute("aria-busy")).toBe("true");
+  await answer("question-key-retry");
+  expect(card.getAttribute("aria-busy")).toBe("true");
+  expect(container.querySelector<HTMLButtonElement>(".acpmux-question-submit")?.disabled).toBe(true);
+  expect(webReplies()).toBe(0);
+  expect(client.pending.size).toBe(0);
+});
+
+test("a native Return interrupted by disconnect shows the card's retry error", async () => {
+  const { container, card, field, client, announce } = await nativeReturnCard();
+  await announce("question-key-disconnect");
+  await act(async () => client.rejectPending());
+  expect(container.querySelector("[role=alert]")?.textContent?.trim()).toBe(
+    `${translate("question.replyFailed")} ${translate("error.interrupted")}`,
+  );
+  expect(card.hasAttribute("aria-busy")).toBe(false);
+  expect(field.disabled).toBe(false);
+  expect(client.pending.size).toBe(0);
+});
+
+test("a native Return result for another session cannot put this question in error", async () => {
+  const { container, card, announce, answer } = await nativeReturnCard();
+  await announce("question-key-other-session", "other-session");
+  await answer("question-key-other-session", {
+    code: -32602,
+    data: { code: "transport.intent_invalid" },
+  });
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  expect(card.hasAttribute("aria-busy")).toBe(false);
+});
+
+test("a late native Return failure cannot overwrite a newer request's state", async () => {
+  const { container, card, announce, answer } = await nativeReturnCard();
+  await announce("question-key-old-connection");
+  await announce("question-key-new-connection");
+  await answer("question-key-old-connection", {
+    code: -32602,
+    data: { code: "transport.intent_invalid" },
+  });
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  expect(card.getAttribute("aria-busy")).toBe("true");
+  await answer("question-key-new-connection");
+  expect(container.querySelector("[role=alert]")).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>(".acpmux-question-submit")?.disabled).toBe(true);
 });

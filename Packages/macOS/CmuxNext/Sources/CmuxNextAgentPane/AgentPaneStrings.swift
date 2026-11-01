@@ -21,6 +21,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
     }
 
+    /// The system screen capture could not start, or ended with an error and wrote no image.
+    static var captureFailedMessage: String {
+        String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .module)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .module)
@@ -110,6 +115,12 @@ extension AgentPaneView {
     static func pageCommandUnavailable(_ title: String) -> String {
         String(format: String(localized: "agentPane.pageCommand.unavailable", defaultValue: "%@ isn't available in this chat.",
                               bundle: .module), title)
+    }
+
+    /// A greyed palette row's subtitle for a page command the focused chat does not offer now: the
+    /// row already shows its title, so the subtitle does not repeat it.
+    static var pageCommandUnavailableHere: String {
+        String(localized: "agentPane.pageCommand.unavailableHere", defaultValue: "Not available in this chat.", bundle: .module)
     }
 
     /// Shown when automation would run a page command (its title) without an explicit focus request.
@@ -235,7 +246,7 @@ extension AgentPaneHostError {
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
         case .daemonStopped:
-            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
+            String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
         case .chiefStarting:

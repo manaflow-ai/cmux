@@ -625,6 +625,16 @@
             }
           }
         },
+        "vm_kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "owner",
+              "team"
+            ]
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -1210,6 +1220,39 @@
             }
           }
         },
+        "hourly_rate_usd": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "running_since": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -1367,21 +1410,24 @@
               "vm_hours_used": {
                 "required": true,
                 "type": {
-                  "kind": "union",
-                  "variants": [
-                    {
-                      "kind": "primitive",
-                      "name": "float64"
-                    },
-                    {
-                      "kind": "enum",
-                      "values": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
                 }
               },
               "period_end": {
@@ -1456,6 +1502,243 @@
           "type": {
             "kind": "ref",
             "name": "Revision"
+          }
+        }
+      }
+    },
+    "CloudVmNetworkPolicyView": {
+      "kind": "object",
+      "fields": {
+        "schema_version": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              2
+            ]
+          }
+        },
+        "machine": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "MachineId"
+          }
+        },
+        "host": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HostId"
+          }
+        },
+        "epoch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "receiver_generation": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "origin": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "vm": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^vm_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        },
+        "ipv4": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "wg_public_key": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WgPublicKey"
+          }
+        },
+        "install_public_key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          }
+        },
+        "authority_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "checked_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "acl_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "policy_digest": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "peers": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "CloudVmReceiverPeer"
+            }
+          }
+        }
+      }
+    },
+    "CloudVmReceiverPeer": {
+      "kind": "object",
+      "fields": {
+        "host": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HostId"
+          }
+        },
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeDeviceId"
+          }
+        },
+        "wg_public_key": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WgPublicKey"
+          }
+        },
+        "install_public_key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          }
+        },
+        "authority_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "services": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "enum",
+              "values": [
+                "daemon",
+                "ssh"
+              ]
+            }
           }
         }
       }
@@ -5434,6 +5717,13 @@
           "type": {
             "kind": "primitive",
             "name": "int64"
+          }
+        },
+        "install_grant": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GrantId"
           }
         }
       }
@@ -18239,6 +18529,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -19726,7 +20050,7 @@
         "expose": "default",
         "group": "cloud"
       },
-      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.",
+      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -19911,6 +20235,13 @@
                 ],
                 "additionalProperties": true
               },
+              "vm_kind": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "team"
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -19924,6 +20255,7 @@
               "gateway",
               "services",
               "daemon",
+              "vm_kind",
               "revision"
             ],
             "additionalProperties": true
@@ -20312,6 +20644,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -20754,6 +21120,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -21108,6 +21508,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -21213,6 +21647,16 @@
                     ]
                   }
                 }
+              },
+              "vm_kind": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "owner",
+                    "team"
+                  ]
+                }
               }
             }
           }
@@ -21253,7 +21697,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -21319,6 +21763,13 @@
             "minItems": 1,
             "maxItems": 2,
             "uniqueItems": true
+          },
+          "vm_kind": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "team"
+            ]
           }
         },
         "required": [
@@ -21326,7 +21777,8 @@
           "expires_at",
           "host",
           "epoch",
-          "services"
+          "services",
+          "vm_kind"
         ],
         "additionalProperties": true,
         "$defs": {
@@ -21683,6 +22135,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -22022,6 +22508,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -22378,6 +22898,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -22770,6 +23324,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -23118,6 +23706,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -23457,6 +24079,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -23869,15 +24525,22 @@
                   "vm_hours_used": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
                       },
                       {
-                        "type": "string",
-                        "enum": [
-                          "Infinity",
-                          "-Infinity",
-                          "NaN"
-                        ]
+                        "type": "null"
                       }
                     ]
                   },
@@ -24904,6 +25567,40 @@
                   }
                 ]
               },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -25083,6 +25780,495 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "cloud.vm.network_policy": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "CloudVmNetworkPolicyView"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/CloudVmNetworkPolicyView",
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "CloudVmReceiverPeer": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WgPublicKey"
+              },
+              "install_public_key": {
+                "type": "string",
+                "pattern": "^B[A-Za-z0-9+/]{86}=$"
+              },
+              "authority_version": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "services": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "daemon",
+                    "ssh"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "host",
+              "user",
+              "install",
+              "device",
+              "wg_public_key",
+              "install_public_key",
+              "authority_version",
+              "services"
+            ],
+            "additionalProperties": true
+          },
+          "CloudVmNetworkPolicyView": {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "type": "number",
+                "enum": [
+                  2
+                ]
+              },
+              "machine": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "receiver_generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "vm": {
+                "type": "string",
+                "pattern": "^vm_[0-9a-hjkmnp-tv-z]{26}$"
+              },
+              "ipv4": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WgPublicKey"
+              },
+              "install_public_key": {
+                "type": "string",
+                "pattern": "^B[A-Za-z0-9+/]{86}=$"
+              },
+              "authority_version": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "checked_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "acl_version": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "policy_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "peers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/CloudVmReceiverPeer"
+                },
+                "maxItems": 128
+              }
+            },
+            "required": [
+              "schema_version",
+              "machine",
+              "host",
+              "epoch",
+              "receiver_generation",
+              "user",
+              "install",
+              "team",
+              "origin",
+              "tenant",
+              "mesh",
+              "vm",
+              "ipv4",
+              "wg_public_key",
+              "install_public_key",
+              "authority_version",
+              "checked_at",
+              "expires_at",
+              "acl_version",
+              "policy_digest",
+              "peers"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.vm.receiver.lifecycle": {
+      "class": "mutation",
+      "idempotency": "none",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "phase": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "read",
+                "begin",
+                "ready",
+                "end"
+              ]
+            }
+          },
+          "expected": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "attempt": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "MachineId"
+                }
+              },
+              "generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "phase": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "idle",
+                    "starting",
+                    "ready",
+                    "stopped"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "read",
+              "begin",
+              "ready",
+              "end"
+            ]
+          },
+          "expected": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "attempt": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          }
+        },
+        "required": [
+          "machine",
+          "phase"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "starting",
+              "ready",
+              "stopped"
+            ]
+          }
+        },
+        "required": [
+          "machine",
+          "generation",
+          "phase"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
       }
     },
     "cloud.vm.self.get": {
@@ -25376,6 +26562,40 @@
                       "provider_stopped",
                       "provider_paused"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hourly_rate_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "running_since": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
                   {
                     "type": "null"
@@ -43244,6 +44464,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -43266,6 +44491,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -43578,6 +44806,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -43600,6 +44833,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -55777,6 +57013,11 @@
             "type": "string",
             "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -55799,6 +57040,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -62979,6 +64223,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -63001,6 +64250,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [
@@ -64015,6 +65267,11 @@
             ],
             "additionalProperties": true
           },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          },
           "ServerNetworkBinding": {
             "type": "object",
             "properties": {
@@ -64037,6 +65294,9 @@
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
+              },
+              "install_grant": {
+                "$ref": "#/$defs/GrantId"
               }
             },
             "required": [

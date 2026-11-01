@@ -23,6 +23,7 @@
 //! result to the chat that gave it (`hub/tasks.rs`), and `{kind: "turn_cap", turnId, capMs}` on
 //! the one notice steered into a turn past its turn cap (`hub/turn_cap.rs`).
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use crate::rpc::RpcError;
@@ -73,6 +74,8 @@ pub fn withdraw_origin_refused() -> RpcError {
 pub enum Sender {
     /// The unix socket: any provenance.
     Local,
+    /// A connection admitted by the dedicated Cloud trigger gate.
+    Trigger,
     /// Anything else: none.
     Other,
 }
@@ -86,11 +89,53 @@ pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
         Some(Value::Object(raw)) => raw,
         Some(_) => return Err(refusal("provenance.value_refused", "provenance must be an object")),
     };
-    if sender != Sender::Local {
+    if !matches!(sender, Sender::Local | Sender::Trigger) {
         return Err(origin_refused());
     }
-    if raw.get("kind").and_then(Value::as_str) != Some("agent_message") {
-        return Err(refusal("provenance.value_refused", "provenance kind must be agent_message"));
+    let kind = raw.get("kind").and_then(Value::as_str);
+    // Trigger prompts are issued by a Cloud machine's short-lived trigger
+    // principal. The platform has already bound that principal to one owner,
+    // machine, chat and delivery before the guest reaches this local socket.
+    // Keep only the bounded, non-secret binding in the transcript; the token
+    // itself is never accepted as provenance or persisted in a record.
+    if kind == Some("trigger") {
+        if sender != Sender::Trigger {
+            return Err(refusal(
+                "provenance.trigger_refused",
+                "trigger provenance requires a verified trigger connection",
+            ));
+        }
+        const TRIGGER_FIELDS: &[(&str, bool)] = &[
+            ("triggerId", true),
+            ("deliveryId", true),
+            ("owner", true),
+            ("team", true),
+            ("machine", true),
+            ("workspace", false),
+            ("session", false),
+        ];
+        let mut out = Map::new();
+        out.insert("kind".to_owned(), json!("trigger"));
+        for &(key, required) in TRIGGER_FIELDS {
+            let value = match raw.get(key) {
+                None | Some(Value::Null) if !required => continue,
+                Some(Value::String(value)) if valid(key, value) => value,
+                _ => {
+                    let message = format!(
+                        "trigger provenance {key} must be one line of 1 to {MAX_FIELD_BYTES} bytes"
+                    );
+                    return Err(refusal("provenance.value_refused", &message));
+                }
+            };
+            out.insert(key.to_owned(), json!(value));
+        }
+        return Ok(Some(Value::Object(out)));
+    }
+    if kind != Some("agent_message") {
+        return Err(refusal(
+            "provenance.value_refused",
+            "provenance kind must be agent_message or trigger",
+        ));
     }
     let mut out = Map::new();
     out.insert("kind".to_owned(), json!("agent_message"));
@@ -111,6 +156,13 @@ pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
         out.insert(key.to_owned(), json!(value));
     }
     Ok(Some(Value::Object(out)))
+}
+
+/// Whether a prompt was admitted by the Cloud trigger principal. Trigger turns
+/// are work performed on behalf of a configured automation, so they do not set
+/// the person's unread marker when they complete normally.
+pub fn is_trigger(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("trigger")
 }
 
 fn valid(key: &str, value: &str) -> bool {
@@ -147,6 +199,53 @@ pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
 }
 
+/// On a session a Chief host made for one of its turns (optchat-chief `acpmux::turn_tags`): the
+/// Chief's participant id (`agent_mux`, `agent_…`), the key the app finds that Chief's name and
+/// picture by.
+pub const CHIEF_PARTICIPANT_TAG: &str = "cmux.chief.participant";
+/// What a Chief's session is called where it is shown: its `mux.label` (the Chief's own name).
+const LABEL_TAG: &str = "mux.label";
+/// On a message from a Chief's turn session: that Chief's participant id, so the receiving chat
+/// draws the Chief's name and picture, not the turn's session name (`optchat-<home>-<n>`,
+/// manaflow-ai/cmux#27914).
+pub const FROM_CHIEF: &str = "fromChief";
+
+/// `provenance` with its sender's Chief, when the sender is a Chief's turn session of this daemon
+/// (`meta_of` reads one by its id): `fromChief` its participant id and `fromName` the Chief's own
+/// name. Both kinds a Chief's turn sends with: an `agent_message` (`agents_chat_send` through the
+/// cmux daemon's pump, `from` `acp:<id>`) and a `session_message` (`acpmux send` from inside the
+/// turn, `from` its id). Any other provenance is left as it is.
+pub fn stamp_chief(
+    mut provenance: Value,
+    meta_of: impl Fn(&str) -> Option<crate::store::SessionMeta>,
+) -> Value {
+    let kind = provenance.get("kind").and_then(Value::as_str);
+    if !matches!(kind, Some("agent_message" | "session_message")) {
+        return provenance;
+    }
+    let Some(from) = provenance.get("from").and_then(Value::as_str) else {
+        return provenance;
+    };
+    let Some(meta) = meta_of(from.strip_prefix("acp:").unwrap_or(from)) else {
+        return provenance;
+    };
+    let live = |key: &str| {
+        let tag = meta.tags.get(key)?;
+        if tag.expires_at.is_some_and(|e| e <= crate::store::now_ms()) {
+            return None;
+        }
+        Some(tag.value.trim().to_owned()).filter(|v| !v.is_empty() && !v.chars().any(unshown))
+    };
+    let Some(chief) = live(CHIEF_PARTICIPANT_TAG).filter(|c| c.len() <= MAX_FIELD_BYTES) else {
+        return provenance;
+    };
+    provenance.set(FROM_CHIEF, json!(chief));
+    if let Some(label) = live(LABEL_TAG).filter(|l| l.chars().count() <= MAX_NAME_CHARS) {
+        provenance.set("fromName", json!(label));
+    }
+    provenance
+}
+
 /// The provenance of a task's result on the prompt that brings it to the chat that gave the task
 /// (`hub/tasks.rs`): from the lane's session, `from` its id as in [`session_message`].
 pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: &str) -> Value {
@@ -174,12 +273,113 @@ pub fn cli_host(params: &Value) -> Option<&str> {
     fits.then_some(host)
 }
 
-/// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).
+/// The durable copy of a session-to-session message a prompt's in-memory provenance carries
+/// (`hub/message_events.rs`). A record keeps it as `_meta._acpmuxMessage`, beside
+/// `_meta.provenance` and never inside it, so the provenance a client reads stays the sender's.
+pub const MESSAGE_META: &str = "_acpmuxMessage";
+
+/// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`). Its
+/// message copies (its own, and each joined message's in a digest) go to `_meta._acpmuxMessage`.
 pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
     if let (Some(p), Some(fields)) = (provenance, record.as_object_mut()) {
-        fields.insert("_meta".to_owned(), json!({"provenance": p}));
+        let mut p = p.clone();
+        let messages = take_message_meta(&mut p);
+        let mut meta = json!({"provenance": p});
+        if let Some(messages) = messages {
+            meta.set(MESSAGE_META, messages);
+        }
+        fields.insert("_meta".to_owned(), meta);
     }
     record
+}
+
+/// A `queued` or `user_message` record's provenance as the prompt carried it: [`marked`] undone,
+/// with its message copies back in place.
+pub fn recorded(record: &Value) -> Option<Value> {
+    let mut provenance = record.pointer("/_meta/provenance")?.clone();
+    if let Some(messages) = record.get("_meta").and_then(|meta| meta.get(MESSAGE_META)) {
+        put_message_meta(&mut provenance, messages);
+    }
+    Some(provenance)
+}
+
+/// Takes every message copy out of `provenance`: `{message?, messages?}`, where `messages` holds
+/// one entry (or null) per joined message of a digest, in its order.
+fn take_message_meta(provenance: &mut Value) -> Option<Value> {
+    let fields = provenance.as_object_mut()?;
+    let own = fields.remove(MESSAGE_META);
+    let joined: Vec<Value> = fields
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .map(|messages| {
+            messages
+                .iter_mut()
+                .map(|m| m.get_mut("provenance").and_then(take_message_meta).unwrap_or(Value::Null))
+                .collect()
+        })
+        .unwrap_or_default();
+    let any_joined = joined.iter().any(|m| !m.is_null());
+    if own.is_none() && !any_joined {
+        return None;
+    }
+    let mut taken = Map::new();
+    if let Some(own) = own {
+        taken.insert("message".to_owned(), own);
+    }
+    if any_joined {
+        taken.insert("messages".to_owned(), Value::Array(joined));
+    }
+    Some(Value::Object(taken))
+}
+
+/// Puts back what [`take_message_meta`] took.
+fn put_message_meta(provenance: &mut Value, taken: &Value) {
+    let Some(fields) = provenance.as_object_mut() else { return };
+    if let Some(own) = taken.get("message") {
+        fields.insert(MESSAGE_META.to_owned(), own.clone());
+    }
+    let joined = taken.get("messages").and_then(Value::as_array);
+    let messages = fields.get_mut("messages").and_then(Value::as_array_mut);
+    if let (Some(joined), Some(messages)) = (joined, messages) {
+        for (message, taken) in messages.iter_mut().zip(joined) {
+            if let Some(p) = message.get_mut("provenance").filter(|_| !taken.is_null()) {
+                put_message_meta(p, taken);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod message_meta_tests {
+    use super::{MESSAGE_META, marked, recorded};
+    use serde_json::json;
+
+    /// A record's provenance is the sender's alone: its message copies (one of its own, one per
+    /// joined message of a digest) sit beside it, and reading the record puts them back.
+    #[test]
+    fn a_record_keeps_its_message_copies_beside_its_provenance() {
+        let copy =
+            |id: &str| json!({"messageId": id, "sender": {"name": "lane", "sessionId": "s"}});
+        let own = json!({"kind": "agent_message", "from": "acp:s", "to": "acp:t", MESSAGE_META: copy("m-0")});
+        let digest = json!({"kind": "agent_digest", "messages": [
+            {"promptId": "p-1", "from": "lane", "provenance": {"kind": "session_message", MESSAGE_META: copy("m-1")}},
+            {"promptId": "p-2", "from": "person"},
+            {"promptId": "p-3", "from": "lane", "provenance": {"kind": "session_message"}},
+            {"promptId": "p-4", "from": "lane", "provenance": {"kind": "session_message", MESSAGE_META: copy("m-4")}},
+        ]});
+        for provenance in [own, digest] {
+            let record = marked(json!({"promptId": "p"}), Some(&provenance));
+            let shown = record.pointer("/_meta/provenance").unwrap();
+            assert!(!shown.to_string().contains(MESSAGE_META), "{record}");
+            assert!(record.pointer(&format!("/_meta/{MESSAGE_META}")).is_some(), "{record}");
+            assert_eq!(recorded(&record), Some(provenance));
+        }
+        // No copy: the record is as before, and so is what reading it gives.
+        let plain = json!({"kind": "agent_message", "from": "acp:s", "to": "acp:t"});
+        let record = marked(json!({"promptId": "p"}), Some(&plain));
+        assert_eq!(record["_meta"], json!({"provenance": plain}));
+        assert_eq!(recorded(&record), Some(plain));
+    }
 }
 
 /// `_meta.acpmux.fromSessionId` and `fromHarness`: which session sent an agent's message and on
@@ -309,6 +509,41 @@ mod sender_tests {
     }
 
     #[test]
+    fn a_chief_turn_session_signs_with_the_chief_name_and_id() {
+        let tag = |v: &str| crate::store::Tag { value: v.into(), expires_at: None };
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s-1", "name": "optchat-b902d10e-2991",
+            "harness": "claude", "family": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        let found = |meta: &crate::store::SessionMeta| {
+            let meta = meta.clone();
+            move |id: &str| (id == "s-1").then(|| meta.clone())
+        };
+        let pumped = json!({"kind": "agent_message", "from": "acp:s-1", "to": "acp:s-2", "msgId": "m", "threadId": "t"});
+        let sent = session_message("s-1", "optchat-b902d10e-2991", "s-2");
+        // A session no Chief made: as it was.
+        meta.tags.insert(LABEL_TAG.into(), tag("lane"));
+        assert_eq!(stamp_chief(sent.clone(), found(&meta)), sent);
+        assert_eq!(stamp_chief(pumped.clone(), found(&meta)), pumped);
+        // A Chief's turn: the Chief's name and participant id, on both kinds.
+        meta.tags.insert(LABEL_TAG.into(), tag("Ops Chief"));
+        meta.tags.insert(CHIEF_PARTICIPANT_TAG.into(), tag("agent_ops"));
+        for given in [sent, pumped] {
+            let stamped = stamp_chief(given.clone(), found(&meta));
+            assert_eq!(stamped["fromName"], "Ops Chief");
+            assert_eq!(stamped[FROM_CHIEF], "agent_ops");
+            assert_eq!(stamped["from"], given["from"]);
+        }
+        // Another sender, a person's prompt, or a sender this daemon does not have: untouched.
+        let other = json!({"kind": "agent_message", "from": "acp:s-9", "to": "acp:s-2", "msgId": "m", "threadId": "t"});
+        assert_eq!(stamp_chief(other.clone(), found(&meta)), other);
+        let person = json!({"kind": "person_message", "from": "s-1", "fromName": "Ana"});
+        assert_eq!(stamp_chief(person.clone(), found(&meta)), person);
+    }
+
+    #[test]
     fn a_stamp_replaces_what_the_provenance_had_and_reads_back() {
         let given = json!({"kind": "agent_message", "from": "fromAgent", "fromHarness": "fake"});
         let bound = BoundSender { session_id: Some("s-1".into()), harness: Some("codex".into()) };
@@ -319,5 +554,45 @@ mod sender_tests {
         let mut params = json!({"_meta": {"acpmux": {"fromSessionId": "x", "fromHarness": "y", "promptId": "p"}}});
         drop_sender_fields(&mut params);
         assert_eq!(params, json!({"_meta": {"acpmux": {"promptId": "p"}}}));
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    fn params(provenance: Value) -> Value {
+        json!({"_meta": {"acpmux": {"provenance": provenance}}})
+    }
+
+    #[test]
+    fn trigger_provenance_is_bounded_and_is_not_a_person_message() {
+        let value = params(json!({
+            "kind": "trigger",
+            "triggerId": "tr_1",
+            "deliveryId": "gh-123",
+            "owner": "user_1",
+            "team": "team_1",
+            "machine": "machine_1",
+            "workspace": "workspace_1",
+            "session": "session_1"
+        }));
+        assert!(of(&value, Sender::Local).is_err());
+        let parsed = of(&value, Sender::Trigger).unwrap().unwrap();
+        assert_eq!(parsed["kind"], "trigger");
+        assert!(is_trigger(Some(&parsed)));
+        assert!(crate::author::of_provenance(Some(&parsed)).is_none());
+    }
+
+    #[test]
+    fn trigger_provenance_cannot_arrive_from_a_remote_or_carry_newlines() {
+        let remote = params(
+            json!({"kind": "trigger", "triggerId": "tr", "deliveryId": "d", "owner": "o", "team": "t", "machine": "m"}),
+        );
+        assert!(of(&remote, Sender::Other).is_err());
+        let malformed = params(
+            json!({"kind": "trigger", "triggerId": "tr\n", "deliveryId": "d", "owner": "o", "team": "t", "machine": "m"}),
+        );
+        assert!(of(&malformed, Sender::Local).is_err());
     }
 }

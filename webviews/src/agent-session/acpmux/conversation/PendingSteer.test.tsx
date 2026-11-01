@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PendingSteer, takesSteersBack } from "./PendingSteer";
+import { NewestSteerContext, PendingSteer, takesSteersBack } from "./PendingSteer";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -55,7 +55,7 @@ afterEach(async () => {
 const steers = { count: 0 };
 async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
   const container = dom?.window.document.getElementById("root") ?? installDom();
-  const unsteer = async () => true;
+  const unsteer = async () => "back" as const;
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -89,6 +89,32 @@ test("a row drawn again after Send now worked shows no controls while the steer 
   expect(container.querySelector(".cv-user__send-now")).not.toBeNull();
 });
 
+// Leo, 2026-11-01: "why are ALL of these send now???? aren't these steers???". Send now stops the
+// agent's step and the agent then reads every waiting steer, so only the newest offers it; each
+// keeps its X (take that one back) and its Copy.
+test("with several steers waiting only the newest offers Send now; each keeps its X", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const rows: AcpmuxRow[] = [1, 2, 3].map((n) => ({ ...waiting, id: `user-many-${n}`, steerPromptId: `p-many-${n}` }));
+  await act(async () =>
+    root!.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+        <NewestSteerContext.Provider value="user-many-3">
+          {rows.map((row) => (
+            <div key={row.id} data-row={row.id}>
+              <PendingSteer row={row} send={async () => true} />
+            </div>
+          ))}
+        </NewestSteerContext.Provider>
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  const sendNows = [...container.querySelectorAll(".cv-user__send-now")];
+  expect(sendNows.length).toBe(1);
+  expect(sendNows[0]!.closest("[data-row]")?.getAttribute("data-row")).toBe("user-many-3");
+  expect(container.querySelectorAll(".cv-user__take-back").length).toBe(3);
+});
+
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
@@ -103,7 +129,7 @@ test("Send now and the X disappear when the agent reads the steer first", async 
   const draw = (row: AcpmuxRow) =>
     act(async () =>
       root!.render(
-        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
           <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
         </TurnActionsContext.Provider>,
       ),
@@ -121,7 +147,7 @@ test("a steer read before it was drawn has no Send now or X", async () => {
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
         <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
       </TurnActionsContext.Provider>,
     );

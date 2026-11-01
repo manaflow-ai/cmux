@@ -4,10 +4,11 @@ import CmuxMobileChief
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
+import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import Foundation
-import Observation
 import OSLog
+import Observation
 import UIKit
 import UserNotifications
 
@@ -22,11 +23,15 @@ public struct NotificationRoute: Equatable, Sendable {
     public var workspaceID: String?
     public var tabID: String?
     public var conversationID: String?
+    /// A Cloud notification retains its machine and team; it is never resolved
+    /// as a local acpmux session with a coincidentally equal id.
+    public var cloud: CloudChatAttention?
     /// A cmux link the person opened (kind `link`): resolved by the Mac's public ids, not a push's.
     public var link: CmuxLink?
 
     public init(kind: String, mac: String? = nil, sessionID: String? = nil, workspaceID: String? = nil, tabID: String? = nil,
-                conversationID: String? = nil, link: CmuxLink? = nil) {
+                conversationID: String? = nil, link: CmuxLink? = nil, cloud: CloudChatAttention? = nil) {
+        self.cloud = cloud
         self.link = link
         self.kind = kind
         self.mac = mac
@@ -48,6 +53,10 @@ public struct NotificationRoute: Equatable, Sendable {
 
     /// Reads `userInfo["cmuxMobile"]`; nil for anything else.
     init?(userInfo: [AnyHashable: Any]) {
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            self.init(kind: "cloud", cloud: cloud)
+            return
+        }
         guard let payload = PushPayload(userInfo: userInfo) else { return nil }
         self.init(payload)
     }
@@ -68,6 +77,9 @@ public final class NotificationRouter {
     /// How long a route waits for its Mac's tree before it settles for the Feed.
     static let waitBudget: Duration = .seconds(10)
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// Each new tap owns a separate timeout, even if it names the same route.
+    @ObservationIgnored private(set) var routeGeneration: UInt64 = 0
+    @ObservationIgnored private var expiryTask: Task<Void, Never>?
     /// Settings → Require Face ID has the app locked (AppLock): replies that
     /// need Face ID wait, so the two prompts never overlap.
     public internal(set) var appLocked = false {
@@ -93,17 +105,29 @@ public final class NotificationRouter {
         set(NotificationRoute(kind: "link", link: link))
     }
 
-    /// Waits for `route`, at most `waitBudget`: then it is tried once more, as expired.
+    /// Each tap owns a fresh wait budget. Cancelling an earlier route also
+    /// releases its timeout task; the generation guards a late clock callback.
     func set(_ route: NotificationRoute?, at now: ContinuousClock.Instant = .now) {
+        routeGeneration &+= 1
+        expiryTask?.cancel()
+        expiryTask = nil
         pending = route
         pendingSince = route == nil ? nil : now
         guard let route else { return }
+        let generation = routeGeneration
         let clock = clock
-        Task { @MainActor [weak self] in
-            try? await clock.sleep(for: Self.waitBudget)
-            guard let self, self.pending == route else { return }
-            self.expired += 1
+        expiryTask = Task { @MainActor [weak self] in
+            do { try await clock.sleep(for: Self.waitBudget) }
+            catch { return }
+            self?.expireIfCurrent(route, generation: generation)
         }
+    }
+
+    /// Called by the owning timeout. Equality of routes alone cannot identify
+    /// a tap: two taps on the same notification have different waiting budgets.
+    func expireIfCurrent(_ route: NotificationRoute, generation: UInt64) {
+        guard routeGeneration == generation, pending == route else { return }
+        expired += 1
     }
 
     /// Bumped when a waiting route's budget ends (the shell then opens the Feed).
@@ -135,6 +159,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // One notification per Chief reply: the Mac's push when this phone gets them, else the app's own alert.
+        ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
         CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
         #if DEBUG && targetEnvironment(simulator)
@@ -146,6 +172,11 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
             if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
         }
         return true
+    }
+
+    /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
+    public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        ScreenSharingOrientation.shared.allowed
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -182,6 +213,16 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
+        // Cloud pushes navigate only. Approval/reply buttons keep the existing
+        // signed Mac payload path below; no Cloud payload can authorize one.
+        if let cloud = CloudChatAttention(userInfo: userInfo) {
+            let opens = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            Task { @MainActor in
+                if opens { NotificationRouter.shared.set(NotificationRoute(kind: "cloud", cloud: cloud)) }
+                completionHandler()
+            }
+            return
+        }
         // The app's own Chief alert (ChiefAlerts): it carries no `cmuxMobile`
         // payload, so the trust gate refused it and the tap opened nothing.
         if let route = ChiefAlerts.route(userInfo: userInfo, actionIdentifier: response.actionIdentifier) {

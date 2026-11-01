@@ -121,6 +121,42 @@ export type DeviceRow = {
   full_access_help?: string;
 };
 
+/** One entry of a menu's tree: a row key, `-` for a separator, or a submenu with its rows (the
+ * app's `folder:<name>`, or the person's `group:<id>` with a title). */
+export type MenuNode = string | { key: string; title?: string; items: MenuNode[] };
+
+/** A right-click menu's arrangement (Swift `ContextMenuLayout`): the whole menu as a tree, and
+ * the rows it hides (kept in place). */
+export type MenuLayout = { items: MenuNode[]; hidden: string[] };
+
+/** One row a menu's arrangement can place: an action, a submenu, or a folder (`folder:<name>`). */
+export type MenuRow = {
+  key: string;
+  title: string;
+  kind: "item" | "submenu" | "folder";
+  /** An SF Symbol the page shows from `cmux-page://cmux.settings/symbol/<name>`; null for none. */
+  symbol: string | null;
+  /** The folder key the app generates the row in; null for the top level. */
+  home: string | null;
+};
+
+/** One right-click menu in Settings > Menus. */
+export type ContextMenuState = {
+  id: string;
+  title: string;
+  /** workspace, tabs, terminal, browser or other: where the list groups it. */
+  area: string;
+  customized: boolean;
+  rows: MenuRow[];
+  /** The app's own arrangement (what Reset draws). */
+  generated: MenuLayout;
+  /** The arrangement drawn now: every row once, hidden ones in place. */
+  layout: MenuLayout;
+};
+
+/** Settings > Menus as the app serves it (`context_menus` in the host lists). */
+export type ContextMenusHostState = { show_customize_item: boolean; menus: ContextMenuState[] };
+
 /** Settings > Devices as the app serves it (`devices` in the host lists), every text localized. */
 export type DevicesHostState = {
   title: string;
@@ -171,6 +207,9 @@ export type HostLists = {
     levels: string[];
     current: Record<string, string | null>;
     config?: GhosttyTheme | null;
+    /** The Mac's own light or dark (the side of a light/dark pair the terminals use). The page's
+     * prefers-color-scheme is its window's, which a light or dark App Theme sets. */
+    system_scheme?: "light" | "dark";
   };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
@@ -194,6 +233,8 @@ export type HostLists = {
   web_updates?: WebUpdatesState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
+  /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
+  context_menus?: ContextMenusHostState;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -333,6 +374,8 @@ export type ComputerUseState = {
   helper: string | null;
   /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
   host_unverified?: boolean;
+  /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
+  upstream_fallback?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -564,7 +607,7 @@ export type HarnessRow = {
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
@@ -859,12 +902,15 @@ export type ChannelBuild = {
   /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
   compare_url: string | null;
   health: "promoted" | "held" | "pulled" | "pending";
-  health_title: string;
+  health_title: string | null;
   pulled_reason: string | null;
   /** This Mac runs it ("You Are Here"). */
   installed: boolean;
   /** This Mac kept a copy for rollback. */
   kept: boolean;
+  /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
+   * and pulled ones, on an app that follows a feed. Absent from older hosts. */
+  switch?: boolean;
   prs: { number: number; url: string }[];
 };
 
@@ -900,7 +946,16 @@ export type ChannelsState = {
   title: string;
   installed: string;
   switch: ChannelSwitch | null;
-  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  labels: {
+    you_are_here: string;
+    following: string;
+    kept: string;
+    compare: string;
+    commit: string;
+    release: string;
+    /** The rows' Switch button; absent from older hosts. */
+    switch?: string;
+  };
   tracks: ChannelTrack[];
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
@@ -922,6 +977,9 @@ export type SettingsOps = {
   /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   "cmux.settings.channels.update_machine": [{ id: string }, Record<string, never>];
+  /** Native: a build row's Switch: restarts once into that build, older or newer, downloading it
+   * first unless it is kept (the person's gesture only). */
+  "cmux.settings.channels.switch_build": [{ build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
@@ -946,6 +1004,10 @@ export type SettingsOps = {
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
+  "cmux.settings.context_menus.set": [{ menu: string; layout: MenuLayout | null }, Record<string, never>];
+  /** Native: Settings > Menus turns Customize Menu… at the end of every menu on or off. */
+  "cmux.settings.context_menus.show_item": [{ show: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
@@ -998,6 +1060,9 @@ export type SettingsOps = {
   /** Native: the bytes the person's own background images take. */
   "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
   "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
+  /** Native: the moving wallpaper that is the macOS screen saver; id null when it is not an aerial,
+   * `pending` while macOS has not downloaded it. Writes nothing. */
+  "cmux.settings.backdrop.image.screen_saver": [Record<string, never>, { id: string | null; pending: boolean }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */

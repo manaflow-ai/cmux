@@ -1,6 +1,25 @@
 /** The latest transcript scroll state waiting for the next display frame. */
 export type ScrollFrame = { top: number; atLatest: boolean };
 
+/** Resolve a stale queued frame against live scroll position and current reader intent. */
+export function authoritativeScrollIntent({
+  top,
+  scrollHeight,
+  clientHeight,
+  following,
+  jumping,
+  deadband,
+}: {
+  top: number;
+  scrollHeight: number;
+  clientHeight: number;
+  following: boolean;
+  jumping: boolean;
+  deadband: number;
+}): boolean {
+  return jumping || (following && top >= scrollHeight - clientHeight - deadband);
+}
+
 type RequestFrame = (callback: FrameRequestCallback) => number;
 type CancelFrame = (handle: number) => void;
 

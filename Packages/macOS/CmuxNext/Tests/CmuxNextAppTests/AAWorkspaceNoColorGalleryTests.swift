@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// set to no color, the list with `sidebar.showColors` off, and the workspace and group menu
 /// headers whose swatches start with No Color. Written under `ws-no-color-gallery/` in the package
 /// and bundled to `ws-no-color-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AAWorkspaceNoColorGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAWorkspaceNoColorGalleryTests {
     static let packageRoot = AANestedGroupsGalleryTests.packageRoot
 
     private static func sections(groupNone: Bool) -> [SidebarSection] {
