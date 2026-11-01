@@ -73,93 +73,165 @@ export function skillCatalog(commands: readonly SlashCommand[] | undefined): Ski
 const catalogOf = (commands: readonly SlashCommand[] | SkillCatalog | undefined): SkillCatalog =>
   commands && !Array.isArray(commands) ? (commands as SkillCatalog) : skillCatalog(commands as SlashCommand[]);
 
-/// A fenced code block's opening line at a line start: up to three spaces, then three or more
-/// backticks or tildes, to the line's end (`\n`, `\r\n` or a lone `\r`).
-const FENCE_OPEN = /( {0,3})(`{3,}|~{3,})[^\r\n]*/y;
+// The reading of Markdown code that a prompt's send mapping, its display mapping and its skill
+// highlights share, CommonMark's: the transcript's renderer reads a sent prompt's code with these
+// same functions (Markdown.tsx `commonmark`), so a word is code in all of them or in none.
+
+/// A fenced code block's opening line: up to three spaces, then three or more backticks with an info
+/// string that holds no backtick, or three or more tildes with any. Undefined for any other line.
+export function fenceOpening(line: string): { mark: string; info: string } | undefined {
+  const found = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!found || (found[1]![0] === "`" && found[2]!.includes("`"))) return undefined;
+  return { mark: found[1]!, info: found[2]! };
+}
+
+/// Whether `line` closes a fence opened by `mark`: up to three spaces, then at least as many of the
+/// same character, then only spaces or tabs.
+export function closesFence(line: string, mark: string): boolean {
+  return new RegExp(`^ {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`).test(line);
+}
+
+/// An inline code span (CommonMark): a backtick run, its content, and the next run of exactly as
+/// many backticks. `inner` is the content's start and end.
+export type CodeSpan = { start: number; end: number; inner: [number, number]; run: number };
+
+/// A line that starts a block of its own, which no inline code span crosses (its paragraph ends
+/// there): a blank line, a fence's opening line, a heading, a quote or a list item.
+const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+][ \t]|\d+[.)][ \t])/;
+
+/// Where each line of `text` that ends a paragraph starts (`BLOCK_START`, a blank line, a fence's
+/// opening line), in order: an inline code span never runs over one. One pass.
+export function blockBreaks(text: string): number[] {
+  const breaks: number[] = [];
+  for (let at = 0; at <= text.length;) {
+    const line = lineAt(text, at);
+    const content = text.slice(at, line.end);
+    if (at > 0 && (!content.trim() || BLOCK_START.test(content) || fenceOpening(content))) breaks.push(at);
+    if (line.end >= text.length) break;
+    at = line.next;
+  }
+  return breaks;
+}
+
+/// Whether a paragraph break (`blockBreaks`) starts a line in `from...to` (`to` included: a closing
+/// run that opens such a line starts a block, not the span's end).
+function breaksBetween(breaks: readonly number[], from: number, to: number): boolean {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (breaks[middle]! <= from) low = middle + 1;
+    else high = middle;
+  }
+  return low < breaks.length && breaks[low]! <= to;
+}
+
+/// The code span that opens at `at` (a backtick run's first backtick), or undefined when the run is
+/// literal: no closing run of its length before its paragraph ends (`breaks`, `blockBreaks`).
+/// `unclosed` remembers run lengths with no closer after `at` at all, so a text is never searched
+/// twice for one.
+export function codeSpanAt(
+  text: string,
+  at: number,
+  unclosed: Set<number>,
+  breaks: readonly number[] = [],
+): CodeSpan | undefined {
+  let open = at;
+  while (text[open] === "`") open++;
+  const run = open - at;
+  if (unclosed.has(run)) return undefined;
+  for (let from = open; ;) {
+    const next = text.indexOf("`".repeat(run), from);
+    if (next < 0) {
+      unclosed.add(run);
+      return undefined;
+    }
+    if (breaksBetween(breaks, open, next)) return undefined;
+    let stop = next;
+    while (text[stop] === "`") stop++;
+    if (stop - next === run && text[next - 1] !== "`") return { start: at, end: stop, inner: [open, next], run };
+    from = stop;
+  }
+}
+
+/// The inline code spans of `text`, in order.
+export function codeSpans(text: string): CodeSpan[] {
+  const spans: CodeSpan[] = [];
+  if (!text.includes("`")) return spans;
+  const unclosed = new Set<number>();
+  const breaks = blockBreaks(text);
+  for (let at = 0; at < text.length;) {
+    if (text[at] !== "`") {
+      at++;
+      continue;
+    }
+    const span = codeSpanAt(text, at, unclosed, breaks);
+    if (span) {
+      spans.push(span);
+      at = span.end;
+    } else while (text[at] === "`") at++;
+  }
+  return spans;
+}
 
 /// A `/word` of a prompt in a command position: where it starts and ends in the text, the word
-/// without its `/`, and whether it sits in Markdown code. `region` says which code: a fence of
-/// backticks (`loose` when its info string holds a backtick, which the transcript's renderer opens no
-/// fence for), of tildes, or an inline span of one backtick or of more.
-export type CommandWord = {
-  start: number;
-  end: number;
-  word: string;
-  code: boolean;
-  region?: "backticks" | "loose" | "tildes" | "span" | "spans";
-};
+/// without its `/`, and whether it sits in Markdown code.
+export type CommandWord = { start: number; end: number; word: string; code: boolean };
 
 /// A `/word` inside a stretch of code, for `commandWords`' `inCode`.
 const CODE_WORD = /(^|[\s\uFFFC`])\/([^\s\uFFFC`]+)(?=[\s\uFFFC`]|$)/g;
 
+/// Where the line starting at `at` ends (before its `\n`, `\r\n` or `\r`), and where the next starts.
+function lineAt(text: string, at: number): { end: number; next: number } {
+  let end = at;
+  while (end < text.length && text[end] !== "\n" && text[end] !== "\r") end++;
+  const next = text[end] === "\r" && text[end + 1] === "\n" ? end + 2 : end + 1;
+  return { end, next };
+}
+
 /// The `/word`s of `text` in a command position (the text's start, or after a space, a line break
-/// or an attachment, running to the next), in order. The one reading of Markdown code that the
-/// send mapping, the display mapping and the skill highlights share: a fenced block (backticks or
-/// tildes, to its closing fence after `\n`, `\r\n` or `\r`, or the end) and an inline code span of
-/// any backtick run (closed by a run of the same length; an unclosed run is literal) are code. Their
-/// words come only with `inCode` (`code` true). One pass: a run length with no closer further on is
-/// remembered, so no span is searched for twice.
+/// or an attachment, running to the next), in order. Code (`fenceOpening` to `closesFence` or the
+/// end, lines broken by `\n`, `\r\n` or `\r`; `codeSpanAt` spans) is never read; its words come only
+/// with `inCode` (`code` true).
 export function commandWords(text: string, inCode = false): CommandWord[] {
   const words: CommandWord[] = [];
   if (!text.includes("/")) return words;
-  const codeWords = (from: number, to: number, region: NonNullable<CommandWord["region"]>) => {
+  const codeWords = (from: number, to: number) => {
     if (!inCode || to <= from) return;
     for (const found of text.slice(from, to).matchAll(CODE_WORD)) {
       const start = from + found.index! + found[1]!.length;
-      words.push({ start, end: start + found[2]!.length + 1, word: found[2]!, code: true, region });
+      words.push({ start, end: start + found[2]!.length + 1, word: found[2]!, code: true });
     }
   };
   const unclosed = new Set<number>();
+  const breaks = text.includes("`") ? blockBreaks(text) : [];
   const length = text.length;
   let at = 0;
   while (at < length) {
     const char = text[at]!;
     const lineStart = at === 0 || text[at - 1] === "\n" || text[at - 1] === "\r";
     if (lineStart && (char === " " || char === "`" || char === "~")) {
-      FENCE_OPEN.lastIndex = at;
-      const fence = FENCE_OPEN.exec(text);
+      const line = lineAt(text, at);
+      const fence = fenceOpening(text.slice(at, line.end));
       if (fence) {
-        const mark = fence[2]!;
-        const close = new RegExp(
-          `(?:\\r\\n|\\r|\\n) {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*(?=\\r|\\n|$)`,
-          "g",
-        );
-        close.lastIndex = at + fence[0].length;
-        const found = close.exec(text);
-        const end = found ? found.index + found[0].length : length;
-        const region =
-          mark[0] === "~"
-            ? "tildes"
-            : fence[0].slice(fence[1]!.length + mark.length).includes("`")
-              ? "loose"
-              : "backticks";
-        codeWords(at + fence[0].length, found ? found.index : length, region);
-        at = end;
+        let body = line.next;
+        let close = body;
+        while (close < length) {
+          const next = lineAt(text, close);
+          if (closesFence(text.slice(close, next.end), fence.mark)) break;
+          close = next.next;
+        }
+        codeWords(Math.min(body, length), Math.min(close, length));
+        at = close < length ? lineAt(text, close).end : length;
         continue;
       }
     }
     if (char === "`") {
-      let end = at;
-      while (text[end] === "`") end++;
-      const run = end - at;
-      at = end;
-      if (unclosed.has(run)) continue;
-      // The next run of exactly `run` backticks closes the span.
-      for (let from = end; ;) {
-        const next = text.indexOf("`".repeat(run), from);
-        if (next < 0) {
-          unclosed.add(run);
-          break;
-        }
-        let stop = next;
-        while (text[stop] === "`") stop++;
-        if (stop - next === run && text[next - 1] !== "`") {
-          codeWords(end, next, run === 1 ? "span" : "spans");
-          at = stop;
-          break;
-        }
-        from = stop;
-      }
+      const span = codeSpanAt(text, at, unclosed, breaks);
+      if (span) {
+        codeWords(span.inner[0], span.inner[1]);
+        at = span.end;
+      } else while (text[at] === "`") at++;
       continue;
     }
     if (char === "/" && (at === 0 || isSlashBoundary(text[at - 1]))) {

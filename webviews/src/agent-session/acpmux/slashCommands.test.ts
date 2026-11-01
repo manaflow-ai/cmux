@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyCommand,
+  closesFence,
   commandSplice,
   commandWords,
+  fenceOpening,
   matchCommands,
   shownName,
   pickedSkillsOf,
@@ -297,6 +299,33 @@ describe("the code reading send, display and highlights share", () => {
       ["x", true],
       ["y", true],
       ["z", false],
+    ]);
+  });
+});
+
+describe("CommonMark's code reading", () => {
+  test("a backtick fence's info string holds no backtick, and a fence has at most three spaces of indent", () => {
+    expect(fenceOpening("```ts")).toEqual({ mark: "```", info: "ts" });
+    expect(fenceOpening("~~~ a `b`")).toEqual({ mark: "~~~", info: " a `b`" });
+    expect(fenceOpening("```x``` y")).toBeUndefined();
+    expect(fenceOpening("    ```")).toBeUndefined();
+    expect(closesFence("  ````", "```")).toBe(true);
+    expect(closesFence("```", "````")).toBe(false);
+    expect(closesFence("~~~", "```")).toBe(false);
+  });
+
+  test("an inline span never runs over a paragraph's end: a blank line, a fence, a list item", () => {
+    const words = (text: string) => commandWords(text, true).map((word) => [word.word, word.code]);
+    expect(words("use `x`\n    ```\n/a\n```\n/b")).toEqual([
+      ["a", false],
+      ["b", true],
+    ]);
+    expect(words("- a `x\n- b` /c")).toEqual([["c", false]]);
+    expect(words("a `x\n\ny` /c")).toEqual([["c", false]]);
+    expect(words("a `x\ny` /c")).toEqual([["c", false]]);
+    expect(words("a `x\n/y` /c")).toEqual([
+      ["y", true],
+      ["c", false],
     ]);
   });
 });

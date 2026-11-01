@@ -62,19 +62,22 @@ export function splitSkillWords(text: string, words: ReadonlyMap<string, string>
   return pieces;
 }
 
-/// Before a skill's `/` in code the transcript's Markdown renderer reads as prose: a word joiner,
-/// which draws nothing, so the renderer's prose (Markdown.tsx `skills`) never finds a command word
-/// there. Only where the two readings part (`commandWords` regions): a tilde fence, a backtick fence
-/// whose info string holds a backtick, and an inline span of two or more backticks. Plain code spans
-/// and fences, which both read as code, stay as they are. `text` itself when nothing needs it.
-export function guardCodeSkills(text: string, words: ReadonlyMap<string, string>): string {
-  if (!words.size || !text.includes("/")) return text;
-  let out = "";
-  let copied = 0;
-  for (const { start, word, code, region } of commandWords(text, true)) {
-    if (!code || region === "span" || region === "backticks" || !words.has(word)) continue;
-    out += `${text.slice(copied, start)}\u2060`;
-    copied = start;
+/// `text`, a run of plain text the transcript's Markdown renderer produced (never code: the
+/// renderer took code out with the same reading send uses, slashCommands.ts), cut at each `/name` of
+/// a skill in `words` in a command position. Markdown.tsx `skills` draws these.
+export function splitSkillText(text: string, words: ReadonlyMap<string, string>): SkillPiece[] {
+  if (!words.size || !text.includes("/")) return [text];
+  const pieces: SkillPiece[] = [];
+  let last = 0;
+  for (const found of text.matchAll(/(^|[\s\uFFFC])\/([^\s\uFFFC]+)(?=[\s\uFFFC]|$)/g)) {
+    const description = words.get(found[2]!);
+    if (description === undefined) continue;
+    const start = found.index! + found[1]!.length;
+    if (start > last) pieces.push(text.slice(last, start));
+    pieces.push({ word: `/${found[2]!}`, description });
+    last = start + found[2]!.length + 1;
   }
-  return copied ? out + text.slice(copied) : text;
+  if (!pieces.length) return [text];
+  if (last < text.length) pieces.push(text.slice(last));
+  return pieces;
 }

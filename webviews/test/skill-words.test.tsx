@@ -152,14 +152,6 @@ test("never inside code: tilde fences, double-backtick spans with a backtick ins
   let words = await bubble("~~~\nuse /review-pr\n~~~\nthen /review-pr");
   expect(words.map((word) => word.textContent)).toEqual(["/review-pr"]);
   expect(host.querySelector(".cv-user__bubble")!.textContent).toContain("use /review-pr");
-  // Markdown prompt: a skill that also sits in code is left plain; another outside code is lit.
-  words = await bubble("use `` a ` /review-pr `` now\n- and /$emil-design-vocabulary then");
-  expect(words.map((word) => word.textContent)).toEqual(["/emil-design-vocabulary"]);
-  // A tilde fence in a Markdown prompt: the renderer draws it as prose, the skill stays plain.
-  words = await bubble("~~~\n/review-pr\n~~~\n- then /review-pr");
-  expect(words.map((word) => word.textContent)).toEqual(["/review-pr"]);
-  expect(host.querySelectorAll(".cv-skill-word").length).toBe(1);
-
   const { createRoot } = await import("react-dom/client");
   const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
   const box = dom.window.document.createElement("div");
@@ -184,4 +176,51 @@ test("never inside code: tilde fences, double-backtick spans with a backtick ins
   expect(lit("q-2")).toEqual([]);
   await act(async () => queue.unmount());
   box.remove();
+});
+
+test("a Markdown prompt lights skills only in the renderer's text, where send reads them outside code", async () => {
+  const { commandWords } = await import("../src/agent-session/acpmux/slashCommands");
+  const { skillWords } = await import("../src/agent-session/acpmux/conversation/skillWords");
+  const { words: skills } = skillWords(COMMANDS);
+  // The renderer's reading and send's (commandWords) on the cases where they once parted.
+  const cases = [
+    "- a list\n~~~\n/review-pr\n~~~\nthen /review-pr",
+    "use `` a ` /review-pr `` and /review-pr then `x`",
+    "- a list\n```x``` /review-pr\n/review-pr",
+    "use `x`\n    ```\n/review-pr\n```\n/review-pr",
+    "- a `x\n- b` /review-pr",
+    "- a list\r\n```\r\n/review-pr\r\n```\r\nthen /review-pr",
+    "- a list\n````md\n```\n/review-pr\n```\n````\nthen /review-pr",
+  ];
+  for (const text of cases) {
+    const lit = (await bubble(text)).map((word) => word.textContent);
+    const sent = commandWords(text)
+      .filter((word) => skills.has(word.word))
+      .map((word) => `/${word.word}`);
+    expect([text, lit]).toEqual([text, sent]);
+    // No skill word inside code, and the page's text carries no hidden character.
+    expect(host.querySelector("code .cv-skill-word, pre .cv-skill-word")).toBeNull();
+    const shown = host.querySelector(".cv-user__bubble")!.textContent ?? "";
+    expect(/[\u200B-\u200D\u2060\uFEFF\uE000-\uF8FF]/.test(shown)).toBe(false);
+  }
+  // The double-backtick span draws as one code span, its backtick inside.
+  await bubble("use `` a ` /review-pr `` and /review-pr then `x`");
+  expect([...host.querySelectorAll(".cv-user__bubble code")].map((code) => code.textContent)).toEqual([
+    "a ` /review-pr",
+    "x",
+  ]);
+});
+
+test("a Markdown bubble's selection copies its text as shown, with no hidden characters", async () => {
+  await bubble("use `` a ` /review-pr `` and /$emil-design-vocabulary\n- then `x`");
+  const bubbleNode = host.querySelector(".cv-user__bubble")!;
+  const selection = dom.window.getSelection()!;
+  const range = dom.window.document.createRange();
+  range.selectNodeContents(bubbleNode);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const copied = selection.toString();
+  expect(copied).toContain("/emil-design-vocabulary");
+  expect(/[\u200B-\u200D\u2060\uFEFF\uE000-\uF8FF]/.test(copied)).toBe(false);
+  selection.removeAllRanges();
 });
