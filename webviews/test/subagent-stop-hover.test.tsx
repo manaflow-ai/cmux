@@ -36,7 +36,9 @@ test("only its own row's hover or focus lights a row's Stop", () => {
   );
   expect(lighting.length).toBeGreaterThan(0);
   for (const rule of lighting)
-    expect(rule.selector).toMatch(/^\.cv-subagent-stoppable:is\(:hover, :focus-within\) > \.cv-subagent__stop(:disabled)?$/);
+    expect(rule.selector).toMatch(
+      /^\.cv-subagent-stoppable:is\(:hover, :focus-within\) > \.cv-subagent__stop(:disabled)?$/,
+    );
   // The row itself takes no highlight from the stoppable wrapper.
   for (const rule of rules().filter((r) => /\.cv-subagent-stoppable(:[^>\s]+)?$/.test(r.selector)))
     expect(rule.body).not.toMatch(/background/);
