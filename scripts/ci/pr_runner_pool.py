@@ -514,6 +514,9 @@ def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
     return max(0.0, min(after, cap))
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
+# The approved GCP Linux pool is an organization runner group as well. Keep
+# this allowlist explicit: visible groups are not trusted implicitly.
+APPROVED_RUNNER_GROUPS = (RUNNER_GROUP, "cmux-fleet-linux")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2293,28 +2296,42 @@ class GitHub:
         return None
 
     def runners(self) -> list[Mapping[str, Any]]:
-        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
+        """The repository runners plus explicitly approved organization groups.
 
-        The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
-        the repository endpoint does not list. Listing that group needs the
+        The glaeda minis and GCP Linux pool are organization runners, which
+        the repository endpoint does not list. Listing those groups needs the
         App's organization permission "Self-hosted runners: read" (ci.yml
-        mints the token with it). Raises when the group cannot be read, so
-        each caller falls back to the snapshot instead of counting every
-        mini as busy.
+        mints the token with it). The existing glaeda group remains required;
+        the GCP group is optional for installations where that pool is not
+        visible. An advertised approved group that cannot be read raises so
+        callers fall back to a snapshot instead of treating an incomplete
+        listing as idle.
         """
         found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
-            group = next((group for group in groups
-                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
-                          and isinstance(group.get("id"), int)), None)
-            if group is None:
+            by_name = {
+                group.get("name"): group
+                for group in groups
+                if isinstance(group, Mapping) and isinstance(group.get("name"), str)
+            }
+            group = by_name.get(RUNNER_GROUP)
+            if not isinstance(group, Mapping) or not isinstance(group.get("id"), int):
                 raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
-            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
+            org: list[Mapping[str, Any]] = []
+            for group_name in APPROVED_RUNNER_GROUPS:
+                group = by_name.get(group_name)
+                if group_name != RUNNER_GROUP and group is None:
+                    # Older installations may not expose the GCP pool yet;
+                    # it can still be selected only when explicitly listed.
+                    continue
+                if not isinstance(group, Mapping) or not isinstance(group.get("id"), int):
+                    raise RuntimeError(f"no runner group {group_name} is visible to {self.repo}")
+                org.extend(self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners"))
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
+            raise RuntimeError(f"approved org runner group unreadable (HTTP {error.code}); the routing "
                                "App needs the organization permission Self-hosted runners: read") from error
         found.update((runner.get("id"), runner) for runner in org)
         return list(found.values())
