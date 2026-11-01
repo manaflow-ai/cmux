@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextFeed
 import CmuxNextSettings

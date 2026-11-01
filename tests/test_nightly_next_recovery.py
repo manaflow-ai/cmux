@@ -627,7 +627,7 @@ class RecheckTests(unittest.TestCase):
     def test_a_superseded_build_is_refused_for_every_later_job_without_a_failure_reason(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertEqual(job["outputs"]["refused"],
-                         "${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' }}")
+                         "${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}")
         self.assertEqual(job["outputs"]["refusal_reason"], "${{ steps.gate.outputs.refusal_reason }}")
         report = workflow()["jobs"]["report-nightly-failure"]["if"]
         self.assertIn("needs.publish-nightly.outputs.refusal_reason != ''", report)
