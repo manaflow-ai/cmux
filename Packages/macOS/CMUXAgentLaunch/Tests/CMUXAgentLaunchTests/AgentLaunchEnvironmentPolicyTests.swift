@@ -106,7 +106,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/cursor-account"])
     }
 
-    @Test("Does not derive a Cursor config root from XDG_CONFIG_HOME")
+    @Test("Does not derive a Cursor config root from the shared XDG root")
     func doesNotDeriveCursorConfigRootFromXDG() {
         // cursor-agent reads XDG_CONFIG_HOME only on Linux/BSD; on macOS it uses ~/.cursor,
         // so only an explicit CURSOR_CONFIG_DIR is replayed. The key is still captured,
@@ -206,7 +206,6 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
-            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
             "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
@@ -267,7 +266,6 @@ struct AgentLaunchEnvironmentPolicyTests {
     func hookCaptureRetainsSafeSubrouterRoutingMetadataWithMarker() {
         let captured = SubrouterCodexResumeRouting().capturedEnvironment(in: [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
-            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
@@ -277,7 +275,6 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(captured == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
-            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
@@ -306,7 +303,6 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
-            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",

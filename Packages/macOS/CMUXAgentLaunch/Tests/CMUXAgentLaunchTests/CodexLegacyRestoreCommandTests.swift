@@ -45,4 +45,12 @@ struct CodexLegacyRestoreCommandTests {
     func ambiguousCommandIsRejected(command: String) {
         #expect(CodexLegacyRestoreCommand(command: command, sessionID: session) == nil)
     }
+
+    @Test func nonBreakingSpaceDoesNotSplitWords() {
+        // A shell treats U+00A0 as an ordinary character, not a separator.
+        #expect(CodexLegacyRestoreCommand(
+            command: "codex\u{a0}resume 0f4e2b3c-7d5a-4c1e-9b8a-2a6d1e3f4c5b",
+            sessionID: "0f4e2b3c-7d5a-4c1e-9b8a-2a6d1e3f4c5b"
+        ) == nil)
+    }
 }
