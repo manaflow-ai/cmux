@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxTheme
 import ImageIO
 import Testing
 
 /// Three quiet reading layouts, using the actual TASKS-derived guide and existing spacing scale.
-@MainActor @Suite(.serialized) struct SetupGuideGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SetupGuideGalleryTests {
     @Test func instructionsWrapWhenPaneNarrows() throws {
         let view = SetupGuideView()
         var wideHeight: CGFloat = 0
