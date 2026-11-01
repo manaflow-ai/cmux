@@ -44,18 +44,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
-    /// One-shot machine-daemon forwarding for page-host actions, including when the page's ACP
-    /// transport itself is local to this Mac.
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
-        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-        let result: Result<Data, any Error>
-        do {
-            result = .success(try await client.cloudRepository(method: method, params: params, timeout: timeout))
-        } catch {
-            result = .failure(error)
-        }
-        await client.close()
-        return try result.get()
+        try await AgentPaneCloudRepositoryForwarding.request(surface: surface, reconnect: reconnect, endpoint: endpoint,
+                                                              method: method, params: params, timeout: timeout)
     }
 
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
@@ -96,17 +87,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                let cloudRepository: RemoteAcpmuxWire.CloudRepository = { method, params, timeout in
-                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                    let result: Result<Data, any Error>
-                    do {
-                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
-                    } catch {
-                        result = .failure(error)
-                    }
-                    await requestClient.close()
-                    return try result.get()
-                }
+                let cloudRepository = AgentPaneCloudRepositoryForwarding.request(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository)
             }
         } else if let start, mode == .attach {
@@ -125,17 +106,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
-                cloudRepositoryStart: { surface, method, params, timeout in
-                    let requestClient = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                    let result: Result<Data, any Error>
-                    do {
-                        result = .success(try await requestClient.cloudRepository(method: method, params: params, timeout: timeout))
-                    } catch {
-                        result = .failure(error)
-                    }
-                    await requestClient.close()
-                    return try result.get()
-                })
+                cloudRepositoryStart: AgentPaneCloudRepositoryForwarding.startRequest(reconnect: reconnect, endpoint: endpoint))
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
