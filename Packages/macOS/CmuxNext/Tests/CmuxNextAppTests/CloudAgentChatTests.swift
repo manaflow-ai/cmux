@@ -261,7 +261,7 @@ struct CloudAgentChatTests {
                 }
                 try await Task.sleep(for: .milliseconds(20))
             }
-            Issue.record("\(method) got no answer in 60 s")
+            Issue.record("\(method) request \(id) got no answer in 60 s; recent frames: \(lines.suffix(4))")
             throw CancellationError()
         }
 
@@ -379,6 +379,12 @@ struct CloudAgentChatTests {
             try await body(World(services: services, machine: machine, workspace: workspace, work: work, home: home, acpmuxHome: acpmuxHome, binary: binary))
             result = .success(())
         } catch {
+            let log = await Task.detached {
+                (try? Data(contentsOf: acpmuxHome.appendingPathComponent("daemon.log"))).map {
+                    String(decoding: $0.suffix(8192), as: UTF8.self)
+                } ?? "no machine acpmux log"
+            }.value
+            print("CloudAgentChatTests machine acpmux on failure: \(log)")
             result = .failure(error)
         }
         await CloudMoveTests.end(services.daemon)
