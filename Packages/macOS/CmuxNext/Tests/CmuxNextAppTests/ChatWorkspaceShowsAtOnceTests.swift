@@ -90,6 +90,42 @@ struct ChatWorkspaceShowsAtOnceTests {
         #expect(tabLeft == nil, "a chat tab on the session is left: \(tabLeft ?? "")")
     }
 
+    /// A chat opened from a seed (Open Chat on a past chat, New Agent Chat with a prompt) starts its session as soon
+    /// as its page loads, which can be before the daemon answered the workspace's create. The page reports that
+    /// session under the stand-in's key (`onSessionChange`), where no bind can go; once the daemon's tab takes the
+    /// stand-in over, the session is bound to it, so the tab reopens that chat after a relaunch and other windows see
+    /// it. Before, the session stayed on the stand-in's key only and the daemon's record kept none.
+    @Test func aSessionTheChatStartsBeforeTheDaemonAnswersIsBoundToItsTab() async throws {
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        let tabs = Self.agentTabs(services)
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let store = services.daemon.store
+        let window = try #require(services.windows.active?.state.id)
+        let before = Set(store.workspaces.map(\.id))
+        var spawn = WorkspaceSpawn(name: "started chat")
+        spawn.firstChat = AgentPaneSeed(cwd: "/tmp", prompt: "hello")
+        let started = "s-started-\(UUID().uuidString.prefix(8).lowercased())"
+
+        let work = services.windows.startWorkspace(spawn, into: window)
+        let standIn = store.workspaces.first { !before.contains($0.id) }?.screens.flatMap(\.panes).flatMap(\.tabs).first?.id
+        // What the page's model reports when its chat starts (AgentTabStore.wire, onSessionChange), under the stand-in's key.
+        if let standIn {
+            tabs.sessions[standIn] = started
+            tabs.sendSession(started, for: standIn)
+        }
+        let workspace = try? await work()
+        let bound = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            store.workspaces.first { $0.id == workspace }?.screens.flatMap(\.panes).flatMap(\.tabs).first?.agentSession?.session == started
+        }
+        let record = store.workspaces.first { $0.id == workspace }?.screens.flatMap(\.panes).flatMap(\.tabs).first?.agentSession
+        await launched.stop()
+
+        try #require(standIn != nil, "the open showed no stand-in tab")
+        #expect(workspace != nil, "the daemon's create failed")
+        #expect(bound, "the daemon's tab record holds session \(record?.session ?? "none"), not the one its page started (\(started))")
+    }
+
     @Test func openChatShowsItsWorkspaceBeforeTheDaemonAnswers() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
