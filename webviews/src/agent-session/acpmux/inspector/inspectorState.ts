@@ -4,9 +4,10 @@
 // fold in one pane never reaches another. Every chat pane is its own page, so the page's copy is the
 // pane's; it is kept in localStorage under the chat's session (``bindInspectorPane``) so the pane
 // shows it again after a relaunch, and no page listens for another's writes. The last choice made in
-// any pane is the default for a pane with none of its own yet (a new chat), so the Inspector still
-// opens for a first chat and stays off for new chats once closed (Leo, 2026-10-20). With no storage
-// (a private window, a test) the page's own copy holds them.
+// any pane is the default for a pane with none of its own yet (a new chat): new chats open it once a
+// person has opened it, and keep it off once closed (Leo, 2026-10-20). Before any choice it is
+// closed (https://github.com/manaflow-ai/cmux/issues/29874: the panel is shown only when a person asks
+// for it). With no storage (a private window, a test) the page's own copy holds them.
 import { useSyncExternalStore } from "react";
 
 export type InspectorSectionId =
@@ -127,9 +128,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       return [];
     }
   };
-  /// Open unless the viewer closed it: a first chat shows it.
+  /// Closed until the viewer opens it: a first chat does not show it (issue 29874).
   const defaults = (): State => ({
-    open: read(OPEN_KEY) !== "0",
+    open: read(OPEN_KEY) === "1",
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
     sourcesAll: false,
