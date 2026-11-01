@@ -468,7 +468,7 @@
     "prices_source": "`blacksmith runners catalog` (cmuxterm-hq build-fleet/swift-linux-builder/blacksmith/RESULTS.md): $0.004/min at 2 vCPU and $0.064/min at 32, linear in vCPUs; billing rounds each job up to a whole minute",
     "measured_from": "cmuxterm-hq build-fleet/data speed records for 2026-10-30 and 2026-10-31: every Blacksmith job's label and wall time",
     "jobs": {
-      "backend.yml#test": {"size": 8, "failover": 4, "measured": {"32": [91.0, 7.48, 9.07]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "backend.yml#test": {"size": 8, "failover": 16, "measured": {"32": [91.0, 7.48, 9.07]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "ci-web.yml#diff-sidecar-check": {"routes": [16, 32], "target": 4, "measured": {"32": [55.0, 1.09, 1.27], "4": [1.0, 1.18, 1.05]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#react-apps-base-check": {"routes": [16, 32], "target": 8, "measured": {"32": [1914.0, 2.8, 6.27], "16": [843.0, 2.16, 4.23]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#react-apps-check-shard": {"routes": [16, 32], "target": 8, "measured": {"32": [4002.5, 16.92, 23.43], "16": [1835.5, 16.63, 23.65]}, "pending": "#30277 and #29981 change this file's runs-on"},
