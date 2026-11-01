@@ -192,6 +192,11 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.status.report", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.vm.event.emit", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    (
+        "cloud.vm.attention.emit",
+        VM_SELF,
+        &["cloud.machine.not_found", "cloud.rate_limited", "idempotency.conflict", "owner.unreachable"],
+    ),
 ];
 
 /// Codes the G8 approval path adds (cx-wb5.65): an install's money or

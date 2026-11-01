@@ -105,6 +105,7 @@
     "cloud.rescue.open",
     "cloud.shell.open",
     "cloud.snapshot.list",
+    "cloud.vm.attention.emit",
     "cloud.vm.event.emit",
     "cloud.vm.self.get",
     "cloud.vm.status.report",
