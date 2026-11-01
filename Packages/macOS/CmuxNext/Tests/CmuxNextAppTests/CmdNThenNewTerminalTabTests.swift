@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+@testable import CmuxNextTerminal
 import Darwin
 import Foundation
 import Testing
@@ -135,6 +136,8 @@ struct CmdNThenNewTerminalTabTests {
     /// (the create waits for Cmd-N's pane): lost. Now they wait in the creation hold, as on feat. How each key went is in the
     /// failure text, not the pass rule.
     @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
+        // Terminal views type through their Ghostty surface (as CmdNThenCreateKeysTests).
+        GhosttyRuntime.startedForTests()
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-keys")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")

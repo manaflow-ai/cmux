@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+@testable import CmuxNextTerminal
 import Darwin
 import Foundation
 import Testing
@@ -42,6 +43,9 @@ struct CmdNThenCreateKeysTests {
     /// Cmd-N with the daemon stopped (its workspace stays a stand-in), then `action`, then "echo held" Return, each key
     /// through the app's dispatch; then the daemon runs, and the new terminal must show the line and its answer.
     private static func typeAfterCmdN(then action: ActionID, invocation: ActionInvocation) async throws {
+        // Terminal views type through their Ghostty surface: without a started runtime they have none, and no key reaches
+        // the PTY (diagnostic 12f65c19335cf44d44de0317: a control line typed after the hold did not show either).
+        GhosttyRuntime.startedForTests()
         try await PasswordManagerRouteTests.withApp { services, connection in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-create-keys")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
