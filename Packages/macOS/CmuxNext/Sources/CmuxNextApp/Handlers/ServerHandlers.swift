@@ -40,7 +40,7 @@ enum ServerHandlers {
             }
             let services = context.services
             registry.track(Task { @MainActor in
-                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
                 let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
                                                               name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)
