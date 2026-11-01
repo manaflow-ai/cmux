@@ -6,7 +6,7 @@ import Foundation
 
 /// cmux: an agent-message fold or notes row as a small muted caption line, not a bubble (user
 /// 2026-10-31, msg 19414: the "▸ Agent messages (3) · a957" header, a blue underlined link in a gray
-/// pill, "is bad"). A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
+/// pill, "is bad"), and each status note of an opened notes row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
 /// (``HomeTableRowProvider``): a chevron, the label ("Agent messages (3)", "Disconnected (5)") and
 /// the agents as plain chips, at the bubbles' left edge. A click anywhere on the line opens or closes
 /// the fold (`ChatIntents.agentRowClicked`); the provider takes no click itself.
@@ -25,6 +25,8 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var open: Bool
         var label: String
         var chips: [String]
+        /// False for an opened note's line: no chevron, the text indented under the fold's label.
+        var chevron = true
     }
 
     /// The registered provider (nil: fold rows stay text bubbles).
@@ -45,10 +47,12 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
                               chips: expanded ? [] : peers)
         case let .notes(count, peers, reason, expanded):
             payload = Payload(open: expanded, label: CmuxStrings.agentNotes(reason, count), chips: expanded ? [] : peers)
-        case .message, .note:
+        case let .note(peer, _, text):
+            payload = Payload(open: false, label: "\(peer) · \(text)", chips: [], chevron: false)
+        case .message:
             return nil
         }
-        let key = "\(payload.open)\u{0}\(payload.label)\u{0}\(payload.chips.joined(separator: ","))"
+        let key = "\(payload.chevron)\u{0}\(payload.open)\u{0}\(payload.label)\u{0}\(payload.chips.joined(separator: ","))"
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
     }

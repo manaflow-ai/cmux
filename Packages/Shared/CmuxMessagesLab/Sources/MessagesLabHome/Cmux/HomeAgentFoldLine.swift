@@ -7,6 +7,7 @@ import Foundation
 /// the rest. Pure CoreText and CoreGraphics, any thread (row bitmaps draw off main).
 struct HomeAgentFoldLine {
     let open: Bool
+    let chevron: Bool
     let label: NSAttributedString
     let chips: [NSAttributedString]
     /// Chips that did not fit ("+3"), nil when all fit.
@@ -15,6 +16,7 @@ struct HomeAgentFoldLine {
     init(_ payload: HomeAgentFoldRowProvider.Payload, width: CGFloat) {
         let color = Fixture.secondaryText
         open = payload.open
+        chevron = payload.chevron
         label = NSAttributedString(string: payload.label, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .medium), .foregroundColor: color])
         let chipFont = HomeFonts.system(ofSize: 11, weight: .regular)
         let all = payload.chips.map { NSAttributedString(string: $0, attributes: [.font: chipFont, .foregroundColor: color]) }
@@ -38,24 +40,8 @@ struct HomeAgentFoldLine {
         typealias P = HomeAgentFoldRowProvider
         let mid = origin.y + P.height / 2
         let color = Fixture.secondaryText
-        // The chevron: right while folded, down while open.
-        ctx.saveGState()
-        ctx.setStrokeColor(color.cgColor)
-        ctx.setLineWidth(1.5)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-        let c = CGPoint(x: origin.x + P.chevronWidth / 2, y: mid)
-        if open {
-            ctx.move(to: CGPoint(x: c.x - 3.5, y: c.y - 1.75))
-            ctx.addLine(to: CGPoint(x: c.x, y: c.y + 1.75))
-            ctx.addLine(to: CGPoint(x: c.x + 3.5, y: c.y - 1.75))
-        } else {
-            ctx.move(to: CGPoint(x: c.x - 1.75, y: c.y - 3.5))
-            ctx.addLine(to: CGPoint(x: c.x + 1.75, y: c.y))
-            ctx.addLine(to: CGPoint(x: c.x - 1.75, y: c.y + 3.5))
-        }
-        ctx.strokePath()
-        ctx.restoreGState()
+        // The chevron: right while folded, down while open; none on a note's line (it sits under the label).
+        if chevron { drawChevron(ctx, center: CGPoint(x: origin.x + P.chevronWidth / 2, y: mid)) }
         var x = origin.x + P.chevronWidth + P.gap
         x += Self.drawText(ctx, label, x: x, mid: mid) + P.gap
         for chip in chips {
@@ -70,6 +56,26 @@ struct HomeAgentFoldLine {
             x += w + P.chipGap
         }
         if let more { _ = Self.drawText(ctx, more, x: x + 2, mid: mid) }
+    }
+
+    /// The chevron centered on `c`, in the caption's muted color: right while folded, down while open.
+    private func drawChevron(_ ctx: CGContext, center c: CGPoint) {
+        ctx.saveGState()
+        ctx.setStrokeColor(Fixture.secondaryText.cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        if open {
+            ctx.move(to: CGPoint(x: c.x - 3.5, y: c.y - 1.75))
+            ctx.addLine(to: CGPoint(x: c.x, y: c.y + 1.75))
+            ctx.addLine(to: CGPoint(x: c.x + 3.5, y: c.y - 1.75))
+        } else {
+            ctx.move(to: CGPoint(x: c.x - 1.75, y: c.y - 3.5))
+            ctx.addLine(to: CGPoint(x: c.x + 1.75, y: c.y))
+            ctx.addLine(to: CGPoint(x: c.x - 1.75, y: c.y + 3.5))
+        }
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
     /// Draws `text` on one line, vertically centered on `mid` (y down); its width.

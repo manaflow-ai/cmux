@@ -87,7 +87,11 @@ import Testing
         guard case let .custom(notesCustom) = notes else { Issue.record("not a drawn row"); return }
         #expect(provider.plainText(notesCustom) == "\(CmuxStrings.agentNotes(.stopped(session: "Disconnected"), 5)) · a1, a2, a3, a4, a5")
         #expect(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .message(from: "a1", to: "Chief", outgoing: false, text: "hi"))) == nil)
-        #expect(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .note(peer: "a1", reason: .gone, text: "gone"))) == nil)
+        // An opened note is a caption line too, with no chevron, so opening the notes brings back no bubbles.
+        let note = try #require(HomeAgentFoldRowProvider.part(.init(group: Self.group, kind: .note(peer: "a1", reason: .gone, text: "gone: no report will come"))))
+        guard case let .custom(noteCustom) = note else { Issue.record("not a drawn row"); return }
+        #expect(provider.plainText(noteCustom) == "a1 · gone: no report will come")
+        #expect(HomeAgentFoldRowProvider.payload(noteCustom)?.chevron == false)
     }
 
     @Test func captionKeepsChipsThatFitAndCountsTheRest() throws {
