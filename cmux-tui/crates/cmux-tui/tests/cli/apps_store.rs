@@ -25,6 +25,8 @@ struct Apps {
     session: String,
     /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
     runtime: Option<PathBuf>,
+    /// The daemon's customization folder (`CMUX_CUSTOMIZE_DIR`).
+    customize: PathBuf,
 }
 
 impl Apps {
@@ -43,7 +45,13 @@ impl Apps {
             out = dir.join("resolved.jsonl").display(),
         );
         write_script(&dir.join("app-host"), &host);
-        Self { socket: dir.join("mux.sock"), session: format!("as-{name}"), dir, runtime: None }
+        Self {
+            socket: dir.join("mux.sock"),
+            session: format!("as-{name}"),
+            customize: dir.join("customize"),
+            dir,
+            runtime: None,
+        }
     }
 
     fn command(&self, action: &str) -> Command {
@@ -57,7 +65,7 @@ impl Apps {
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
             .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
-            .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
+            .env("CMUX_CUSTOMIZE_DIR", &self.customize);
         // Fake remote tools (`ssh`, `docker`, ...) a test puts in `<dir>/bin` come first.
         if self.dir.join("bin").is_dir() {
             let path = std::env::var_os("PATH").unwrap_or_default();
@@ -1155,6 +1163,23 @@ fn the_customize_folder_reloads_after_it_is_deleted_and_made_again() {
     write_customize(&customize, "1.0.2");
     let saved = customize_listed(&mut client, "1.0.2");
     assert_eq!(saved["installed"], true, "{saved}");
+}
+
+/// A customization folder whose parent is missing too when the daemon
+/// starts (no `~/.config/cmux` yet) is picked up once the user makes it,
+/// and a later save in it reloads. The watch went no higher than the
+/// folder's parent, so nothing watched for it until the daemon restarted.
+#[test]
+fn the_customize_folder_installs_when_its_missing_parent_is_made_later() {
+    let mut apps = Apps::new("customize-parent");
+    apps.customize = apps.dir.join("config/cmux/customize");
+    apps.start();
+    let mut client = apps.agent();
+    write_customize(&apps.customize, "1.0.0");
+    let first = customize_listed(&mut client, "1.0.0");
+    assert_eq!(first["installed"], true, "{first}");
+    write_customize(&apps.customize, "1.0.1");
+    customize_listed(&mut client, "1.0.1");
 }
 
 /// The documented template (docs/cmux-next/sidebar-customization) is a valid
