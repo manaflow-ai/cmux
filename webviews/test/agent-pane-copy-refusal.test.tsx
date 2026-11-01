@@ -134,7 +134,14 @@ test("failed-turn Copy error responds to refused copy and later successful retry
 });
 
 test("edit-diff Copy stays Copy after refusal, and can recover on retry", async () => {
-  const file = { path: "src/entry.ts", additions: 1, deletions: 0, edits: [] } as TurnFile;
+  const file: TurnFile = {
+    path: "src/entry.ts",
+    displayPath: "src/entry.ts",
+    additions: 1,
+    deletions: 0,
+    created: false,
+    edits: [],
+  };
   await act(async () => root.render(<EditDiff file={file} />));
   const button = host.querySelector<HTMLButtonElement>(".cv-edit-diff__copy")!;
   expect(button).toBeTruthy();
