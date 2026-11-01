@@ -13,8 +13,9 @@ extension AgentPaneModel {
     /// read off the main actor. Any other (a pasted picture, an image dragged from a page) answers the
     /// app the pasteboard said wrote it (`org.nspasteboard.source`), else none. A chat on another
     /// machine gets only that claim: this Mac's files are never read for it (cx-k21v).
-    func attachSource(_ kind: AgentPaneDroppedPaths.Kind, names: [String], apps: AttachmentSourceApps = .live) async -> [String: Any] {
-        guard let record = droppedPaths.source(kind, names: names) else {
+    func attachSource(_ kind: AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil,
+                      apps: AttachmentSourceApps = .live) async -> [String: Any] {
+        guard let record = droppedPaths.source(kind, names: names, gestureAt: gestureAt) else {
             return AgentPaneReply.success(["sources": names.map { _ in NSNull() as Any }])
         }
         let claimed = record.claimed.flatMap { AttachmentSource.source(bundleId: $0, apps: apps) }

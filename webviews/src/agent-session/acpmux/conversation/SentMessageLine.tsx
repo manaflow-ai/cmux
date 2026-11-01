@@ -35,14 +35,15 @@ import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
+import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-/// How the line reads. `sentence`, the default: "Sent message to tests", then the first line muted
+/// How the line reads. `sentence`, the default: "Sent to tests", then the first line muted
 /// (Leo 2026-10-24: "sending message or sent message to X or Y"). The others are gallery versions
 /// kept beside it (SentMessageLine.gallery.ts): `arrow`, "→ tests: <first line>" (#24977's line),
-/// and `quote`, "Sent message to tests: “<first line>”". The native host sends no value.
+/// and `quote`, "Sent to tests: “<first line>”". The native host sends no value.
 export type SentLook = "sentence" | "arrow" | "quote";
 
 const LOOKS: readonly SentLook[] = ["sentence", "arrow", "quote"];
@@ -78,13 +79,20 @@ export function targetChat(store: SubsessionStore, target: string, sessionId?: s
 }
 
 const NO_STORE = new SubsessionStore();
-/// Each state's sentence; `ended`: the call does not say whether the message went.
-const SEND_LABEL = {
-  sending: "send.sending",
-  sent: "send.sent",
-  failed: "send.failed",
-  ended: "send.ended",
-} as const satisfies Record<SendState, string>;
+/// Each state's sentence, the words every message row uses ("Sent to", "Sending to"); `ended`:
+/// the call does not say whether the message went.
+function sendLabel(t: ReturnType<typeof useT>, state: SendState): string {
+  switch (state) {
+    case "sending":
+      return t("message.sendingTo", { to: MARK });
+    case "sent":
+      return t("message.sentTo", { to: MARK });
+    case "failed":
+      return t("send.failed", { target: MARK });
+    case "ended":
+      return t("send.ended", { target: MARK });
+  }
+}
 
 /// Where the target placeholder sits in the translated line, so the name can be a link.
 const MARK = "\u0001";
@@ -156,13 +164,14 @@ export function SentMessageLine({
   const label =
     shape === "arrow" && (state === "sending" || state === "sent") && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
-      : t(SEND_LABEL[state], { target: MARK });
+      : sendLabel(t, state);
   const [before, after = ""] = label.split(MARK);
+  // The recipient as every message row draws it: a chip, and a button when its chat is known.
   const name =
     chat && chats ? (
       <button
         type="button"
-        className="cv-sent__target"
+        className="cv-agentmsg__name cv-recipient cv-sent__target"
         title={t("subagents.open", { name: target })}
         onClick={(event) => {
           event.stopPropagation();
@@ -172,7 +181,7 @@ export function SentMessageLine({
         {target}
       </button>
     ) : (
-      target
+      <span className="cv-agentmsg__name cv-recipient is-plain">{target}</span>
     );
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
   const toggle = () => setOpen((value) => !value);
@@ -196,21 +205,30 @@ export function SentMessageLine({
         }}
       >
         <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>{icon}</span>
-        <span className="cv-tool__text">
-          {before}
+        {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
+        <span className="cv-agentmsg__sentence">
+          {before.trim() && <span className="cv-agentmsg__words">{before.trim()}</span>}
+          {before.trim() && " "}
           {name}
-          {after}
+          {after.trim() && " "}
+          {after.trim() && <span className="cv-agentmsg__words">{after.trim()}</span>}
+          {more && " "}
+          {more && <span className="cv-tool__detail cv-sent__more">{`· ${more}`}</span>}
+          {shape !== "arrow" && trailing && " "}
           {shape === "quote" && trailing && (
             // l10n-allow: punctuation around the message's own words.
-            <span className="cv-tool__detail">{`: “${trailing}”`}</span>
+            <span className="cv-agentmsg__preview cv-sent__preview">{`“${trailing}”`}</span>
           )}
-          {detail && <span className="cv-tool__detail">{` · ${detail}`}</span>}
-          {more && <span className="cv-tool__detail cv-sent__more">{` · ${more}`}</span>}
-          {shape === "sentence" && trailing && <span className="cv-tool__detail cv-sent__preview">{trailing}</span>}
+          {shape === "sentence" && trailing && (
+            <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
+          )}
           {source && (
-            <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
-              {source}
-            </code>
+            <>
+              {" "}
+              <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+                {source}
+              </code>
+            </>
           )}
         </span>
         {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
@@ -219,6 +237,14 @@ export function SentMessageLine({
           // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
           <span onClick={(event) => event.stopPropagation()}>
             <SentActions text={text} />
+          </span>
+        )}
+        {detail && " "}
+        {detail && (
+          <span className="cv-tool__trail">
+            <span className="cv-command__meta cv-agentmsg__status">
+              <span className="cv-row-status">{detail}</span>
+            </span>
           </span>
         )}
         <ChevronRight

@@ -1698,10 +1698,10 @@ impl Hub {
                 }
                 // A mode picked through its option is cmux's as a `set_mode` one is, once the
                 // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
-                if let Some(mode) = asked_option_mode {
+                if let Some(mode) = &asked_option_mode {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     if crate::web_modes::mode_of(&meta).as_deref() == Some(mode.as_str()) {
-                        meta.mode_set_by_cmux = Some(mode);
+                        meta.mode_set_by_cmux = Some(mode.clone());
                     }
                 }
             }
@@ -1721,6 +1721,11 @@ impl Hub {
             let _spawning = session.spawn_lock.lock().await;
             self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
+        }
+        if m == method::SESSION_SET_MODE
+            || (m == method::SESSION_SET_CONFIG_OPTION && asked_option_mode.is_some())
+        {
+            self.approve_pending_tools(session).await;
         }
         Ok(res)
     }
@@ -2015,6 +2020,8 @@ impl Hub {
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);
+        // Its next start runs the profile as it is now (`profile_respawn.rs`).
+        self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
