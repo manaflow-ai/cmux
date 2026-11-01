@@ -76,6 +76,13 @@ export function routesToComposer(event: KeyLike, target: Element | null): boolea
   return true;
 }
 
+/// Whether a key is a plain Tab pressed with nothing in the page focused.
+export function tabsToComposer(event: KeyLike & { shiftKey: boolean }, doc: Document): boolean {
+  if (event.key !== "Tab" || event.defaultPrevented || event.isComposing) return false;
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+  return nothingFocused(doc);
+}
+
 /// What has the page's focus, for automation (chat_state): `composer` (the prompt), `none`, or
 /// `tag#id.class` of the focused element.
 export function focusedArea(element: Element | null): string {
@@ -138,6 +145,13 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       }, ACTIVATION_SETTLE_MS);
     };
     const onKey = (event: KeyboardEvent) => {
+      // Tab with nothing focused (after a press on the transcript or the background) goes to the
+      // prompt, not through the location strip's folder and machine chips that sit above it in
+      // the page (Leo 2026-10-20). From the prompt, Shift-Tab still reaches those chips.
+      if (tabsToComposer(event, document)) {
+        if (latest.current()) event.preventDefault();
+        return;
+      }
       if (!routesToComposer(event, document.activeElement)) return;
       if (!latest.current()) return;
       event.preventDefault();

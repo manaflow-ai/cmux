@@ -244,12 +244,12 @@ extension AppActions {
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
-                        try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+                        try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }

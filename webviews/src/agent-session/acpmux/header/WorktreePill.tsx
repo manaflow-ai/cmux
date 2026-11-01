@@ -106,7 +106,7 @@ export function WorktreePill({
         aria-expanded={open}
         {...trigger}
       >
-        <Icon name="git.worktree" size={13} />
+        <Icon name="git.worktree" size={14} />
         <span className="acpmux-header-worktree-name">{worktree.branch}</span>
         <span className="acpmux-header-worktree-detail">{title}</span>
       </button>

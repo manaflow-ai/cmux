@@ -126,14 +126,24 @@ pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
 /// `CMUX_TUI_REMOTE_WS*` (the remote entry comes only from the host config),
 /// and the image's agent tool settings `CMUX_AGENT_TOOLS_*` and
 /// `CMUX_BROWSER_HOST_*` (the baked unit sets them for every terminal).
+/// The three non-secret `CMUX_PLATFORM_*` scope fields come from trusted host provisioning;
+/// keep the logical machine identity through daemon spawn, never infer it from a carrier ID.
 /// Service-manager variables (`INVOCATION_ID`, `JOURNAL_STREAM`,
 /// `NOTIFY_SOCKET`, `LISTEN_*`) and `CMUX_SERVER_MODE` never pass.
 pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vars
         .into_iter()
         .filter(|(k, _)| {
-            matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
-                || k.starts_with("LC_")
+            matches!(
+                k.as_str(),
+                "PATH"
+                    | "LANG"
+                    | "LANGUAGE"
+                    | "TZ"
+                    | "CMUX_PLATFORM_ORIGIN"
+                    | "CMUX_PLATFORM_WORKSPACE_ID"
+                    | "CMUX_PLATFORM_MACHINE_ID"
+            ) || k.starts_with("LC_")
                 || (k.starts_with("CMUX_TUI_") && !k.starts_with("CMUX_TUI_REMOTE_WS"))
                 || k.starts_with("CMUX_AGENT_TOOLS_")
                 || k.starts_with("CMUX_BROWSER_HOST_")
