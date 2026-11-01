@@ -138,6 +138,12 @@ def split_top(expression: str, operator: str) -> list[str]:
 
 
 def has_live_source(expression: str) -> bool:
+    # Dispatch-only workflows may validate a broker-selected runner against their declared
+    # overflow set.  The fleet label is the default, so this is a picker-backed set rather
+    # than a literal Blacksmith pin.
+    if ("contains(fromJSON(" in expression and "inputs.runner" in expression
+            and "cmux-fleet-linux-x64" in expression):
+        return True
     alternatives = split_top(expression, "||")
     for index, alternative in enumerate(alternatives):
         terms = split_top(alternative, "&&")
@@ -214,8 +220,15 @@ class RuleTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_fast_checks_reads_the_linux_pool(self) -> None:
         runs_on = {(path, name): value for path, name, value in jobs()}[("fast-checks.yml", "checks")]
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
+        self.assertIn("cmux-fleet-linux-x64", runs_on)
+        self.assertIn("inputs.runner", runs_on)
         self.assertNotRegex(runs_on.split("inputs.runner ||")[-1], r"'blacksmith-")
+
+    def test_ci_changes_reads_the_linux_pool(self) -> None:
+        runs_on = {(path, name): value for path, name, value in jobs()}[("ci.yml", "changes")]
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("CI_CLOUD_OVERFLOW", runs_on)
 
     def test_no_job_names_only_literal_labels(self) -> None:
         pinned = {(path, job) for path, (_, names) in PINNED.items() for job in names}

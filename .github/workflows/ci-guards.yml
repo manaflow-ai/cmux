@@ -162,6 +162,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Validate fast checks default to fleet Linux
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_fleet.py
+
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
