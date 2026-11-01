@@ -595,7 +595,6 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
-        self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
@@ -603,6 +602,13 @@ impl Hub {
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
         self.recover_work(session, &child, &incarnation, work).await;
+        // `ready` only when nothing it recovered runs or waits: a turn the host still runs is
+        // `running` from its adoption on. Set before recovery, `ready` was logged and shown between
+        // `host_adopted` and the recovered turn (an idle chat that was working). Recovery sets the
+        // turn under the spawn lock every new prompt waits on, so no prompt starts in between.
+        if session.turn().is_none() && session.status() != SessionStatus::Waiting {
+            self.set_status(session, SessionStatus::Ready);
+        }
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
