@@ -19,6 +19,10 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 # The nightly signer jobs and their Linux picker.
 SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+TAIL_CONTROL_JOBS = (
+    'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
+    'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
+)
 
 
 def evaluate(node, context):
@@ -76,6 +80,55 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
+    def test_tail_controls_ignore_stale_prebuild_placement(self):
+        prefix = 'needs.pick-nightly-build-runner.outputs.'
+        for name in TAIL_CONTROL_JOBS:
+            source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
+            expr = parse_expression(source)
+            for helper in ('', 'glaeda-side-std-xcode-26.6', 'glaeda-trusted-next-nightly',
+                           'blacksmith-6vcpu-macos-26'):
+                for attempt in (1, 2, 3):
+                    for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                        context = {
+                            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                            prefix + 'attempt': str(attempt), prefix + 'helper': helper,
+                            prefix + 'owned': helper, prefix + 'dedicated': 'glaeda-trusted-next-nightly',
+                            'vars.LINUX_RUNNER': overflow,
+                        }
+                        expected = ('ubuntu-24.04' if attempt == 1 else
+                                    overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                        with self.subTest(job=name, helper=helper, attempt=attempt, overflow=overflow):
+                            self.assertEqual(evaluate(expr, context), expected)
+                            self.assertEqual(evaluate(expr, {**context, 'github.repository_owner': 'fork'}),
+                                             'ubuntu-24.04')
+
+    def test_tail_controls_prefer_only_the_activated_nightly_mini(self):
+        dedicated = 'glaeda-nightly-only-m4pro'
+        for name in TAIL_CONTROL_JOBS:
+            job = DOC['jobs'][name]
+            self.assertIn('decide', job['needs'])
+            expr = parse_expression(job['runs-on'].removeprefix('${{').removesuffix('}}'))
+            for owner, repository in (('manaflow-ai', 'manaflow-ai/cmux'),
+                                      ('manaflow-ai', 'manaflow-ai/other'), ('fork', 'fork/cmux')):
+                for track in ('nightly-next', 'nightly', ''):
+                    for attempt in (1, 2, 3):
+                        for activation in (dedicated, '', 'glaeda-trusted-next-nightly',
+                                           'glaeda-runner-unserved', 'macos-26', 'ubuntu-24.04'):
+                            for overflow in ('', 'blacksmith-16vcpu-ubuntu-2404'):
+                                context = {
+                                    'github.repository_owner': owner, 'github.repository': repository,
+                                    'github.run_attempt': attempt,
+                                    'needs.decide.outputs.track': track,
+                                    'vars.CI_NIGHTLY_ONLY_RUNNER': activation,
+                                    'vars.LINUX_RUNNER': overflow,
+                                }
+                                expected = ('ubuntu-24.04' if owner != 'manaflow-ai' or attempt == 1
+                                            else overflow or 'blacksmith-32vcpu-ubuntu-2404')
+                                if repository == 'manaflow-ai/cmux' and track == 'nightly-next' and attempt == 1 and activation == dedicated:
+                                    expected = dedicated
+                                with self.subTest(job=name, **context):
+                                    self.assertEqual(evaluate(expr, context), expected)
+
     def test_next_push_selects_the_picked_idle_owned_mac(self):
         picked = {'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
                   'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26'}
@@ -114,6 +167,13 @@ class NightlyTrustedRouting(unittest.TestCase):
                                      'blacksmith-6vcpu-macos-26')
         self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
+
+    def test_decide_uses_only_read_permissions_for_metadata_and_placement(self):
+        job = DOC['jobs']['decide']
+        self.assertEqual(job['permissions'], {'actions': 'read', 'checks': 'read', 'contents': 'read'})
+        script = next(step['with']['script'] for step in job['steps'] if step.get('id') == 'decide')
+        self.assertNotRegex(script, r"github\.rest\.[A-Za-z]+\.(?:create|update|delete|upload)")
+        self.assertNotIn('core.exportVariable', script)
 
     def test_decide_bootstraps_on_declared_hosted_linux_without_phantom_fleet(self):
         # No preceding job can give decide a live runner receipt. Its bounded
@@ -266,6 +326,49 @@ class NightlyTrustedRouting(unittest.TestCase):
                     selected = selected[0]
                 self.assertIn(selected, {'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
                                           'blacksmith-32vcpu-ubuntu-2404'})
+
+    def test_credentialed_publish_controls_use_owned_claim_then_linux_overflow(self):
+        # Release App publication jobs may use a drained owned Mac, but only the
+        # picker output is trusted and their claim gate runs after checkout,
+        # before any protected environment secret. A rerun keeps the measured Linux
+        # overflow instead of reusing an older owned label.
+        jobs = DOC["jobs"]
+        route = (
+            "needs.pick-nightly-sign-runner.outputs.attempt",
+            "needs.pick-nightly-sign-runner.outputs.sign_owned_pool",
+        )
+        for name in ("publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names"):
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertIn("always()", str(job.get("if", "")),
+                              "an optional signing picker must not implicitly skip publication after a recovery")
+                runs_on = str(job["runs-on"])
+                for term in route:
+                    self.assertIn(term, runs_on)
+                self.assertNotIn("fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned)", runs_on)
+                source = runs_on.removeprefix("${{").removesuffix("}}")
+                fallback = {
+                    "github.repository_owner": "manaflow-ai",
+                    "github.run_attempt": 1,
+                    "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                    "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
+                    "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                }
+                self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
+                                 "blacksmith-16vcpu-ubuntu-2404")
+                self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
+                steps = job["steps"]
+                gate_index = next(i for i, step in enumerate(steps) if step.get("id") == "claim-gate")
+                self.assertEqual(steps[gate_index]["name"], "Hold the whole Mac before any credential")
+                self.assertIn("GLAEDA_JOB_CLAIM", steps[gate_index]["run"])
+                self.assertIn("glaeda-signing-hooks.txt", steps[gate_index]["run"])
+                self.assertNotIn("secrets.", steps[gate_index]["run"])
+                checkout_index = next(i for i, step in enumerate(steps) if "actions/checkout@" in str(step.get("uses", "")))
+                self.assertGreater(gate_index, checkout_index)
+                self.assertTrue(any("signing-runner-claim.sh" in str(step.get("run", "")) for step in steps[gate_index + 1:]))
+                needs = job["needs"]
+                self.assertIn("pick-nightly-sign-runner", needs)
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
@@ -432,6 +535,33 @@ class NightlyTrustedRouting(unittest.TestCase):
             nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
             self.assertNotEqual(check().returncode, 0)
 
+    def test_runner_guard_accepts_only_the_scoped_nightly_only_route(self):
+        source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
+        function = re.search(r'^check_no_self_hosted_fleet_runners\(\) \{\n.*?^\}',
+                             source, re.M | re.S).group()
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            workflows = fixture / '.github/workflows'
+            workflows.mkdir(parents=True)
+            nightly = workflows / 'nightly.yml'
+            script = 'ROOT_DIR="$1"\n' + function + '\ncheck_no_self_hosted_fleet_runners'
+            def check(route):
+                nightly.write_text('runs-on: ' + route + '\n')
+                result = subprocess.run(['bash', '-c', script, 'guard', str(fixture)],
+                                        capture_output=True, text=True)
+                return result.returncode
+            for name in TAIL_CONTROL_JOBS:
+                with self.subTest(job=name):
+                    self.assertEqual(check(DOC['jobs'][name]['runs-on']), 0)
+            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+            for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
+                             ("track == 'nightly-next'", "track == 'nightly'"),
+                             ("github.run_attempt == 1", "github.run_attempt >= 1"),
+                             ('glaeda-nightly-only-m4pro', 'glaeda-unregistered')):
+                with self.subTest(mutation=new):
+                    self.assertNotEqual(check(route.replace(old, new)), 0)
+            self.assertNotEqual(check('glaeda-nightly-only-m4pro'), 0)
+
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
@@ -443,12 +573,13 @@ class LightJobsOnAFreeMini(unittest.TestCase):
     """The nightly's light jobs take a mini idle when build-nightly-app finished, else Blacksmith.
 
     Leo, 2026-10-31: "i mean the linux things cant our minis just run them" and "we just need the
-    nightlies bro". build-nightly-remote-daemon (pure Go cross-compile) and await-nightly-tree-marker
-    (bash, curl, python3) have no environment and no secret; build-nightly-app's last step places them
-    (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only those two jobs read its outputs, and no job
-    that holds a signing or publishing environment ever does."""
+    nightlies bro". await-nightly-tree-marker (bash, curl, python3) has no environment and no secret;
+    build-nightly-app's last step places it (scripts/ci/portable_job_placement.py, NIGHTLY=1). Only that
+    job reads its outputs, and no job that holds a signing or publishing environment ever does.
+    build-nightly-remote-daemon no longer follows the app build: it builds beside it
+    (DaemonBesideTheApp)."""
 
-    LIGHT = ('build-nightly-remote-daemon', 'await-nightly-tree-marker')
+    LIGHT = ('await-nightly-tree-marker',)
     MINI = 'glaeda-side-std-xcode-26.6'
 
     def runs_on(self, job, **changes):
@@ -464,9 +595,8 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         for job in self.LIGHT:
             with self.subTest(job=job):
                 self.assertEqual(self.runs_on(job), self.MINI)
-                # Placed only the other job: this one keeps the runner set's Blacksmith member.
-                other = next(name for name in self.LIGHT if name != job)
-                self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': f' {other} '}),
+                # Placed only another job: this one keeps the runner set's Blacksmith member.
+                self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': ' other-job '}),
                                  'blacksmith-32vcpu-ubuntu-2404')
 
     def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
@@ -512,6 +642,60 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
 
 
+class DaemonBesideTheApp(unittest.TestCase):
+    """build-nightly-remote-daemon (a Go cross-compile on Linux) builds while build-nightly-app compiles,
+    not after it: its queue and build sat between the app and signing (Leo, 2026-10-31, on "the daemon
+    built alongside the app": "just do whatever hurries all this shit up"). Both take the run's build
+    number from resolve-nightly-cmux-tui-client, so a re-run of only one of them (the owned-pool rescue
+    re-runs the app's picker and its dependents) still names the same daemon assets."""
+
+    def test_the_daemon_does_not_wait_for_the_app(self):
+        daemon = DOC['jobs']['build-nightly-remote-daemon']
+        self.assertNotIn('build-nightly-app', daemon['needs'])
+        self.assertNotIn('needs.build-nightly-app', json.dumps(daemon))
+        # It runs exactly when the app builds (and never for a build-only measurement).
+        app_if = DOC['jobs']['build-nightly-app']['if']
+        self.assertTrue(daemon['if'].startswith(app_if), daemon['if'])
+        self.assertIn("needs.decide.outputs.build_only != 'true'", daemon['if'])
+
+    def test_one_build_number_for_the_app_and_the_daemon(self):
+        jobs = DOC['jobs']
+        resolve = jobs['resolve-nightly-cmux-tui-client']
+        self.assertEqual(resolve['outputs']['daemon_build'], '${{ steps.daemon-build.outputs.build }}')
+        step = next(step for step in resolve['steps'] if step.get('id') == 'daemon-build')
+        self.assertIn('${GITHUB_RUN_ID}$(printf \'%02d\' "${GITHUB_RUN_ATTEMPT:-1}")', step['run'])
+        source = '${{ needs.resolve-nightly-cmux-tui-client.outputs.daemon_build }}'
+        metadata = next(step for step in jobs['build-nightly-app']['steps'] if step.get('id') == 'remote_daemon')
+        self.assertIn(f'build="{source}"', metadata['run'])
+        self.assertNotIn('GITHUB_RUN_ATTEMPT', metadata['run'])
+        build = next(step for step in jobs['build-nightly-remote-daemon']['steps']
+                     if step['name'] == 'Build immutable SSH daemon assets once for every app variant')
+        self.assertEqual(build['env']['BUILD'], source)
+        # The same version formula as the app's step; verify_remote_daemon_release.py refuses a mismatch.
+        self.assertIn('nightly_version.py marketing --track "$TRACK"', build['run'])
+        self.assertIn('--next-base "$(python3 scripts/ci/nightly_version.py next-base)"', build['run'])
+
+    def test_the_daemon_takes_the_helper_pick_else_blacksmith_linux(self):
+        source = DOC['jobs']['build-nightly-remote-daemon']['runs-on'].removeprefix('${{').removesuffix('}}')
+        mini = 'glaeda-side-std-xcode-26.6'
+        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                'needs.pick-nightly-build-runner.outputs.attempt': '1',
+                'needs.pick-nightly-build-runner.outputs.helper': mini,
+                'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-nightly-dedicated'}
+        self.assertEqual(evaluate(parse_expression(source), base), mini)
+        for changes in ({'needs.pick-nightly-build-runner.outputs.helper': ''},
+                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini},
+                        {'github.run_attempt': 2},
+                        {'github.ref': 'refs/heads/main'}):
+            with self.subTest(changes=changes):
+                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'blacksmith-32vcpu-ubuntu-2404')
+
+    def test_the_daemon_is_a_peer_the_app_build_stops_for(self):
+        peers = DOC['jobs']['build-nightly-app']['env']['NIGHTLY_PUBLISH_PEERS'].split()
+        self.assertIn('build-nightly-remote-daemon', peers)
+
+
 class PickerReRun(unittest.TestCase):
     """The owned-pool rescue and the nightly-next tick re-run pick-nightly-build-runner, and with it every job
     that needs it, so a re-run picks its runner fresh (scripts/ci/owned_pool_rescue.py repick_job(), on main).
@@ -521,6 +705,14 @@ class PickerReRun(unittest.TestCase):
 
     def test_the_ghostty_helper_s_uploads_overwrite(self):
         steps = DOC['jobs']['build-nightly-ghostty-cli-helper']['steps']
+        uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
+        self.assertTrue(uploads)
+        for step in uploads:
+            self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
+
+    def test_the_daemon_s_upload_overwrites(self):
+        # It builds beside the app, so a picker re-run that rescues a stuck app build re-runs it after it succeeded.
+        steps = DOC['jobs']['build-nightly-remote-daemon']['steps']
         uploads = [step for step in steps if 'actions/upload-artifact@' in str(step.get('uses', ''))]
         self.assertTrue(uploads)
         for step in uploads:

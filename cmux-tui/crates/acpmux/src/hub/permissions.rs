@@ -322,6 +322,9 @@ impl Hub {
                     .and_then(|c| c.get("text"))
                     .and_then(Value::as_str)
                     .filter(|_| !replayed)
+                    // A turn the person did not start leaves the preview as it was
+                    // (`background_turn.rs`).
+                    .filter(|_| !self.background_message(session, update))
                 {
                     // In place: the preview was copied whole on every streamed chunk.
                     let preview = m.preview.get_or_insert_with(String::new);

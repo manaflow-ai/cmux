@@ -13,4 +13,20 @@ struct SidebarUnreadDotSizeTests {
         badge.configure(.dot)
         #expect(badge.preferredWidth == SidebarStyle.unreadDotSize)
     }
+
+    @Test func defaultRowBadgeDrawsTheSharedDotSize() throws {
+        for look in [RowBadgeView.Look.plain, .corner, .stack] {
+            let badge = RowBadgeView(frame: .zero)
+            badge.configure([.success], look: look)
+            badge.frame.size = NSSize(width: badge.preferredWidth, height: badge.cellSide)
+            badge.layoutSubtreeIfNeeded()
+            let glyph = try #require(badge.subviews.compactMap { $0 as? StatusIndicatorView }.first)
+            #expect(glyph.indicator.plan.glyph == .mark(.vector(.dot)), "exercise the shipped blue-dot artwork")
+            let ink = StaticStatusGlyph.dot.path(in: glyph.indicator.debugGlyphRect).boundingBoxOfPath
+            #expect(abs(ink.width - SidebarStyle.unreadDotSize) < 0.01, "the glyph box is not the painted dot")
+            #expect(abs(badge.convert(ink, from: glyph).midX - badge.bounds.midX) < 0.01)
+            #expect(abs(badge.convert(ink, from: glyph).midY - badge.bounds.midY) < 0.01)
+        }
+    }
+
 }
