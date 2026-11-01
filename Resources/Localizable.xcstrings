@@ -671653,6 +671653,655 @@
         }
       }
     },
+    "coderouter.failure.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter is unreachable. Check your connection, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الوصول إلى Coderouter. تحقّق من اتصالك، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter ist nicht erreichbar. Prüfe deine Verbindung und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede acceder a Coderouter. Comprueba tu conexión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter est injoignable. Vérifiez votre connexion, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter に接続できません。接続を確認してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter에 연결할 수 없습니다. 연결을 확인한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到 Coderouter。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到 Coderouter。請檢查網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.notInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter is missing from this cmux install. Update cmux, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter غير موجود في تثبيت cmux هذا. حدّث cmux، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter fehlt in dieser cmux-Installation. Aktualisiere cmux und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter no está en esta instalación de cmux. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter est absent de cette installation de cmux. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux には Coderouter が含まれていません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 설치에 Coderouter가 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 安装缺少 Coderouter。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個 cmux 安裝缺少 Coderouter。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.notMember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your cmux account can't manage Coderouter for this team."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لحساب cmux الخاص بك إدارة Coderouter لهذا الفريق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein cmux-Konto kann Coderouter für dieses Team nicht verwalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta de cmux no puede administrar Coderouter para este equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte cmux ne peut pas gérer Coderouter pour cette équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux アカウントでは、このチームの Coderouter を管理できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 cmux 계정으로는 이 팀의 Coderouter를 관리할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 cmux 账户无法为此团队管理 Coderouter。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 cmux 帳號無法為這個團隊管理 Coderouter。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Coderouter version can't load team accounts. Update cmux, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لإصدار Coderouter هذا تحميل حسابات الفريق. حدّث cmux، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Coderouter-Version kann keine Teamkonten laden. Aktualisiere cmux und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de Coderouter no puede cargar las cuentas del equipo. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de Coderouter ne peut pas charger les comptes de l’équipe. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンの Coderouter ではチームのアカウントを読み込めません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 Coderouter는 팀 계정을 불러올 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 Coderouter 无法加载团队账户。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個版本的 Coderouter 無法載入團隊帳號。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter needs a cmux Pro or Team plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلّب Coderouter خطة cmux Pro أو Team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter erfordert einen cmux Pro- oder Team-Tarif."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter requiere un plan cmux Pro o Team."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter nécessite un forfait cmux Pro ou Team."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter には cmux Pro または Team プランが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter를 사용하려면 cmux Pro 또는 Team 플랜이 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 需要 cmux Pro 或 Team 套餐。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 需要 cmux Pro 或 Team 方案。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your cmux sign-in expired. Sign in again, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت صلاحية تسجيل دخولك إلى cmux. سجّل الدخول مرة أخرى، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine cmux-Anmeldung ist abgelaufen. Melde dich erneut an und versuche es dann noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu sesión de cmux ha caducado. Vuelve a iniciar sesión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre connexion à cmux a expiré. Reconnectez-vous, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のサインインの有効期限が切れました。もう一度サインインしてから、再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 로그인이 만료되었습니다. 다시 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 cmux 登录已过期。请重新登录后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 cmux 登入已過期。請重新登入後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter accounts didn't load. Retry in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تحميل حسابات Coderouter. أعد المحاولة بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter-Konten wurden nicht geladen. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se cargaron las cuentas de Coderouter. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les comptes Coderouter ne se sont pas chargés. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter のアカウントを読み込めませんでした。しばらくしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 계정을 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 账户未能加载。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 帳號未能載入。請稍後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter couldn't remove this account. Retry in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على Coderouter إزالة هذا الحساب. أعد المحاولة بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter konnte dieses Konto nicht entfernen. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter no pudo quitar esta cuenta. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter n’a pas pu supprimer ce compte. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter はこのアカウントを削除できませんでした。しばらくしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter에서 이 계정을 제거하지 못했습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 未能移除此账户。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 無法移除這個帳號。請稍後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.removeOutdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Coderouter version can't remove team accounts. Update cmux, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لإصدار Coderouter هذا إزالة حسابات الفريق. حدّث cmux، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Coderouter-Version kann keine Teamkonten entfernen. Aktualisiere cmux und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de Coderouter no puede quitar las cuentas del equipo. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de Coderouter ne peut pas supprimer les comptes de l’équipe. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンの Coderouter ではチームのアカウントを削除できません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 Coderouter는 팀 계정을 제거할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 Coderouter 无法移除团队账户。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個版本的 Coderouter 無法移除團隊帳號。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter couldn't start account setup. Retry in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على Coderouter بدء إعداد الحساب. أعد المحاولة بعد قليل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter konnte die Kontoeinrichtung nicht starten. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter no pudo iniciar la configuración de la cuenta. Vuelve a intentarlo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter n’a pas pu démarrer la configuration du compte. Réessayez dans un instant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter はアカウント設定を開始できませんでした。しばらくしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter에서 계정 설정을 시작하지 못했습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 未能启动账户设置。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coderouter 無法開始帳號設定。請稍後再試一次。"
+          }
+        }
+      }
+    },
+    "coderouter.failure.addOutdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Coderouter version can't add team accounts. Update cmux, then retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لإصدار Coderouter هذا إضافة حسابات الفريق. حدّث cmux، ثم أعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Coderouter-Version kann keine Teamkonten hinzufügen. Aktualisiere cmux und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de Coderouter no puede añadir cuentas del equipo. Actualiza cmux y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de Coderouter ne peut pas ajouter de comptes d’équipe. Mettez cmux à jour, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンの Coderouter ではチームアカウントを追加できません。cmux をアップデートしてから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 Coderouter는 팀 계정을 추가할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 Coderouter 无法添加团队账户。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個版本的 Coderouter 無法新增團隊帳號。請更新 cmux 後再試一次。"
+          }
+        }
+      }
+    },
     "cli.hooks.error.globalRequiresKiro": {
       "extractionState": "manual",
       "localizations": {

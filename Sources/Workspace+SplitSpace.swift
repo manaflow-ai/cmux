@@ -62,6 +62,25 @@ extension Workspace {
         )
     }
 
+    /// The admission verdict a local terminal split from `panelId` gets in
+    /// `newTerminalSplitOutcome`. Auto layout re-tiles every pane itself and
+    /// an admission bypass opts out, so only a plain split is checked
+    /// (#15371). Callers that must refuse before any selection or focus
+    /// change ask this first.
+    func terminalSplitSpaceVerdict(
+        splittingPanel panelId: UUID,
+        orientation: SplitOrientation,
+        dividerPosition: CGFloat? = nil,
+        autoLayout: Bool = false
+    ) -> SplitSpaceVerdict {
+        guard !autoLayout, splitSpaceAdmissionBypassDepth == 0 else { return .fits }
+        return splitSpaceVerdict(
+            splittingPanel: panelId,
+            orientation: orientation,
+            dividerPosition: dividerPosition
+        )
+    }
+
     /// The single space check for every split Bonsplit starts: UI split
     /// buttons, tab drags, and cmux's programmatic helpers all pass here.
     /// Only restoration and remote-layout projection transactions opt out.

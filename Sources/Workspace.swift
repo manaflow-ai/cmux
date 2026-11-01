@@ -9375,13 +9375,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         // Auto layout re-tiles every pane itself, so only a plain split is
         // checked against the minimum pane size (#15371).
-        let spaceVerdict: SplitSpaceVerdict = autoLayout || splitSpaceAdmissionBypassDepth > 0
-            ? .fits
-            : splitSpaceVerdict(
-                splittingPanel: panelId,
-                orientation: orientation,
-                dividerPosition: initialDividerPosition
-            )
+        let spaceVerdict = terminalSplitSpaceVerdict(
+            splittingPanel: panelId,
+            orientation: orientation,
+            dividerPosition: initialDividerPosition,
+            autoLayout: autoLayout
+        )
         if spaceVerdict == .noSpace { return .noSpace }
         guard let panel = newTerminalSplitLocal(
             from: panelId,

@@ -1570,6 +1570,8 @@ jobs:
           CMUX_TUI_CLIENT_LOCAL="$local_client" \
             ./scripts/install-cmux-tui-client.sh "$app" \
             --require-capability wireguard-hub
+          # The Cloud sidebar's CodeRouter section runs this pinned CLI.
+          ./scripts/install-coderouter-client.sh "$app" --universal
 
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
@@ -1952,6 +1954,8 @@ jobs:
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub
+          # The Cloud sidebar's CodeRouter section runs this pinned CLI.
+          ./scripts/install-coderouter-client.sh "$app" --universal
           # The client and its SSH payloads arrive after the build job's strip, so
           # strip again; already-stripped binaries are unchanged.
           ./scripts/strip-release-bundle.sh "$app"
