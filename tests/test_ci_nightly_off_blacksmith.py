@@ -105,6 +105,24 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                            f"needs.decide.outputs.early_{kind}_runner": runner}
                 self.assertEqual(evaluate(expression, context), runner)
 
+    def test_fleet_linux_fallback_jobs_install_gh_before_their_gh_calls(self) -> None:
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
+        for name, first_gh_step in (("resolve-nightly-cmux-tui-client", "Wait through GitHub API rate limits in this job's gh calls"),
+                                    ("find-nightly-next-recovery", "List newer pending nightly-next notarizations")):
+            steps = jobs[name]["steps"]
+            names = [step.get("name") for step in steps]
+            with self.subTest(job=name):
+                ensure = next(i for i, step in enumerate(steps)
+                              if step.get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh")
+                self.assertEqual(steps[ensure].get("if"), "runner.os == 'Linux'")
+                self.assertLess(ensure, names.index("Wait through GitHub API rate limits in this job's gh calls"))
+                self.assertLess(ensure, names.index(first_gh_step))
+        script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
+        self.assertIn("apt-get install -y -q gh", script)
+        self.assertIn("https://cli.github.com/packages", script)
+        self.assertIn("::error", script)
+
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):

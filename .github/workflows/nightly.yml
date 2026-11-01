@@ -3179,6 +3179,11 @@ jobs:
           # The resolver searches the last CMUX_TUI_TREE_SEARCH_COMMITS commits.
           fetch-depth: 64
 
+      - &ensure-gh
+        name: Install gh if this Linux runner lacks it
+        if: runner.os == 'Linux'
+        run: bash scripts/ci/nightly-steps/ensure-gh.sh
+
       - &wait-through-github-api-rate-l
         name: Wait through GitHub API rate limits in this job's gh calls
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
@@ -5584,6 +5589,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - *ensure-gh
 
       - *wait-through-github-api-rate-l
 
