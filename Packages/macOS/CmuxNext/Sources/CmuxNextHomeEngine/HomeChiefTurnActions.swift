@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextDaemon
 public import CmuxNextHome
 
 /// Presents the brain's owner controls in the existing transcript button and menu.
@@ -12,6 +13,8 @@ public final class HomeChiefTurnActions {
     private var generation = 0
     private var stopped = false
     private var inFlight = false
+
+    public var onStopFailure: ((HomeChiefEngineError) -> Void)?
 
     public init(transcript: HomeNativeTranscriptView) {
         self.transcript = transcript
@@ -36,7 +39,7 @@ public final class HomeChiefTurnActions {
         transcript?.continueAvailable = control != nil && stopped && !working && !inFlight
     }
 
-    public func stop() {
+    public func stop(onFailure: ((HomeChiefEngineError) -> Void)? = nil) {
         guard let control, !inFlight else { return }
         inFlight = true
         let generation = generation
@@ -46,8 +49,24 @@ public final class HomeChiefTurnActions {
             defer { inFlight = false; refresh() }
             let answer = await control.stopResult()
             guard self.generation == generation else { return }
-            if case .success(true) = answer { stopped = true }
+            switch answer {
+            case .success(true): stopped = true
+            case .failure(let error):
+                onFailure?(error)
+                self.onStopFailure?(error)
+            default: break
+            }
         }
+    }
+
+    public func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> {
+        guard let control, !inFlight else { return .failure(.other("Chief control is busy")) }
+        inFlight = true
+        defer { inFlight = false; refresh() }
+        let answer = await control.stopAll()
+        if case .success(let result) = answer, result.stopped { stopped = true }
+        if case .failure(let error) = answer { onStopFailure?(error) }
+        return answer
     }
 
     private func continueTurn() {

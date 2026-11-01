@@ -7,10 +7,14 @@ use serde_json::{Value, json};
 
 use super::{Brain, Phase, Source};
 
+fn has_waking_queue<'a>(queue: impl IntoIterator<Item = &'a super::Queued>) -> bool {
+    queue.into_iter().any(super::Queued::wakes)
+}
+
 impl Brain {
     pub(super) fn owner_continue(&mut self) -> Value {
         if self.phase != Phase::Idle
-            || !self.queue.is_empty()
+            || has_waking_queue(&self.queue)
             || self.resume_at.is_some()
             || self.orphan_wait.is_some()
         {
@@ -40,7 +44,7 @@ impl Brain {
 
     pub(super) fn owner_retry(&mut self, id: &str) -> Value {
         if self.phase != Phase::Idle
-            || !self.queue.is_empty()
+            || has_waking_queue(&self.queue)
             || self.resume_at.is_some()
             || self.orphan_wait.is_some()
         {
@@ -97,5 +101,31 @@ impl Brain {
                 return Err(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queued(source: Source) -> super::super::Queued {
+        super::super::Queued {
+            text: String::new(),
+            source,
+            images: Vec::new(),
+            conversation: None,
+            logged: false,
+        }
+    }
+
+    #[test]
+    fn a_quiet_stopped_report_does_not_block_owner_actions() {
+        let quiet = queued(Source::Spawn(crate::state::SpawnRef {
+            spawn: "spawn".into(),
+            subs: vec![("a1".into(), 1)],
+            requires_approval: false,
+            quiet: true,
+        }));
+        assert!(!has_waking_queue(&[quiet]));
     }
 }

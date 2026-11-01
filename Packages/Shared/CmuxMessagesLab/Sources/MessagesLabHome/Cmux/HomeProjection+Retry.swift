@@ -32,7 +32,7 @@ extension HomeProjection {
     }
 
     func canRetryChiefTurn(_ message: ID) -> Bool {
-        onChiefRetry != nil && chiefTurnMessage(message) != nil
+        onChiefRetry != nil && homeStore.typists(in: conversation).isEmpty && chiefTurnMessage(message) != nil
     }
 
     func retryChiefTurn(_ message: ID) {
