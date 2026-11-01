@@ -358,8 +358,8 @@ public final class AgentPaneModel {
              .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
-        // header and project notice read their state on mount: boot traffic too (HQ#5914).
-        case .dictation(.recordAudio), .tabState, .projectInstructions: break
+        // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
         case .cloudEnvironment(let request) where request.action != "update": break
         default:
