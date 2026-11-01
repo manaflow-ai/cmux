@@ -1,4 +1,5 @@
-// A menu row's letter (Claude Code desktop's chat menu: R renames, F forks, A archives). Every
+// A menu row's letter (the chat title menu's R, F, A and D, #25661; the ··· menu has none, so its
+// typeahead keeps every letter). Every
 // letter key goes through `menuLetter`, the one place that decides whether it is a row's letter or
 // text: a key typed into a text field, an editor or an IME composition is text, and so is every key
 // of the menu's own typeahead once it has started (typing "tr" for Transcript view never renames).
