@@ -27,6 +27,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -1400,8 +1402,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = cargo["runs-on"]
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
+        self.assertTrue(runs_on.endswith(blacksmith_route("cmux-next.yml", "fast-tier-cargo") + " }}"), runs_on)
         self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(

@@ -92,6 +92,10 @@ path = "tests/test_issue_15067_bash_watcher_churn.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -1746,10 +1750,6 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_defaults_guard_review_rerun.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_settings_stamp_not_committed.py"
 lane = "manual"
 reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
@@ -2261,6 +2261,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
 lane = "linux-guard"
 
 [[test]]

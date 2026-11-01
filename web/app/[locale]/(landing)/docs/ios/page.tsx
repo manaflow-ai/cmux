@@ -35,16 +35,7 @@ export default function IosPage() {
 
       <DocsHeading level={2} id="access">{t("accessTitle")}</DocsHeading>
       <p>
-        {t.rich("accessDesc", {
-          foundersLink: (chunks) => (
-            <a
-              href="https://github.com/manaflow-ai/cmux#founders-edition"
-              className={linkClass}
-            >
-              {chunks}
-            </a>
-          ),
-        })}
+        {t("accessDesc")}
       </p>
 
       {showSetupGuide && <>

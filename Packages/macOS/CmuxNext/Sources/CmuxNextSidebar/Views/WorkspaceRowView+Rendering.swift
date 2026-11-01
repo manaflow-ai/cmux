@@ -160,6 +160,14 @@ extension WorkspaceRowView {
             prBadge.frame = prBadge.frame(forAlignmentRect: NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h))
             trailing -= w + Metrics.space2
         }
+        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
+        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
+        // An end action owns the column. Tree controls and chips remain visible and clickable
+        // to its left, even when an idle row has no status mark reserving that slot.
+        if SidebarTunables.rowCloseSpot.value.atEnd, showClose || showMore {
+            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width) - Metrics.space1)
+        }
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
@@ -172,19 +180,15 @@ extension WorkspaceRowView {
         // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
-        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
-        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
-        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         setHoverShown(closeButton, showClose, fades: controlFades)
         setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
         setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !hoverCloses)), fades: fades)
         var slot: CGFloat = 0
         if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
-        if badge.state.isUnread {
+        if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
-            // A dot keeps its center where the 6 pt dot had it, so the bigger dot stays centered in its column.
             let pad = badge.state == .dot ? Metrics.space2 - (SidebarStyle.unreadDotSize - SidebarStyle.dotSize) / 2 : 0
             badge.frame = NSRect(x: trailing - w - pad, y: cy - h / 2, width: w, height: h)
             slot = max(control, w + pad)
@@ -199,7 +203,7 @@ extension WorkspaceRowView {
         moreButton.frame = closeButton.frame.offsetBy(dx: hoverCloses && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
-        let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
+        let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         if markReplacesStatus, columnMark?.view !== agentMark {
@@ -273,7 +277,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
