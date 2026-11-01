@@ -40,10 +40,12 @@ export interface Strings {
   format(key: string, ...args: string[]): string;
 }
 
-/** Replaces `%@` (in order) and `%N$@` (by position) with `args`; `%%` is a percent sign. */
+/** Replaces `%@` and the integer specifiers `%d`, `%ld`, `%lld` (in order; `%N$@`, `%N$lld` by
+ * position) with `args`; `%%` is a percent sign. A plural catalog string must use an integer
+ * specifier, which Xcode's catalog compiler requires of a plural variation. */
 export function formatString(text: string, args: readonly string[]): string {
   let next = 0;
-  return text.replace(/%(?:(\d+)\$)?@|%%/g, (match, position: string | undefined) => {
+  return text.replace(/%(?:(\d+)\$)?(?:@|l{0,2}d)|%%/g, (match, position: string | undefined) => {
     if (match === "%%") return "%";
     const index = position ? Number(position) - 1 : next++;
     return args[index] ?? "";

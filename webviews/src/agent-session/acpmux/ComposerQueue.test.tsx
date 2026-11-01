@@ -1201,3 +1201,99 @@ test("shownText is the prompt for the person's rows, and the resume's label, nam
     "composer.queuedSubagentRetry x1",
   );
 });
+
+// Cancel and edit takes the row back with the text it shows. A Save of the row still out would
+// change that text, and one failing after the row left would restore its own beside it, so cancel and
+// edit waits for the Save's answer: nothing is taken back, and nothing typed is lost or shown twice.
+async function cancelAndEditWhileSaving(slowImages = false) {
+  const saves: { resolve(ok: boolean): void; reject(error: Error): void }[] = [];
+  const reads: ((url: string | undefined) => void)[] = [];
+  const taken: [string, string][] = [];
+  const lost: [string, string][] = [];
+  const first = {
+    ...queue[0]!,
+    ...(slowImages ? { images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] } : {}),
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[first, queue[1]!]}
+        chat="c"
+        t={t}
+        readImage={slowImages ? () => new Promise<string | undefined>((resolve) => reads.push(resolve)) : undefined}
+        onChange={() => new Promise<boolean>((resolve, reject) => saves.push({ resolve, reject }))}
+        onRemove={async () => true}
+        onCancelEdit={async (id, text) => {
+          taken.push([id, text]);
+          return true;
+        }}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  const cancel = () =>
+    container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]')!;
+  const save = async () => {
+    await startEdit(container, "p-1");
+    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+    await act(async () => {
+      field.value = "first, reworded";
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+  };
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')?.value ?? null;
+  return { saves, reads, taken, lost, cancel, save, editor };
+}
+
+test("cancel and edit does nothing while a Save of the row is out, and the failed Save's text is not lost", async () => {
+  const run = await cancelAndEditWhileSaving();
+  await run.save();
+  await act(async () => run.cancel().click());
+  await settle();
+  expect(run.taken).toEqual([]);
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});
+
+test("cancel and edit works again once the Save is answered", async () => {
+  const run = await cancelAndEditWhileSaving();
+  await run.save();
+  await act(async () => run.saves[0]!.resolve(true));
+  await settle();
+  await act(async () => run.cancel().click());
+  await settle();
+  expect(run.taken).toEqual([["p-1", "first"]]);
+});
+
+test("a Save begun while cancel and edit reads the row's images keeps the row queued", async () => {
+  const run = await cancelAndEditWhileSaving(true);
+  await act(async () => run.cancel().click());
+  await run.save();
+  await act(async () => run.reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+  await settle();
+  expect(run.taken).toEqual([]);
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});
+
+test("a Save begun and answered while cancel and edit reads the row's images keeps the row queued", async () => {
+  const run = await cancelAndEditWhileSaving(true);
+  await act(async () => run.cancel().click());
+  await run.save();
+  await act(async () => run.saves[0]!.reject(Object.assign(new Error("failed"), { code: "native.not_connected" })));
+  await settle();
+  await act(async () => run.reads.forEach((finish) => finish("data:image/png;base64,QQ==")));
+  await settle();
+  expect(run.taken).toEqual([]);
+  expect(run.editor()).toBe("first, reworded");
+  expect(run.lost).toEqual([]);
+});

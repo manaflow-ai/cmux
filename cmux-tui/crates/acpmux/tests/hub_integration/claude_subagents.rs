@@ -203,7 +203,7 @@ async fn a_hidden_chat_turns_unread_when_its_background_subagent_ends() {
 
 /// Waits until `done` holds: checked now and again after each log line the
 /// hub broadcasts (no polling); panics with `what` after 10 s.
-async fn wait_for(
+pub(super) async fn wait_for(
     events: &mut tokio::sync::broadcast::Receiver<acpmux::hub::HubEvent>,
     what: &str,
     mut done: impl FnMut() -> bool,
