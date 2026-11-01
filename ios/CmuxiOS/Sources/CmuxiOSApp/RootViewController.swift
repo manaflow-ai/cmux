@@ -14,7 +14,7 @@ final class RootViewController: UIViewController {
     private var current: UIViewController?
     private weak var home: HomeViewController?
     private weak var homeNavigation: UINavigationController?
-    private var pendingCloudAttention: CloudChatAttention?
+    private var pendingCloudAttentions: [CloudChatAttention] = []
     private var shownState: AuthState?
 
     init(container: AppContainer) {
@@ -154,19 +154,20 @@ final class RootViewController: UIViewController {
     }
 
     private func presentCloudChat(attention: CloudChatAttention) {
-        pendingCloudAttention = attention
+        pendingCloudAttentions.append(attention)
         presentPendingCloudAttentionIfPossible()
     }
 
     private func presentPendingCloudAttentionIfPossible() {
-        guard let attention = pendingCloudAttention,
+        guard let attention = pendingCloudAttentions.first,
               let transport = container.cloudChatTransport,
               let navigation = homeNavigation else { return }
-        pendingCloudAttention = nil
+        pendingCloudAttentions.removeFirst()
         let model = CloudChatViewModel(transport: transport, preferredSessionID: attention.sessionID)
         navigation.pushViewController(model.viewController(), animated: true)
         Task { @MainActor in
             await model.load()
+            self.presentPendingCloudAttentionIfPossible()
         }
     }
 

@@ -25,6 +25,13 @@ public enum CmuxiOSApplication {
         container.setCloudChatClient(client)
     }
 
+    /// Called by the paired-Mac lifecycle for the exact client that closed.
+    /// The identity check prevents an old disconnect from clearing a newer
+    /// reconnect.
+    public static func clearCloudChatClient(_ client: MobileCoreRPCClient) {
+        container.clearCloudChatClient(client)
+    }
+
     /// An App Intent (Action Button, Siri, Shortcuts, Control Center) asked
     /// for a Chief call or voice note; it waits until Home is ready.
     public static func handle(_ request: ChiefVoiceRequest) {

@@ -33,6 +33,14 @@ private struct MultipleSessionTransport: CloudChatTransport {
     }
 }
 
+private struct EmptySessionTransport: CloudChatTransport {
+    func sessions() async throws -> [CloudChatSession] { [] }
+    func history(sessionID: String) async throws -> [CloudChatMessage] { [] }
+    func send(sessionID: String, text: String) async throws -> CloudChatMessage {
+        CloudChatMessage(id: "sent", role: .user, text: text)
+    }
+}
+
 @Test("Cloud chat model loads, selects and sends through its transport")
 @MainActor
 func cloudChatModelRoundTrip() async {
@@ -51,6 +59,17 @@ func cloudChatPreferredSession() async {
     await model.load()
     #expect(model.selectedSessionID == "attention")
     #expect(model.messages.map(\.text) == ["attention"])
+    await model.load()
+    #expect(model.selectedSessionID == "attention")
+}
+
+@Test("A missing attention session does not fall back to another chat")
+@MainActor
+func cloudChatMissingPreferredSession() async {
+    let model = CloudChatViewModel(transport: EmptySessionTransport(), preferredSessionID: "gone")
+    await model.load()
+    #expect(model.selectedSessionID == nil)
+    #expect(model.requestedSessionUnavailable)
 }
 
 @Test("Cloud attention only accepts namespaced complete payloads")

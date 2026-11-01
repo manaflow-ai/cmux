@@ -28,6 +28,7 @@ final class AppContainer {
     /// without an API origin.
     let approveSigner: (any FeedApproveSigning)?
     let notificationDelegate: NotificationDelegate
+    private var cloudChatClient: MobileCoreRPCClient?
     private(set) var cloudChatTransport: (any CloudChatTransport)? {
         didSet { onCloudChatTransportChange?() }
     }
@@ -142,13 +143,22 @@ final class AppContainer {
     /// pairing owner calls this with ``CloudChatRPCTransport(client:)`` once a
     /// ``MobileCoreRPCClient`` is ready, and clears it when that client closes.
     func setCloudChatTransport(_ transport: (any CloudChatTransport)?) {
+        cloudChatClient = nil
         cloudChatTransport = transport
     }
 
     /// Convenience composition hook for the paired-Mac owner. Keeping client
     /// construction here makes the relay adapter the only production path.
     func setCloudChatClient(_ client: MobileCoreRPCClient?) {
-        setCloudChatTransport(client.map(CloudChatRPCTransport.init(client:)))
+        cloudChatClient = client
+        cloudChatTransport = client.map(CloudChatRPCTransport.init(client:))
+    }
+
+    /// Clears only the client that disconnected. A late close from an older
+    /// pairing must not tear down a newer relay after reconnect.
+    func clearCloudChatClient(_ client: MobileCoreRPCClient) {
+        guard cloudChatClient === client else { return }
+        setCloudChatClient(nil)
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the

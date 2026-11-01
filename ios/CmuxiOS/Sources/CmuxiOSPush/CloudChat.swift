@@ -149,9 +149,12 @@ public final class CloudChatViewModel: ObservableObject {
     @Published public private(set) var selectedSessionID: String?
     @Published public private(set) var isLoading = false
     @Published public private(set) var errorMessage: String?
+    /// Set when a push requested a session that disappeared from the relay.
+    /// The UI must not silently switch the user to an unrelated chat.
+    @Published public private(set) var requestedSessionUnavailable = false
 
     private let transport: any CloudChatTransport
-    private let preferredSessionID: String?
+    private var preferredSessionID: String?
 
     public init(transport: any CloudChatTransport, preferredSessionID: String? = nil) {
         self.transport = transport
@@ -164,16 +167,31 @@ public final class CloudChatViewModel: ObservableObject {
         do {
             sessions = try await transport.sessions()
             let targetID = preferredSessionID ?? selectedSessionID
-            if let targetID, let target = sessions.first(where: { $0.id == targetID }) {
+            if let targetID {
+                guard let target = sessions.first(where: { $0.id == targetID }) else {
+                    if preferredSessionID != nil {
+                        requestedSessionUnavailable = true
+                        messages = []
+                        errorMessage = "This Cloud chat is no longer available."
+                    } else {
+                        selectedSessionID = nil
+                        messages = []
+                    }
+                    return
+                }
+                preferredSessionID = nil
                 await select(target)
             } else if let first = sessions.first {
                 await select(first)
             }
+            requestedSessionUnavailable = false
             errorMessage = nil
         } catch { errorMessage = "Cloud chats are unavailable right now." }
     }
 
     public func select(_ session: CloudChatSession) async {
+        preferredSessionID = nil
+        requestedSessionUnavailable = false
         selectedSessionID = session.id
         await loadHistory(sessionID: session.id)
     }
@@ -206,7 +224,9 @@ public struct CloudChatView: View {
     public var body: some View {
         NavigationStack {
             Group {
-                if model.sessions.isEmpty {
+                if model.requestedSessionUnavailable {
+                    ContentUnavailableView("Cloud chat unavailable", systemImage: "cloud", description: Text("This chat is no longer available on the paired Mac."))
+                } else if model.sessions.isEmpty {
                     ContentUnavailableView("No Cloud chats", systemImage: "cloud", description: Text("Start a chat on your Mac to see it here."))
                 } else {
                     chatContent
