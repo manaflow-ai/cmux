@@ -61,7 +61,9 @@ public struct CloudMachineIO: Sendable {
     /// operation may have run and a change must not be sent a second time.
     struct NoAnswer: Error { var dispatched: Bool }
 
-    func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
+    /// Off the caller's actor (`@concurrent`): the app calls the machine routes from main-actor handlers, and the
+    /// probe's stat, the temp file, the answer's read and its parse are blocking work.
+    @concurrent func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
         // A bundled cmux from before `machine-io` never runs the call: it goes over HTTP.
         guard try await speaksMachineIO() else { throw NoAnswer(dispatched: false) }
         var request = request
@@ -79,7 +81,7 @@ public struct CloudMachineIO: Sendable {
     /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
     /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
     /// (path and modification date, so an app update asks again); a probe that itself fails is not kept.
-    func speaksMachineIO() async throws -> Bool {
+    @concurrent func speaksMachineIO() async throws -> Bool {
         let modified = (try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
         if let known = probes[key] { return known }
@@ -99,7 +101,7 @@ public struct CloudMachineIO: Sendable {
     /// Runs the child with `stdin` written through a pipe after launch (a file write's request is
     /// larger than a pipe buffer) and its stdout in an unlinked temp file. Past `timeout` the child is
     /// killed and this throws ``NoAnswer``; so does a child that cannot start.
-    static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration) async throws -> Data {
+    @concurrent static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration) async throws -> Data {
         try Task.checkCancellation()
         let process = Process()
         process.executableURL = binary
@@ -217,7 +219,7 @@ private struct TemporaryOutput {
     }
 
     func contents() -> Data {
-        // concurrency-allow: a local temp file read once after the child exited, from a nonisolated async caller (never the main actor)
+        // concurrency-allow: a local temp file read once after the child exited, inside the @concurrent run (never the main actor)
         (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.blockingReadToEnd() } ?? Data()
     }
 }
