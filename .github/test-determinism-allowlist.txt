@@ -185,7 +185,7 @@ webviews/test/access-chip-pending-warning.test.tsx	sleep-then-assert	feat-cmux-n
 webviews/test/agent-pane-needs-you.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in a8ee82acea31); determinize, then remove
 webviews/test/agent-pane-subsession-limits.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 462745eb50ba); determinize, then remove
 webviews/test/changes-status.test.ts	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 05630e86ad22); determinize, then remove
-webviews/test/chat-inspector.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 0c49074e12f8); determinize, then remove
+webviews/test/session-info.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 0c49074e12f8); determinize, then remove
 webviews/test/chat-minimap.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 92342fcfa6f7); determinize, then remove
 webviews/test/chief-views-page.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 8a0646149538); determinize, then remove
 webviews/test/composer-paste-instant.test.tsx	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 721ff16dde0c); determinize, then remove

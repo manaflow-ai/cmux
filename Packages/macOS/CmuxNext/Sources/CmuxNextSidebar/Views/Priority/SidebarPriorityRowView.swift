@@ -1,5 +1,7 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One chat in the Priority view: the title and its project or machine tag on the first line with
 /// the state chip at the right, then up to two lines of its latest message. The pointer over the
@@ -17,6 +19,9 @@ final class SidebarPriorityRowView: NSView {
     private var dragging = false
 
     private let title = ChromeLabel(labelWithString: "")
+    private let agentIcon = DecorativeImageView()
+    /// The harness has a registered mark, drawn in the text colour; else the stable fallback colour tints the glyph.
+    private var hasBrandMark = false
     private let placeLabel = ChromeLabel(labelWithString: "")
     private let preview = ChromeLabel(wrappingLabelWithString: "")
     private let chip = ChromeLabel(labelWithString: "")
@@ -38,7 +43,7 @@ final class SidebarPriorityRowView: NSView {
         placeLabel.lineBreakMode = .byTruncatingTail
         preview.maximumNumberOfLines = 2
         preview.truncatesLastVisibleLine = true
-        [title, placeLabel, preview, chip, indicator].forEach(addSubview)
+        [agentIcon, title, placeLabel, preview, chip, indicator].forEach(addSubview)
         layer?.addSublayer(unreadDot)
         for button in actionButtons { addSubview(button) }
         markRead.onPress = { [weak self] in self.map { $0.onAction?(.markRead($0.entry.id)) } }
@@ -75,14 +80,18 @@ final class SidebarPriorityRowView: NSView {
     func configure(_ entry: SidebarPriorityEntry) {
         self.entry = entry
         title.stringValue = entry.title
+        let markSize = SidebarStyle.kindGlyphSize
+        let brandMark = entry.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: markSize) }
+        hasBrandMark = brandMark != nil
+        agentIcon.image = brandMark ?? NSImage.icon(symbol: "person.crop.circle", size: markSize)
         placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
         preview.stringValue = entry.preview ?? ""
         preview.isHidden = entry.preview == nil
-        chip.stringValue = Self.chipText(entry.state, now: Date())
+        chip.stringValue = Self.visibleChipText(entry.state, now: Date())
         indicator.configure(Self.indicatorState(entry.state))
         pin.label = entry.pinTitle
         markRead.isEnabled = entry.canMarkRead
-        setAccessibilityLabel([entry.title, chip.stringValue, entry.preview].compactMap(\.self).joined(separator: ", "))
+        setAccessibilityLabel([entry.title, Self.chipText(entry.state, now: Date()), entry.preview].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
     }
@@ -90,7 +99,7 @@ final class SidebarPriorityRowView: NSView {
     /// Refreshes a working chip's elapsed time.
     func tick(now: Date) {
         guard case .working = entry.state else { return }
-        chip.stringValue = Self.chipText(entry.state, now: now)
+        chip.stringValue = Self.visibleChipText(entry.state, now: now)
         needsLayout = true
     }
 
@@ -105,6 +114,13 @@ final class SidebarPriorityRowView: NSView {
             since.flatMap { elapsed(from: $0, to: now) }.map(Strings.priorityWorking(for:)) ?? Strings.priorityWorking
         case .idle: Strings.priorityIdle
         }
+    }
+
+    /// Visible status text is limited to a working duration; the indicator carries the routine
+    /// state, so every row does not repeat a status word beside its harness icon.
+    static func visibleChipText(_ state: SidebarPriorityEntry.State, now: Date) -> String {
+        guard case .working(let since) = state else { return "" }
+        return since.flatMap { elapsed(from: $0, to: now) } ?? ""
     }
 
     /// "5m", "2h": the largest whole unit, nil under a minute.
@@ -151,6 +167,11 @@ final class SidebarPriorityRowView: NSView {
         preview.font = SidebarStyle.subtitleFont
         chip.font = SidebarStyle.subtitleFont
         let lineHeight = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
+        // The sidebar's one icon and text columns (SidebarStyle), not a local inset.
+        let iconSide = SidebarStyle.kindGlyphSize
+        let textInset = SidebarStyle.leadingTextX(leading: inset)
+        agentIcon.frame = NSRect(x: SidebarStyle.iconColumnCenterX(leading: inset) - iconSide / 2,
+                                 y: pad + (lineHeight - iconSide) / 2, width: iconSide, height: iconSide)
         var trailing = b.width - inset
         // The pointer over the row shows its actions in the chip's place.
         let button = lineHeight
@@ -158,7 +179,7 @@ final class SidebarPriorityRowView: NSView {
             view.isHidden = !isHovered
             view.frame = NSRect(x: trailing - CGFloat(index + 1) * button, y: pad, width: button, height: button)
         }
-        chip.isHidden = isHovered
+        chip.isHidden = isHovered || chip.stringValue.isEmpty
         indicator.isHidden = isHovered || !indicator.state.isVisible
         unreadDot.isHidden = isHovered || !entry.unread
         if isHovered {
@@ -178,20 +199,22 @@ final class SidebarPriorityRowView: NSView {
             unreadDot.cornerRadius = dot / 2
             if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }
         }
-        let textWidth = max(0, trailing - inset)
+        let textWidth = max(0, trailing - textInset)
         let tagWidth = placeLabel.stringValue.isEmpty ? 0 : min(placeLabel.naturalSize.width, textWidth * 0.4)
         let titleWidth = min(title.naturalSize.width, textWidth - tagWidth - (tagWidth > 0 ? Metrics.space2 : 0))
-        title.frame = NSRect(x: inset, y: pad, width: max(0, titleWidth), height: lineHeight)
+        title.frame = NSRect(x: textInset, y: pad, width: max(0, titleWidth), height: lineHeight)
         placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
         let previewTop = pad + lineHeight + Metrics.space1
         // The full row's lines, not the bounds': an opening or closing slot clips them, never squeezes them.
         let fullHeight = Self.height(hasPreview: entry.preview != nil)
-        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, fullHeight - previewTop - pad))
+        preview.frame = NSRect(x: textInset, y: previewTop, width: max(0, b.width - inset - textInset), height: max(0, fullHeight - previewTop - pad))
     }
 
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
+            agentIcon.contentTintColor = hasBrandMark ? Palette.textPrimary
+                : entry.agentColor.map(SidebarStyle.color) ?? Palette.textSecondary
             placeLabel.textColor = entry.machine.map(Self.machineColor) ?? Palette.textTertiary
             preview.textColor = Palette.textSecondary
             chip.textColor = Self.chipColor(entry.state)

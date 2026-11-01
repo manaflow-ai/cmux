@@ -160,6 +160,17 @@ def legacy(new: str, current: str | None, mode: str, verdict_of) -> tuple[str, d
     items = (set_channel(by_build[build], channels[build]) for build in kept)
     body = "".join(item if item.endswith("\n") else item + "\n" for item in items)
     text = new[:first] + body + new[last:]
+    # Copied items may inherit prefixes from the old rss root (for example a
+    # sourceCommit preserved by the delta writer). Keep those bindings too.
+    old_root = re.search(r"<rss\b[^>]*>", current or "")
+    new_root = re.search(r"<rss\b[^>]*>", text)
+    if old_root and new_root:
+        opening = new_root.group(0)
+        for declaration in re.finditer(r'''\s+xmlns:([\w.-]+)\s*=\s*(["'])(.*?)\2''', old_root.group(0)):
+            prefix = declaration.group(1)
+            if re.search(rf"\bxmlns:{re.escape(prefix)}\s*=", opening) is None:
+                opening = opening[:-1] + declaration.group(0) + ">"
+        text = text[:new_root.start()] + opening + text[new_root.end():]
     return text, {"channels": {build: channels[build] for build in kept},
                   "dropped": [build for build in ordered if build not in kept]}
 

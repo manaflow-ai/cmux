@@ -95,7 +95,8 @@ class InProgressJobLogGitHub(FakeGitHub):
         if args[:2] == ["run", "view"]:
             raise excuse.Refused("logs will be available when it is complete")
         for job_id, text in self.logs.items():
-            if args == ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
+            if args in (["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"],
+                        ["api", f"repos/{REPO}/actions/jobs/{job_id}/logs"]):
                 # Raw endpoint output has timestamps but no job/step prefix.
                 return "\n".join(line.split("\t", 2)[-1] for line in text.splitlines())
         raise AssertionError(args)
@@ -150,14 +151,12 @@ class JobLogEndpoint(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertIn("run 20", "\n".join(lines))
         self.assertEqual(github.json(f"repos/{REPO}/actions/runs/10")["status"], "in_progress")
-        self.assertEqual(
-            github.log_requests,
-            [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
-        )
+        self.assertEqual(github.log_requests,
+                         [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]
+                          for job_id in (1, 2)])
 
     def test_job_logs_are_read_even_with_terminal_colours(self):
-        # gh 2.98 refuses `gh api` output holding escape sequences unless asked, and
-        # almost every job log has ANSI colours: without the flag nothing can be judged.
+        # ANSI colours are stripped by the Python parser after the flag-capable request.
         github = InProgressJobLogGitHub()
         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
@@ -187,9 +186,90 @@ class JobLogEndpoint(unittest.TestCase):
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
 
 
-# A `gh` on PATH: it records its argv, and with FAKE_GH=old answers the escape flag the way gh 2.45 does
-# (exit 1, "unknown flag: --allow-escape-sequences" then its usage, nothing read); FAKE_GH=http fails every
-# call with an HTTP error; FAKE_GH=other-flag refuses some other flag. Otherwise it prints the log.
+class StepFailureOutput(unittest.TestCase):
+    """Checks with no test names still compare the failed step's diagnostic output."""
+
+    def test_a_step_without_test_names_compares_its_failure_summary(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        stale = ("schemas/defaults/cmux-next.json is stale: the settings export changed "
+                 f"(source stamp {'a' * 40} != {'b' * 40})")
+        github.logs = {
+            1: log(defaults, step, stale, "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, stale.replace("a" * 40, "c" * 40), "##[error]Process completed with exit code 1."),
+        }
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+        self.assertIn(defaults, text)
+        self.assertIn("settings export changed", text)
+
+    def test_a_different_step_summary_still_blocks(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, "schemas/defaults/cmux-next.json is missing its source stamp",
+                   "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, "schemas/defaults/cmux-next.json is stale: the settings export changed",
+                   "##[error]Process completed with exit code 1."),
+        }
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_defaults_checker_fail_line_is_compared(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "check-group-menus: FAIL tab: tabGroup.create is not a top-level row"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+            2: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+        }
+        self.assertIn(defaults, "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
+    def test_defaults_snapshot_source_mismatch_is_compared(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "DEFAULTS snapshot: schemas/defaults/cmux-next.json does not match the sources"
+        github.jobs = {1: failed_job(1, 10, HEAD, name=defaults, step=step),
+                       2: failed_job(2, 20, BASE_SHA, name=defaults, step=step)}
+        github.logs = {1: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+                       2: log(defaults, step, failure, "##[error]Process completed with exit code 1.")}
+        self.assertIn(defaults, "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
+
+    def test_defaults_checker_summary_cannot_excuse_a_crash(self):
+        github = FakeGitHub()
+        defaults = "defaults-snapshot"
+        step = "The defaults snapshot matches the exports"
+        failure = "schemas/defaults/cmux-next.json is stale: the settings export changed"
+        github.jobs = {
+            1: failed_job(1, 10, HEAD, name=defaults, step=step),
+            2: failed_job(2, 20, BASE_SHA, name=defaults, step=step),
+        }
+        github.logs = {
+            1: log(defaults, step, failure, "Segmentation fault (core dumped)",
+                   "##[error]Process completed with exit code 139."),
+            2: log(defaults, step, failure, "##[error]Process completed with exit code 1."),
+        }
+        with self.assertRaisesRegex(excuse.Refused, "crash"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+# A `gh` on PATH: it records its argv; FAKE_GH=http and FAKE_GH=other-flag refuse every call.
+# Otherwise it prints a coloured log, which the Python parser strips.
 FAKE_GH = """#!/usr/bin/env python3
 import os, sys
 args = sys.argv[1:]
@@ -197,7 +277,7 @@ with open(os.environ["FAKE_GH_CALLS"], "a") as calls:
     calls.write(" ".join(args) + "\\n")
 mode = os.environ.get("FAKE_GH", "")
 if mode == "old" and "--allow-escape-sequences" in args:
-    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage:  gh api <endpoint> [flags]\\n")
+    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage: gh api <endpoint> [flags]\\n")
     sys.exit(1)
 if mode == "http":
     sys.stderr.write("gh: Not Found (HTTP 404)\\n")
@@ -209,9 +289,7 @@ print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
 
-class OldGhWithoutEscapeFlag(unittest.TestCase):
-    """2026-10-30: #28397 asked every job log read for --allow-escape-sequences, which gh 2.45 refuses as an
-    unknown flag, so no log could be read on such a host and no red there could be compared with the base."""
+class PortableGhLog(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -233,14 +311,17 @@ class OldGhWithoutEscapeFlag(unittest.TestCase):
     def asked(self):
         return self.calls.read_text().splitlines()
 
-    def test_an_old_gh_is_asked_again_without_the_flag(self):
+    def test_logs_use_the_flag_and_strip_ansi_in_python(self):
+        raw = self.read("")
+        self.assertIn("\x1b[31mred", raw)
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
+        self.assertEqual(excuse.lines_of(raw), ["red log"])
+
+    def test_old_gh_falls_back_without_the_flag(self):
         self.assertIn("red", self.read("old"))
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
-
-    def test_a_new_gh_is_asked_once_with_the_flag(self):
-        self.assertIn("\x1b[31mred", self.read(""))
-        self.assertEqual(self.asked(), [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"])
 
     def test_any_other_failure_still_refuses_with_no_retry(self):
         for mode in ("http", "other-flag"):
@@ -249,14 +330,6 @@ class OldGhWithoutEscapeFlag(unittest.TestCase):
                 with self.assertRaises(excuse.Refused):
                     self.read(mode)
                 self.assertEqual(len(self.asked()), 1)
-
-    def test_only_the_flag_itself_on_the_first_line_counts(self):
-        self.assertTrue(excuse.escape_flag_unknown("unknown flag: --allow-escape-sequences\n\nUsage: gh api"))
-        for said in ("", "gh: Not Found (HTTP 404)", "unknown flag: --paginate-x",
-                     "HTTP 502\nunknown flag: --allow-escape-sequences",
-                     "unknown flag: --allow-escape-sequences-x"):
-            self.assertFalse(excuse.escape_flag_unknown(said), said)
-
 
 class Excusing(unittest.TestCase):
     def setUp(self):
@@ -677,6 +750,39 @@ class Excusing(unittest.TestCase):
         self.gh.jobs[1]["steps"] = []
         with self.assertRaisesRegex(excuse.Refused, "refused at setup"):
             self.judge()
+
+    def test_generated_shared_build_no_verdict_reruns_its_prerequisite(self):
+        """A cancelled-before-start Swift host leaves the dependent check without evidence.
+
+        The workflow intentionally keeps generated-verdict fail-closed.  Its diagnostic is a request to
+        rerun the host and dependent together, not a test or compile failure that can be compared with base.
+        The shell source echoes the same error branch, so the classifier must read the live annotation only.
+        """
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        no_verdict = "swift-test (cancelled) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run swift-test."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        echoed = [
+            '##[group]Run case "$VERDICT" in',
+            'echo "::error::swift-test ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."',
+            "shell: /usr/bin/bash -e {0}",
+            "##[endgroup]",
+        ]
+        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + no_verdict, "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, r"no generated files verdict.*re-run its prerequisite and this dependent"):
+            self.judge()
+
+    def test_generated_shared_build_real_stale_error_is_still_compared(self):
+        name = excuse.GENERATED_VERDICT_JOB
+        step = "Read the generated files verdict of the shared build"
+        stale = "Generated cmux-next files are stale. swift-test's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
+        self.gh.logs[1] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.gh.logs[2] = log(name, step, "##[error]" + stale, "##[error]Process completed with exit code 1.")
+        self.assertTrue(self.judge())
 
     def test_a_cancelled_or_timed_out_job_is_never_excused(self):
         for conclusion in ("cancelled", "timed_out"):

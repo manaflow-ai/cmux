@@ -83,7 +83,8 @@ extension DiffPageProvider {
     /// Answers `cmux.diff.openFile`; nil for any other op.
     func openFileCall(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue? {
         guard op == Self.openFileOp else { return nil }
-        guard !remote else {
+        // A remote chat's files have no tab that reads them; a Cloud workspace's do (#25581).
+        guard !remote || machine != nil else {
             throw PageError(code: "remoteOpenUnavailable", message: "Opening files from a remote chat is unavailable")
         }
         guard let host else { throw PageError.unknownOp(op) }
@@ -100,8 +101,19 @@ extension DiffPageProvider {
         } catch let failure as DiffTabFailure {
             throw PageError(code: "sidecarUnavailable", message: failure.message)
         }
-        guard let file = await Self.repositoryFile(request.path, in: repository) else {
-            throw PageError(code: Self.openFileNotFound, message: request.path)
+        let file: URL
+        if remote {
+            // The machine's file tab reads the file there and says so when it is gone. The editor
+            // app and Finder would open a path of this Mac.
+            guard request.target == .tab else {
+                throw PageError(code: "remoteOpenUnavailable", message: DiffPageStrings.machineUnsupported)
+            }
+            file = URL(fileURLWithPath: repository, isDirectory: true).appending(path: request.path).standardizedFileURL
+        } else {
+            guard let found = await Self.repositoryFile(request.path, in: repository) else {
+                throw PageError(code: Self.openFileNotFound, message: request.path)
+            }
+            file = found
         }
         guard !isClosed, host.openFile(file, line: request.line, target: request.target) else {
             throw PageError(code: Self.openFileFailed, message: request.path)
@@ -111,7 +123,7 @@ extension DiffPageProvider {
 
     /// `config` listing `cmux.diff.openFile`, when this tab has a host that opens files.
     func withOpenFile(_ config: JSONValue) -> JSONValue {
-        guard !remote, host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
+        guard !remote || machine != nil, host != nil, case .object(var members) = config, members["pick"] == nil else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.openFileOp)])
         return .object(members)
     }
