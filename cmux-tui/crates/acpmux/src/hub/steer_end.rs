@@ -255,6 +255,9 @@ impl Hub {
             } else if !digest && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
+            } else if !digest && super::inbox::persons_turn(session) {
+                // The person's own turn (`inbox.rs`): it goes in after it.
+                true
             } else {
                 false
             }
