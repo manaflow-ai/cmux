@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextMobile
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -37,6 +38,34 @@ struct IncognitoSpaceTests {
         services.windows.pendingEphemeralWindows.removeAll { $0 == window }
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == nil)
+    }
+
+    /// Phones never see an incognito window's workspace (spaces-incognito-audit leak 3): the app hands the phone
+    /// gate every incognito workspace it knows, a claimed one still being created included.
+    @Test func phonesAreToldToHideIncognitoWorkspaces() throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow(space: ProfileID(rawValue: "prof_incognito"))
+        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        services.windows.recordIncognitoWorkspaces()
+        #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito window's workspace")
+        #expect(!services.mobile.access.hidesWorkspace(UUID().uuidString.lowercased()))
+    }
+
+    /// A new incognito window's workspace is hidden from phones as it is claimed, before the daemon creates it,
+    /// not at the next membership sync: the phone's own daemon connection could list it in between.
+    @Test func phonesHideANewIncognitoWorkspaceFromItsClaim() throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow()
+        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito workspace while it was created")
+    }
+
+    /// A crashed run's incognito workspaces are hidden from phones as the restore marks them, before they close.
+    @Test func phonesHideACrashedRunsIncognitoWorkspacesAtOnce() {
+        let services = Self.services()
+        let leftover = UUID().uuidString.lowercased()
+        IncognitoLeftovers.discard([leftover], services.windows)
+        #expect(services.mobile.access.hidesWorkspace(leftover), "a phone could list a crashed run's incognito workspace")
     }
 
     /// The ledger keeps the incognito spaces, so a crashed run's are deleted at the next launch.
