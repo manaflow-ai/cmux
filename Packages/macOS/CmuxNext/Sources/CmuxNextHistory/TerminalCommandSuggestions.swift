@@ -44,8 +44,8 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
 
     public mutating func replace(_ commands: [TerminalCommand]) {
         records.removeAll(keepingCapacity: true)
-        for command in commands where Self.isEligible(command),
-            clearedThrough.map({ command.startedAt > $0 }) ?? true {
+        for command in commands where Self.isEligible(command)
+            && (clearedThrough.map { command.startedAt > $0 } ?? true) {
             records[command.qualifiedID] = command
         }
         trim()
