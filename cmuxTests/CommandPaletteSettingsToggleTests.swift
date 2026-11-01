@@ -270,6 +270,49 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testClaudeAccountAutoSwitchCommandDefaultsOffAndTogglesOn() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.claudeAccountAutoSwitch"
+                )
+            )
+
+            XCTAssertEqual(descriptor.settingsKey, "automation.claudeAccountAutoSwitch")
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AutomationCatalogSection().claudeAccountAutoSwitch.userDefaultsKey) as? Bool,
+                true
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(AutomationCatalogSection().claudeAccountAutoSwitch.value(in: defaults))
+        }
+    }
+
+    func testSessionPriorityCommandDefaultsOffAndTogglesOn() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.sessionPriority"
+                )
+            )
+
+            XCTAssertEqual(descriptor.settingsKey, "automation.sessionPriority.enabled")
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AutomationCatalogSection().sessionPriority.userDefaultsKey) as? Bool,
+                true
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

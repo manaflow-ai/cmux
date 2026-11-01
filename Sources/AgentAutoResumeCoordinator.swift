@@ -193,7 +193,7 @@ final class AgentAutoResumeCoordinator {
     }
 
     @MainActor
-    private func screenState(for surface: TerminalSurface) -> ScreenState {
+    func screenState(for surface: TerminalSurface) -> ScreenState {
         guard let frame = surface.mobileRenderGridFrame(
             stateSeq: 0,
             includeTheme: false,
@@ -236,7 +236,12 @@ final class AgentAutoResumeCoordinator {
         let promptIndex = cursor.row
         let trimmedPrompt = plainRows[promptIndex].drop(while: { $0 == " " || $0 == "│" })
         guard promptPrefixes.contains(where: trimmedPrompt.hasPrefix)
-            || trimmedPrompt == "›" || trimmedPrompt == "❯" else { return .unknown }
+            || trimmedPrompt == "›" || trimmedPrompt == "❯" else {
+            // A draft wider than the pane, or one with several lines, leaves the cursor on a
+            // continuation row below its prompt row.
+            return draftEndsAtCursor(row: cursor.row, rows: rows, plainRows: plainRows, promptPrefixes: promptPrefixes)
+                ? .draft : .unknown
+        }
         var typed = rows[promptIndex]
             .sorted { $0.column < $1.column }
             .filter { !$0.faint }
@@ -264,6 +269,35 @@ final class AgentAutoResumeCoordinator {
             return .draft
         }
         return stalledFooter ? .codexGoalResume : .emptyPrompt
+    }
+
+    /// Whether the cursor row continues a draft: walking up within the input box (a `─` border
+    /// or the top ends it) to the nearest prompt row, that row or any row from it down to the
+    /// cursor holds typed (non-faint) text.
+    private static func draftEndsAtCursor(
+        row cursorRow: Int,
+        rows: [[(column: Int, text: String, faint: Bool)]],
+        plainRows: [String],
+        promptPrefixes: [String]
+    ) -> Bool {
+        func typedText(_ index: Int) -> String {
+            var text = rows[index].sorted { $0.column < $1.column }.filter { !$0.faint }.map(\.text).joined()
+            text = String(text.drop(while: { $0 == " " || $0 == "│" }))
+            if let prefix = promptPrefixes.first(where: text.hasPrefix) {
+                text.removeFirst(prefix.count)
+            } else if text == "›" || text == "❯" {
+                text = ""
+            }
+            return text.filter { $0 != "│" }.trimmingCharacters(in: .whitespaces)
+        }
+        for index in stride(from: cursorRow, through: 0, by: -1) {
+            let plain = plainRows[index].trimmingCharacters(in: .whitespaces)
+            if plain.contains("─"), plain.allSatisfy({ "─│╭╮╰╯".contains($0) || $0.isWhitespace }) { return false }
+            let trimmed = plainRows[index].drop(while: { $0 == " " || $0 == "│" })
+            guard promptPrefixes.contains(where: trimmed.hasPrefix) || trimmed == "›" || trimmed == "❯" else { continue }
+            return (index...cursorRow).contains { !typedText($0).isEmpty }
+        }
+        return false
     }
 
     private func clearMarker(surfaceId: String, workspaceHint: String?) {

@@ -3443,6 +3443,11 @@
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
           "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
+          "claudeAccountAutoSwitch": "When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves it to the next account in `agents.claudeAccounts` and continues the same conversation. Accounts still at their limit are skipped until they reset.",
+          "sessionPriority": "Choose the reasoning effort, and optionally the model, of each Claude Code session cmux launches, based on its priority and difficulty.",
+          "sessionPriorityEnabled": "When on, cmux restarts idle Claude Code terminals to change their effort (and optional model) to the matrix value for their workspace's priority and difficulty, then resumes each conversation. Off by default.",
+          "sessionPriorityUrgentCount": "How many of the highest-priority sessions count as urgent. All other sessions count as slow.",
+          "sessionPriorityMatrix": "Overrides for the effort and model chosen per priority and difficulty. Keys are `urgent` or `slow`, then `easy`, `normal` or `hard`, each with an optional `effort` and `model`. Cells you leave out keep cmux's defaults.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {

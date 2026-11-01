@@ -6526,6 +6526,7 @@ struct CMUXCLI {
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "claude-account", !Self.claudeAccountCommandNeedsSocket(commandArgs) { try runClaudeAccountList(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "chief", !chiefCommandNeedsSocket(commandArgs) { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
@@ -7060,6 +7061,16 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "claude-account":
+            try runClaudeAccount(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "session-priority":
+            try runSessionPriority(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
@@ -21576,6 +21587,10 @@ struct CMUXCLI {
 
             <surface> is a UUID, a ref like surface:3, or an index with --workspace.
             """
+        case "claude-account":
+            return Self.claudeAccountHelp
+        case "session-priority":
+            return Self.sessionPriorityHelp
         case "restore-session":
             return String(localized: "cli.restoreSession.help", defaultValue: """
             Usage: cmux restore-session

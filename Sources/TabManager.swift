@@ -230,10 +230,15 @@ class TabManager: ObservableObject {
     /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
     /// window so CodeRouter reads and removals never overlap.
     let coderouterAccountStore = CoderouterAccountStore()
+    /// This window's session priority order, recorded from user workspace moves only.
+    var sessionPriorityRank = SessionPriorityRank()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
-        set { workspaces.tabs = newValue }
+        set {
+            workspaces.tabs = newValue
+            sessionPriorityRank.appendUnseen(visibleOrder: newValue.map(\.id))
+        }
     }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
@@ -2049,12 +2054,19 @@ class TabManager: ObservableObject {
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
 
-    func moveTabToTop(_ tabId: UUID) {
+    /// A user Move to Top is recorded even when the workspace is already at the top: it affirms
+    /// the place the workspace shows at (session priority ruling R24).
+    func moveTabToTop(_ tabId: UUID, origin: WorkspaceMoveOrigin = .user) {
+        let before = tabs.map(\.id)
         workspaceReordering.moveTabToTop(tabId)
+        if origin == .user { noteUserWorkspaceMove(movedIds: [tabId], before: before) }
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
+        let before = tabs.map(\.id)
         workspaceReordering.moveTabsToTop(tabIds)
+        let movedIds = before.filter(tabIds.contains)
+        if !movedIds.isEmpty { noteUserWorkspaceMove(movedIds: movedIds, before: before) }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
@@ -2066,8 +2078,20 @@ class TabManager: ObservableObject {
         workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
+    /// Moves one workspace to `targetIndex`, clamped to its tier.
+    ///
+    /// - Parameter requestedIndex: The index the user asked for when the caller already clamped
+    ///   it into `targetIndex` (`reorder-workspace --index`). Used only for the direction of a
+    ///   move that leaves the order as it was (session priority ruling R30).
     @discardableResult
-    func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
+    func reorderWorkspace(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        origin: WorkspaceMoveOrigin = .user,
+        requestedIndex: Int? = nil
+    ) -> Bool {
+        let before = tabs.map(\.id)
         let previousMemberships = workspaceGroupMemberships(for: [tabId])
         let handled = workspaceReordering.reorderWorkspace(
             tabId: tabId,
@@ -2077,6 +2101,14 @@ class TabManager: ObservableObject {
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
             previousMemberships: previousMemberships
         )
+        if handled, origin == .user {
+            // A request below the current place is a move down (Move Down at the bottom edge,
+            // or `--index` past the end, is clamped and changes nothing); a drag or a placement
+            // at or above it is not.
+            let requested = requestedIndex ?? targetIndex
+            let movingUp = isDragOperation || before.firstIndex(of: tabId).map { requested <= $0 } ?? true
+            noteUserWorkspaceMove(movedIds: [tabId], before: before, movingUp: movingUp)
+        }
         return handled
     }
 
@@ -2126,6 +2158,7 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
+        let before = tabs.map(\.id)
         let previousMemberships = workspaceGroupMemberships(for: [tabId])
         let handled = workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
@@ -2137,6 +2170,7 @@ class TabManager: ObservableObject {
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
             previousMemberships: previousMemberships
         )
+        if handled { noteUserWorkspaceMove(movedIds: [tabId], before: before) }
         return handled
     }
 
@@ -2149,6 +2183,7 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
+        let before = tabs.map(\.id)
         let previousMemberships = workspaceGroupMemberships(for: tabIds)
         let handled = workspaceReordering.reorderSidebarWorkspaces(
             tabIds: tabIds,
@@ -2161,6 +2196,7 @@ class TabManager: ObservableObject {
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
             previousMemberships: previousMemberships
         )
+        if handled { noteUserWorkspaceMove(movedIds: tabIds, before: before) }
         return handled
     }
 
@@ -2258,7 +2294,9 @@ class TabManager: ObservableObject {
         orderedWorkspaceIds: [UUID],
         dryRun: Bool = false
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
-        workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
+        let result = workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
+        if case .success = result, !dryRun { noteUserWorkspaceOrder(orderedWorkspaceIds) }
+        return result
     }
 
     func setCustomDescription(tabId: UUID, description: String?) {
@@ -6721,6 +6759,7 @@ extension TabManager {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
+        hasher.combine(sessionPriorityRank.recordedOrder)
         let notificationStore = AppDelegate.shared?.notificationStore
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
@@ -6762,6 +6801,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
+            workspace.combineSessionPriorityStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(
@@ -7070,7 +7110,7 @@ extension TabManager {
         }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots,
+            workspaces: sessionPriorityIndexed(workspaceSnapshots, workspaceIds: restorableTabs.map(\.id)),
             workspaceGroups: groupSnapshots
         )
     }
@@ -7276,6 +7316,7 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        restoreSessionPriorityRank(from: workspaceSnapshots, restoredWorkspaceIds: newTabs.map(\.id))
         for workspace in newTabs {
             workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }

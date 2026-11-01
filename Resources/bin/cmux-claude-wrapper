@@ -604,6 +604,16 @@ should_preserve_claude_auth_selection_key() {
     return 1
 }
 
+# A cmux pane cannot unset a variable, only set it to "". cmux uses an empty
+# CLAUDE_CONFIG_DIR / CLAUDE_SECURESTORAGE_CONFIG_DIR to mean "default account",
+# but Claude treats an empty CLAUDE_CONFIG_DIR as a relative path
+# (`"configDirectory": ""`). Turn empty values into real unsets before Claude runs.
+unset_empty_claude_account_env() {
+    [[ "${CLAUDE_CONFIG_DIR+x}" == "x" && -z "$CLAUDE_CONFIG_DIR" ]] && unset CLAUDE_CONFIG_DIR
+    [[ "${CLAUDE_SECURESTORAGE_CONFIG_DIR+x}" == "x" && -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ]] && unset CLAUDE_SECURESTORAGE_CONFIG_DIR
+    return 0
+}
+
 normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] || return 0
     [[ -n "${HOME:-}" ]] || return 0
@@ -804,6 +814,8 @@ reconcile_claude_config_dir_for_resume() {
 }
 
 clear_inherited_claude_auth_selection_env() {
+    # Runs on every exec path and before any resume reconcile.
+    unset_empty_claude_account_env
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
         for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
