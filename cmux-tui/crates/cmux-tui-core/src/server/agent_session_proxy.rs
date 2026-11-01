@@ -203,7 +203,10 @@ pub(super) fn session_of(
     writer: &MessageWriter,
 ) -> bool {
     let id = object.remove("id");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    let cloud_mobile = mux
+        .control_clients
+        .supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
+    if bound || (!mux.control_clients.is_unix(client) || mux.is_remote_client(client)) && !cloud_mobile {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(surface) = object.get("surface").and_then(Value::as_u64) else {

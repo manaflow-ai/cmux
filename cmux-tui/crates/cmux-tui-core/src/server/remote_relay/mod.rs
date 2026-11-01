@@ -264,6 +264,21 @@ pub(super) fn handle_frame(
     if mux.daemon_handoff_in_progress() {
         return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
+    // The Mac's authenticated Cloud mobile carrier uses the native daemon
+    // JSON protocol. It may reach only the scoped agent-session verbs; the
+    // capability is admitted by the remote frame gate and is sticky for the
+    // lifetime of this authenticated peer connection.
+    #[cfg(unix)]
+    if mux.control_clients.supports_capability(
+        client,
+        crate::server::agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY,
+    ) && message.contains("\"agent-session-")
+    {
+        if let Some(keep_open) = super::agent_session_attach::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
+        return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
+    }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]

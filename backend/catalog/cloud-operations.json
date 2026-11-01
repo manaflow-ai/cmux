@@ -25332,7 +25332,7 @@
     },
     "cloud.vm.attention.emit": {
       "class": "mutation",
-      "idempotency": "required",
+      "idempotency": "none",
       "target": "team",
       "ancestors": [
         "user"
@@ -25400,14 +25400,6 @@
               "kind": "primitive",
               "name": "int64"
             }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
         "extra": false
@@ -25452,6 +25444,7 @@
         "cloud.machine.not_found",
         "cloud.rate_limited",
         "idempotency.conflict",
+        "owner.unreachable",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -25476,7 +25469,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

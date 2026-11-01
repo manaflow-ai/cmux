@@ -9,7 +9,7 @@
 use serde_json::{Map, Value};
 
 /// The capabilities a remote client may declare (`set-client-info`).
-pub(crate) const REMOTE_CAPABILITIES: &[&str] = &["local-conversations-v1"];
+pub(crate) const REMOTE_CAPABILITIES: &[&str] = &["local-conversations-v1", "cloud-mobile-chat-v1"];
 
 /// Params that carry a command to run. Refused on every method.
 pub(crate) const COMMAND_PARAMS: &[&str] =

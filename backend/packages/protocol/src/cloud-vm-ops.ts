@@ -12,7 +12,14 @@ import { def, mutationErrors } from "./op-def.ts"
 const Millis = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const Short = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
 const VM_ERRORS = [...mutationErrors.filter((c) => c !== "revision.conflict" && c !== "idempotency.conflict"), "cloud.machine.not_found", "cloud.rate_limited"]
-const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "read" | "mutation", params: P, result: R, docs: string) =>
+const vmDef = <P extends Schema.Top, R extends Schema.Top>(
+  name: string,
+  cls: "read" | "mutation",
+  params: P,
+  result: R,
+  docs: string,
+  errors: ReadonlyArray<string> = VM_ERRORS
+) =>
   def({
     name,
     owner: "cloud:CloudDO",
@@ -24,7 +31,7 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "r
     principals: ["install"],
     params,
     result,
-    errors: VM_ERRORS,
+    errors,
     docs: docs + (cls === "mutation" ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + " VM installs only (kind vm, grant vm-self, its own bound machine).",
     cli: { path: "", visible: false },
     mcp: { expose: "never", group: "cloud" }
@@ -88,14 +95,10 @@ export const CloudVmEventEmit = vmDef(
  * intentionally separate from the ephemeral VM event stream: a phone that was
  * offline must still receive question, permission, and done notifications.
  */
-export const CloudVmAttentionEmit = def({
-  name: "cloud.vm.attention.emit",
-  owner: "cloud:CloudDO",
-  class: "mutation",
-  risk: "execute",
-  target: "team",
-  principals: ["install"],
-  params: Schema.Struct({
+export const CloudVmAttentionEmit = vmDef(
+  "cloud.vm.attention.emit",
+  "mutation",
+  Schema.Struct({
     machine: MachineId,
     event_id: Short(128),
     kind: Schema.Literals(["question", "permission", "done"]),
@@ -104,15 +107,13 @@ export const CloudVmAttentionEmit = def({
     body: Schema.optionalKey(Short(1000)),
     occurred_at: Millis
   }),
-  result: Schema.Struct({
+  Schema.Struct({
     delivered: Schema.Boolean,
     replayed: Schema.Boolean,
     correlation_id: Schema.optionalKey(Short(128))
   }),
-  errors: [...VM_ERRORS, "idempotency.conflict"],
-  docs: "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
-  cli: { path: "", visible: false },
-  mcp: { expose: "never", group: "cloud" }
-})
+  "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict.",
+  [...VM_ERRORS, "idempotency.conflict", "owner.unreachable"]
+)
 
 export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit] as const

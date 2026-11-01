@@ -115,6 +115,13 @@ pub(super) fn control_of(
         return Control::Web;
     }
     match origin {
+        super::Origin::Local if params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile") => {
+            // The cmux-tui native agent-session adapter stamps this marker
+            // only for its authenticated Cloud mobile carrier prompt. Keep
+            // the prompt under the Web asking policy while retaining the
+            // native transport and attachment/session lock.
+            Control::Web
+        }
         super::Origin::Local | super::Origin::LocalApp => Control::Local,
         super::Origin::Web => Control::Web,
         super::Origin::Peer

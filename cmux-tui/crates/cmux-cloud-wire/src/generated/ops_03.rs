@@ -216,11 +216,11 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).
+    /// Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The event_id is the stable idempotency key: a duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmAttentionEmitOp {
         name: "cloud.vm.attention.emit",
         class: Mutation,
-        idempotency: Required,
+        idempotency: None,
         owner: "cloud:CloudDO",
         risk: "execute",
         principals: [Install],
@@ -266,6 +266,7 @@ wire_errors! {
         CloudMachineNotFound = "cloud.machine.not_found",
         CloudRateLimited = "cloud.rate_limited",
         IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
         ValidationInvalid = "validation.invalid",
     }
 }
