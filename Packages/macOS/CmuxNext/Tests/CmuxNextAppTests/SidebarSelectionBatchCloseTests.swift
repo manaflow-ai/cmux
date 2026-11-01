@@ -79,12 +79,13 @@ struct SidebarSelectionBatchCloseTests {
             let load = CPULoad(seconds: 20)
             defer { load.stop() }
             let pressed = ContinuousClock.now
-            sidebar.send(.close(sidebar.orderedSelection))
+            let work = services.registry.capturingWork { sidebar.send(.close(sidebar.orderedSelection)) }
             let pressHeld = ContinuousClock.now - pressed
             let leftAtPress = ids.filter { id in sidebar.allWorkspaces.contains { $0.id.rawValue == id } }
 
             try? await PinnedPageTests.until({ Self.listed(ids, services).isEmpty }, within: .seconds(90))
             let closed = ContinuousClock.now - pressed
+            for task in work { print("SidebarSelectionBatchClose: the batch's failure: \(String(describing: await task.value))") }
             let missed = Self.listed(ids, services)
             try? await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: window).contains { $0.id == Self.toastID } }, within: .seconds(5))
             let toasts = CmuxToastCenter.shared.toasts(in: window)
