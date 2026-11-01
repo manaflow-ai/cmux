@@ -44,4 +44,3 @@ public nonisolated enum SidebarCategory: Hashable, Sendable {
         peer == nil ? .agentSession : .fleetSession
     }
 }
-
