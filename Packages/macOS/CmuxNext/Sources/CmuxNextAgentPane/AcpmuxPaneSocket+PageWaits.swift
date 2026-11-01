@@ -1,6 +1,15 @@
 import Foundation
 
 extension AcpmuxPaneSocket {
+    private static let rawWaitedEventMarkers = [
+        "\"kind\":\"turn_end\"", "\"kind\": \"turn_end\"",
+        "\"kind\":\"turn_result\"", "\"kind\": \"turn_result\"",
+        "\"kind\":\"queued\"", "\"kind\": \"queued\"",
+        "\"kind\":\"dequeued\"", "\"kind\": \"dequeued\"",
+        "\"kind\":\"queue_removed\"", "\"kind\": \"queue_removed\"",
+        "\"kind\":\"prompt_refused\"", "\"kind\": \"prompt_refused\"",
+    ]
+
     /// The opaque-notification fast path in ``AcpmuxRequestIds`` keeps the original text. These
     /// markers are enough for pacing decisions; the observer notifications are parsed before this
     /// path and use the object overload below. A false positive only wakes a hidden page sooner.
@@ -10,8 +19,7 @@ extension AcpmuxPaneSocket {
             return true
         }
         guard text.contains("\"_acpmux/event\"") else { return false }
-        return ["\"turn_end\"", "\"turn_result\"", "\"queued\"", "\"dequeued\"",
-                "\"queue_removed\"", "\"prompt_refused\""].contains(where: text.contains)
+        return Self.rawWaitedEventMarkers.contains(where: text.contains)
     }
 
     /// Whether the page waits on a daemon frame, so a pane nobody can see still gets it soon
