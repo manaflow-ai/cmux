@@ -601,13 +601,22 @@ impl Hub {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
-        // `ready` only when nothing it recovered runs or waits: a turn the host still runs is
-        // `running` from its adoption on. Set before recovery, `ready` was logged and shown between
-        // `host_adopted` and the recovered turn (an idle chat that was working). Recovery sets the
-        // turn under the spawn lock every new prompt waits on, so no prompt starts in between.
-        if session.turn().is_none() && session.status() != SessionStatus::Waiting {
-            self.set_status(session, SessionStatus::Ready);
+        // The status after recovery, not before it: set before, `ready` was logged and shown
+        // between `host_adopted` and a turn the host still runs (an idle chat that was working).
+        // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
+        // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
+        // also have ended by now; a permission asked again), it stands. Else the status loaded from
+        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // something still asks the person, `ready` otherwise, read under the permissions lock
+        // that an answer takes.
+        if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
+            self.set_status(session, status);
+            drop(state);
         }
         self.restart_unproven(session, proven);
         self.save_meta(session);
