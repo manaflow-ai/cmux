@@ -417,3 +417,53 @@ test("a status row under a prompt keeps its own spacing over the reply", () => {
   for (const below of [after, { ...after, settled: true }, { ...after, settled: true, foldedReply: true }])
     expect(statusEdge(run as AcpmuxRow, below as AcpmuxRow, reply)).toBe(under);
 });
+
+// Leo, 2026-10-25: "when I'm seeing all of these agent messages back and forth, that's when it
+// sort of, like, gets confused ... trying to scroll down slowly as you're streaming in text output".
+// A folded run (the Codex-style runs, on by default) keeps every message it sent another agent in
+// sight (TurnRows.tsx `runStretches`): the work around each send folds under its own summary line,
+// and each send is its own 22px tool row (SentMessageLine.tsx; its Copy slot stays inside the line,
+// conversation.css `.cv-sent .cv-sent-actions`). The run is estimated as those lines in its 2px top
+// margin and 4px run gap, the heights Chromium draws for the same rows. Before, any folded run of
+// two or more calls was estimated as one 28px summary line, so a run with sends grew by 22px a line
+// when it mounted, and a sub-session `send_message` was estimated at 40px.
+test("a folded run with messages to other agents is estimated as the lines it draws", () => {
+  const shell = (id: string, command: string) => ({
+    kind: "tool",
+    text: "Bash",
+    tool: { id, title: "Bash", kind: "execute", status: "completed", command, output: "queued" },
+  });
+  const read = { kind: "tool", text: "Read", tool: { id: "r", title: "Read a", kind: "read", status: "completed" } };
+  const sendMessage = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__send_message",
+    tool: {
+      id: "m",
+      title: "mcp__cmux-subsessions__send_message",
+      status: "completed",
+      inputSummary: JSON.stringify({ sessionId: "child-1", text: "Run the tests." }),
+      output: JSON.stringify({ delivery: "queued" }),
+    },
+  };
+  const send = (id: string, to: string) => shell(id, `acpmux send --no-wait ${to} 'Status?'`);
+  const run = (items: unknown[]) => [
+    { id: "run", version: 1, at: 0, kind: "activity", settled: true, foldRun: true, items },
+  ];
+  const lines = (n: number) => 2 + n * 22 + 4;
+  // Plain work still folds to its one summary line.
+  expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
+  // A send between two commands: a line each.
+  expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(lines(3));
+  // Two sends, as two calls or as one shell batch.
+  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(2));
+  expect(heightsOf(run([shell("a", "acpmux send --no-wait lane-a 'a'; acpmux send --no-wait lane-b 'b'")]))[0]).toBe(
+    lines(2),
+  );
+  // Work folded on each side of the sends: "Ran 2 commands", the send, the fold of the rest, the
+  // sub-session message.
+  const mixed = [shell("a", "ls"), shell("b", "cat y"), send("s", "lane-a"), shell("d", "git diff"), read, sendMessage];
+  expect(heightsOf(run(mixed))[0]).toBe(lines(4));
+  // A sub-session message alone is one tool row, folded or not.
+  expect(heightsOf(run([sendMessage]))[0]).toBe(lines(1));
+  expect(heightsOf([{ id: "one", version: 1, at: 0, kind: "activity", items: [sendMessage] }])[0]).toBe(lines(1));
+});

@@ -48,17 +48,36 @@ nonisolated struct CloudMoveCLI: Sendable {
         try await run(["link", "sync", "pull", "--socket", socket, local, remote])
     }
 
+    /// The folder copy a move makes once the chat is frozen (`--sync`): what changed since the
+    /// caller's own sync, so a chat moved mid-turn takes the turn's last changes with it.
+    struct FrozenSync: Sendable, Equatable {
+        /// Pull from the machine (Bring Back Local) rather than push to it (Move to Cloud).
+        var pull: Bool
+        /// The machine link socket `link sync` uses.
+        var socket: String
+        var local: String
+        var remote: String
+    }
+
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
     /// `from` to the machine daemon at `to`, where it runs in `cwd`. A rerun
-    /// resolves a move an earlier run left unresolved. `askFirst` has the source narrow the chat
-    /// to an asking policy and mode before it moves (`--ask-first`). `vmKind` (`--vm-kind`): for a
-    /// move onto a Cloud machine, the Cloud API's answer for this app on the link in use, which that
-    /// machine's daemon takes the chat on (only `owner`), never its own record.
-    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false,
+    /// resolves a move an earlier run left unresolved. A running turn stops for the move
+    /// (`--interrupt`) and goes on where the chat lands (acpmux queues its continuation), with
+    /// `sync` copying the folder's last changes once the chat is frozen. `askFirst` has the source
+    /// narrow the chat to an asking policy and mode before it moves (`--ask-first`). `vmKind`
+    /// (`--vm-kind`): for a move onto a Cloud machine, the Cloud API's answer for this app on the
+    /// link in use, which that machine's daemon takes the chat on (only `owner`), never its own record.
+    func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, askFirst: Bool = false,
                    vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
-        let flags = (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
+        try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd]
+            + Self.agentMoveFlags(sync: sync, askFirst: askFirst, vmKind: vmKind, toPID: toPID))
+    }
+
+    /// `agentMove`'s flags after `--cwd`.
+    static func agentMoveFlags(sync: FrozenSync?, askFirst: Bool, vmKind: String?, toPID: Int32?) -> [String] {
+        let frozen = sync.map { ["--sync", $0.pull ? "pull" : "push", "--sync-socket", $0.socket, "--sync-local", $0.local, "--sync-remote", $0.remote] } ?? []
+        return ["--interrupt"] + frozen + (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
             + (toPID.map { ["--to-pid", String($0)] } ?? [])
-        return try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd] + flags)
     }
 
     /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
@@ -84,6 +103,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         }
         return answer
     }
+
+    /// `cmux link machine pin` (cmux-tui `link/machine_pin.rs`): its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
+    func machinePin() async -> Data? { try? await ProcessRunner.run(executable: binary, arguments: ["link", "machine", "pin"], environment: nil, timeout: .seconds(150), clock: ContinuousClock()).stdout }
 
     /// `cmux link start-chat plan`'s answer: the machine a `cloud.startChat` send takes (nil: make
     /// one named `newName`), pinned to the send, and the send's keys.

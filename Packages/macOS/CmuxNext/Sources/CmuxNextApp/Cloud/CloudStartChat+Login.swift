@@ -12,27 +12,16 @@ import Foundation
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
 ///
-/// DEV and dogfood only (``passesHarnessLogin(isDogfoodBuild:setting:)``; Leo: "IN THE ACTUAL
-/// PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps the token on the Mac,
-/// is scoped in cmux#29766.
+/// DEV and dogfood only (``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:setting:)``;
+/// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps
+/// the token on the Mac, is scoped in cmux#29766.
 ///
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    nonisolated static let passHarnessLoginKey = "cmux.cloud.passHarnessLogin"
-
-    /// The one switch for every Mac-to-machine login transfer: this pass, the turn card's recovery
-    /// and the new-workspace setup, Claude's `setup-token` and the Codex broker alike. The
-    /// `cmux.cloud.passHarnessLogin` default wins when set (`-bool NO` makes a DEV build behave as
-    /// production); unset, it is on in a dogfood build (``DevTools/isEnabled``: a Debug compile or a
-    /// NIGHTLY bundle, the NEXT nightly included) and off in release, where the machine signs in on
-    /// its own instead.
-    nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, setting: Bool?) -> Bool { setting ?? isDogfoodBuild }
-
-    /// This process's answer to ``passesHarnessLogin(isDogfoodBuild:setting:)``.
+    /// This process's answer to ``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:setting:)``.
     nonisolated static var passesHarnessLoginHere: Bool {
-        passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled,
-                           setting: UserDefaults.standard.object(forKey: passHarnessLoginKey) as? Bool)
+        CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)
     }
 
     /// The provider whose login a start needs; nil for a harness that has no transfer (pi, opencode).
