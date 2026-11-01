@@ -105,17 +105,40 @@ fn a_remote_device_never_sees_an_incognito_workspace_and_cannot_act_on_it() {
     let text = serde_json::to_string(&remote).unwrap();
     assert!(!text.contains("private-space"), "{text}");
 
+    // `ids` leaves its objects out too.
+    let ids = line(&mux, &phone, json!({"id": "ids", "cmd": "ids"}));
+    assert!(
+        !ids["data"]["ids"].as_array().unwrap().iter().any(|row| row["id"] == private_id),
+        "{ids}"
+    );
+    // A resource read the phone splices never forward is refused outright.
+    let request = resource_request(
+        "wl",
+        "workspace.list",
+        json!({"machine": "current", "session": "current"}),
+        None,
+    );
+    assert!(handle_connection_message(&mux, phone.0, &request, &phone.1, &phone.3));
+    let refused = pop_json(&phone.2);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(!refused.to_string().contains("private-space"), "{refused}");
+
     // Acting on it by id or key is refused as if it did not exist.
     for request in [
         json!({"id": "r1", "cmd": "rename-workspace", "workspace": private_id, "name": "seen"}),
         json!({"id": "r2", "cmd": "rename-workspace", "key": private_key, "name": "seen"}),
         json!({"id": "c1", "cmd": "close-workspace", "workspace": private_id}),
         json!({"id": "s1", "cmd": "new-screen", "workspace": private_id}),
+        json!({"id": "n1", "cmd": "rename-workspace", "workspace": "private-space", "name": "x"}),
     ] {
         let reply = line(&mux, &phone, request.clone());
         assert_eq!(reply["ok"], false, "{request} must be refused: {reply}");
+        // The refusal tells the phone nothing it did not send.
         let error = reply["error"].as_str().unwrap_or_default();
-        assert!(!error.contains("private-space"), "{error}");
+        assert!(!error.contains(&private), "{error}");
+        if request["workspace"] != "private-space" {
+            assert!(!error.contains("private-space"), "{error}");
+        }
     }
     let local = listed(&mux, &app);
     let still = row(&local, &private).expect("the phone did not close the incognito workspace");
