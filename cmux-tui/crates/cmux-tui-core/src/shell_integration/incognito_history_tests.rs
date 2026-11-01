@@ -369,3 +369,35 @@ fn an_incognito_bash_keeps_no_history_under_the_integration_opt_out() {
     };
     assert_history_kept_only_when_normal("opt-out bash", run, &base);
 }
+
+/// A daemon started inside an incognito terminal inherits its markers
+/// (`CMUX_TUI_INCOGNITO`, `fish_private_mode`, `HISTFILE=/dev/null`); a
+/// normal terminal it starts is neither integrated as incognito nor left
+/// with those values, and an incognito one keeps them.
+#[test]
+fn a_daemon_started_in_an_incognito_terminal_starts_normal_terminals_normal() {
+    let inherited = |key: &str| match key {
+        INCOGNITO_ENV | "fish_private_mode" => Some("1".to_string()),
+        "HISTFILE" => Some("/dev/null".to_string()),
+        _ => None,
+    };
+    let normal = vec![
+        ("HOME".to_string(), "/home/user".to_string()),
+        (OPT_OUT_ENV.to_string(), "none".to_string()),
+    ];
+    let launched = integrate_with(vec!["/bin/zsh".to_string()], normal.clone(), &inherited);
+    assert_eq!(launched.env, normal, "a normal terminal under the opt-out stays unmodified");
+    let mut unset = inherited_keys_to_unset_from(&normal, &inherited);
+    unset.sort_unstable();
+    assert_eq!(unset, vec![INCOGNITO_ENV, "HISTFILE", "fish_private_mode"]);
+    // A key the launch sets itself is its own.
+    let with_histfile =
+        [normal.clone(), vec![("HISTFILE".to_string(), "/home/user/.h".to_string())]].concat();
+    assert!(!inherited_keys_to_unset_from(&with_histfile, &inherited).contains(&"HISTFILE"));
+    // An incognito terminal keeps them.
+    let mut incognito = normal.clone();
+    keep_no_history(&mut incognito);
+    assert!(inherited_keys_to_unset_from(&incognito, &inherited).is_empty());
+    // A daemon started elsewhere removes nothing.
+    assert!(inherited_keys_to_unset_from(&normal, &|_: &str| None).is_empty());
+}

@@ -206,6 +206,19 @@ pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) ->
     }
 }
 
+/// The keys a terminal with launch environment `env` must not inherit from
+/// the daemon's own environment, removed after `env` is applied.
+pub fn inherited_keys_to_unset(env: &[(String, String)]) -> Vec<&'static str> {
+    inherited_keys_to_unset_from(env, &|key| std::env::var(key).ok())
+}
+
+fn inherited_keys_to_unset_from(
+    _env: &[(String, String)],
+    _inherited: &dyn Fn(&str) -> Option<String>,
+) -> Vec<&'static str> {
+    Vec::new()
+}
+
 /// Whether `env` is an incognito terminal's.
 fn is_incognito(lookup: &dyn Fn(&str) -> Option<String>) -> bool {
     lookup(INCOGNITO_ENV).is_some_and(|value| !value.is_empty())
@@ -238,15 +251,21 @@ pub fn integrate_default_shell(
     command: Vec<String>,
     extra_env: Vec<(String, String)>,
 ) -> ShellLaunch {
-    let inherited = extra_env.clone();
-    let lookup = move |key: &str| -> Option<String> {
-        inherited
-            .iter()
-            .rev()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value.clone())
-            .or_else(|| std::env::var(key).ok())
+    integrate_with(command, extra_env, &|key| std::env::var(key).ok())
+}
+
+/// [`integrate_default_shell`] over the daemon's own environment
+/// `inherited`.
+fn integrate_with(
+    command: Vec<String>,
+    extra_env: Vec<(String, String)>,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> ShellLaunch {
+    let launch_env = extra_env.clone();
+    let own = move |key: &str| -> Option<String> {
+        launch_env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone())
     };
+    let lookup = |key: &str| -> Option<String> { own(key).or_else(|| inherited(key)) };
     // An incognito shell is integrated even under the opt-outs: the
     // integration is what keeps its history off (design/spaces.md
     // "Incognito": nothing kept).
