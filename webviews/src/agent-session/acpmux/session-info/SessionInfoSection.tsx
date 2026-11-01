@@ -95,7 +95,7 @@ export function SessionInfoSection({
       {foldable && (
         <Icon
           name={open ? "disclosure.expanded" : "disclosure.collapsed"}
-          size={10}
+          size={12}
           className="acpmux-session-info-section__fold"
         />
       )}

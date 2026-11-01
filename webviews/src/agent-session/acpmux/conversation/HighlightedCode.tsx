@@ -106,7 +106,7 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
   return (
     <div className="cv-codeblock" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
-        <CodeBrackets size={17} strokeWidth={1.2} />
+        <CodeBrackets size={16} strokeWidth={1.2} />
         <span>{label ?? languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
           <OpenPreview code={code} lang={lang} />

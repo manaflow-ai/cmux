@@ -117,7 +117,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           title={`${t("floating.includeContext")} ⌘⇧I`}
           onClick={() => floating.includeContext()}
         >
-          <Icon name="composer.mention" size={15} />
+          <Icon name="composer.mention" size={16} />
         </button>
         <button
           type="button"
@@ -127,7 +127,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           title={t("floating.keepOnTop")}
           onClick={() => floating.setOnTop(!floating.state.onTop)}
         >
-          <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+          <Icon name="action.pin" size={16} selected={floating.state.onTop} />
         </button>
         <button
           type="button"
@@ -137,7 +137,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           onClick={() => floating.setCollapsed(true)}
         >
           {/* Folds up into the bar: the chevron points up. */}
-          <Icon name="disclosure.expanded" size={15} className="acpmux-icon-flip" />
+          <Icon name="disclosure.expanded" size={16} className="acpmux-icon-flip" />
         </button>
         <button
           type="button"
@@ -146,7 +146,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           title={`${t("floating.moveToTab")} ⌘↩`}
           onClick={() => floating.moveToTab()}
         >
-          <Icon name="link.open.newtab" size={15} />
+          <Icon name="link.open.newtab" size={16} />
         </button>
       </header>
     </ContextMenu>
@@ -178,7 +178,7 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         title={t("floating.keepOnTop")}
         onClick={() => floating.setOnTop(!floating.state.onTop)}
       >
-        <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+        <Icon name="action.pin" size={16} selected={floating.state.onTop} />
       </button>
     </div>
   );

@@ -65,7 +65,7 @@ function FailureCard({ failure }: { failure: ToolFailure }) {
           text={failure.detail}
           label={t("turn.failure.copyError")}
           className="cv-tool-error-card__copy"
-          size={13}
+          size={14}
         />
       )}
     </div>

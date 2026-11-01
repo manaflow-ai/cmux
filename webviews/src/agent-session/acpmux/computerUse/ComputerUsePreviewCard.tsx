@@ -89,7 +89,7 @@ export function ComputerUsePreviewCard({
           onClose(shown.session);
         }}
       >
-        <Close size={10} />
+        <Close size={12} />
       </button>
     </div>
   );

@@ -36,7 +36,7 @@ export function PlainCode({
   return (
     <div className="cv-codeblock cv-codeblock--plain" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
-        <CodeBrackets size={17} strokeWidth={1.2} />
+        <CodeBrackets size={16} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
           {!open && <OpenPreview code={code} lang={lang} />}

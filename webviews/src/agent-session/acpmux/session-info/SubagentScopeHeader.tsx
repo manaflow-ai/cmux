@@ -76,7 +76,7 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
         ) : (
           <span className="acpmux-session-info-scope__parent">{scope.parent}</span>
         )}
-        <Icon name="disclosure.collapsed" size={10} className="acpmux-session-info-scope__sep" />
+        <Icon name="disclosure.collapsed" size={12} className="acpmux-session-info-scope__sep" />
         <Name scope={scope} />
       </div>
     );
