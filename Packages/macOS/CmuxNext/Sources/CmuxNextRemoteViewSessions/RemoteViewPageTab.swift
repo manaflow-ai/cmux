@@ -56,7 +56,8 @@ public final class RemoteViewPageTab: BrowserTab {
         switch decision {
         case let .connect(record):
             let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
-                                                     displayName: displayName, loginKeychain: loginKeychain)
+                                                     displayName: displayName)
+            session?.useLoginKeychain(loginKeychain)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):

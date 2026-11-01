@@ -110,8 +110,8 @@ public final class RemoteViewPageSession {
 
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
-    private convenience init(vncRecord record: RemoteViewTabRecord, port: UInt16, loginKeychain: LoginKeychain, closeTab: @escaping @MainActor () -> Void) {
-        self.init(vnc: RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, loginKeychain: loginKeychain), closeTab: closeTab)
+    private convenience init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
+        self.init(vnc: RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost), closeTab: closeTab)
     }
 
     private init(vnc: RemoteVNCSession, closeTab: @escaping @MainActor () -> Void, displayName: String? = nil) {
@@ -135,6 +135,13 @@ public final class RemoteViewPageSession {
             vnc?.close()
             closeTab()
         }
+    }
+
+    /// Gives a VNC session the app's one guard of the Keychain UI switch, which reads and saves its
+    /// sign-in. The page tab calls it once, right after ``make(record:closeTab:cloudTransport:cloudRd:displayName:)``
+    /// and before the first connect; a session without it reads no saved sign-in.
+    public func useLoginKeychain(_ loginKeychain: LoginKeychain) {
+        vnc?.loginKeychain = loginKeychain
     }
 
     /// Reconnect on an ended session: a new transport, a new subscription.
@@ -253,6 +260,7 @@ public final class RemoteViewPageSession {
     public func resume() {}
     public func pause() {}
     public func end() {}
+    public func useLoginKeychain(_ loginKeychain: LoginKeychain) {}
     #endif
 
     /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the
@@ -260,7 +268,7 @@ public final class RemoteViewPageSession {
     /// nil for that machine (signed out, no address), shows "not available".
     public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void,
                             cloudTransport: CloudDesktopTransport? = nil, cloudRd: CloudRdTransport? = nil,
-                            displayName: String? = nil, loginKeychain: LoginKeychain) -> RemoteViewPageSession? {
+                            displayName: String? = nil) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
         if record.cloudRd {
@@ -269,10 +277,10 @@ public final class RemoteViewPageSession {
         }
         if record.cloudDesktop {
             guard let open = cloudTransport?(record.host) else { return nil }
-            let vnc = RemoteVNCSession(cloudRecord: record, loginKeychain: loginKeychain, makeTransport: { cloudRFBTransport(open) })
+            let vnc = RemoteVNCSession(cloudRecord: record, makeTransport: { cloudRFBTransport(open) })
             return RemoteViewPageSession(vnc: vnc, closeTab: closeTab, displayName: displayName)
         }
-        if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, loginKeychain: loginKeychain, closeTab: closeTab) }
+        if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, closeTab: closeTab) }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
               let first = host.transport(for: record) else { return nil }
