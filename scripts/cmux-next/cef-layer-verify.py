@@ -353,7 +353,9 @@ def check_show_again():
         row("show.again", False, {"note": "the page still shows after workspace.newAtBottom", "reply": json.dumps(created)[:200]})
         return
     time.sleep(0.5)  # test harness: the hidden page window's deferred hide and Widget::Hide run
-    back = action("workspace.selectFirst")
+    # The probe's workspace is the last used one (openBrowser.chromium may open the probe in a workspace of its own,
+    # so selectFirst showed the launch's terminal workspace and every later row read no page).
+    back = action("workspace.selectLastUsed")
     # Right after the reply: the screen first (what the display shows), then the app's own window image.
     screen = capture_bars("show-again-screen")
     shot = os.path.join(opts.out, f"verify-{opts.mode}-show-again-window.png")
@@ -386,7 +388,13 @@ def main():
     # (the STRESS layout) put the probe in a small pane of one of 60 workspaces, and workspace.selectFirst went elsewhere.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from bench_launch import BenchApp
-    BenchApp(APP, out=opts.out).start_fresh()
+    bench = BenchApp(APP, out=opts.out)
+    bench.start_fresh()
+    if opts.tunables == "build":
+        # The launch reads the build's file: give it this mode before the first page (a page shown at launch with the
+        # last run's value would count as hosted in mode off). The path is checked against the app's own below.
+        FACTS["tunables_prelaunch"] = os.path.join(bench.state_root(), "debug-tunables.json")
+        write_build_tunable(FACTS["tunables_prelaunch"], opts.mode == "on")
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
