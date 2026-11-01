@@ -136,6 +136,8 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               if (geometry.dots) {
                 expect(geometry.dots.top).toBeGreaterThanOrEqual(geometry.bar.top);
                 expect(geometry.dots.bottom).toBeLessThanOrEqual(geometry.bar.bottom);
+                // And on the row's center line, not above it (the dots' slot follows the row's height).
+                expect(Math.abs((geometry.dots.top + geometry.dots.bottom) / 2 - axis)).toBeLessThanOrEqual(1);
                 const leftEdge = Math.max(
                   ...geometry.controls.filter((c) => /plus|access/.test(c.selector)).map((c) => c.right),
                 );

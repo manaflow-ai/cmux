@@ -235,7 +235,8 @@
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
   /* No height of its own: the host is the box's bottom edge, and the dots ride up to the middle of
-     the row above it (the row's 52px min-height, composerLocation.css .acpmux-composer-bar). */
+     the row above it (its 28px controls over the row's 6px bottom padding, composerLook.css
+     .acpmux-composer-bar above). */
   height: 0;
   pointer-events: none;
   container: codex-look-row / inline-size;
@@ -247,7 +248,9 @@
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under .acpmux-look-slot {
   top: auto;
-  bottom: 26px;
+  /* The row's center line: its bottom padding (--acpmux-row-edge - --acpmux-row-inset, 6px) plus
+     half its 28px controls. */
+  bottom: 20px;
   transform: translateY(50%);
   pointer-events: auto;
 }
