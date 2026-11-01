@@ -74,11 +74,16 @@ import Testing
     // MARK: The window (a display worker: CMUX_TEST_REQUIRE_GUI=1 fails a skip)
 
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+    /// A display worker sets `CMUX_TEST_REQUIRE_GUI=1`: there a missing display fails the test, never skips it.
+    static func runsTheWindowTest() -> Bool {
+        hasDisplay() || ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"
+    }
 
     /// The launch order made deterministic: the window comes forward while the restored pane's surface is not
     /// presented yet (no content view exists in this window at all), so AppKit picks a key view itself.
-    @Test(.enabled("needs a display: AppKit picks the first responder only for an ordered-in key window") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display: AppKit picks the first responder only for an ordered-in key window") { await Self.runsTheWindowTest() })
     func aWindowOrderedFrontBeforeItsRestoredContentKeepsTheFocusOnThatPane() throws {
+        try #require(Self.hasDisplay(), "CMUX_TEST_REQUIRE_GUI=1 and no display: this run proves nothing on screen")
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let state = try Self.restoredState()
