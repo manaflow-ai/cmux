@@ -307,7 +307,7 @@ extension AgentPaneRequest {
         case "machine.share.self": self = .shareMachineWithMe
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
-            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)), kind != .choose,
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)
@@ -318,7 +318,9 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
                let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
                names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
-                self = .attachSource(kind, names: names)
+                // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
+                let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
+                self = .attachSource(kind, names: names, gestureAt: gestureAt)
             } else {
                 self = .unsupported(method)
             }

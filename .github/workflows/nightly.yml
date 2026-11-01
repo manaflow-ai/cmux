@@ -5402,6 +5402,55 @@ jobs:
           retention-days: 1
           overwrite: true
 
+  # rcodesign is an OS-native binary. signer-app stays on fleet Linux, while
+  # the DMG signer gets a matching macOS build for its owned-Mac/Blacksmith-Mac
+  # route; a Linux ELF cannot run on the Mac signing path.
+  signer-build-macos:
+    needs: [decide, prepare-nightly-variant, pick-nightly-sign-runner]
+    if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+      artifact: nightly-signer-macos-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci/release-signer
+      - id: cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/signer
+          key: release-signer-rust-1.95.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.publish-tooling/scripts/ci/release-signer/build.sh', '.publish-tooling/scripts/ci/release-signer/apple-codesign-0.29.0.patch') }}
+      - name: Set up Rust
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.95.0 --profile minimal
+          dirname "$(rustup which --toolchain 1.95.0 cargo)" >> "$GITHUB_PATH"
+      - name: Build the macOS signer
+        id: build
+        run: |
+          set -euo pipefail
+          if [ -x "$RUNNER_TEMP/signer/rcodesign" ]; then
+            if command -v shasum >/dev/null 2>&1; then digest="$(shasum -a 256 "$RUNNER_TEMP/signer/rcodesign" | cut -d' ' -f1)"; else digest="$(sha256sum "$RUNNER_TEMP/signer/rcodesign" | cut -d' ' -f1)"; fi
+            echo "sha256=$digest" >> "$GITHUB_OUTPUT"
+          else
+            bash .publish-tooling/scripts/ci/release-signer/build.sh "$RUNNER_TEMP/signer" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-signer-macos-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signer/rcodesign
+          if-no-files-found: error
+          retention-days: 1
+
   signer-app-notary:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app]
@@ -5521,8 +5570,11 @@ jobs:
 
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-build-macos, signer-app, signer-app-notary, signer-dmg-image, pick-nightly-sign-runner]
+    # The release signer is trusted on an owned Mac first, with the moving Blacksmith
+    # macOS pick as overflow. Its credentials never go to fleet Linux: the release
+    # environment is trusted only on the signing Macs (rulebook routing order).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -5543,10 +5595,48 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+      SOURCE_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
     steps:
+      # On an owned Mac this is the first step, before checkout or any credential.
+      # The picker gives the mini an exclusive signing claim; a refused claim
+      # fails this attempt and the Blacksmith overflow takes the same job.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
       - *signer-checkout-tools
-      - *signer-install
-      - *signer-install-check
+      - name: Install the macOS signer
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.signer-build-macos.outputs.artifact }}
+          path: ${{ runner.temp }}/signer
+      - name: Install the signer
+        env:
+          SIGNER_SHA256: ${{ needs.signer-build-macos.outputs.sha256 }}
+        run: bash .publish-tooling/scripts/ci/release-signer/install.sh "$RUNNER_TEMP/signer/rcodesign" "$SIGNER_SHA256" >> "$GITHUB_ENV"
+      - name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5571,7 +5661,12 @@ jobs:
           SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
         run: |
-          echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -
+          else
+            actual="$(shasum -a 256 signer-app/signed-app.tar | awk '{print $1}')"
+            [ "$actual" = "$APP_SHA256" ] || { echo "signed app digest mismatch" >&2; exit 1; }
+          fi
           bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

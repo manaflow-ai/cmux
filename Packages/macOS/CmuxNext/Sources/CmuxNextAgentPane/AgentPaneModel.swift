@@ -211,6 +211,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
     /// The file URLs of the person's last native drop or paste on the page.
     @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
+    /// Where a dropped screenshot or recording preview is kept (``retainedDropURLs``); tests point it elsewhere.
+    @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
     /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
     @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
@@ -396,7 +398,7 @@ public final class AgentPaneModel {
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         // A chat on another machine gets the gesture's source only (`attachSource`).
-        case .attachSource(let kind, let names): return await attachSource(kind, names: names)
+        case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
         case .attachmentSourceIcon(let bundleId):
             return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:

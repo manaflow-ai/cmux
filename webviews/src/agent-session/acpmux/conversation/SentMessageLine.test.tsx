@@ -258,9 +258,7 @@ test("a batch's message names its recipient and the file its words came from; Ra
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
   const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
-  const group = groups[0]!;
-  if (group.type !== "messages") throw new Error(`expected a messages group, got ${group.type}`);
-  const sends = group.members.map((member) => (member.type === "send" ? member.send : undefined)!);
+  const sends = groups.map((group) => (group.type === "send" ? group.send : undefined)!);
   const container = await render(
     <>
       {sends.map((send) => (
