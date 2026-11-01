@@ -325,6 +325,62 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
     }
 }
 
+/// QUIT P0 (Lawrence 2026-11-01: "after quitting and reopening, i lose all
+/// the workspaces and terminals"): a new owner's startup pass must never end
+/// a shell the holder still runs. A previous owner that stopped (a version
+/// handoff at the app's reopen, a crash) while one of its terminals was still
+/// adopting leaves that row `adopting`; the next owner re-attaches it from the
+/// holder like a running one, instead of recording it ended and closing its
+/// shell (`release_unclaimed_holder_terminals`).
+#[test]
+fn a_restart_reattaches_a_holder_terminal_whose_row_was_left_adopting() {
+    let mut daemon = Daemon::start();
+    let mut terminals = Vec::new();
+    for index in 0..2 {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+                "name": format!("adopting-{index}"), "cols": 80, "rows": 24}),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        daemon.track(surface);
+        send(&daemon.socket, surface, &format!("kept-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("kept-{index}"));
+        terminals.push((created["terminal_id"].as_str().unwrap().to_string(), surface));
+    }
+    let shells: Vec<i32> =
+        terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
+    daemon.sigkill();
+    // The previous owner stopped mid-adoption of terminal 0.
+    let registry = walk(&daemon.dir.join("state"))
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("the daemon wrote its workspace registry");
+    let connection = rusqlite::Connection::open(&registry).unwrap();
+    let changed = connection
+        .execute(
+            "UPDATE terminal_hosts SET lifecycle = 'adopting' WHERE terminal_id = ?1",
+            [&terminals[0].0],
+        )
+        .unwrap();
+    assert_eq!(changed, 1, "terminal 0's registry row");
+    drop(connection);
+
+    daemon.restart();
+    for (index, (terminal_id, _)) in terminals.iter().enumerate() {
+        let surface = running_surface(&daemon.socket, terminal_id);
+        screen_contains(&daemon.socket, surface, &format!("kept-{index}"));
+        assert!(alive(shells[index]), "terminal {index}: the new owner ended its shell");
+        assert_eq!(
+            shell_pid(&daemon.socket, surface),
+            shells[index],
+            "terminal {index} got a new shell"
+        );
+        send(&daemon.socket, surface, &format!("again-{index}"));
+        screen_contains(&daemon.socket, surface, &format!("again-{index}"));
+    }
+}
+
 /// The daemon holds the custody master of every holder terminal for its
 /// whole life; a shell that exits must still end its terminal, with its
 /// own status.
