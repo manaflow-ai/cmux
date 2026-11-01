@@ -21,14 +21,17 @@ import Testing
     }
 
     /// Runs `body` with the shared router's cmux opener recording each open (url, source) instead.
+    /// The services come first: making them routes `LinkRouter.shared` to them, which the
+    /// recorder then replaces; every closure is put back after.
     private func recordingOpens(_ body: (ControlRouter) async throws -> Void) async throws -> [(URL, String?)] {
         let links = LinkRouter.shared
-        let (routing, openInCmux) = (links.routing, links.openInCmux)
-        defer { (links.routing, links.openInCmux) = (routing, openInCmux) }
+        let saved = (links.routing, links.openInCmux, links.appLink, links.sourceTab, links.textEditor)
+        defer { (links.routing, links.openInCmux, links.appLink, links.sourceTab, links.textEditor) = saved }
+        let services = AppServices(environment: AppEnvironment.current([:]))
         var opened: [(URL, String?)] = []
         links.routing = { .fallback }
+        links.appLink = { _ in false }
         links.openInCmux = { url, _, source in opened.append((url, source)) }
-        let services = AppServices(environment: AppEnvironment.current([:]))
         try await body(router(services))
         return opened
     }
