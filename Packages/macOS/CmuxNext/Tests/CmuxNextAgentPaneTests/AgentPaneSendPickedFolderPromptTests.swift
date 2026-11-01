@@ -156,7 +156,9 @@ struct AgentPaneSendPickedFolderPromptTests {
         let entry = AgentPanePromptJournal.Entry(daemon: daemon, sessionId: "s-new", promptId: "replay-1",
             params: #"{"sessionId":"s-new","prompt":[{"type":"text","text":"Continue"}],"_meta":{"acpmux":{"promptId":"replay-1"}}}"#, at: Date())
         let owner = UUID()
-        let recorded = await Task.detached { [journal] in journal.record(entry, owner: owner) }.value
+        let recorded = try await Task.detached { [journal] () throws(AgentPanePromptJournal.NotWritten) -> Bool in
+            try journal.record(entry, owner: owner)
+        }.value
         #expect(recorded)
         journal.connectionEnded(owner: owner, byDaemon: false)
         transport.promptJournal = journal
