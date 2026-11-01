@@ -75,6 +75,7 @@
   b7b5b367227e488a4afbedc0c083695bbd831a16 received independent code review:
   https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
   This record adds no UI change and does not replace the required capture verdict.
+- 2026-10-30: a collapsed session parent's **running-child count** draws the shared working spinner in the former dot slot, while waiting, failed and unread retain their still status dots. The prior native before crop and the source issue are [HQ #5011](https://github.com/manaflow-ai/cmuxterm-hq/issues/5011); the explicit sidebar rule says "Agent working state is a spinner, never a breathing, pulsing or blinking dot" (Leo 2026-10-21, [sidebar spec](https://github.com/teamleaderleo/leo-workspace/blob/main/design/sidebar.md)). A pooled/hidden parent suspends the indicator and restores it upon showing; reduced motion and occlusion use the existing `StatusIndicatorView` behavior. No change to chip widths, typography, unread/blocked/error meanings or default settings. Regression: `SidebarDeepTreeTests.foldedRunningRollUpOnlyShowsWorkingWhileAChildRuns`; PR #28689; exact-head macOS/light-dark capture still required.
 
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
