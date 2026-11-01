@@ -1287,7 +1287,35 @@ check_no_github_hosted_runners() {
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
+  # Leo's 2026-11-01 exception permits hosted Ubuntu for declared light jobs.
+  # Main carries only this bootstrap; keep its declaration and job scope exact,
+  # so copying the same line onto a build or release job cannot exempt it.
+  python3 - "$ROOT_DIR" <<'PY_LIGHT'
+import json, pathlib, sys, yaml
+root = pathlib.Path(sys.argv[1])
+declared = json.loads((root / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
+source = (root / ".github/workflows/fast-checks.yml").read_text()
+workflow = yaml.safe_load(source)
+jobs = workflow.get("jobs", {})
+admit = jobs.get("admit", {})
+line = "    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+valid = (
+    set(declared) == {"fast-checks.yml:admit"}
+    and declared["fast-checks.yml:admit"].get("runner") == "ubuntu-24.04"
+    and bool(declared["fast-checks.yml:admit"].get("why"))
+    and admit.get("runs-on") == "ubuntu-24.04"
+    and admit.get("environment") is None
+    and admit.get("permissions") == {"contents": "read"}
+    and workflow.get("permissions") == {"contents": "read"}
+    and [name for name, job in jobs.items() if job.get("runs-on") == "ubuntu-24.04"] == ["admit"]
+    and source.splitlines().count(line) == 1
+)
+if not valid:
+    print("FAIL: hosted light fast-check admission must be the declared read-only admit job without a release environment")
+    raise SystemExit(1)
+PY_LIGHT
   local -a exceptions=(
+    "fast-checks.yml:    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
