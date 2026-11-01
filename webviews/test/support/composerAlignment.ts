@@ -79,7 +79,8 @@ export function measureComposerAlignment(): ComposerAlignment {
     const baseline = marker.getBoundingClientRect().top;
     marker.remove();
     const rect = textOf(element)!;
-    const first = [...(element.textContent ?? "")][0] ?? "";
+    const firstCodePoint = (element.textContent ?? "").codePointAt(0);
+    const first = firstCodePoint === undefined ? "" : String.fromCodePoint(firstCodePoint);
     return { baseline, capHeight, cy: baseline - capHeight / 2,
       inkLeft: rect.left - canvas.measureText(first).actualBoundingBoxLeft };
   };
