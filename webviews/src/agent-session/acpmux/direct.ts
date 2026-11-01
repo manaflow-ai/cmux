@@ -4790,6 +4790,8 @@ export class AcpmuxDirectClient {
     this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
+    // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
+    this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
       const ended = this.rows.openBackground(turn.id, event.seq);
@@ -5046,6 +5048,7 @@ export class AcpmuxDirectClient {
     if (update) {
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
+      this.subagents.session = this.selectedSessionId;
       this.subagents.harness = this.summary?.harness;
       if (this.subagents.reduce(event, update)) {
         // A later command update can associate a shell call with its recorded child session.

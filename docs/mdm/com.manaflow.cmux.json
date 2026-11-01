@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
