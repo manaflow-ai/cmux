@@ -668,7 +668,7 @@ fn a_seed_folder_never_nests() {
     let world = World::new("nested");
     let snapshot = world.snapshot("one", &[&world.base]);
     let service = world.service();
-    let outer = world.home.join("outer");
+    let outer = world.home.join("group/outer");
     let job = start(&service, &world.start_params(&outer, &snapshot)).unwrap();
     assert_eq!(wait(&service, &job)["state"], "done");
     for folder in [outer.join("inner"), world.home.join("mac/inside")] {
@@ -677,7 +677,7 @@ fn a_seed_folder_never_nests() {
         assert_eq!(refusal.code, "seed.bad_request", "{}", folder.display());
         assert!(second.bundle.exists(), "a refused start keeps the upload");
     }
-    let around = world.home.path.clone();
+    let around = world.home.join("group");
     let third = world.snapshot("three", &[&world.base]);
     let refusal = start(&service, &world.start_params(&around, &third)).unwrap_err();
     assert_eq!(refusal.code, "seed.bad_request");
