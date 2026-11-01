@@ -68,6 +68,38 @@ MAC_JOB = """
 
 
 class RoutingTableTests(unittest.TestCase):
+    def test_nightly_reservation_requires_exact_scope_and_label(self):
+        term = ("github.repository == 'manaflow-ai/cmux' && "
+                "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && "
+                "vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER")
+        self.assertTrue(table.nightly_reservation(term))
+        for old, new in (("manaflow-ai/cmux", "another/repo"), ("nightly-next", "nightly"),
+                         ("github.run_attempt == 1", "github.run_attempt >= 1"),
+                         ("glaeda-nightly-only-m4pro", "glaeda-unregistered"),
+                         ("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && ", "")):
+            with self.subTest(old=old, new=new):
+                self.assertFalse(table.nightly_reservation(term.replace(old, new)))
+
+    def test_reserved_bootstrap_keeps_declared_hosted_overflow_and_retries(self):
+        term = ("github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && "
+                "github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && "
+                "vars.CI_NIGHTLY_ONLY_RUNNER")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            policy.write_text(json.dumps({
+                "job_classes": {"portable-checks": {"needs": "any"}},
+                "hosted_light_jobs": {"nightly.yml#decide": {"class": "portable-checks", "reason": "routing"}}}))
+            for guard, accepted in ((term, True), (term.replace(" == 1", " >= 1"), False)):
+                route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + guard +
+                         " || github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}")
+                (workflows / "nightly.yml").write_text("jobs:\n  decide:\n    runs-on: " + route + "\n")
+                problems, allowed = table.hosted_light_policy(policy, workflows)
+                self.assertEqual(not problems, accepted)
+                self.assertEqual(bool(allowed), accepted)
+
     def run_fixture(self, workflows: dict[str, str], macos_jobs: dict[str, object]) -> list[str]:
         fixture = Fixture(workflows, macos_jobs)
         self.addCleanup(fixture.close)
