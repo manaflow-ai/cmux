@@ -28,12 +28,14 @@ public struct CloudMachineIO: Sendable {
         self.probes = probes
     }
 
-    /// The app's: the bundled cmux at `bundleResources/bin/cmux` (nil when this build has none, so no machine IO)
-    /// and its client sessions in `cloudRoot/client-sessions`.
+    /// The app's: the bundled cmux at `bundleResources/bin/cmux` and its client sessions in `cloudRoot/client-sessions`.
+    /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
+    /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
+    /// call over HTTP.
     public init?(bundleResources: URL?, cloudRoot: URL) {
-        guard let binary = bundleResources?.appendingPathComponent("bin/cmux"),
-              FileManager.checked.isExecutableFile(atPath: binary.path) else { return nil }
-        self.init(binary: binary, cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true))
+        guard let resources = bundleResources else { return nil }
+        self.init(binary: resources.appendingPathComponent("bin/cmux"),
+                  cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true))
     }
 
     /// The probe answers, by binary path and modification date.
@@ -81,11 +83,16 @@ public struct CloudMachineIO: Sendable {
 
     /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
     /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
-    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept.
+    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept. A build
+    /// without the binary speaks none, and that is kept.
     @concurrent func speaksMachineIO() async throws -> Bool {
         let modified = (try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
         if let known = probes[key] { return known }
+        guard FileManager.checked.isExecutableFile(atPath: binary.path) else {
+            probes[key] = false
+            return false
+        }
         let output: Data
         do {
             output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10))
