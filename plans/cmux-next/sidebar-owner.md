@@ -857,6 +857,16 @@ column + 8 (36 compact, 44 comfortable); +16 per real nesting depth. Every trail
 a second mark 20 further in. Row heights, fonts, hit boxes, fills, glyph sizes and group rail
 and bar x stay at base; group names keep their members' text column (`ab905adeadd`).
 `SidebarGridAlignmentTests` pins the columns and the preserved base geometry.
+Commits of #27598 that predate its branch's `Sidebar-Look:` trailer check carry no trailer; each is a
+visual change asked for by the grid request above, reviewed (Astra SHIP at `14317162851`, and the merge
+with feat-cmux-next at `c552fc0cff0`) and logged here: `af33eaea0cf` (iconless lead at the row inset, band
+marks on the trailing line), `81ab5acc7fe` (tab rows under their workspace; titleFrame reports drawn
+text), `d3a10cfc23d` (base's icon box outside the row columns), `c231ff796c8` (glyphs keep base's icon
+box, centered in the icon column), `05c5b297b4e` (glyphs start on lead; base's rail padding),
+`2a896b81d78` (a quiet tab keeps its trailing inset; the comfortable icon frame is the 20 pt box).
+The merge keeps base's later sidebar looks on the columns: the trailing column's resize-band clearance
+(#27954, `9a79771762c`) as a floor in `SidebarColumns`, a section header's + on the column, a remote
+group's machine mark, the left-rail slot, the 8 pt unread dot, and no hover close on pinned rows.
 
 ## One list's "Connecting…" waits out the startup deadline (2026-10-30)
 
