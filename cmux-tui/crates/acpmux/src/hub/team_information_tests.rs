@@ -91,6 +91,11 @@ async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
         session.prepare_turn("p1", 1, "fresh", "c2").await.unwrap();
     assert!(replay);
     assert_eq!((accepted, accepted_queued, attempt.as_str()), (first, false, "fresh"));
+    assert!(
+        session.validate_prepared("p1", "p1", 1, "fresh", Some("c2")).is_err(),
+        "fresh accepted replay acknowledges only; it must not authorize reexecution"
+    );
+    session.validate_prepared("p1", "p1", 1, "a1", Some("c1")).unwrap();
     session.prepare_turn("p2", 1, "a2", "c1").await.unwrap();
     assert!(session.abandon_prepared("p2", 1, "a2", "c1"));
     let (retry, _, replay, _, _) = session.prepare_turn("p2", 1, "a3", "c1").await.unwrap();
