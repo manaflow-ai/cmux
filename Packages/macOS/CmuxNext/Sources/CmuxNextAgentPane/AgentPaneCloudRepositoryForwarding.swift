@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// Shared forwarding closures for Cloud repository frames. The app supplies only the endpoint
 /// details; connection lifetime and error propagation stay with the package that owns the wire.
