@@ -228,7 +228,7 @@ impl Brain {
             return self.control_cloud(call.peer.as_deref());
         }
         if call.action == "sessions" {
-            return self.control_sessions();
+            return self.control_sessions(call.n.unwrap_or(0));
         }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
