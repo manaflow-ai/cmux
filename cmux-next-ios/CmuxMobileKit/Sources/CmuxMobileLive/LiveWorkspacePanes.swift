@@ -73,7 +73,7 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         let client = try self.client(for: pane, in: workspace)
         if column { return try await openTab(client, "new-pane-right", ["pane": pane]) }
         guard let (target, direction) = layout(of: workspace)?.screen(of: pane)?.autoLayoutSplit else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
         }
         return try await split(target, direction, in: workspace)
     }
@@ -149,7 +149,7 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         } else {
             guard let shown = layout(of: workspace)?.activeScreen,
                   let focused = (shown.panes.first(where: \.isFocused) ?? shown.panes.first)?.id else {
-                throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+                throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
             }
             (screen, pane) = (shown.id, focused)
         }

@@ -26,11 +26,17 @@
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
+// new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 import { useSyncExternalStore } from "react";
 
-export type HarnessPlacement = "left" | "top" | "compact";
+// `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
+// 2026-10-30: "honestly we had a pretty good thing going with teh symbols of the harneses at the
+// top :("). The others stay as choices.
+export type HarnessPlacement = "symbols" | "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip";
+export type NewChatPlace = "local" | "cloud";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
@@ -44,6 +50,7 @@ export type ComposerSettings = {
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
+  newChatsIn: NewChatPlace;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -55,10 +62,11 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
-  harnessPlacement: "left",
+  harnessPlacement: "symbols",
   harnessSwitch: false,
   escapeDoublePress: true,
   showMachineLoadWarnings: true,
+  newChatsIn: "local",
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -88,10 +96,13 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
     harnessPlacement:
-      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
+      raw.harnessPlacement === "left" || raw.harnessPlacement === "top" || raw.harnessPlacement === "compact"
+        ? raw.harnessPlacement
+        : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
   };
 }
 

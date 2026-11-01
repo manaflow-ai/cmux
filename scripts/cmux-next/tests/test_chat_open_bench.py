@@ -48,6 +48,41 @@ def open_(first, empty=0.0, **extra):
     return {"first_content_ms": first, "longest_empty_ms": empty, "flashes": 0, **extra}
 
 
+
+class SubagentClickTests(unittest.TestCase):
+    class Run:
+        """`debug.agent_pane click` as the app answers it (DebugAgentPaneClick.click): `text` names
+        the element; one the page does not show answers "no visible element matches"."""
+        def __init__(self, shown):
+            self.shown, self.clicked = shown, []
+
+        def rpc(self, method, params=None, timeout=40):
+            assert method == "debug.agent_pane" and params["action"] == "click" and params.get("text")
+            self.clicked.append(params["text"])
+            if params["text"] not in self.shown:
+                return {"pane": "p", "error": "no visible element matches"}
+            return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
+
+    def test_clicks_the_newest_subagent_the_chat_shows(self):
+        bench = load_bench("--runs=3")
+        # The chat holds Auditor 0..3; this build renders only 0 and 2.
+        run = self.Run({"Auditor 0", "Auditor 2"})
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked, ["Auditor 3", "Auditor 2"])
+        self.assertEqual(reply["subagent"], "Auditor 2")
+        self.assertIs(reply["clicked"], True, "the app's own clicked flag is kept")
+        self.assertNotIn("error", reply)
+
+    def test_an_older_rendered_line_still_opens(self):
+        bench = load_bench("--runs=3")
+        run = self.Run({"Auditor 0"})
+        self.assertEqual(bench.click_subagent(run)["subagent"], "Auditor 0")
+
+    def test_no_shown_line_keeps_the_error(self):
+        bench = load_bench("--runs=3")
+        self.assertEqual(bench.click_subagent(self.Run(set()))["error"], "no visible element matches")
+
+
 class SummaryTests(unittest.TestCase):
     def test_complete_case_reports_medians(self):
         summary = cos.summarize([open_(100, 10), open_(300, 30), open_(200, 20)])

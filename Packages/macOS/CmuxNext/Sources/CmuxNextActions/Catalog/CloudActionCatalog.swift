@@ -217,6 +217,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "pencil", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.machine], cliName: "cloud rename-machine"
             ),
+            // Share Machine…: who besides its creator starts app chats on a team machine (chat grants).
+            ActionDescriptor(
+                id: "cloudShareMachine",
+                title: String(localized: "action.cloudShareMachine", defaultValue: "Share Machine…", bundle: .module),
+                keywords: ["vm", "cloud tree", "share", "teammate", "team", "chat", "grant", "access"], category: .cloud,
+                symbol: "person.2", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.teammateString, CatalogArgument.revokeBool], targets: [.machine],
+                cliName: "cloud share-machine"
+            ),
             ActionDescriptor(
                 id: "cloudKillMachine",
                 title: String(localized: "action.cloudKillMachine", defaultValue: "Kill Machine", bundle: .module),
@@ -300,6 +309,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
             ),
             ActionDescriptor(
+                id: "cloudSetNetworkAccess",
+                title: String(localized: "action.cloudSetNetworkAccess", defaultValue: "Internet Access…", bundle: .module),
+                keywords: ["vm", "network", "internet", "egress", "allowlist", "firewall", "offline", "sandbox"], category: .cloud,
+                symbol: "globe", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.networkAccessChoice], targets: [.machine], cliName: "cloud set-network-access"
+            ),
+            ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
                 title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
                 keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",
@@ -354,8 +370,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudSetupGitHub", "cloudEnrollMachine",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
-            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
+            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
+            // The stored policy's mode and whether the server applied it (a PUT can take a while).
+            "cloudSetNetworkAccess",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

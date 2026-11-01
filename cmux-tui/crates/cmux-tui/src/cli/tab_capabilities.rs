@@ -46,12 +46,23 @@ pub(super) fn negotiate(
             "protocol error: expected raw client capabilities response".into(),
         ));
     }
+    // Neither a cmux.protocol/2 envelope nor the raw answer to this hello (its id, a
+    // boolean `ok`): a server that speaks another protocol, an older cmux or another
+    // program. The same error as the request path's (`wire.rs`, `protocol.mismatch`, not
+    // retryable, exit 3), not a bare "invalid response" (cx-fud2vx).
     if response.get("id").and_then(Value::as_str) != Some(id.as_str())
         || !response.get("ok").is_some_and(Value::is_boolean)
     {
-        return Err(resolve::Failure::Transport(
-            "protocol error: invalid client capabilities response".into(),
-        ));
+        let message = crate::localization::catalog().cli_connection.wrong_protocol();
+        return Err(resolve::Failure::Local {
+            error: json!({
+                "code": "protocol.mismatch",
+                "message": format!("protocol error: {message}"),
+                "details": {},
+                "retryable": false,
+            }),
+            exit: 3,
+        });
     }
     // An older daemon may reject this optional hello. Its ordinary resource
     // operations remain usable with the existing browser compatibility view.

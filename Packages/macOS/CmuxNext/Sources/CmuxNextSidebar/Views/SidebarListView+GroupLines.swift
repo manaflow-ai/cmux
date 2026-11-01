@@ -77,7 +77,7 @@ extension SidebarGroupLine {
                 drawn.insert(id)
                 pending.insert(id)
                 if nested, let parent = colors[id]?.parent { extend(parent, to: row) }
-            case .workspace, .tab, .item, .emptyGroup:
+            case .workspace, .item, .emptyGroup:
                 if row.standsForGroup, let group = row.group {
                     soles.append((group, row))
                     drawn.insert(group)

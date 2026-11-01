@@ -4,7 +4,17 @@
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
-import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import {
+  assistant,
+  CATALOG,
+  chat,
+  CWD,
+  noChat,
+  session,
+  SESSION_ID,
+  summary,
+  user,
+} from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
 import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
@@ -1002,7 +1012,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed attachment tile says why and offers Retry.",
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers one retry button.",
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
@@ -1023,8 +1033,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
           return Boolean(
-            failed?.querySelector(".acpmux-attachment-failed-text")?.textContent?.includes("build-logs.zip") &&
-            failed.querySelector(".acpmux-attachment-retry"),
+            failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
+            failed.getAttribute("title")?.includes("build-logs.zip") &&
+            failed.querySelectorAll(".acpmux-attachment-retry").length === 1,
           );
         });
       },
@@ -1459,21 +1470,22 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
-          const steer = ctx.document.querySelector(".acpmux-steer-now");
-          return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
+          const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
+          return (
+            sends.length === 1 &&
+            sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
+            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
+          );
         });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
-        );
       },
     },
     "working-queue": {
-      note: "The same for an agent that cannot steer: no ↵ control; Return and ⌘Return queue the prompt.",
+      note: "The same for an agent that cannot steer: the one Send queues, as Return and ⌘Return do.",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },
@@ -1832,6 +1844,18 @@ export default agentPaneEntry({
     "codex-model": {
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
+    },
+    // A Codex chat on a Cloud machine (remoteEditing.ts): a team machine's wire refuses it, the
+    // person's own machine (`ownerCloud`) sends.
+    "codex-cloud-team": {
+      note: "A Codex chat on a team Cloud machine: no Send, and a note says this agent cannot be driven from here.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(),
+    },
+    "codex-cloud-own": {
+      note: "A Codex chat on the person's own Cloud machine: the normal composer, with Send.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(true),
     },
     // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
@@ -2731,6 +2755,22 @@ function withSummary(
   summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
 ): ReturnType<typeof chat> {
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}
+
+/// A Codex chat on the Cloud machine `cloud-1`, over the app's remote wire; `ownerCloud` when the
+/// signed-in person owns that machine.
+function cloudCodex(ownerCloud?: true): ReturnType<typeof chat> {
+  const snapshot = chat(finished, {
+    harness: "codex",
+    model: "gpt-6-astra",
+    title: "Codex chat",
+    sessions: [
+      session({ sessionId: SESSION_ID, title: "Codex chat", harness: "codex", host: "cloud-1", hostKind: "cloud" }),
+    ],
+    origin: "remote",
+    ownerCloud,
+  });
+  return withSummary(snapshot, { host: "cloud-1", peer: "cloud-1", hostKind: "cloud" });
 }
 
 /// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -23,8 +24,8 @@ final class MachineRegistry {
         machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
     }
 
-    /// The id prefixes of machines that are not Cloud machines (`SSHHost.machineID`, `ServerReach.machineID`).
-    private static let nonCloudIDPrefixes = ["ssh-", "server-"]
+    /// The id prefixes of machines that are not Cloud machines, from the types that make their ids.
+    private static let nonCloudIDPrefixes = [SSHHost.machineIDPrefix, ServerReach.machineIDPrefix]
 
     let local: DaemonService
     /// Cloud machines in sidebar order (newest last).
@@ -46,8 +47,12 @@ final class MachineRegistry {
     /// the forwarding connection and the browser runtimes on it).
     @ObservationIgnored var onDaemonRemoved: (@MainActor (DaemonService) -> Void)?
 
-    init(local: DaemonService) {
+    /// Every machine's daemon update state (the app's ``DaemonUpdates/board``; a test's registry has its own).
+    let updates: DaemonUpdateBoard
+
+    init(local: DaemonService, updates: DaemonUpdateBoard = DaemonUpdateBoard()) {
         self.local = local
+        self.updates = updates
     }
 
     /// Local first, then Cloud machines, then SSH machines, then servers.

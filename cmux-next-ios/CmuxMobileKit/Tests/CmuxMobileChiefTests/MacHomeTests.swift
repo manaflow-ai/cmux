@@ -199,6 +199,27 @@ final class FakeHomeOwner: @unchecked Sendable {
         #expect(await wait.value == false)
     }
 
+    /// Time the main thread is held does not use up a wait: the work it waits on was
+    /// held too. Before, a wait that woke past its wall-clock deadline gave up on its
+    /// first look, before that work had its turn (the full kit held the main thread
+    /// over a minute, and four Chief waits failed that way at once).
+    @Test func aHeldMainThreadDoesNotUseUpAWait() async {
+        let flag = WaitFlag()
+        Task {
+            // Starts once the wait below is asleep on a tick, so the tick runs out during
+            // the hold: hold the main thread past its watchdog, then finish a few
+            // main-actor turns after the wait gets its next look.
+            try? await Task.sleep(for: .milliseconds(50))
+            holdTheMainThread(seconds: 0.5)
+            Task {
+                await Task.yield()
+                await Task.yield()
+                flag.done = true
+            }
+        }
+        #expect(await eventually(watchdog: .milliseconds(200)) { flag.done })
+    }
+
     @Test func readsTheMacsHomeListOverTheChiefChannel() async throws {
         let owner = FakeHomeOwner()
         let link = MockMacLink { _, request in owner.respond(request) }
@@ -363,6 +384,11 @@ final class PushLink: MacLink, @unchecked Sendable {
 /// Set by a main-actor task in the wait tests; observable, as the feed is.
 @MainActor @Observable final class WaitFlag {
     var done = false
+}
+
+/// Blocks the calling thread: synchronous, as a UIKit suite holding the main thread is.
+func holdTheMainThread(seconds: TimeInterval) {
+    Thread.sleep(forTimeInterval: seconds)
 }
 
 /// How often a wait checked its condition: plain state, so counting never wakes it.
