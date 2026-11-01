@@ -698,7 +698,7 @@ final class AppServices {
         _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
+        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace); self.map { IncognitoChats.closing(workspace, $0) } }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         // A pane verb on a pane still opening was not sent: the refusal path logs it and shows it (P0 rule a; every
