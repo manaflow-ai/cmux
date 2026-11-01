@@ -21,5 +21,14 @@ import Testing
         kept.discard()
         #expect(kept.model { Model() } !== first)
     }
+
+    @Test func discardCleansTheOutgoingModelBeforeDroppingIt() {
+        let kept = KeptModel<Model>()
+        let first = kept.model { Model() }
+        var cleaned: Model?
+        kept.discard { cleaned = $0 }
+        #expect(cleaned === first)
+        #expect(kept.model { Model() } !== first)
+    }
 }
 #endif

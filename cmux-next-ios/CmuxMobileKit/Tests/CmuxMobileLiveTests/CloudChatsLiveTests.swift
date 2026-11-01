@@ -117,6 +117,21 @@ import Testing
         #expect(new.services.first?.1["machine_id"] == "vm")
         relay.disconnect()
     }
+
+    @Test func accountTeardownRetiresARelayEvenWhenAScreenRetainsIt() async throws {
+        let relay = CloudChatRelay(machine: try machine("vm"), macID: "mac")
+        let wire = Wire()
+        relay.bind(wire)
+        #expect(await ObservationWait({ relay.hub.isReady }, budget: .seconds(2)).value)
+        _ = try #require(relay.store(sessionID: "shared"))
+        relay.retire()
+        #expect(relay.isRetired)
+        #expect(relay.hub.sessions.isEmpty)
+        #expect(relay.store(sessionID: "shared") == nil)
+        let opened = wire.services.count
+        relay.bind(wire)
+        #expect(wire.services.count == opened)
+    }
 }
 
 private actor DirectoryChannel: LinkChannel {
