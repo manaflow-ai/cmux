@@ -94,15 +94,15 @@ async fn a_rejected_reservation_does_not_advance_shared_debt() {
     assert_eq!(guard.reserve(&StdMutex::default(), 1.0), Ok(Duration::from_millis(15_750)));
 }
 
-/// A small census-sized hub, with substantial metadata the activity walk copies.
+/// A dogfood-sized hub: 7,295 closed records must stay out of the live list index.
 fn scale_hub() -> Arc<Hub> {
     let store = crate::store::MemoryStore::default();
-    for n in 0..700 {
+    for n in 0..7_828 {
         let meta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": format!("scale-{n:04}"),
             "name": format!("scale-{n:04}"), "harness": "claude", "family": "claude",
             "agentSessionId": format!("chat-{n:04}"), "cwd": "/nonexistent",
-            "status": if n < 600 { "closed" } else { "idle" },
+            "status": if n < 7_295 { "closed" } else { "idle" },
             "createdAt": 1, "updatedAt": n + 1,
             "preview": "A short synthetic reply", "configOptions": [{"payload": "x".repeat(32_768)}]
         }))
@@ -122,8 +122,8 @@ async fn a_700_session_snapshot_sleeps_at_most_one_current_window() {
     guard.state.lock().await.pace =
         Pacer { ahead_to: Some(Instant::now() + Duration::from_secs(60)), period: window };
     let started = Instant::now();
-    let snapshot = guard.snapshot(&hub).await;
-    assert_eq!(snapshot.keys.len(), 700);
+    let snapshot = guard.snapshot_live(&hub).await;
+    assert_eq!(snapshot.keys.len(), 533);
     assert!(started.elapsed() <= window + Duration::from_millis(1), "{:?}", started.elapsed());
     eprintln!(
         "700-session snapshot: paced sleep={:?}, rows={}",
@@ -135,41 +135,52 @@ async fn a_700_session_snapshot_sleeps_at_most_one_current_window() {
 #[cfg(target_os = "linux")]
 fn process_cpu() -> Duration {
     let mut value = std::mem::MaybeUninit::<libc::timespec>::uninit();
-    // SAFETY: clock_gettime initializes this valid timespec pointer on success.
     assert_eq!(
         unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, value.as_mut_ptr()) },
         0
     );
-    // SAFETY: the successful clock_gettime above initialized both fields.
     let value = unsafe { value.assume_init() };
     Duration::new(u64::try_from(value.tv_sec).unwrap(), u32::try_from(value.tv_nsec).unwrap())
 }
 
-/// Run manually with `--ignored --nocapture --test-threads=1`; no timing assertion.
+/// Same 7,828-record fixture used for the live-index before/after measurement. Each pair uses
+/// the same operation with the pre-index full walk and the indexed live projection.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[ignore = "manual 700-session CPU and list-build measurement"]
-async fn measure_700_session_activity_and_lists() {
-    let hub = scale_hub();
-    let rounds = 20;
-    let start = std::time::Instant::now();
-    let cpu = process_cpu();
-    for _ in 0..rounds {
-        std::hint::black_box(hub.chat_activity());
-    }
-    eprintln!(
-        "700-session activity: {:.3} wall ms/change, {:.3} CPU ms/change ({rounds} index changes)",
-        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
-        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
-    );
-    let start = std::time::Instant::now();
-    let cpu = process_cpu();
-    for _ in 0..rounds {
-        std::hint::black_box(Snapshot::build(&hub));
-    }
-    eprintln!(
-        "700-session unpaced list build: {:.3} wall ms/list, {:.3} CPU ms/list",
-        start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
-        (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds)
-    );
+#[ignore = "manual live-index measurement"]
+async fn measure_7828_exclude_closed_index() {
+    let rounds = 5;
+    let measure = |mut run: Box<dyn FnMut()>| {
+        let start = std::time::Instant::now();
+        let cpu = process_cpu();
+        for _ in 0..rounds {
+            run();
+        }
+        (
+            start.elapsed().as_secs_f64() * 1000.0 / f64::from(rounds),
+            (process_cpu() - cpu).as_secs_f64() * 1000.0 / f64::from(rounds),
+        )
+    };
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(Snapshot::build(&baseline));
+    }));
+    eprintln!("7828 list baseline Snapshot::build: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
+    let indexed = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(Snapshot::build_live(&indexed));
+    }));
+    eprintln!("7828 list indexed Snapshot::build_live: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
+
+    let baseline = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(baseline.all_session_summaries());
+    }));
+    eprintln!("7828 locate/wait baseline all_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
+    let indexed = scale_hub();
+    let (wall, cpu) = measure(Box::new(|| {
+        std::hint::black_box(indexed.live_session_summaries());
+    }));
+    eprintln!("7828 locate/wait indexed live_session_summaries: {wall:.3} wall ms/list, {cpu:.3} CPU ms/list");
 }
