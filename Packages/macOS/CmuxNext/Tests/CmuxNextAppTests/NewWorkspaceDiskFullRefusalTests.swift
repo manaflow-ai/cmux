@@ -46,6 +46,8 @@ struct NewWorkspaceDiskFullRefusalTests {
     private static func withApp(_ body: (AppServices, URL) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        // The app's actions, as the app binds them at launch: without them `perform` runs nothing.
+        AppActions.bind(services)
         let savedDocument = SidebarDocStore.current
         SidebarDocStore.current = nil
         defer { SidebarDocStore.current = savedDocument }
