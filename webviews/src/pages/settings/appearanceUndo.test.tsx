@@ -161,7 +161,8 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("aivazovsky-ship-stormy-seas");
     expect(page.store.appearance.canRedo).toBe(false);
     // The step below it is still the page's own and still current: it stays undoable.
-    expect(page.store.appearance.nextUndo?.label).toBe("Window Opacity → 90 %");
+    expect(page.store.appearance.nextUndo?.label).toBe("Opacity → 90 %");
+    expect(page.store.appearanceUndoStep()).toBe(page.store.appearance.nextUndo);
   });
 
   test("Redo after another writer changed the key writes nothing and drops the step", async () => {
