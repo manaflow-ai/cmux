@@ -135,7 +135,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
         self.assertIn('--head "$HEAD_SHA" --base "$BASE"', prepare["run"])
 
-    def resolve_dispatch(self, *, fields=None, error=None, failures=0):
+    def resolve_dispatch(self, *, fields=None, error=None, failures=0, graphql_fields=None):
         """Execute the real resolver with bounded API and sleep stubs."""
         body = step_named(job(workflow(), "resolve")["steps"], "Resolve")["run"]
         with tempfile.TemporaryDirectory(prefix="fast-gates-resolve-") as tmp:
@@ -150,7 +150,9 @@ class WorkflowShape(unittest.TestCase):
                 if len(previous) < int(os.environ["FAILURES"]):
                     print(os.environ["API_ERROR"], file=sys.stderr)
                     sys.exit(17)
-                if "/pulls/" in sys.argv[2]:
+                if sys.argv[2] == "graphql":
+                    print(os.environ["GRAPHQL_FIELDS"])
+                elif "/pulls/" in sys.argv[2]:
                     print(os.environ["PR_FIELDS"])
                 else:
                     print("b" * 40)
@@ -167,6 +169,8 @@ class WorkflowShape(unittest.TestCase):
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
                 "CALLS": str(calls), "WAITS": str(waits), "FAILURES": str(failures),
                 "API_ERROR": error or "",
+                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
+                .replace("|", "\t"),
                 "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
@@ -180,13 +184,38 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(result.returncode, 17)
         self.assertIn("rate limit exceeded", result.stderr)
         self.assertNotIn("comes from", result.stdout + result.stderr)
-        # The resolve step makes one API read.  A shell retry loop here is
+        # The resolve step makes one REST read and, only after a REST rate-limit
+        # refusal, one GraphQL read (its own budget).  A shell retry loop here is
         # indistinguishable from token polling to the CI guard and spends the
         # shared GitHub-token budget; transient failures are surfaced for the
         # workflow retry machinery instead.
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(json.loads(calls[1])[:2], ["api", "graphql"])
         self.assertEqual(waits, [])
         self.assertEqual(output, "")
+
+    def test_dispatch_rest_rate_limit_reads_over_graphql(self):
+        """2026-10-31: 13 of 34 next-autoland dispatches died in resolve on the spent REST budget,
+        posted no status, and each PR waited 45 minutes for the next dispatch (#29724)."""
+        result, calls, waits, output = self.resolve_dispatch(
+            error="gh: API rate limit exceeded for installation (HTTP 403)", failures=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(json.loads(calls[1])[:2], ["api", "graphql"])
+        self.assertEqual(waits, [])
+        self.assertIn("head_sha=" + "a" * 40, output)
+        self.assertIn("base=" + "c" * 40, output)
+        self.assertIn("post=true", output)
+
+    def test_dispatch_graphql_fallback_still_refuses_a_fork_or_a_closed_pr(self):
+        limited = "gh: API rate limit exceeded for installation (HTTP 403)"
+        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "comes from fork/cmux"),
+                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "is merged"),
+                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|", "incomplete")):
+            result, calls, waits, output = self.resolve_dispatch(error=limited, failures=1, graphql_fields=fields)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(words, result.stdout + result.stderr)
+            self.assertEqual(output, "")
 
     def test_dispatch_empty_owner_is_not_reported_as_a_fork(self):
         result, calls, waits, output = self.resolve_dispatch(fields="open||feat-cmux-next|" + "a" * 40)

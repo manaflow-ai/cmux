@@ -18,7 +18,7 @@ import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
-import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
+import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -59,6 +59,7 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
+import { fitCreateStrip } from "./createStripFit";
 import { WidgetCards } from "./WidgetCards";
 import { NewTabHeadline } from "./NewTabHeadline";
 import {
@@ -173,9 +174,26 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
   /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// Cloud is the mode (cloudRun.ts): Enter hands the prompt, its folder and model to `onCloud`,
+  /// which opens the chat on a Cloud machine; a string is a refusal said over the box.
+  onCloud?(
+    harness: string,
+    text: string,
+    cwd: string | undefined,
+    model: string | undefined,
+    attachments: ComposerAttachment[],
+  ): boolean | string;
+  /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
+  cloudStatus?: React.ReactNode;
+  /// A Cloud start from here is out: the box takes no input until it ends (inert), since the tab
+  /// closes once the chat opens on the machine and an edit made meanwhile would go with it.
+  cloudStarting?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
 };
 
@@ -210,6 +228,11 @@ type Props = NewTabScreenActions & {
   /// folder; no target for a saved environment, no project or a shell command). The pane warms
   /// that agent while the person types (newChatPrewarm.ts).
   onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
+  /// A project on this Mac was picked on the page (its folder chip, a widget card, Choose Folder, a
+  /// new worktree): the click that picked it. The page hands it to the host on that click, so Cloud
+  /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
+  /// Return that sends keeps its own gesture for the start.
+  onProjectPicked?(cwd: string): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -304,12 +327,13 @@ export function NewTabScreen(props: Props) {
   const onEditWidgets = template === "minimal" ? props.onEditWidgets : undefined;
   const editing = useWidgetEditing(onEditWidgets);
   const order = shownMovable(widgets);
-  const [text, setText] = useState(location ?? "");
+  const [carried] = useState(() => props.takeDraft?.());
+  const [text, setText] = useState(carried?.text || (location ?? ""));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(Boolean(carried?.text));
   // The highlighted row, by its rowKey (NO_ROW: none, so Enter is the prompt's). A key, not an
   // index: new tabs or pages from the host can reorder the rows under a highlight.
   const [selected, setSelected] = useState<string | undefined>(undefined);
@@ -374,7 +398,7 @@ export function NewTabScreen(props: Props) {
   // in chat should put it in chat").
   usePasteAnywhere(() => {
     const input = field.current;
-    if (!input) return false;
+    if (!input || props.cloudStarting) return false;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     return true;
@@ -397,11 +421,15 @@ export function NewTabScreen(props: Props) {
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => field.current?.closest(".acpmux-main") ?? null,
+    locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
@@ -497,6 +525,18 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
+  // machine picked before, so the folder it sends is the one the chip names.
+  const runMode = props.runMode && {
+    ...props.runMode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        saved.pick(undefined);
+        setMachine(undefined);
+      }
+      props.runMode?.onMode(mode);
+    },
+  };
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -545,6 +585,16 @@ export function NewTabScreen(props: Props) {
     // reports a sign-in that turns out missing.
     if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
+    if (props.runMode?.mode === "cloud" && props.onCloud) {
+      // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
+      // chat opens in the machine's own folder (cloudRun.ts cloudStartFolder, `home`), never the
+      // tab's inherited folder the person just said not to work in.
+      // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
+      // inherited home with a start folder elsewhere shows and copies the start folder.
+      const started = props.onCloud(agent, prompt, envFolder, model, attachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -651,6 +701,13 @@ export function NewTabScreen(props: Props) {
     [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
+  // The strip's labels are measured again when their words change (another language): a new ref.
+  const stripTitles = rows
+    .filter(inStrip)
+    .map((row) => rowTitle(nt, row))
+    .join("\n");
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the titles are the measured input; fitCreateStrip reads the DOM
+  const stripRef = useCallback((node: HTMLDivElement | null) => fitCreateStrip(node), [stripTitles]);
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -991,6 +1048,9 @@ export function NewTabScreen(props: Props) {
   const sendRef = useRef(send);
   sendRef.current = send;
   const editRef = useRef(edit);
+  /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
+  const cloudStartingRef = useRef(false);
+  cloudStartingRef.current = props.cloudStarting === true;
   editRef.current = edit;
   const { dictationField } = props;
   useLayoutEffect(() => {
@@ -1011,6 +1071,7 @@ export function NewTabScreen(props: Props) {
       // Dictation splices its words in as typing would, committed at once: its next update reads
       // the field back, and auto-send sends what it holds.
       writeText: (value, selectionStart, selectionEnd) => {
+        if (cloudStartingRef.current) return;
         flushSync(() => editRef.current(value));
         field.current?.setSelectionRange(selectionStart, selectionEnd);
       },
@@ -1026,6 +1087,8 @@ export function NewTabScreen(props: Props) {
   const typeAnywhere = useRef<(event: KeyboardEvent) => void>(() => undefined);
   typeAnywhere.current = (event) => {
     const input = field.current;
+    // A Cloud start is out: the box takes nothing until it ends (`cloudStarting`).
+    if (props.cloudStarting) return;
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
@@ -1179,6 +1242,7 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
+    if (cwd) props.onProjectPicked?.(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
@@ -1312,7 +1376,8 @@ export function NewTabScreen(props: Props) {
           const files = [...(event.currentTarget.files ?? [])];
           // Clear the chooser so picking the same file again still fires change.
           event.currentTarget.value = "";
-          void attach(files, true);
+          // The host says where each came from, as for the chat composer's chooser.
+          void attach(files, true, "choose");
         }}
       />
       <Picker
@@ -1382,7 +1447,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
-        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
+        {...(props.environments && runMode ? { runMode } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1577,11 +1642,17 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
           </output>
         )}
+        {sandboxRefusal && props.runMode?.mode === "cloud" && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{sandboxRefusal}</span>
+          </output>
+        )}
+        {props.runMode?.mode === "cloud" && props.cloudStatus}
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
-        <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
+        <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
           {commandsOpen && (
             <SlashMenu
               matches={commandMatches}
@@ -1595,9 +1666,11 @@ export function NewTabScreen(props: Props) {
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-          <div className="nt-input" onMouseDown={focusFromRow}>
+          <div className="nt-input" data-split={split || undefined} onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            <div className="nt-field-slot">
+            {/* A prompt glyph (the Console's `>`) keeps a column of its own before the text; with
+              none the text starts one gap after +, and shell mode's `!` stands in that gap. */}
+            <div className="nt-field-slot" data-glyph-column={sections.prompt || undefined}>
               {(shell || sections.prompt) && (
                 <span
                   className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
@@ -1927,7 +2000,7 @@ export function NewTabScreen(props: Props) {
                 // The create actions the rows don't list (screenModel.ts): options still, so the arrow
                 // keys and the native popup reach them, drawn as one quiet line.
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                <div ref={stripRef} className="nt-create-strip" role="group" aria-label={nt("create.label")}>
                   {rows.map((row, index) =>
                     inStrip(row) ? (
                       <div
@@ -1938,6 +2011,9 @@ export function NewTabScreen(props: Props) {
                         role="option"
                         tabIndex={-1}
                         aria-selected={index === current}
+                        aria-label={rowTitle(nt, row)}
+                        // tooltip-allow: a strip too narrow for its labels goes icon-only (createStripFit.ts data-icons-only); the tooltip names each action
+                        title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
                         // As the rows: hover lights it, only the keyboard makes it Return's.

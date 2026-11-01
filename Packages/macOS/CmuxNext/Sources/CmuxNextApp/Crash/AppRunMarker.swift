@@ -188,7 +188,7 @@ final class AppRunMarker {
     /// Chromium shuts down. Returns once `quitting` is on disk, or false
     /// after `timeout` (the quit goes on either way).
     @discardableResult
-    func markQuitting(timeout: Duration = .milliseconds(500)) async -> Bool {
+    func markQuitting(timeout: Duration) async -> Bool {
         if marker.quitting != true {
             marker.quitting = true
             writeMarker()

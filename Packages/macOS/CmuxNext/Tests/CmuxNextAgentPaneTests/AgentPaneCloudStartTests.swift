@@ -75,15 +75,14 @@ struct AgentPaneCloudStartTests {
         #expect(unnamed.seed(cwd: "/w").harness == nil)
     }
 
-    @Test func aRetryOfTheSameSendOpensTheSameTabOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // The tab's creation key is the send's: the daemon answers a retry with the tab it made.
-        #expect(first.tabKey == retry.tabKey)
-        #expect(first.tabKey.hasSuffix(key.lowercased()))
-        #expect(first.tabKey != other.tabKey)
+    @Test func aChatWithNoProjectStartsInTheMachinesOwnFolder() throws {
+        let home = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true]))
+        #expect(home.home && home.cwd == nil)
+        #expect(home.seed(cwd: nil).cwd == nil)
+        // Home names no folder: with a folder, or not a flag, it is refused.
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": true, "cwd": "/w"]) == nil)
+        #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString, "home": "yes"]) == nil)
+        #expect(try #require(AgentPaneCloudStart(params: Self.good)).home == false)
     }
 
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
@@ -232,28 +231,7 @@ struct AgentPaneCloudStartTests {
         #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
     }
 
-    /// The create's key is the send's: a retry after a lost create answer gets the same machine.
-    @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        #expect(first.createKey == retry.createKey)
-        #expect(first.createKey != other.createKey)
-        #expect(first.createKey.count <= 128)
-    }
-
-    @Test func eachSendCopiesTheFolderToItsOwnPlaceOnTheMachine() throws {
-        let key = UUID().uuidString
-        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
-        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
-        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
-        // A second Cloud chat from the same folder never syncs over the first one's copy; a retry
-        // of the same send lands in the same copy.
-        #expect(first.remotePlace == retry.remotePlace)
-        #expect(first.remotePlace != other.remotePlace)
-        #expect(first.remotePlace == "chats/" + key.lowercased())
-    }
+    // The send's create, tab and copy keys are cmux-tui's (`link/start_chat_cli/tests.rs`).
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {
         let model = AgentPaneModel(host: NoHost())
