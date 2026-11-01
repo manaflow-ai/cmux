@@ -642,6 +642,12 @@ class ReviewGapTests(unittest.TestCase):
         self.assertIsNone(model.download_row(rows, "fz5-1"))
         # The app may report only the destination (a sanitized or suffixed name keeps the token at its start).
         self.assertEqual(model.download_row([{"destination": "/d/fz5-12-x (1).bin"}], "fz5-12")["destination"], "/d/fz5-12-x (1).bin")
+        # Review of #29818 (BLOCK at 34f8507c00c): a name the app did not clean is the case the download_path oracle
+        # exists for, so its row must be found too.
+        for escape in ("fz5-12-../../fuzz-escape.bin", "fz5-12-/etc/fuzz-abs.bin"):
+            self.assertEqual(model.download_row([{"filename": escape}], "fz5-12")["filename"], escape)
+        self.assertEqual(model.download_row([{"destination": "/Users/x/fz5-12-../fuzz-escape.bin"}], "fz5-12")["destination"],
+                         "/Users/x/fz5-12-../fuzz-escape.bin")
 
     def test_a_hang_during_a_shrink_keeps_the_seeds_waiting_stalls(self):
         out = self.run_standin(
@@ -694,6 +700,44 @@ class ReviewGapTests(unittest.TestCase):
             self.assertEqual(browser_fuzz.LIVE["queued"], [])
         finally:
             browser_fuzz.LIVE["queued"] = []
+
+
+class ReportOrderTests(unittest.TestCase):
+    """Review of #29818: in report(), the key went into `seen` before the failure was the pending one (a stop there lost
+    the queued record), and between findings.append and the clear of pending a stop printed and counted it twice."""
+
+    def test_a_queued_failure_whose_key_is_seen_but_not_yet_pending_is_still_printed(self):
+        import browser_fuzz as b
+        record = {"target": "browser", "oracle": "app_crash", "detail": "x", "extra": {}, "seed": 1}
+        saved = (list(b.LIVE["queued"]), set(b.LIVE["seen"]), b.LIVE["pending"], list(b.LIVE["findings"]))
+        try:
+            b.LIVE["queued"], b.LIVE["pending"], b.LIVE["findings"] = [record], None, []
+            b.LIVE["seen"].clear()
+            key = b.finding_key(record)
+            # Before report() starts the shrink, the queued failure is printed (its key is not seen yet) ...
+            self.assertEqual([r["oracle"] for r in b.unreported()], ["app_crash"])
+            self.assertNotIn(key, b.LIVE["seen"])
+            # ... and start_pending (the one place report() makes it pending) leaves it printed once, as pending,
+            # with the key seen only after it is pending and out of the queue.
+            b.start_pending(dict(record, ops=[]), key, record)
+            self.assertEqual(b.LIVE["queued"], [])
+            self.assertIn(key, b.LIVE["seen"])
+            printed = b.unreported()
+            self.assertEqual([r["oracle"] for r in printed], ["app_crash"])
+            self.assertIn("shrink was cut short", printed[0]["note"])
+        finally:
+            b.LIVE["queued"], b.LIVE["pending"], b.LIVE["findings"] = saved[0], saved[2], saved[3]
+            b.LIVE["seen"].clear(); b.LIVE["seen"].update(saved[1])
+
+    def test_a_finding_already_appended_is_not_printed_again_as_pending(self):
+        import browser_fuzz as b
+        record = {"target": "browser", "oracle": "lost_tab", "detail": "y", "extra": {}, "seed": 2}
+        saved = (b.LIVE["pending"], list(b.LIVE["findings"]))
+        try:
+            b.LIVE["pending"], b.LIVE["findings"] = dict(record), [dict(record)]
+            self.assertEqual(b.unreported(), [])
+        finally:
+            b.LIVE["pending"], b.LIVE["findings"] = saved
 
 
 if __name__ == "__main__":
