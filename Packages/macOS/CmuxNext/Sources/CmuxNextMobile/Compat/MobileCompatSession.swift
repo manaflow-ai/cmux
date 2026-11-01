@@ -109,7 +109,7 @@ public actor MobileCompatSession {
         let limit = request.params["limit"].flatMap(Self.uint)
         let cursor = request.params["cursor"]?.stringValue
         let status = request.params["status"]?.stringValue
-        return try await backend.chatSessions(limit: limit, cursor: cursor, status: status)
+        return try await backend.chatSessions(machineID: request.string("machine_id"), limit: limit, cursor: cursor, status: status)
     }
 
     private func chatHistory(_ request: MobileRPCRequest) async throws -> JSONValue {

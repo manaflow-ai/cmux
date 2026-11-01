@@ -23,6 +23,60 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Durable attention transition emitted by a VM principal when a Cloud chat needs its owner.
+    CloudVmAttentionEmitOp {
+        name: "cloud.vm.attention.emit",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmAttentionEmitParams,
+        result: CloudVmAttentionEmitResult,
+        error: CloudVmAttentionEmitError,
+    }
+}
+
+wire_enum! {
+    CloudVmAttentionEmitParamsKind {
+        Question = "question",
+        Permission = "permission",
+        Done = "done",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitParams {
+    pub machine: MachineId,
+    pub event_id: String,
+    pub kind: CloudVmAttentionEmitParamsKind,
+    pub session: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmAttentionEmitResult {
+    pub delivered: bool,
+    pub replayed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.attention.emit declares.
+    CloudVmAttentionEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudSnapshotCreateOp {
         name: "cloud.snapshot.create",

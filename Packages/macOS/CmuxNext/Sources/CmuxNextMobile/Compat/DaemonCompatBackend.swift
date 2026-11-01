@@ -72,8 +72,8 @@ public final class DaemonCompatBackend: MobileCompatBackend {
         try await connection.closeTerminal(terminal)
     }
 
-    public func chatSessions(limit: UInt64?, cursor: String?, status: String?) async throws -> JSONValue {
-        try await connection.request(MobileChatSessionsRequest(limit: limit, cursor: cursor, status: status))
+    public func chatSessions(machineID: String?, limit: UInt64?, cursor: String?, status: String?) async throws -> JSONValue {
+        try await connection.request(MobileChatSessionsRequest(machineID: machineID, limit: limit, cursor: cursor, status: status))
     }
 
     public func chatHistory(sessionID: String, afterSeq: UInt64?, beforeSeq: UInt64?, limit: UInt64?, kinds: [String]?) async throws -> JSONValue {

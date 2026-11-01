@@ -82,4 +82,38 @@ export const CloudVmEventEmit = vmDef(
   "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install."
 )
 
-export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit] as const
+/**
+ * A VM principal's durable attention transition. CloudDO uses the event id as
+ * the idempotency key while delivering to the owner's APNs devices. This is
+ * intentionally separate from the ephemeral VM event stream: a phone that was
+ * offline must still receive question, permission, and done notifications.
+ */
+export const CloudVmAttentionEmit = def({
+  name: "cloud.vm.attention.emit",
+  owner: "cloud:CloudDO",
+  class: "mutation",
+  idempotency: "none",
+  risk: "execute",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({
+    machine: MachineId,
+    event_id: Short(128),
+    kind: Schema.Literals(["question", "permission", "done"]),
+    session: Short(128),
+    title: Title,
+    body: Schema.optionalKey(Short(1000)),
+    occurred_at: Millis
+  }),
+  result: Schema.Struct({
+    delivered: Schema.Boolean,
+    replayed: Schema.Boolean,
+    correlation_id: Schema.optionalKey(Short(128))
+  }),
+  errors: [...VM_ERRORS, "idempotency.conflict"],
+  docs: "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. Duplicate event_id and payload replays the original result; reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
+  cli: { path: "", visible: false },
+  mcp: { expose: "never", group: "cloud" }
+})
+
+export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit] as const

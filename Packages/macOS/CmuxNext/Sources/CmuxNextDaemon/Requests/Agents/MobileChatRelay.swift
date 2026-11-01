@@ -5,11 +5,12 @@ import Foundation
 public struct MobileChatSessionsRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "mobile-chat-sessions"
+    public var machineID: String?
     public var limit: UInt64?
     public var cursor: String?
     public var status: String?
-    public init(limit: UInt64? = nil, cursor: String? = nil, status: String? = nil) {
-        self.limit = limit; self.cursor = cursor; self.status = status
+    public init(machineID: String? = nil, limit: UInt64? = nil, cursor: String? = nil, status: String? = nil) {
+        self.machineID = machineID; self.limit = limit; self.cursor = cursor; self.status = status
     }
 }
 

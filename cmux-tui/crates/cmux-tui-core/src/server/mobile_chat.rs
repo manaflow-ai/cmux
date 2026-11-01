@@ -81,8 +81,11 @@ fn dispatch(
 ) -> Result<Value, (&'static str, String)> {
     match command {
         "mobile-chat-sessions" => {
-            let params = bounded_page_params(&params)?;
-            link.call("_acpmux/sessions", params, CALL_TIMEOUT).map_err(link_error)
+            let machine_id = params.get("machine_id").and_then(Value::as_str);
+            let acpmux_params = bounded_page_params(&params)?;
+            let raw =
+                link.call("_acpmux/sessions", acpmux_params, CALL_TIMEOUT).map_err(link_error)?;
+            Ok(normalize_sessions(raw, machine_id))
         }
         "mobile-chat-history" => {
             let session = required_text(&params, "session_id")?;
@@ -103,7 +106,10 @@ fn dispatch(
                     return Err(("bad_request", "limit must be between 1 and 200".into()));
                 }
             }
-            link.call("_acpmux/attach", Value::Object(request), CALL_TIMEOUT).map_err(link_error)
+            let raw = link
+                .call("_acpmux/attach", Value::Object(request), CALL_TIMEOUT)
+                .map_err(link_error)?;
+            Ok(normalize_history(raw, &session))
         }
         "mobile-chat-send" => {
             let session = required_text(&params, "session_id")?;
@@ -129,7 +135,8 @@ fn dispatch(
                 }),
             )
             .map_err(link_error)?;
-            Ok(json!({"accepted": true, "prompt_id": prompt_id}))
+            Ok(json!({"accepted": true, "prompt_id": prompt_id,
+                "message": {"id": prompt_id, "role": "user", "text": text, "created_at": Value::Null}}))
         }
         _ => Err(("method_not_found", "unknown mobile chat command".into())),
     }
@@ -148,6 +155,115 @@ fn bounded_page_params(params: &Value) -> Result<Value, (&'static str, String)> 
         }
     }
     Ok(Value::Object(result))
+}
+
+fn normalize_sessions(raw: Value, machine_id: Option<&str>) -> Value {
+    let rows = raw.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+    let sessions = rows.into_iter().filter_map(|row| {
+        let id = row
+            .get("sessionId")
+            .or_else(|| row.get("id"))
+            .and_then(Value::as_str)?
+            .to_owned();
+        let title = row.get("title").or_else(|| row.get("name")).and_then(Value::as_str)
+            .unwrap_or(&id).to_owned();
+        let state = row.get("status").or_else(|| row.get("state")).and_then(Value::as_str)
+            .unwrap_or("unknown").to_owned();
+        Some(json!({"id": id, "title": title,
+            "machine_id": machine_id.or_else(|| row.get("machineId").and_then(Value::as_str)),
+            "state": state,
+            "updated_at": row.get("updatedAt").or_else(|| row.get("updated_at")).cloned().unwrap_or(Value::Null)}))
+    }).collect::<Vec<_>>();
+    json!({"sessions": sessions, "next_cursor": raw.get("nextCursor").cloned().unwrap_or(Value::Null)})
+}
+
+fn normalize_history(raw: Value, session_id: &str) -> Value {
+    let events = raw.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+    let messages = events
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            let record = event.get("record").unwrap_or(&event);
+            let kind = record
+                .get("kind")
+                .or_else(|| record.get("type"))
+                .or_else(|| event.get("kind"))
+                .or_else(|| event.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let role = match kind.as_str() {
+                "user" | "user_message" | "prompt" | "human" => "user",
+                "assistant" | "assistant_message" | "agent" | "agent_message" | "response" => {
+                    "assistant"
+                }
+                "system" | "system_message" => "system",
+                "tool" | "tool_message" | "tool_result" => "tool",
+                _ => return None,
+            };
+            let text = event_text(record)?;
+            let id = record
+                .get("id")
+                .or_else(|| record.get("seq"))
+                .and_then(value_as_string)
+                .unwrap_or_else(|| format!("{session_id}:{index}"));
+            let created_at = record
+                .get("createdAt")
+                .or_else(|| record.get("created_at"))
+                .or_else(|| record.get("at"))
+                .or_else(|| record.get("timestamp"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            Some(json!({"id": id, "role": role, "text": text, "created_at": created_at}))
+        })
+        .collect::<Vec<_>>();
+    let next_cursor = raw
+        .get("nextCursor")
+        .or_else(|| raw.get("next_cursor"))
+        .or_else(|| raw.get("nextSeq"))
+        .or_else(|| raw.get("next_seq"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    json!({"session_id": session_id, "messages": messages, "next_cursor": next_cursor})
+}
+
+fn value_as_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| value.as_i64().map(|number| number.to_string()))
+        .or_else(|| value.as_u64().map(|number| number.to_string()))
+}
+
+fn event_text(value: &Value) -> Option<String> {
+    for key in ["text", "answer", "message"] {
+        if let Some(text) = value.get(key).and_then(Value::as_str) {
+            if !text.is_empty() {
+                return Some(text.to_owned());
+            }
+        }
+    }
+    if let Some(message) = value.get("msg") {
+        if let Some(text) = event_text(message) {
+            return Some(text);
+        }
+    }
+    if let Some(content) = value.get("content") {
+        if let Some(text) = content.as_str() {
+            return (!text.is_empty()).then(|| text.to_owned());
+        }
+        if let Some(parts) = content.as_array() {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    part.get("text").and_then(Value::as_str).or_else(|| part.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            return (!text.is_empty()).then_some(text);
+        }
+    }
+    None
 }
 
 fn required_text(params: &Value, key: &str) -> Result<String, (&'static str, String)> {
