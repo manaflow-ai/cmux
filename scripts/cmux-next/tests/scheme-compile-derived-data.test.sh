@@ -151,7 +151,8 @@ cmux_next_cas_failed "$TMP/caslog" && fail "a code error read as a cache failure
 # The nightly fleet fallback uses the stricter runtime predicate: source
 # diagnostics that happen to mention CAS/cache must not trigger a second build.
 for line in "error: CAS error encountered during compilation" "error: cannot create CAS filesystem: x" \
-    "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x"; do
+    "error: failed to load input '/x/a.swift' from CAS" "error: failed to replay cached diagnostics: x" \
+    "error: remote service unavailable" "error: cache plugin failed"; do
   printf '%s\n' "$line" > "$TMP/caslog"
   cmux_next_runtime_cas_failed "$TMP/caslog" || fail "runtime CAS failure was not recognized: $line"
 done

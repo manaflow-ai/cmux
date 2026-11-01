@@ -142,9 +142,14 @@ class FleetCacheTests(unittest.TestCase):
         ), count
 
     def test_nightly_release_retries_only_on_runtime_cas_diagnostic(self):
-        result, count = self._run_nightly_release_stub("error: CAS error encountered during compilation")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(count.read_text().strip(), "2")
+        for diagnostic in (
+            "error: CAS error encountered during compilation",
+            "error: remote service unavailable",
+            "error: cache plugin failed",
+        ):
+            result, count = self._run_nightly_release_stub(diagnostic)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
 
         result, count = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
         self.assertEqual(result.returncode, 65)

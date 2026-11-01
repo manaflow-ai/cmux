@@ -87,7 +87,7 @@ cmux_next_runtime_cas_failed() {
   [[ -f "$1" ]] || return 1
   local diag='^([^[:space:]]+: )?(fatal )?error: ' errors
   errors="$(awk '/^xcodebuild exit status:/ { exit } { print }' "$1" | grep -E "$diag" || true)"
-  grep -Eqi 'CAS error encountered during|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)' <<<"$errors"
+  grep -Eqi 'CAS error encountered during|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))' <<<"$errors"
 }
 
 # Drop the CAS (after a cache failure, or when it is over the bound). A CAS
