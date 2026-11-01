@@ -130,6 +130,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.autoArchive.idleDays` | real | `3` | 1 to 365 | Idle For. A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive. |
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate. |
+| `workspaces.hibernation.hiddenSpaceMinutes` | real | `15` | 5 to 1440 | Hibernate Hidden Spaces After. When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast. |
@@ -537,6 +538,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route. |
 | `chief.reactionClassifier.model` | string | `"claude-haiku-5-5"` |  | Reaction Classifier Model. The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap. |
 | `chief.reactionClassifier.prompt` | string | `""` |  | Reaction Classifier Instructions. What the classifier is told when it decides. Empty uses the built-in instructions. |
+| `chief.autoRouteSubagents` | boolean | `true` |  | Route Subagents to the Best Agent. The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent. |
 | `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |

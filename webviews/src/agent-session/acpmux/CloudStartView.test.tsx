@@ -56,7 +56,13 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
-  const rows = startupChecklist({ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } });
+  const rows = startupChecklist({
+    key: "k",
+    task: "hi",
+    state: "starting",
+    home: true,
+    setup: { state: "skipped", hasScript: false },
+  });
   expect(rows.map((row) => row.status)).toEqual(["pending", "skipped", "skipped", "pending"]);
   expect(rows[2]?.action).toBe(true);
   expect(rows[2]?.detail).toContain("Add a setup script");
@@ -66,22 +72,68 @@ test("environment setup status maps cached, running and failed states", () => {
   const base = { key: "k", task: "hi", state: "starting" as const };
   expect(startupChecklist({ ...base, setup: { state: "done", status: "ready" } })[2]?.detail).toBe("cached");
   expect(startupChecklist({ ...base, setup: { state: "running", status: "building" } })[2]?.status).toBe("running");
-  expect(startupChecklist({ ...base, setup: { state: "failed", status: "failed", logTail: "npm ERR!" } })[2]).toMatchObject({ status: "error", logTail: "npm ERR!" });
+  expect(
+    startupChecklist({ ...base, setup: { state: "failed", status: "failed", logTail: "npm ERR!" } })[2],
+  ).toMatchObject({ status: "error", logTail: "npm ERR!" });
 });
 
 test("clone status keeps seed phase and object progress in the row", () => {
-  const rows = startupChecklist({ key: "k", task: "hi", state: "starting", hasRepository: true, clone: { state: "running", phase: "Receiving objects", progress: { objects: 2, totalObjects: 4, receivedBytes: 2048 } } });
+  const rows = startupChecklist({
+    key: "k",
+    task: "hi",
+    state: "starting",
+    hasRepository: true,
+    clone: {
+      state: "running",
+      phase: "Receiving objects",
+      progress: { objects: 2, totalObjects: 4, receivedBytes: 2048 },
+    },
+  });
   expect(rows[1]?.detail).toBe("Receiving objects · 2/4 objects · 2 KB");
 });
 
 test("a machine failure stops a clone spinner", () => {
-  const rows = startupChecklist({ key: "k", task: "hi", state: "failed", step: "machine", hasRepository: true, clone: { state: "running" } });
+  const rows = startupChecklist({
+    key: "k",
+    task: "hi",
+    state: "failed",
+    step: "machine",
+    hasRepository: true,
+    clone: { state: "running" },
+  });
   expect(rows[0]?.status).toBe("error");
   expect(rows[1]?.status).toBe("pending");
 });
 
 test("a missing setup script is plain text without an environment callback", () => {
-  const html = renderToStaticMarkup(<CloudStartView start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }} />);
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+    />,
+  );
   expect(html).toContain("Add a setup script to install dependencies and configure your environment.");
   expect(html).not.toContain('class="acpmux-cloud-start__link"');
+});
+
+test("initialized sessions collapse to one quiet line", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
+  );
+  expect(html).toContain("Initialized session");
+  expect(html).not.toContain('data-step-id="machine"');
+});
+
+test("startup durations use the supplied clock", () => {
+  const rows = startupChecklist({ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }, undefined, 3_500);
+  expect(rows[0]?.duration).toBe("2.5s");
+});
+
+test("setup hint becomes a link when an environment callback is provided", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      onOpenEnvironment={() => undefined}
+    />,
+  );
+  expect(html).toContain('class="acpmux-cloud-start__link"');
 });

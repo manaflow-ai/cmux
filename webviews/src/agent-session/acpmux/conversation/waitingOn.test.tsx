@@ -24,10 +24,9 @@ test("a pending trust question never renders as thinking", () => {
   const html = within(waiting, <Thinking />);
   expect(html).toContain(translate("turn.waiting.trust"));
   expect(html).not.toContain(`>${translate("thinking")}<`);
-  // The start status ("Starting Claude Code…") gives way too: the prompt waits on the person.
-  const starting = within(waiting, <Thinking status="Starting Claude Code…" />);
+  // While its agent starts too: the prompt waits on the person.
+  const starting = within(waiting, <Thinking starting />);
   expect(starting).toContain(translate("turn.waiting.trust"));
-  expect(starting).not.toContain("Starting Claude Code…");
 });
 
 test("a running turn that waits on a permission shows no clock", () => {

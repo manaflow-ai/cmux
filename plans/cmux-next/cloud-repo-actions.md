@@ -10,13 +10,17 @@ failures retain the normal `ok:false` envelope.
 | --- | --- | --- |
 | `cloud.repo.list` | `{session,query?}` | `{repos:[{fullName,private,source}],connect?:{install_url}}` |
 | `cloud.repo.add` | `{session,repo,ref?}` | `{state:"done",repo,folder,head}` or typed failure |
-| `cloud.repo.attached` | `{session}` | `{repos:[{state:"done",repo,folder,head}]}` |
+| `cloud.repo.attached` | `{session}` | `{repos:[{state:"done",repo,folder,head,notes?}],pending:[{repo,state:"running",phase?,progress?,notes?}]}` |
 | `cloud.repo.wait_github` | `{session,timeout_ms?}` | `{connected:boolean}` |
 | `cloud.repo.local` | `{}` | `{repos:[...],recent:[...],complete:boolean}` |
 | `cloud.repo.sync` | `{repos,recent?,complete?,install_url?}` | `{synced:number}` |
 | `cloud.repo.remember` | `{session,attachment:{state:"done",repo,folder,head}}` | `{remembered:true}` |
 
 `session` is the chat ID, a single safe path component. It is not the daemon session selector.
+Agent tools verify this ID against the caller authenticated by acpmux's initialize handshake.
+A presented ACP launch credential also restricts daemon actions to that same chat. Existing
+local-user CLI access and authenticated Mac links remain authorized; same-user raw sockets
+are not a process isolation boundary.
 A bare repo name is resolved in source order: local Mac remotes, previous Cloud chat repos,
 then all pages of the GitHub installation catalog. One match attaches; multiple matches within
 one source return `repo.ambiguous` with `choices` in the same repo-row shape. An explicit
@@ -39,6 +43,9 @@ it with the catalog. Machine VM bearers can enumerate repositories, but cannot e
 agent accepts `{github_repos:{query?,cursor?}}`, fixes team/environment from its binding, and
 uses `GET /v1/connectors/github/repos`. A proven unlinked account returns `connect:{}` when
 VM install-link issuance is refused; the daemon fills the URL from the synchronized catalog.
+Every installation link is checked for HTTPS, the exact `github.com` host, and absence of
+credentials or a nondefault port. A valid synchronized Mac link takes precedence over
+connector or seed responses. Unsafe links never become card destinations.
 
 ## Clone, recovery and persistence
 
@@ -62,6 +69,19 @@ exactly those args without a user message. Agent tool results describe that auto
 The wait is bounded (30 seconds by default, at most 60); the card may re-arm it while mounted.
 Clone status waits stop after nine minutes and return an actionable resume response. Each
 request owns its socket and worker; no perpetual observer or timer is installed.
+
+An unlinked connector's typed `repo.needs_github` error is equivalent to `connect`:
+list exposes its install link, wait reports disconnected, and add supplies the retry payload.
+Seed start refusals keep their typed error even without a job. `seed.checkout_failed` asks for
+an existing branch, tag or full commit SHA; `seed.unknown_job` clears the saved job so retry
+can start again; `seed.unavailable` directs the user to a Cloud machine. Clone-only mode does
+not accept sparse checkout arguments.
+
+Running jobs expose `phase` and `progress:{received_bytes,objects,total_objects}` through the
+`pending` array. Updates emit the existing `FrontendProjectionChanged` event for frontend
+`cloud-repos`, scope `session`, subject `catalog`, at most once per second while polling;
+completion always emits its final state. The UI refreshes attached repositories on this event.
+Successful attachments also retain optional `notes:["lfs_unavailable"|"lfs_failed"]`.
 
 The feature requires the machine daemon's git-seed-v1 clone-only implementation and a platform
 deployment with the GitHub connector enabled. The matching app changes provide startup sync,

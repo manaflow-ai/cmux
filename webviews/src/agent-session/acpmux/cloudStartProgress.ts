@@ -171,7 +171,9 @@ export function cloudStartPushed(
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function number(value: unknown): number | undefined {
@@ -183,10 +185,15 @@ function timing(value: unknown): { startedAt?: number; finishedAt?: number } | u
   if (!record) return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
-  return startedAt === undefined && finishedAt === undefined ? undefined : { ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }) };
+  return startedAt === undefined && finishedAt === undefined
+    ? undefined
+    : { ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }) };
 }
 
-function prefixedTiming(prefix: "machine" | "harness", value: { startedAt?: number; finishedAt?: number }): Record<string, number> {
+function prefixedTiming(
+  prefix: "machine" | "harness",
+  value: { startedAt?: number; finishedAt?: number },
+): Record<string, number> {
   return {
     ...(value.startedAt !== undefined && { [`${prefix}StartedAt`]: value.startedAt }),
     ...(value.finishedAt !== undefined && { [`${prefix}FinishedAt`]: value.finishedAt }),
@@ -197,7 +204,16 @@ function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
   const raw = record.state ?? record.status;
-  const state = raw === "done" || raw === "complete" ? "done" : raw === "failed" || raw === "error" ? "failed" : raw === "running" ? "running" : raw === "pending" ? "pending" : undefined;
+  const state =
+    raw === "done" || raw === "complete"
+      ? "done"
+      : raw === "failed" || raw === "error"
+        ? "failed"
+        : raw === "running"
+          ? "running"
+          : raw === "pending"
+            ? "pending"
+            : undefined;
   if (!state) return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
@@ -214,7 +230,14 @@ function operation(value: unknown): CloudStartupOperation | undefined {
         ...(totalObjects !== undefined && { totalObjects }),
       }
     : undefined;
-  return { state, ...(startedAt !== undefined && { startedAt }), ...(finishedAt !== undefined && { finishedAt }), ...(error && { error }), ...(phase && { phase }), ...(progress && Object.keys(progress).length > 0 && { progress }) };
+  return {
+    state,
+    ...(startedAt !== undefined && { startedAt }),
+    ...(finishedAt !== undefined && { finishedAt }),
+    ...(error && { error }),
+    ...(phase && { phase }),
+    ...(progress && Object.keys(progress).length > 0 && { progress }),
+  };
 }
 
 function setupStatus(value: unknown): CloudStartupSetup | undefined {
@@ -233,11 +256,20 @@ function setupStatus(value: unknown): CloudStartupSetup | undefined {
   }
   const raw = record.status ?? record.state;
   const status = raw === "ready" || raw === "building" || raw === "failed" ? raw : undefined;
-  const base = operation({ ...record, state: status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state });
+  const base = operation({
+    ...record,
+    state:
+      status === "ready" ? "done" : status === "building" ? "running" : status === "failed" ? "failed" : record.state,
+  });
   if (!base && raw !== "skipped") return undefined;
   const startedAt = number(record.startedAt ?? record.started_at);
   const finishedAt = number(record.finishedAt ?? record.finished_at);
-  const hasScript = typeof record.hasScript === "boolean" ? record.hasScript : typeof record.has_script === "boolean" ? record.has_script : undefined;
+  const hasScript =
+    typeof record.hasScript === "boolean"
+      ? record.hasScript
+      : typeof record.has_script === "boolean"
+        ? record.has_script
+        : undefined;
   const logTail = logLine(record.logTail ?? record.log_tail, 1200);
   return {
     ...(base ?? { state: "skipped" as const }),

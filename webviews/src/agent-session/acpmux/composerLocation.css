@@ -341,61 +341,6 @@
   line-height: 16px;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* The allowed rules under the modes (Leo 2026-10-27, on the PR button's full-row highlight: "why are you
-   giving it the entire row when it's only this small little section? Just don't do that. Don't ever do
-   that."). A rule's row is not a control, so it takes no hover wash: only its remove x lights, on its
-   own pill. The section's heading and each rule start on the mode rows' text column, and the x
-   centers on their trailing column, where a mode's number or check sits: 16 from the menu's edge.
-   The section sits 4 in from the rows' edges (its hairline is the menu's separator inset), so a mode
-   row's 4px padding is already spent; a menu whose modes draw their shield adds the icon column
-   (16 + 8). A fieldset's own padding (0.35em 0.75em 0.625em) is cleared, never inherited: it put the
-   heading and rules on two other columns. The lead is inline-start padding, so a right-to-left menu
-   keeps the same columns from its right edge. */
-.acpmux-access-grants {
-  --acpmux-grant-lead: 0px;
-  min-inline-size: 0;
-  border: 0;
-  margin: 8px 4px 2px;
-  padding: 8px 0 0;
-  border-top: .5px solid var(--acpmux-composer-edge);
-}
-.acpmux-access-menu:has(.acpmux-access-item:not(.acpmux-access-item-iconless)) .acpmux-access-grants {
-  --acpmux-grant-lead: 24px;
-}
-.acpmux-access-grants-heading {
-  padding: 0 0 4px;
-  padding-inline-start: var(--acpmux-grant-lead);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-access-grant {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  align-items: center;
-  column-gap: 8px;
-  min-height: var(--ui-row-height);
-  padding: 0;
-  padding-inline-start: var(--acpmux-grant-lead);
-}
-.acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-access-grant-remove {
-  justify-self: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--agent-muted);
-  font-family: var(--font-ui);
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  cursor: default;
-  letter-spacing: var(--text-control--letter-spacing);
-}
-.acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
-.acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
 /* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
    so the two always match. */
@@ -447,7 +392,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: 4px;
+  gap: var(--acpmux-composer-action-gap);
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -1333,7 +1278,9 @@
    whole pane (pane-has-restyle.browser.test.ts). */
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
+.acpmux-dock,
 :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-action-gap: 4px;
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text

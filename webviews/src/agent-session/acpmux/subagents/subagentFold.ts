@@ -1,3 +1,4 @@
+import { AgentProgressStore } from "./agentProgressSource";
 import type { AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
@@ -137,6 +138,7 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// between two pieces of its own text draw as one group row where the first one started; their
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
+  readonly progressSource = new AgentProgressStore();
   private readonly agents = new Map<string, Subagent>();
   /// The event that first introduced each agent, retained for a late top-level promotion.
   private readonly startedSeq = new Map<string, number>();
@@ -231,6 +233,7 @@ export class SubagentFold {
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
+    this.progressSource.remove(id);
     this.startedSeq.delete(id);
     const phantomGroup = this.groupOf.get(id);
     this.groupOf.delete(id);
@@ -1143,6 +1146,7 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
+    this.progressSource.updateAgent(agent);
     const summaryChanged = this.settleView(agent);
     if (agent.parent !== null) {
       if (summaryChanged) this.bumpParentViews(agent.parent);

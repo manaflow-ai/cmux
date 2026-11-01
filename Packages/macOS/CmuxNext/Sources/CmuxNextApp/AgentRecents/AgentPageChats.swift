@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSidebar
 
@@ -78,15 +79,17 @@ final class AgentPageChats {
         }
     }
 
+    /// The cards follow their window (acpmux sorts and pages; only that window's changes push).
     func follow(_ feed: ChatsFeed, open: @escaping @MainActor (String) -> Void, views: @escaping @MainActor () -> [AgentPaneView]) {
         self.open = open
-        let push = { [weak self, weak feed] in
-            guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
+        let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
+        window.follow(self) { [weak self] rows in
+            guard let self else { return }
+            chats = Self.deviceChats(rows)
             for view in views() { view.deviceChats = chats }
         }
-        feed.observe(self) { push() }
-        push()
+        feed.windows.open(.newTabCards)
+        chats = Self.deviceChats(window.rows)
     }
 
     /// A new page starts with the current chats and closed items.
@@ -123,21 +126,13 @@ final class AgentPageChats {
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         tabs.pageChats.cloudEnvironment = { [weak services] request in
-            guard let services, !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud,
-                  let connection = services.machines.local.connection, let platform = ArtifactsPageProvider.apiBaseURL() else {
-                return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
-            }
-            do {
-                let token = try await services.cloud.installIdentity.accessToken(team: try await services.cloud.auth.accessTokenTeam(requested: nil))
-                let value = try await connection.request(
-                    CloudEnvironmentRequest(action: request.action, params: request.params,
-                                            platformOrigin: platform.absoluteString, accessToken: token.accessToken), timeout: .seconds(30))
-                return AgentPaneReply.success(try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: [.fragmentsAllowed]))
-            } catch DaemonError.command(_, let message, let code, _, _) {
-                return AgentPaneReply.failure(code: code ?? "cloud_environment.failed", message: message)
-            } catch {
-                return AgentPaneReply.failure(code: "cloud_environment.unavailable", message: "cloud_environment.unavailable")
-            }
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            return await request.run(
+                allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                    let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
+                    return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
+                }
         }
         notices.start()
         let handoffs = HandoffNotices(services: services)
