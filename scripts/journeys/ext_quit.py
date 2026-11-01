@@ -404,6 +404,30 @@ def daemon_builds(j):
     return {"daemons": out, "bundled_commit": commit, "of_build_under_test": ok}
 
 
+def app_timeline(entries, sub):
+    """The app's own per-terminal launch timeline (`debug.timings` `launch_terminals`, Debug and bench builds),
+    from main(): each terminal a pane showed, its first frame (its saved frame from the last quit or its first
+    live content, whichever committed first) and when it was interactive (that frame up and its link to the
+    daemon live). `app_all_frames_ms` and `app_interactive_ms` are the slowest terminal's, None while one has
+    no mark (`app_censored`); an app without the timeline gives `app_terminals` None."""
+    if not isinstance(entries, list):
+        return {"app_terminals": None, "app_all_frames_ms": None, "app_interactive_ms": None, "app_censored": None,
+                "app_timeline": None}
+    rows = []
+    for e in entries:
+        frames = [x for x in (sub(e.get("held_frame_ms")), sub(e.get("live_frame_ms"))) if x is not None]
+        frame = min(frames) if frames else None
+        link = sub(e.get("link_live_ms"))
+        rows.append({"key": e.get("key"), "shown_ms": sub(e.get("shown_ms")), "held_frame_ms": sub(e.get("held_frame_ms")),
+                     "live_frame_ms": sub(e.get("live_frame_ms")), "link_live_ms": link, "frame_ms": frame,
+                     "interactive_ms": max(frame, link) if frame is not None and link is not None else None})
+    censored = not rows or any(x["interactive_ms"] is None for x in rows)
+    return {"app_terminals": len(rows),
+            "app_all_frames_ms": None if not rows or any(x["frame_ms"] is None for x in rows) else max(x["frame_ms"] for x in rows),
+            "app_interactive_ms": None if censored else max(x["interactive_ms"] for x in rows),
+            "app_censored": censored, "app_timeline": rows}
+
+
 def step_quit_speed(j, step):
     """QUIT P0 speed: COUNT quit-and-reopen cycles of kind HOW (default quit-keep: the File menu's Quit, Keep
     Sessions, no dialog), each through ext_restore's restore_relaunch (the visible panes sampled from the new
@@ -417,7 +441,8 @@ def step_quit_speed(j, step):
       interactive_ms   the slowest visible terminal live (attached, connected, its screen replayed); a cycle where
                        one never went live within the sampler's 20 s is `censored` (never dropped: a p95 counts it
                        as slower than 20 s)
-      quit_to_gone_ms  the quit request to the old process's end (the driver's 250 ms poll: a coarse number)
+      quit_to_gone_ms  the quit request to the old process's end (the driver waits on the old pid with kqueue NOTE_EXIT)
+      app_*            the app's own per-terminal timeline (app_timeline): app_all_frames_ms, app_interactive_ms
     Both arms are WARM (the app ran in this lease before): `warm-first` is cycle 1, `warm-again` the rest. A cycle
     whose window was occluded (a capture slot's other windows over it: AppKit stops drawing) is marked `occluded`
     and is not evidence; run it on a whole-host lease (run.py --whole-host). Writes speed.json and each cycle's
@@ -431,13 +456,15 @@ def step_quit_speed(j, step):
         trace_file = j.out / "restore-trace.json"
         if trace_file.exists():
             trace_file.replace(j.out / f"restore-trace-{index + 1}.json")
-        marks = {}
+        timings = {}
         try:
-            marks = (j.app.rpc("debug.timings", timeout=10) or {}).get("launch_ms_since_process_start") or {}
+            timings = j.app.rpc("debug.timings", timeout=10) or {}
         except (D.StepError, OSError, ValueError):
             pass
+        marks = timings.get("launch_ms_since_process_start") or {}
         main = r.get("main_start")
         sub = lambda mark: round(mark - main, 1) if isinstance(mark, (int, float)) and isinstance(main, (int, float)) else None
+        app = app_timeline(timings.get("launch_terminals"), sub)
         first_content = {}
         trace = r.get("trace") or []
         for at, panes in trace:
@@ -465,7 +492,7 @@ def step_quit_speed(j, step):
                      "window_frame_ms": sub(r.get("first_window_frame_committed")),
                      "interactive_ms": None if censored else max(live), "censored": censored,
                      "visible_terminals": visible, "samples": r.get("samples"), "blank_pane_samples": r.get("blank_pane_samples"),
-                     "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main,
+                     "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main, **app,
                      # A cycle whose daemons are not all of the build under test is not run (cmux-ad 01:25Z).
                      "daemons_before": daemons_before, "daemons_after": daemon_builds(j)})
         rows[-1]["not_run"] = not (rows[-1]["daemons_before"]["of_build_under_test"]
