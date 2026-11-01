@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (screenshot of the sidebar's right edge): "Make sure this is the line ...
@@ -9,7 +10,7 @@ import Testing
 /// indicator (the unread dot, the working spinner), grouped or loose, centers on that same x at
 /// every density and sidebar width, and the dot and the spinner fill one slot of one size, so a
 /// row that swaps one for the other moves nothing.
-@MainActor @Suite(.serialized) struct SidebarTrailingColumnTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTrailingColumnTests {
     private static let group = GroupID("grp-column")
     private static let groupedDot = WorkspaceID("ws-grouped-dot")
     private static let groupedSpinner = WorkspaceID("ws-grouped-spinner")
@@ -147,7 +148,7 @@ import Testing
     static let home = LayoutItemID("itm_home"), lead = LayoutItemID("itm_lead"), browserLead = LayoutItemID("itm_browser_lead")
     static let selected = WorkspaceID("tc-selected"), unread = WorkspaceID("tc-unread"), busy = WorkspaceID("tc-busy")
     static let waiting = WorkspaceID("tc-waiting")
-    static let member = WorkspaceID("tc-member"), nested = WorkspaceID("tc-nested"), loading = WorkspaceID("tc-loading")
+    static let member = WorkspaceID("tc-member"), idle = WorkspaceID("tc-idle"), nested = WorkspaceID("tc-nested"), loading = WorkspaceID("tc-loading")
     static let open = GroupID("tc-open"), sub = GroupID("tc-sub"), folded = GroupID("tc-folded")
     static let pinned = GroupID("tc-pinned"), deep = GroupID("tc-deep")
     static let pinnedMember = WorkspaceID("tc-pinned-member"), deepMember = WorkspaceID("tc-deep-member")
@@ -185,7 +186,8 @@ import Testing
                 // Lawrence msg 12086: "loading spinners must align too": the selected row works (a spinner).
                 .workspace(SidebarWorkspace(id: T.selected, title: "Selected working", agentWorking: true, activity: .working)),
                 .group(SidebarGroup(id: T.open, name: "cmux-next app", color: .blue,
-                                    workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot)])),
+                                    workspaces: [SidebarWorkspace(id: T.member, title: "Member unread", unread: .dot),
+                                                 SidebarWorkspace(id: T.idle, title: "Idle workspace")])),
                 .group(subgroup),
                 .group(deepGroup),
                 .group(SidebarGroup(id: T.folded, name: "Folded loading", color: .blue, isCollapsed: true,
@@ -202,6 +204,7 @@ import Testing
             var leadInfo = SidebarItemInfo(title: "cmux Performance Lead", symbol: "textformat", isActive: true)
             leadInfo.textOnly = true
             leadInfo.activity = .waiting
+            leadInfo.workspace = WorkspaceID("tc-band-lead")
             // A band item that works: its spinner and nothing else (msg 12086).
             var browserInfo = SidebarItemInfo(title: "Computer & browser use lead", symbol: "textformat")
             browserInfo.textOnly = true

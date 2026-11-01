@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// Before/after stills for the Chrome-style sidebar cleanup: task-status lane
 /// glyphs were leading every row; the row's trailing status dots already carry
 /// the attention state, so the leading slot is empty.
-@MainActor @Suite(.serialized) struct SidebarStatusCleanupGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarStatusCleanupGalleryTests {
     static func sections(leadingStatusIcons: Bool) -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func workspace(_ id: String, _ title: String, status: SidebarTaskStatus, activity: StatusIndicatorState = .idle) -> SidebarWorkspace {

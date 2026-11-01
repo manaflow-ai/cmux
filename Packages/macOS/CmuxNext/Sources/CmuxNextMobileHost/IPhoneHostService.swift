@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextKeepAwake
 public import CmuxNextMobile
@@ -103,6 +103,8 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
+    public let remoteControl = AgentPaneRemoteControl()
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
     /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
     public internal(set) var servesPhones = false
@@ -120,8 +122,8 @@ public final class IPhoneHostService {
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
-    /// The read of ``paired`` in flight, and the phones forgotten while it runs (``loadPaired(signedOut:)``).
-    @ObservationIgnored var pairedLoad = MobileHostPairedLoad()
+    public let pairedStore: MobileHostPairedStore
+    @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -163,7 +165,16 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init() {
+    public init(pairedStore: MobileHostPairedStore = MobileHostPairedStore()) {
+        self.pairedStore = pairedStore
+        pairedStore.observe { [weak self] _ in
+            // task-owner: one main-actor update per serialized list change
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                paired = self.pairedStore.current
+                pushPaired()
+            }
+        }
         wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
             guard let self, allowed, account != nil, !removed else { return }
             let supervisor = supervisor
@@ -225,6 +236,12 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
+        if id.hasPrefix("iroh:") {
+            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
+            pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
+            phonesError = nil
+            return
+        }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))

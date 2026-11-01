@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.cloudShareMachine": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Share Machine…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مشاركة الجهاز…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Podijeli mašinu…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Del maskine…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Maschine teilen …"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compartir máquina…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Partager la machine…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Condividi macchina…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "マシンを共有…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចែករំលែកម៉ាស៊ីន…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "기기 공유…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Del maskin …"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Udostępnij maszynę…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compartilhar Máquina…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поделиться машиной…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชร์เครื่อง…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi Paylaş…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Поділитися машиною…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chia sẻ máy…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "共享机器…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "共享機器…"}}}},
+    "argument.teammate": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Teammate"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "زميل الفريق"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Član tima"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Teammitglied"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compañero de equipo"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Coéquipier"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Membro del team"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "チームメイト"}}, "km": {"stringUnit": {"state": "needs_review", "value": "សមាជិកក្រុម"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "팀원"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Teammedlem"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Członek zespołu"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Colega de equipe"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Участник команды"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพื่อนร่วมทีม"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Ekip arkadaşı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Учасник команди"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đồng đội"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "队友"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "隊友"}}}},
+    "argument.revoke": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Revoke"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "إلغاء"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Opozovi"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Tilbagekald"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Widerrufen"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Revocar"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Révoquer"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Revoca"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "取り消す"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ដកហូត"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "취소"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Tilbakekall"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Cofnij"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Revogar"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Отозвать"}}, "th": {"stringUnit": {"state": "needs_review", "value": "เพิกถอน"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "İptal et"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Відкликати"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Thu hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "撤销"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "撤銷"}}}},
   "action.agent.share": {
     "extractionState": "manual",
     "localizations": {
@@ -44411,6 +44414,399 @@
         }
       }
     },
+  "action.palette.forkAgentConversationNewColumnRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفريع المحادثة إلى عمود جديد على اليمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Račvaj razgovor u novu kolonu desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork samtale til ny kolonne til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konversation in neue Spalte rechts forken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Column Right"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar conversación en nueva columna a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dériver la conversation dans une nouvelle colonne à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplica conversazione in nuova colonna a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を右の新しい列にフォーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork ការសន្ទនាទៅជួរឈរថ្មីខាងស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화를 오른쪽 새 열로 포크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forgren samtale til ny kolonne til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozwidl rozmowę do nowej kolumny po prawej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar Conversa em Nova Coluna à Direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форк беседы в новый столбец справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork บทสนทนาไปคอลัมน์ใหม่ทางขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşmayı Sağdaki Yeni Sütuna Çatalla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відгалузити розмову в новий стовпець праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork cuộc hội thoại sang cột mới bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将对话分叉到右侧新列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將對話分叉到右側新欄"
+          }
+        }
+      }
+    },
+  "action.palette.forkAgentConversationNewColumnLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفريع المحادثة إلى عمود جديد على اليسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Račvaj razgovor u novu kolonu lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork samtale til ny kolonne til venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konversation in neue Spalte links forken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Column Left"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar conversación en nueva columna a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dériver la conversation dans une nouvelle colonne à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplica conversazione in nuova colonna a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を左の新しい列にフォーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork ការសន្ទនាទៅជួរឈរថ្មីខាងឆ្វេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화를 왼쪽 새 열로 포크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forgren samtale til ny kolonne til venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozwidl rozmowę do nowej kolumny po lewej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar Conversa em Nova Coluna à Esquerda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форк беседы в новый столбец слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork บทสนทนาไปคอลัมน์ใหม่ทางซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşmayı Soldaki Yeni Sütuna Çatalla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відгалузити розмову в новий стовпець ліворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork cuộc hội thoại sang cột mới bên trái"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将对话分叉到左侧新列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將對話分叉到左側新欄"
+          }
+        }
+      }
+    },
+  "action.palette.forkAgentConversationNewRow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفريع المحادثة إلى صف جديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Račvaj razgovor u novi red"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork samtale til ny række"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konversation in neue Zeile forken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Row"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar conversación en nueva fila"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dériver la conversation dans une nouvelle ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplica conversazione in nuova riga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を新しい行にフォーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork ការសន្ទនាទៅជួរដេកថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화를 새 행으로 포크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forgren samtale til ny rad"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozwidl rozmowę do nowego wiersza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcar Conversa em Nova Linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Форк беседы в новую строку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork บทสนทนาไปแถวใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşmayı Yeni Satıra Çatalla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відгалузити розмову в новий рядок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fork cuộc hội thoại sang hàng mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将对话分叉到新行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將對話分叉到新列"
+          }
+        }
+      }
+    },
   "action.palette.forkAgentConversationNewTab": {
       "extractionState": "manual",
       "localizations": {
@@ -86349,6 +86745,137 @@
         }
       }
     },
+    "action.window.mergeAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge All Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのウィンドウを結合"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دمج كل النوافذ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spoji sve prozore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flet alle vinduer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle Fenster zusammenführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Combinar todas las ventanas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fusionner toutes les fenêtres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unisci tutte le finestre"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចូលបង្អួចទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 윈도우 병합"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå sammen alle vinduer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scal wszystkie okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesclar Todas as Janelas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Объединить все окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวมหน้าต่างทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm Pencereleri Birleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Об’єднати всі вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gộp tất cả cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "合并所有窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "合併所有視窗"
+          }
+        }
+      }
+    },
   "action.workspaceGroup.closeOthers": {
       "extractionState": "manual",
       "localizations": {
@@ -100439,7 +100966,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fork to…"
+            "value": "Fork To…"
           }
         },
         "ar": {

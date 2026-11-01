@@ -34,11 +34,15 @@ struct CmuxAppLinksTests {
         #expect(link("cmux://session/01a12408-f0a2")?.target == .session("01a12408-f0a2", turn: nil))
     }
 
-    @Test func aChiefSubagentLinkOpensOnlyForThisAppsOwnChief() {
+    /// A named Chief (`<home>/c/<id>`) writes its own home id, not the app's Chief host (#28877):
+    /// its link is an app link too, and opening it checks the home (`ChiefSidebar.openSubagentLink`).
+    /// A build with no Chief, or another machine's subagent, takes none.
+    @Test func aChiefSubagentLinkOpensForAnyChiefHomeOfThisMac() {
         let text = "cmux://chief/2e448bc2/session/01a12408-f0a2"
         #expect(link(text)?.target == .chiefSession(home: "2e448bc2", session: "01a12408-f0a2"))
-        #expect(link(text, chiefHost: "chief:00000000") == nil)
+        #expect(link(text, chiefHost: "chief:69e026c6")?.target == .chiefSession(home: "2e448bc2", session: "01a12408-f0a2"))
         #expect(link(text, chiefHost: nil) == nil)
+        #expect(link(text + "?machine=machine_0123456789abcdef0123456789abcdef") == nil)
     }
 
     @Test(arguments: [

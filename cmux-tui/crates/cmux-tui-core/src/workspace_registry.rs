@@ -88,6 +88,7 @@ mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
+mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -2868,6 +2869,8 @@ impl WorkspaceRegistry {
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
+            // Additive: also on a registry a build before the table wrote.
+            terminal_unplaced_store::create_terminal_unplaced_schema(&tx)?;
             tx.commit()?;
         }
         if scrubbed {
@@ -4099,6 +4102,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
@@ -4960,7 +4964,7 @@ fn transaction_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     value.parse().context("workspace registry revision is invalid")
 }
 
-fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
+pub(crate) fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "terminal_revision")?
         .parse()
         .context("terminal registry revision is invalid")

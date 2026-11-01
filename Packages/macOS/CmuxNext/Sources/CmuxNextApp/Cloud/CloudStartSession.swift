@@ -361,8 +361,10 @@ struct CloudStartSession {
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             // The resume or connect below changes the machine: only for the account that asked.
             try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin: CloudLinkOrigin = byPerson ? .user : .script

@@ -37,6 +37,9 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
+    /// `session.json` in version order (fuzz row g finding g2).
+    pub(super) meta_writer: super::meta_save::MetaWriter,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
@@ -124,6 +127,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -151,6 +157,10 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// Its harness profile's launch changed since its agent started: the agent restarts on the
+    /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
+    /// changed` until a start runs the new profile.
+    pub(super) profile_respawn: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
@@ -158,6 +168,10 @@ pub struct Session {
     /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
     /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
+    /// The person started this chat or wrote to it (`NewRequest::person`, a person's prompt):
+    /// its agent start has no deadline while its harness works on it, and says it is still
+    /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
+    pub(super) person: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -318,6 +332,12 @@ pub struct Session {
 }
 
 impl Session {
+    /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
+    /// its harness works on it.
+    pub(crate) fn person_wrote(&self) {
+        self.person.store(true, Ordering::SeqCst);
+    }
+
     /// Fence untagged compaction metadata for this live session. Claude's
     /// boundary and summary lines carry no turn id, so a forced Stop keeps
     /// them out of the controller log until this session is replaced.
@@ -401,7 +421,7 @@ pub fn live_tags(m: &SessionMeta) -> Value {
 
 /// [`short_text`] of `s` with its secrets masked first (`secret_scan`), so a
 /// secret across the cut leaves no head: the sub-session tools' prompt
-/// preview (`TurnInfo::masked_preview`); the owner's views keep it raw.
+/// preview and every summary's running turn (`TurnInfo::masked_preview`).
 pub(crate) fn masked_preview(s: &str, max: usize) -> String {
     short_text(&crate::secret_scan::mask(s), max)
 }

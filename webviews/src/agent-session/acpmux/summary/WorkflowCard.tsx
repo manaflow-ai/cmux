@@ -1,7 +1,7 @@
 // A Claude workflow's card in the transcript, where it started (Labs `workflowLabs`; the row is
 // subagents/runningTray.ts `WORKFLOW_CARD`): its name, state, progress, current phase and latest
 // line, live while it runs. A click opens Session Info's Background tasks, which lists its phases
-// and agents (inspector/WorkflowTasks.tsx). Its height is fixed, so a clock or latest line never
+// and agents (session-info/WorkflowTasks.tsx). Its height is fixed, so a clock or latest line never
 // moves the transcript.
 import { useMemo, useSyncExternalStore } from "react";
 import { formatDuration } from "../conversation/turns";

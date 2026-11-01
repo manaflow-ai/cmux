@@ -1,4 +1,3 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -321,7 +320,6 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
           {more}
         </MessageFooterRow>
       </span>
-      <PullRequestDock />
     </>
   );
 }
@@ -333,7 +331,10 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    <div className="cv-turn-actions cv-reply-actions">
+    // Over a status row this line is the reply's whole bottom room (conversation.css
+    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
+    // can start from (gutterSelect.ts).
+    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
       <span className="cv-turn-action-group">
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
@@ -341,7 +342,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
-      <PullRequestDock />
     </div>
   );
 }
