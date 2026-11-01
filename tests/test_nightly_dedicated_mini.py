@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import nightly_build_runner as picker
+import runner_label_policy as policy
 from test_nightly_trusted_routing import evaluate, parse_expression
 
 LABEL = "glaeda-nightly-only-m4pro"
@@ -34,6 +35,12 @@ def selected(job, values):
 
 
 class DedicatedMini(unittest.TestCase):
+    def test_reservation_variable_rejects_unknown_or_hosted_labels(self):
+        for value in ("", LABEL):
+            self.assertEqual(policy.drifted_runner_variables({"CI_NIGHTLY_ONLY_RUNNER": value}), [])
+        for value in ("glaeda-unregistered", "macos-26", "ubuntu-24.04", "blacksmith-16vcpu-ubuntu-2404"):
+            self.assertTrue(policy.drifted_runner_variables({"CI_NIGHTLY_ONLY_RUNNER": value}))
+
     def test_early_jobs_prefer_reserved_mini_even_without_picker_outputs(self):
         for job in EARLY:
             with self.subTest(job=job):
@@ -68,12 +75,29 @@ class DedicatedMini(unittest.TestCase):
                    "GITHUB_OUTPUT": str(path), "NIGHTLY_ONLY_LABEL": LABEL,
                    "ROUTE_TOKEN": "present", "SNAPSHOT_TOKEN": "present",
                    "DEDICATED_LABEL": "glaeda-trusted-next-nightly"}
-            self.assertEqual(picker.main([], env, read_runners=unavailable, read_snapshot=unavailable,
+            self.assertEqual(picker.main(env, read_runners=unavailable, read_snapshot=unavailable,
                                          read_admission_fn=unavailable), 0)
             out = dict(line.split("=", 1) for line in path.read_text().splitlines())
             for key in ("owned", "helper", "dedicated", "runner"):
                 self.assertEqual(out[key], LABEL)
             self.assertEqual(out["trusted"], "")
+
+    def test_picker_exception_does_not_capture_reruns_forks_or_other_tracks(self):
+        for changes in ({"GITHUB_RUN_ATTEMPT": "2"}, {"GITHUB_REPOSITORY": "another/repo"},
+                        {"GITHUB_REF": "refs/heads/main"}, {"GITHUB_EVENT_NAME": "pull_request"},
+                        {"NIGHTLY_ONLY_LABEL": "glaeda-unregistered"}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as scratch:
+                path = Path(scratch) / "output"
+                env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "1",
+                       "GITHUB_REF": "refs/heads/nightly-next", "GITHUB_EVENT_NAME": "push",
+                       "GITHUB_OUTPUT": str(path), "NIGHTLY_ONLY_LABEL": LABEL, **changes}
+                self.assertEqual(picker.main(env), 0)
+                out = dict(line.split("=", 1) for line in path.read_text().splitlines())
+                self.assertNotEqual(out["owned"], LABEL)
+                self.assertNotEqual(out["helper"], LABEL)
+
+    def test_linux_elf_signer_does_not_take_the_mac_reservation(self):
+        self.assertNotIn(VARIABLE, DOC["jobs"]["signer-build"]["runs-on"])
 
 
 if __name__ == "__main__":
