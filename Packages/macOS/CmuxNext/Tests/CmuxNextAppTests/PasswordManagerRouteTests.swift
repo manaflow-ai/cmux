@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextTerminal
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
@@ -52,6 +53,10 @@ struct PasswordManagerRouteTests {
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
+        // The terminal views type through their Ghostty surface. On feat-cmux-next the runtime starts on its first use; on
+        // this line the app starts it at launch, so a test starts it (as TestHosts.liveDaemonApp). Without it a view types
+        // nothing (diagnostic 12f65c19335cf44d44de0317).
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
