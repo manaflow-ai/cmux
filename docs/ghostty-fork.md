@@ -14,9 +14,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `84a225487`): the pin `9ce9b7d08` plus only fork PRs #66
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `34e73ba8b`): the pin `9ce9b7d08` plus only fork PRs #66
   (`fix-formatter-blank-carry`) and #68 (`fix-wrap-edge-history-cost`) and the release workflow change of fork PR #67. GhosttyNextKit
-  `xcframework-84a225487372c53851b186864c867e469e7596d2-apple-v6`.
+  `xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6`.
 - Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
   `cursorScrollAbove` with a bottom margin, `insertLines` and `deleteLines` with a full-width region move the rows
   inside the region and keep the rows outside it. The row above the region kept `wrap` and the row below it kept
@@ -27,6 +27,8 @@ When we change the fork, update this document and the parent submodule SHA.
 - Scroll-path cost (red `bc393a54b`, fix `db6d27f78`): `breakWrapAbove` decides on the resident row first (its
   `wrap_continuation`, or for IL/DL the top row's flag read before the rows move) and reads a row in a compressed
   history page only when the pair was joined, so a region scroll never restores a history page for nothing.
+- Cleared rows (red `221848c29`, fix `353151949`): `clearRows` (ED 0, 1 and 2, DECALN) resets the cleared rows and now
+  breaks the soft wrap across both edges of the range, so a scrollback row no longer wraps into a cleared screen.
 - Commit IDs in this section are those on `release/cmux-9ce9b7d0-e2`; the same changes on the fork PR branches
   have other IDs.
 - Defense (`19ab1cbcb` red test, `406763ee6` fix): with `unwrap`, `PageFormatter` carried a row's trailing blank

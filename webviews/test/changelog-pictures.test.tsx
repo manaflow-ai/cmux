@@ -27,7 +27,7 @@ let dom: JSDOM;
 beforeAll(() => {
   // pretendToBeVisual: the lightbox is a Base UI dialog, whose open transition waits a frame.
   dom = new JSDOM("<!doctype html><div id=root></div>", {
-    url: "cmux-page://cmux.changelog/",
+    url: "cmux-page://cmux.changelog/#/?design=ledger",
     pretendToBeVisual: true,
   });
   Object.assign(scope, {
