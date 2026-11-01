@@ -67,7 +67,8 @@ APPLE_ONLY = {
 }
 GUARD = re.compile(r"canImport|\bos\(|targetEnvironment|\barch\(")
 IMPORT = re.compile(
-    r"^\s*(?:@[A-Za-z_]+(?:\([^)]*\))?\s+)*import\s+"
+    r"^\s*(?:@[A-Za-z_]+(?:\([^)]*\))?\s+)*"
+    r"(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+"
     r"(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)"
 )
 DECL = re.compile(r"\.(target|testTarget|executableTarget|macro|binaryTarget|systemLibrary)\s*\(")
@@ -83,6 +84,7 @@ class Target:
     level: int = LINUX
     reasons: list[str] = field(default_factory=list)
     local_imports: set[str] = field(default_factory=set)
+    declared: set[str] = field(default_factory=set)
     guarded_apple: set[str] = field(default_factory=set)
     proof: str = "scan"
 
@@ -102,6 +104,37 @@ def balanced(text: str, start: int) -> str:
             depth -= c == ")"
         i += 1
     return text[start : i - 1]
+
+
+def balanced_bracket(text: str, start: int) -> str:
+    """The text inside the bracket that opens at text[start - 1]."""
+    depth, i, in_str = 1, start, False
+    while i < len(text) and depth:
+        c = text[i]
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            depth += c in "(["
+            depth -= c in ")]"
+        i += 1
+    return text[start : i - 1]
+
+
+def split_top(text: str) -> list[str]:
+    items, depth, cur, in_str = [], 0, "", False
+    for c in text:
+        if c == '"':
+            in_str = not in_str
+        elif not in_str and c in "([":
+            depth += 1
+        elif not in_str and c in ")]":
+            depth -= 1
+        elif not in_str and c == "," and depth == 0:
+            items.append(cur)
+            cur = ""
+            continue
+        cur += c
+    return items + [cur] if cur.strip() else items
 
 
 def strip_comments(text: str) -> str:
@@ -129,7 +162,14 @@ def manifest_targets(manifest: Path) -> list[Target]:
             src = pkg / path.group(1)
         else:
             src = pkg / ("Tests" if kind == "testTarget" else "Sources") / name.group(1)
-        out.append(Target(rel, name.group(1), kind, src))
+        t = Target(rel, name.group(1), kind, src)
+        if deps := re.search(r"\bdependencies:\s*\[", body):
+            for item in split_top(balanced_bracket(body, deps.end())):
+                if "condition:" in item or ".product(" in item:
+                    continue
+                if dep := re.fullmatch(r'\s*(?:"([^"]+)"|\.(?:target|byName)\(\s*name:\s*"([^"]+)"\s*\))\s*', item):
+                    t.declared.add(dep.group(1) or dep.group(2))
+        out.append(t)
     # A target made by a helper function: any Sources/Tests dir the regexes did not name.
     named = {t.src.resolve() for t in out if t.src}
     for sub, kind in (("Sources", "target"), ("Tests", "testTarget")):
@@ -254,7 +294,10 @@ def ci_linux_packages() -> dict[str, tuple[str, set[str] | None]]:
         proven[p] = ("CI swift-packages-linux", None)
     for line in LINUX_LIST.read_text().splitlines():
         if line.strip() and not line.lstrip().startswith("#"):
-            dir_, tests = line.split()[:2]
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            dir_, tests = parts[:2]
             proven.setdefault(dir_, ("CI swift-linux-packages", set(tests.split(","))))
     return proven
 
@@ -288,8 +331,11 @@ def inventory() -> list[Target]:
     while changed:  # a target is as far from Linux as the worst local module it imports
         changed = False
         for t in targets:
-            for dep in sorted(t.local_imports):
-                d = worst(dep)
+            for dep in sorted(t.local_imports | t.declared):
+                if dep not in by_name:
+                    continue
+                same = [x for x in by_name[dep] if x.package == t.package]
+                d = max(same, key=lambda x: x.level) if same else worst(dep)
                 if d.level > t.level:
                     t.level = d.level
                     t.reasons = [r for r in t.reasons if not r.startswith("via ")] + [f"via {dep}"]
@@ -304,7 +350,7 @@ def inventory() -> list[Target]:
             name = todo.pop()
             if name in mine and name not in built:
                 built.add(name)
-                todo += sorted(mine[name].local_imports)
+                todo += sorted(mine[name].local_imports | mine[name].declared)
         for t in targets:
             if t.package == pkg and t.name in built and t.level == LINUX:
                 t.proof = job
@@ -351,7 +397,9 @@ def render(targets: list[Target]) -> str:
     for pkg in sorted(pkgs):
         ts = pkgs[pkg]
         c = [sum(t.level == lv for t in ts) for lv in CLASS_NAMES]
-        lines.append(f"| `{pkg}` | {c[0]} | {c[1]} | {c[2]} | {proven.get(pkg, '-')} |")
+        built = sum(t.proof.startswith("CI") for t in ts)
+        ci = f"{proven[pkg]} ({built} of {len(ts)} targets)" if pkg in proven else "-"
+        lines.append(f"| `{pkg}` | {c[0]} | {c[1]} | {c[2]} | {ci} |")
     for pkg in sorted(pkgs):
         lines += ["", f"## `{pkg}`", "", "| Target | Kind | Class | Proof | Why | Guarded |",
                   "| --- | --- | --- | --- | --- | --- |"]
