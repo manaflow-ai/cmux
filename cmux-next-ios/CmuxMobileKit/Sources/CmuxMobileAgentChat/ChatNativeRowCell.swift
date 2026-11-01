@@ -26,6 +26,10 @@ struct ChatNativeActions {
 @MainActor
 final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDelegate {
     private var layout: ChatNativeLayout?
+    /// The row's revision and disclosures this cell draws (set when configured): what its
+    /// measurements are of, as a SwiftUI row's (`ChatRowCell.shown`). Without it the layout kept
+    /// none of them, and a row laid out at its estimate went back to it on the next change above.
+    var shown: ChatRowAttributes.Shown?
     private var actions = ChatNativeActions()
     private var labels: [UILabel] = []
     /// The labels (by index) that show a markdown heading.
@@ -199,6 +203,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         guard let layout, abs(layout.height - attributes.size.height) > 0.25,
               let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         fitted.size.height = layout.height
+        (fitted as? ChatRowAttributes)?.shown = shown
         return fitted
     }
 

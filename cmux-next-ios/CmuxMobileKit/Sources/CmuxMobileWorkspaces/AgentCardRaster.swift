@@ -83,6 +83,11 @@ final class AgentCardRasterizer: NSObject {
     /// Most recently drawn last; the oldest picture goes past `limit`.
     private var drawn: [ObjectIdentifier] = []
     private var owners: [ObjectIdentifier: AgentCardFeed] = [:]
+    /// The thumbnails each waiting card already has (`AgentChatPreview.picturesResident(_:holding:)`):
+    /// held until its picture is drawn, so one let go by the cache's bound while the card waits for
+    /// another is not decoded again (two that do not fit the bound together evicted each other on
+    /// every frame).
+    private var holds: [ObjectIdentifier: AgentChatPreview.PictureHold] = [:]
     private var link: CADisplayLink?
     private(set) var idle = false
     /// How pictures are drawn now (scheme, size, resolution): the last key
@@ -106,7 +111,10 @@ final class AgentCardRasterizer: NSObject {
         lastKey = key
         if feed.raster?.key == key { return }
         queue.removeAll { $0.feed === feed }
-        guard key.isDrawable else { return }
+        guard key.isDrawable else {
+            holds[ObjectIdentifier(feed)] = nil
+            return
+        }
         queue.append((feed, key))
         startIfNeeded()
     }
@@ -141,13 +149,19 @@ final class AgentCardRasterizer: NSObject {
             next = nil
         }
         guard let (feed, key) = next else { return stop() }
+        guard feed.raster?.key != key, key.isDrawable else { return }
+        let id = ObjectIdentifier(feed)
+        var hold = holds[id] ?? AgentChatPreview.PictureHold()
         // A thumbnail the cache let go since the key was ready is decoded again first: this card
-        // waits at the end of the queue rather than being drawn with a placeholder.
-        if feed.raster?.key != key, key.isDrawable, !AgentChatPreview.picturesResident(key.turns) {
+        // waits at the end of the queue rather than being drawn with a placeholder, holding the
+        // thumbnails it has.
+        guard AgentChatPreview.picturesResident(key.turns, holding: &hold) else {
+            holds[id] = hold
             queue.append((feed, key))
             return
         }
-        if feed.raster?.key != key, key.isDrawable, let image = Self.render(feed, key) {
+        holds[id] = nil
+        if let image = AgentChatPreview.drawing(hold, { Self.render(feed, key) }) {
             feed.raster = (key, image)
             renders += 1
             remember(feed)
@@ -176,6 +190,7 @@ final class AgentCardRasterizer: NSObject {
         queue.removeAll { $0.feed === feed }
         drawn.removeAll { $0 == id }
         owners[id] = nil
+        holds[id] = nil
     }
 
     /// The card's preview as the kit lays it out (full page, top aligned,

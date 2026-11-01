@@ -72,10 +72,15 @@ final class SentAttachmentThumbnails {
         "\(attachment.id)|\(data.count)|\(Int(side))"
     }
 
-    /// The decoded thumbnail, if it is in memory. Not observed: a view that waits for it decodes it.
+    /// The decoded thumbnail, if it is in memory (or held by the picture being drawn, `drawing`).
+    /// Not observed: a view that waits for it decodes it.
     func image(_ attachment: AgentAttachment, data: Data, side: CGFloat) -> UIImage? {
-        cached(Self.key(attachment, data: data, side: side))
+        let key = Self.key(attachment, data: data, side: side)
+        return cached(key) ?? lent[key]
     }
+
+    /// Thumbnails a picture holds while it is drawn (`drawing`).
+    @ObservationIgnored private var lent: [String: UIImage] = [:]
 
     /// Decodes the thumbnail off the main thread (once per image and size at a time) and keeps it.
     func decode(_ attachment: AgentAttachment, data: Data, side: CGFloat) async -> UIImage? {
@@ -86,12 +91,14 @@ final class SentAttachmentThumbnails {
     /// did not decode (nothing to wait for).
     @discardableResult
     private func start(_ key: String, data: Data, side: CGFloat) -> Task<UIImage?, Never>? {
-        if let image = cached(key) { return Task { image } }
+        // A thumbnail held by the picture being drawn is in memory too: the bubble's `.task`, which
+        // the picture's renderer starts as it draws, must not decode it again (evicting another).
+        if let image = cached(key) ?? lent[key] { return Task { image } }
         if settled[key] == false { return nil }
         if let running = decoding[key] { return running }
         decodes += 1
         let work = Task.detached(priority: .userInitiated) {
-            UIImage(data: data).flatMap { $0.preparingThumbnail(of: SentAttachments.fill($0.size, side: side)) ?? $0 }
+            UIImage(data: data).map { SentAttachments.thumbnail(of: $0, side: side) }
         }
         let task = Task { @MainActor [weak self] in
             let image = await work.value
@@ -161,12 +168,37 @@ final class SentAttachmentThumbnails {
     /// Whether every thumbnail `turns` draws is in memory now (or undecodable), to draw them into
     /// a picture; starts decoding again the ones evicted since. Not observed.
     func resident(_ turns: [AgentTurn]) -> Bool {
+        var held: [String: UIImage] = [:]
+        return resident(turns, holding: &held)
+    }
+
+    /// `resident(_:)` for a picture that waits: `held` keeps a strong reference to each of its
+    /// thumbnails found in memory, and counts as in memory itself. A thumbnail the cache lets go
+    /// while the picture waits for another to decode again (each landing can evict the other) is
+    /// not decoded again: the picture is drawn with the ones it holds (`drawing`). `held` keeps
+    /// only the thumbnails `turns` draw. Not observed.
+    func resident(_ turns: [AgentTurn], holding held: inout [String: UIImage]) -> Bool {
         var resident = true
-        for (key, data, side) in wanted(turns) where settled[key] != false && cached(key) == nil {
-            resident = false
-            start(key, data: data, side: side)
+        var kept: [String: UIImage] = [:]
+        for (key, data, side) in wanted(turns) where settled[key] != false {
+            if let image = cached(key) ?? held[key] {
+                kept[key] = image
+            } else {
+                resident = false
+                start(key, data: data, side: side)
+            }
         }
+        held = kept
         return resident
+    }
+
+    /// Runs `draw` (a synchronous `ImageRenderer` pass) with `held`'s thumbnails readable by the
+    /// bubbles it draws, whether or not the cache still keeps them.
+    func drawing<T>(_ held: [String: UIImage], _ draw: () -> T) -> T {
+        let previous = lent
+        lent.merge(held) { _, new in new }
+        defer { lent = previous }
+        return draw()
     }
 }
 #endif

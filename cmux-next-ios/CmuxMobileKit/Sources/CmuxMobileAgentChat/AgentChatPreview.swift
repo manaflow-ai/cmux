@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import SwiftUI
+import UIKit
 
 /// A static, bottom-aligned rendering of the newest turns: what the chat
 /// looks like at rest, for tab grid cards and swipe neighbors. No scroll
@@ -33,6 +34,26 @@ public struct AgentChatPreview: View {
     /// cache let go since (`SentAttachmentThumbnails.resident`). Not observed.
     public static func picturesResident(_ turns: [AgentTurn]) -> Bool {
         SentAttachmentThumbnails.shared.resident(turns)
+    }
+
+    /// The thumbnails a still being drawn holds, so the cache's bound cannot let one go between
+    /// the check and the draw, or while the still waits for another (`picturesResident(_:holding:)`).
+    public struct PictureHold {
+        var images: [String: UIImage] = [:]
+        public init() {}
+        /// No thumbnail held.
+        public var isEmpty: Bool { images.isEmpty }
+    }
+
+    /// `picturesResident(_:)` for a still that waits: the thumbnails found in memory are kept in
+    /// `hold`, and count as in memory on the next call even if the cache let them go.
+    public static func picturesResident(_ turns: [AgentTurn], holding hold: inout PictureHold) -> Bool {
+        SentAttachmentThumbnails.shared.resident(turns, holding: &hold.images)
+    }
+
+    /// Draws a still (`draw`, synchronous) with `hold`'s thumbnails readable by its bubbles.
+    public static func drawing<T>(_ hold: PictureHold, _ draw: () -> T) -> T {
+        SentAttachmentThumbnails.shared.drawing(hold.images, draw)
     }
 
     public var body: some View {
