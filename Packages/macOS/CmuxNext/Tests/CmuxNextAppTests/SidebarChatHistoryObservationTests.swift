@@ -9,6 +9,9 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SidebarChatHistoryObservationTests {
     private static let host = "install:chat-history-harness"
+    private final class Counter: @unchecked Sendable {
+        var value = 0
+    }
 
     private func fixture(count: Int = 400) -> ([TabModel], AgentLaneStore) {
         let lanes = AgentLaneStore()
@@ -32,10 +35,10 @@ struct SidebarChatHistoryObservationTests {
     }
 
     private func invalidations(_ read: () -> Void, mutate: () -> Void) -> Int {
-        var count = 0
-        withObservationTracking(read) { count += 1 }
+        let counter = Counter()
+        withObservationTracking(read) { counter.value += 1 }
         mutate()
-        return count
+        return counter.value
     }
 
     @Test func turnStateDoesNotInvalidateTheFourHundredTabChatProjection() {
@@ -98,11 +101,11 @@ struct SidebarChatHistoryObservationTests {
                                                                                    session: session,
                                                                                    harness: "claude"))
         let observedTab = TabModel(snapshot)
-        var invalidated = false
+        let counter = Counter()
         withObservationTracking({
             _ = SidebarChatHistoryFeed.liveChats([observedTab], lanes: lanes, localHost: Self.host)
         }) {
-            invalidated = true
+            counter.value = 1
         }
 
         lanes.set("other", AgentActivityLane(id: "other", name: "other", title: "Other", peer: nil,
@@ -111,6 +114,6 @@ struct SidebarChatHistoryObservationTests {
                                              parent: nil, state: .idle, since: nil, error: nil,
                                              harness: "claude", chat: "claude-code:(session)"))
 
-        #expect(invalidated)
+        #expect(counter.value == 1)
     }
 }
