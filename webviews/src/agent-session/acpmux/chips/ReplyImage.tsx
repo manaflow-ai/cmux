@@ -146,15 +146,15 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  // Use the shared compositor-only fade for a calm handoff from the placeholder.
-  // The motion is disabled under reduced-motion; opacity never affects layout.
   const image = (
     <img
-      className={thumb ? "cv-thumb__img cv-img--enter" : "cv-img cv-img--enter"}
+      className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
-      decoding="async"
+      // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
+      // second, visibly different frame.
+      decoding="sync"
     />
   );
   if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;

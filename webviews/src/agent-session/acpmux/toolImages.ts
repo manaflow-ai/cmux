@@ -48,8 +48,13 @@ export function toolImages(tool: Tool): string[] {
     // A template in code or a command line (`/src/${variant}-320.png`) names no file.
     if (path.startsWith("/") && IMAGE_FILE.test(path) && !isTemplatePath(path)) add(path);
   };
-  for (const path of editedPaths(tool)) file(path);
-  for (const location of tool.locations ?? []) file(location.path);
+  // A read that returned its image (Claude Code's Read of a PNG) already shows that file: its path
+  // would draw it again, as "Image unavailable" when the chat runs on another machine.
+  const readItsImage = tool.kind === "read" && Boolean(tool.images?.length);
+  if (!readItsImage) {
+    for (const path of editedPaths(tool)) file(path);
+    for (const location of tool.locations ?? []) file(location.path);
+  }
   for (const match of tool.output?.matchAll(IMAGE_PATH) ?? []) file(match[0].replace(/[.,;:]+$/, ""));
   return [...envelope, ...found.filter((source) => !envelope.includes(source))];
 }

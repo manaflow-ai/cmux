@@ -58,8 +58,6 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
-        // A zoom that landed in this frame lets go of the panes it covered.
-        releaseCovered()
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
@@ -137,10 +135,14 @@ extension ScreenContentView {
     /// Work per frame is O(what changed): a host whose placed frame, alpha, clip and covers are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
-    /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
+    /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
+        presentationPasses += 1
+        let force = force || forcesPresentation
+        forcesPresentation = false
+        defer { releaseCovered() } // A zoom that landed in this pass lets go of the panes it covered.
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
@@ -228,7 +230,6 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
-        updateScrollbar()
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
@@ -244,6 +245,7 @@ extension ScreenContentView {
         // The handles moved under a still pointer, or the panes did (a zoom covers handles).
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
+        updateScrollbar() // After the sync request: its thumb (a page occluder) rides that sync's page update.
     }
     /// Divider hover from the pointer and the current frames (`ScreenDividers`).
     func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
