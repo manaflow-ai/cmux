@@ -1,15 +1,17 @@
 // l10n-allow-file: bench fixture prompts and replies, not shipped UI.
 // Switching to another chat inside the running pane: the production pane (a vite build of the pane's
 // dev entry) joins a stand-in acpmux that holds two TURNS-turn chats, A and B. Each round loads A
-// cold, waits until it is painted and still, then asks the pane to select B the way the host's
+// cold, waits until it is painted, then asks the pane to select B the way the host's
 // sidebar does (`cmuxAcpmuxActions["chat.select"]`) and records, from that call (performance.now()):
 //   latest     B's newest message ("Reply N:") painted;
 //   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
 //              position and height unchanged;
 //   long ms    long-task time from the call to settled, and the layout-shift sum over the same window.
-// Two arms: `cold` selects B with no warning; `prefetched` first sends the host's hover signal
-// (`chat.prefetch`) and waits 500 ms, so B's newest page is already in memory (direct.ts `prefetch`).
-// The stand-in lists the methods the pane sent for the switch, so a slow arm shows what it asked for.
+// Two arms. `unread`: B is selected 150 ms after A paints, before the pane's idle read-ahead of the
+// list's recent chats (direct.ts READ_AHEAD_DELAY_MS, 600 ms) has read it, so the switch waits on the
+// daemon. `read ahead`: B is selected after 1.2 s of idle, once the read-ahead has kept B's newest
+// page, so the switch draws it from memory. The stand-in lists the methods the pane sent for the
+// switch, so a slow arm shows what it asked for.
 // LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
@@ -142,7 +144,7 @@ try {
   releases.push(["browser", () => browser.close()]);
 
   type Round = { latest: number; settled: number; longTasks: number; longMs: number; shift: number; sent: string[] };
-  const open = async (prefetched: boolean): Promise<Round> => {
+  const open = async (idle: number): Promise<Round> => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     calls = [];
     await page.goto(url);
@@ -150,17 +152,8 @@ try {
       timeout: 120_000,
       polling: 100,
     });
-    // A is painted: let it go still before the switch.
-    await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 800)));
-    if (prefetched) {
-      await page.evaluate(
-        (id) =>
-          (window as unknown as { cmuxAcpmuxActions: Record<string, (p: unknown) => Promise<unknown>> })
-            .cmuxAcpmuxActions["chat.prefetch"]!({ sessionId: id }),
-        B,
-      );
-      await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 500)));
-    }
+    // A is painted: the unread arm switches before the read-ahead's delay, the other after it.
+    await page.evaluate((idle) => new Promise<void>((resolve) => setTimeout(resolve, idle)), idle);
     calls = [];
     const got = await page.evaluate(
       ([id, text]) =>
@@ -228,13 +221,13 @@ try {
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
   console.log(`chat-switch: ${TURNS} turns per chat, answers delayed ${LATENCY} ms, median of ${ROUNDS}`);
   console.log("arm | latest ms | settled ms | long tasks | long ms | layout shift");
-  for (const [arm, prefetched] of [
-    ["cold", false],
-    ["prefetched", true],
+  for (const [arm, idle] of [
+    ["unread", 150],
+    ["read ahead", 1200],
   ] as const) {
-    await open(prefetched); // warm the server and the browser process
+    await open(idle); // warm the server and the browser process
     const rounds: Round[] = [];
-    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(prefetched));
+    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle));
     const of = (pick: (r: Round) => number) => median(rounds.map(pick));
     console.log(
       [
