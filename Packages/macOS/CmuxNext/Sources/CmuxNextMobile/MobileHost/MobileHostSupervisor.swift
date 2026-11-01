@@ -40,10 +40,10 @@ public actor MobileHostSupervisor {
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                    cloudLinks: @escaping @Sendable () async -> [MobileHostCloudLink] = { [] }) {
+                    cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil) {
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
-            self.cloudLinks = cloudLinks
+            self.cloudLinks = cloudLinks ?? { [] }
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux

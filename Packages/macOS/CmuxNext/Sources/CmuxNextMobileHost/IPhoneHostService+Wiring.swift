@@ -36,7 +36,7 @@ extension IPhoneHostService {
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
-                     cloudLinks: @escaping @Sendable () async -> [MobileHostCloudLink] = { [] },
+                     cloudLinks: (@Sendable () async -> [MobileHostCloudLink])? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -113,7 +113,7 @@ extension IPhoneHostService {
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,
-            cloudLinks: cloudLinks,
+            cloudLinks: cloudLinks ?? { [] },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             chief: chief
         )
