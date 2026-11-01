@@ -184,3 +184,22 @@ test("resource hints are inert and the browser's own DNS prefetch is off", async
   expect(parsed.querySelectorAll("link").length).toBe(0);
   expect(parsed.querySelector('meta[http-equiv="x-dns-prefetch-control"]')?.getAttribute("content")).toBe("off");
 });
+
+test("links that leave the document point nowhere, so no engine resolves their hosts", async () => {
+  await show(
+    "```html\n" +
+      "<a href=\"https://a.invalid/x\">a</a><a HREF=//b.invalid>b</a><a href='#local'>c</a>" +
+      '<svg><image xlink:href="data:image/png;base64,AA=="/><use href="https://c.invalid/s.svg#i"/></svg>' +
+      "\n```\n",
+  );
+  const parsed = new DOMParser().parseFromString(frame()!.getAttribute("srcdoc")!, "text/html");
+  const anchors = [...parsed.querySelectorAll("a")];
+  expect(anchors.map((a) => a.getAttribute("href"))).toEqual(["#", "#", "#local"]);
+  expect(anchors[0]!.getAttribute("data-href")).toBe("https://a.invalid/x");
+  expect(parsed.querySelector("image")!.getAttribute("xlink:href")).toStartWith("data:image/png");
+  expect(parsed.querySelector("use")!.getAttribute("href")).toBe("#");
+  // No attribute anywhere still names a host.
+  for (const element of parsed.querySelectorAll("*"))
+    for (const attribute of element.attributes)
+      if (/^(xlink:)?href$/i.test(attribute.name)) expect(attribute.value).not.toContain(".invalid");
+});

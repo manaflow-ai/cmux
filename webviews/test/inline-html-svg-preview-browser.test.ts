@@ -116,11 +116,13 @@ parent.postMessage({ type: "probe-ran" }, "*");
         };
         return {
           refreshes: document.querySelectorAll("meta[http-equiv=refresh i]").length,
+          outHref: document.getElementById("out")!.getAttribute("href"),
           outPrevented: click("out"),
           inPrevented: click("in"),
         };
       });
-      expect(result).toEqual({ refreshes: 0, outPrevented: true, inPrevented: false });
+      // The link out points nowhere (previewDocument.ts inertDocument), so clicking it cannot leave.
+      expect(result).toEqual({ refreshes: 0, outHref: "#", outPrevented: false, inPrevented: false });
       expect(requests).toEqual([]);
       await page.close();
     });

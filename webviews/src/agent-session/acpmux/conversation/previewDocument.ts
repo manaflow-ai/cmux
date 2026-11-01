@@ -52,7 +52,14 @@ export function previewPolicy(nonce: string | undefined): string {
 /// the policy is the document's and a page the frame navigated to would run without it.
 const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(link&&!(link.getAttribute("href")||"").startsWith("#"))event.preventDefault();},true);})();`;
 
-/// The document with what the policy cannot stop made inert. Every `http-equiv` attribute:
+/// A link attribute and its value; the character before it keeps it an attribute boundary (text that
+/// merely reads `href=` is renamed too, which only changes what the preview shows).
+const LINK_ATTRIBUTE = /([\s"'/])((?:xlink:)?href)(\s*=\s*)("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi;
+
+/// The document with what the policy cannot stop made inert. Every link that leaves the document
+/// (`href` and `xlink:href` other than a `#fragment` or an inline `data:`/`blob:` image): an engine
+/// may resolve its host speculatively, which the policy does not stop, so it becomes `#` and the
+/// original stays in `data-href` (a click on it is refused anyway). Every `http-equiv` attribute:
 /// `<meta http-equiv="refresh">` is the one way markup with no script navigates its frame by itself
 /// (neither the policy nor the sandbox stops it), to a page that would run without the policy. Every
 /// `<link>` element: resource hints (`dns-prefetch`, `preconnect`) reach the network outside
@@ -61,7 +68,14 @@ const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIE
 /// nothing, and text that merely mentions either reads renamed in the preview (Code shows the source
 /// as written).
 export function inertDocument(html: string): string {
-  return html.replace(/http-equiv/gi, "data-http-equiv").replace(/<link(?=[\s/>])/gi, "<cmux-inert-link");
+  return html
+    .replace(/http-equiv/gi, "data-http-equiv")
+    .replace(/<link(?=[\s/>])/gi, "<cmux-inert-link")
+    .replace(LINK_ATTRIBUTE, (whole, before: string, name: string, equals: string, value: string) => {
+      const target = value.replace(/^["']|["']$/g, "");
+      if (target.startsWith("#") || /^(?:data|blob):/i.test(target)) return whole;
+      return `${before}data-${name}${equals}${value} ${name}="#"`;
+    });
 }
 
 /// Turns off the browser's own DNS prefetch of the document's link targets.
