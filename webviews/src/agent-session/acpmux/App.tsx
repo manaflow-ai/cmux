@@ -8,6 +8,7 @@ import React, {
   memo,
   Suspense,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
@@ -65,6 +66,7 @@ import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
   SteerWaitingActions,
+  WaitingMessageMenu,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
@@ -328,7 +330,7 @@ import {
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
+import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -434,6 +436,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
+import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
   forkRefusal,
@@ -1188,6 +1191,33 @@ const MessageRow = memo(
     // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.inboxThread)
+      return (
+        <div className="cv-incoming">
+          <InboxNoticeCard
+            rowId={row.id}
+            messageAt={row.at}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                  ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
+                },
+              ],
+            }}
+            onOpen={openSenderChat}
+            readThread={readInboxThread}
+            githubRepository={githubRepository}
+            actions={row.inboxQueue ? <InboxQueueActions queue={row.inboxQueue} version={row.version} /> : undefined}
+          />
+        </div>
+      );
     // acpmux's inbox notice: its threads as received lines, never its text for the agent
     // (conversation/InboxNoticeCard.tsx).
     if (row.kind === "user" && row.incoming?.kind === "inbox")
@@ -1671,6 +1701,33 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now/Dismiss
+/// controls beside the first flattened preview row without turning every delivery into a queue row.
+const InboxQueueActions = memo(function InboxQueueActions({
+  queue,
+  version,
+}: {
+  queue: NonNullable<AcpmuxRow["inboxQueue"]>;
+  version: number;
+}) {
+  const act = useContext(TurnActionsContext).queuedMessages?.();
+  const [sentAt, setSentAt] = useState<number>();
+  const fail = () => undefined;
+  return (
+    <span className="cv-received-actions">
+      <MessageFooterRow>
+        <WaitingMessageMenu
+          sendNow={
+            act && !queue.next && sentAt !== version
+              ? () => void act.steer(queue.promptId).then((ok) => ok && setSentAt(version), fail)
+              : undefined
+          }
+          dismiss={act ? () => void act.remove(queue.promptId).catch(fail) : undefined}
+        />
+      </MessageFooterRow>
+    </span>
+  );
+});
 /// The messages that wait for the agent, as one group (conversation/PendingMessagesCard.tsx): each
 /// message draws in it as its own row draws alone.
 const PendingMessagesRow = memo(
@@ -1678,6 +1735,10 @@ const PendingMessagesRow = memo(
     const renderMessage = (message: AcpmuxRow) =>
       message.kind === LANE_NOTICE_BATCH ? (
         <LaneNoticeBatch row={message} renderMessage={renderMessage} />
+      ) : message.inboxThread ? (
+        <MessageRow {...props} row={message} />
+      ) : message.inboxQueue ? (
+        <QueuedMessageRow {...props} row={{ ...message, queuedMessage: message.inboxQueue }} />
       ) : message.kind === QUEUED_MESSAGE ? (
         <QueuedMessageRow {...props} row={message} />
       ) : (
@@ -6587,7 +6648,10 @@ function AcpmuxPane() {
         },
         last?.turns,
       );
-      const subagents = subagentRowsFrom(turns.rows, folds, last?.subagents);
+      // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
+      // for turn boundaries, retries and queue actions; this is a display-only projection.
+      const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
+      const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
       return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);

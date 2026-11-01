@@ -149,6 +149,8 @@ export type TurnView = {
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
+  /// Unchanged display prefix, excluding its last row whose fold boundary can change.
+  reusedRows?: number;
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
   waitingSteers?: readonly string[];
   /// Other sessions' messages in the last turn the agent has not read yet, which it does not draw:
@@ -241,6 +243,7 @@ export function turnViewFrom(
   // The first turn's line depends on `now`.
   if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
     reuse = 0;
+  let reusedRows = 0;
   let index: number;
   let lead: number;
   let out: AcpmuxRow[];
@@ -252,6 +255,7 @@ export function turnViewFrom(
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
     const boundary = previous!.ends[reuse - 1];
+    reusedRows = Math.max(0, (boundary?.count ?? 0) - 1);
     out = previous!.rows.slice(0, boundary?.count);
     if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
@@ -340,6 +344,7 @@ export function turnViewFrom(
     working,
     sessionStatus,
     messageBreaks,
+    reusedRows,
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
     lead,
