@@ -93,6 +93,7 @@ import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
+import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -974,9 +975,19 @@ export function NewTabScreen(props: Props) {
       if (!active || active === fieldElement()?.ownerDocument.body) field.current?.focus();
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
+    // Tab with nothing focused goes to the field, not through the project and machine chips that
+    // head it (Leo 2026-10-20); Shift-Tab from the field still reaches them.
+    const doc = fieldElement()?.ownerDocument;
+    const tab = (event: KeyboardEvent) => {
+      if (!doc || !field.current || !tabsToComposer(event, doc)) return;
+      event.preventDefault();
+      field.current.focus();
+    };
+    if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
+      doc?.removeEventListener("keydown", tab);
     };
   }, [inputToken, focusOnShow, fieldReady]);
 
