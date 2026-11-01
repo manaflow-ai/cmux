@@ -526,6 +526,17 @@ class Main(unittest.TestCase):
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
         self.assertEqual(out, {"owned": SIDE})
 
+    def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
+        # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
+        # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
+        # the first watched owned pool; without it they keep Blacksmith.
+        def broken(token: str, repo: str):
+            raise OSError("HTTP 403: API rate limit exceeded for installation")
+        out = self.run_main({"UNREAD_OWNED_FALLBACK": "1"}, argv=("verify",), read_runners=broken, read_snapshot=broken)
+        self.assertEqual(out, {"owned": SIDE})
+        out = self.run_main({}, argv=("verify",), read_runners=broken, read_snapshot=broken)
+        self.assertEqual(out, {"owned": ""})
+
     def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
         # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
         # while the owned nightly slots took the next two tips.
@@ -567,18 +578,24 @@ class Main(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_only_the_rescued_build_pick_opts_into_the_unread_owned_fallback(self) -> None:
-        # nightly.yml's build pick: on only while the CI_PR_POOL_OWNED kill switch is on (the rescue watches it).
+    def test_only_the_nightly_build_and_verify_picks_opt_into_the_unread_owned_fallback(self) -> None:
+        # nightly.yml's build pick and the sign picker's verify pick (run 41335987427): on only while the
+        # CI_PR_POOL_OWNED kill switch is on.
         import yaml  # noqa: PLC0415
-        steps = DOC["jobs"]["pick-nightly-build-runner"]["steps"]
-        pick = next(step for step in steps if step.get("id") == "pick")
-        flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
-        # And only while the rescue runs (ci-owned-pool-rescue.yml: CI_OWNED_POOL_RESCUE unset or not '0').
-        for owned_on, rescue_on, want in (("1", "", "1"), ("1", "1", "1"), ("1", "0", ""), ("0", "", ""),
-                                          ("", "", ""), ("0", "1", "")):
-            with self.subTest(owned_on=owned_on, rescue_on=rescue_on):
-                context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
-                self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+        picks = {"pick-nightly-build-runner": "pick", "pick-nightly-sign-runner": "owned"}
+        for job, step_id in picks.items():
+            steps = DOC["jobs"][job]["steps"]
+            pick = next(step for step in steps if step.get("id") == step_id)
+            flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
+            # And only while the rescue runs (ci-owned-pool-rescue.yml: CI_OWNED_POOL_RESCUE unset or not '0').
+            for owned_on, rescue_on, want in (("1", "", "1"), ("1", "1", "1"), ("1", "0", ""), ("0", "", ""),
+                                              ("", "", ""), ("0", "1", "")):
+                with self.subTest(job=job, owned_on=owned_on, rescue_on=rescue_on):
+                    context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
+                    self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+        # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
+        sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
+        self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
         # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
         train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())
         for step in train["jobs"]["pick-train-runner"]["steps"]:
