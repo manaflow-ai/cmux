@@ -10,10 +10,11 @@
 //! Workers are bounded by the v2 `terminal.wait` budget
 //! (`resource_wait_admission`: 8 per connection, 64 per daemon, shared with
 //! `terminal.wait`). A wait over that budget is refused at once, never queued
-//! on the dispatcher. The wait still starts in request order, so input sent
-//! before it reaches the terminal first; only later requests stop waiting for
-//! its end, and their replies may come before its own (clients match replies
-//! by id). Closing the connection cancels the wait (the scheduler's
+//! on the dispatcher. The wait is handed over in request order, so input sent
+//! before it reaches the terminal first; later requests no longer wait for its
+//! end and may run while it makes its first check, and their replies may come
+//! before its own (clients match replies by id). A one-shot check
+//! (`timeout_ms` 0) does not wait and stays on the dispatcher. Closing the connection cancels the wait (the scheduler's
 //! cancellation and the writer's close both wake it), and its worker returns
 //! the permit as it ends. A graceful drain (the client half-closed after
 //! sending) still waits for the reply, as it did inline.
@@ -23,9 +24,11 @@ use crate::panic_free::RecoverPoison;
 
 impl Command {
     /// Commands that block until something outside the daemon happens, and
-    /// so run on a wait worker rather than the connection's dispatcher.
+    /// so run on a wait worker rather than the connection's dispatcher. A
+    /// one-shot `wait-for` (`timeout_ms` 0) is a single screen check: it stays
+    /// on the dispatcher, exactly in request order, and takes no permit.
     pub(super) fn waits_off_dispatch(&self) -> bool {
-        matches!(self, Self::WaitFor { .. })
+        matches!(self, Self::WaitFor { timeout_ms, .. } if *timeout_ms > 0)
     }
 }
 

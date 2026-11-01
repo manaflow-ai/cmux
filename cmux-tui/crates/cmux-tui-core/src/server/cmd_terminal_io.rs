@@ -318,7 +318,9 @@ pub(super) fn wait_for(
         }
         anyhow::bail!("timeout waiting for pattern");
     }
-    let deadline = start + Duration::from_millis(timeout_ms);
+    let deadline = start
+        .checked_add(Duration::from_millis(timeout_ms))
+        .ok_or_else(|| anyhow::anyhow!("timeout_ms is too large"))?;
     let attach = surface.attach_stream()?;
     // The wait ends on output, the deadline, or the connection
     // closing; it used to wake every 100 ms to check the last.
