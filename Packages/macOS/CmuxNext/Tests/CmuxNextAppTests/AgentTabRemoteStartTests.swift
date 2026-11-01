@@ -78,7 +78,7 @@ struct AgentTabRemoteStartTests {
         let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
         await #expect(throws: AgentRemoteStartRefusal(code: "agent_session.host_unverified", machine: "Shared VM")) {
             _ = try await tabs.startRemoteChat(key, machine: "Shared VM", ownerLink: { 17 },
-                                               verifyChatStart: { throw CancellationError() }, teammate: { false },
+                                               verifyChatStart: { throw URLError(.timedOut) }, teammate: { false },
                                                endpoint: { Issue.record("the permission check failed but a start was dialed"); throw CancellationError() })
         }
         #expect(tabs.sessions[key] == nil)
