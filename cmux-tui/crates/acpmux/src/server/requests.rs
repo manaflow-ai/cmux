@@ -954,7 +954,7 @@ async fn dispatch_request(
                     .map(Value::from),
                 );
             }
-            Ok(reply)
+            Ok(queued::advertised(reply))
         }
         method::AUTHENTICATE => Ok(json!({})),
         method::MUX_GITHUB_APP_LEASE => {

@@ -471,7 +471,7 @@ jobs:
     name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions: {}
     timeout-minutes: 5
     steps:

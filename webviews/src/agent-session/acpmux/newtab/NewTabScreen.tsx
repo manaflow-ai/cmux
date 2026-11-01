@@ -15,7 +15,7 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../s
 import { WorktreeFailure } from "../startFolder";
 import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
-import { errorMessage } from "../transportErrors";
+import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -93,6 +93,7 @@ import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
+import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -599,7 +600,10 @@ export function NewTabScreen(props: Props) {
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   const [startError, setStartError] = useState<string>();
-  const asking = useRef(false);
+  /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
+  /// opens the page again, never an older one's late reply.
+  const asking = useRef(0);
+  const askCount = useRef(0);
   /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
   /// no project, leaves only once it has started): Send spins in its own box until the start
   /// answers (and a hidden live line says "Starting Claude Code…"), so a slow start never reads as
@@ -607,15 +611,19 @@ export function NewTabScreen(props: Props) {
   const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
-    asking.current = true;
+    const request = ++askCount.current;
+    asking.current = request;
     setStartError(undefined);
     setStarting(args[0]);
     const failed = (error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
       created.current = false;
+      // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
+      // failure: the draft stays and nothing says it failed. A real refusal still says why.
+      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
     };
     const done = () => {
-      asking.current = false;
+      if (asking.current !== request) return;
+      asking.current = 0;
       setStarting(undefined);
     };
     try {
@@ -967,9 +975,19 @@ export function NewTabScreen(props: Props) {
       if (!active || active === fieldElement()?.ownerDocument.body) field.current?.focus();
     };
     if (focusOnShow) view?.addEventListener("focus", reclaim);
+    // Tab with nothing focused goes to the field, not through the project and machine chips that
+    // head it (Leo 2026-10-20); Shift-Tab from the field still reaches them.
+    const doc = fieldElement()?.ownerDocument;
+    const tab = (event: KeyboardEvent) => {
+      if (!doc || !field.current || !tabsToComposer(event, doc)) return;
+      event.preventDefault();
+      field.current.focus();
+    };
+    if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
+      doc?.removeEventListener("keydown", tab);
     };
   }, [inputToken, focusOnShow, fieldReady]);
 

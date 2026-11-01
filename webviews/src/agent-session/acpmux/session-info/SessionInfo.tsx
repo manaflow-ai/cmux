@@ -95,6 +95,8 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import { UsageSection, usageMeta } from "./UsageSection";
+import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
@@ -268,6 +270,7 @@ export function useSessionInfo({
   snapshot,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   onOpenOutput,
   onOpenSourceFile,
@@ -292,6 +295,8 @@ export function useSessionInfo({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onOpenChat,
+  onShowUsage,
   onRender,
 }: {
   snapshot: AcpmuxSnapshot;
@@ -313,6 +318,8 @@ export function useSessionInfo({
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
   repository?: string;
+  /// Native says whether this pane has an authenticated Cloud repository route.
+  cloudRepositoryAvailable?: boolean;
   /// The pane's shell: Session Info measures it to float or push.
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
@@ -356,8 +363,13 @@ export function useSessionInfo({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
+  /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   /// Test-only render probe for the transcript scroll isolation regression test.
   onRender?: () => void;
 }): {
@@ -401,6 +413,8 @@ export function useSessionInfo({
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
+  const stableOnOpenChat = useStableCallback(onOpenChat);
+  const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
   const stableOnStopProcess = useStableCallback(onStopProcess);
   const openOutput = useMemo(
@@ -488,6 +502,7 @@ export function useSessionInfo({
         pullRequest={pullRequest}
         machineName={machineName}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
         beside={beside}
         wide={wide}
@@ -510,6 +525,8 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
+        onOpenChat={stableOnOpenChat}
+        onShowUsage={stableOnShowUsage}
         onRender={onRender}
         onOpenDocument={stableOnOpenDocument}
         onShowCall={stableOnShowCall}
@@ -556,6 +573,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest,
   machineName,
   repository,
+  cloudRepositoryAvailable,
   shell,
   beside,
   wide,
@@ -578,6 +596,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onOpenChat,
+  onShowUsage,
   onRender,
   onOpenDocument,
   onShowCall,
@@ -591,6 +611,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   pullRequest: HeaderPullRequest | undefined;
   machineName?: string;
   repository?: string;
+  cloudRepositoryAvailable?: boolean;
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
@@ -626,6 +647,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   onRender?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
@@ -776,6 +801,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         machineName={machineName}
         peerKinds={snapshot.peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
         artifacts={artifacts}
@@ -794,6 +820,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onStopWorkflow={workflows?.onStop}
         onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
+        // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
+        allSessions={scope ? undefined : snapshot.sessions}
+        onOpenChat={onOpenChat}
+        onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -997,6 +1027,7 @@ export function SessionInfo({
   machineName,
   peerKinds,
   repository,
+  cloudRepositoryAvailable,
   made,
   links = [],
   artifacts = 0,
@@ -1032,6 +1063,9 @@ export function SessionInfo({
   onCompact,
   onOpenFolder,
   onShowCall,
+  allSessions,
+  onOpenChat,
+  onShowUsage,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1042,6 +1076,7 @@ export function SessionInfo({
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
+  cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
@@ -1094,8 +1129,16 @@ export function SessionInfo({
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
-  /// turn runs (the /compact queues behind it).
+  /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
+  /// subagent's own panel.
+  allSessions?: readonly AcpmuxSessionEntry[];
+  /// Opens one of them.
+  onOpenChat?: (sessionId: string) => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1142,23 +1185,37 @@ export function SessionInfo({
   // in view still shows it answered (the header's Environment line, Leo 2026-10-21: no dead clicks).
   // Not the reveal effect's cleanup: `onRevealed` clears the reveal at once, which would put it out.
   const lit = useRef<{ section: HTMLElement; timer: number }>(undefined);
-  const unlight = () => {
+  const unlight = useCallback(() => {
     if (!lit.current) return;
     window.clearTimeout(lit.current.timer);
     delete lit.current.section.dataset.revealed;
     lit.current = undefined;
-  };
-  useEffect(() => unlight, []);
+  }, []);
+  useEffect(() => unlight, [unlight]);
+  const light = useCallback(
+    (id: SessionInfoSectionId) => {
+      const section = body.current?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+      section?.scrollIntoView?.({ block: "nearest" });
+      if (!section) return;
+      unlight();
+      section.dataset.revealed = "";
+      lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
+    },
+    [unlight],
+  );
   useEffect(() => {
     if (!revealed) return;
-    const section = body.current?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`);
-    section?.scrollIntoView?.({ block: "nearest" });
+    light(revealed.section);
     onRevealed?.();
-    if (!section) return;
-    unlight();
-    section.dataset.revealed = "";
-    lit.current = { section, timer: window.setTimeout(unlight, REVEAL_LIT_MS) };
-  }, [revealed, onRevealed]);
+  }, [revealed, onRevealed, light]);
+  // Usage's Show: Subagents opens, comes into view and lights, as a reveal does.
+  const showSubagents = useCallback(() => {
+    (onSection ?? setSessionInfoSection)("subagents", true);
+    light("subagents");
+  }, [onSection, light]);
+  // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
+  useEffect(() => onShowUsage?.(), [onShowUsage]);
+  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
@@ -1197,6 +1254,7 @@ export function SessionInfo({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
+        cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
         onOpenFolder={onOpenFolder}
@@ -1352,6 +1410,29 @@ export function SessionInfo({
       )}
     </SessionInfoSection>
   );
+  // Usage shows once acpmux reports what this chat or any listed chat spends.
+  const ownUsage = summary?.usageStats;
+  const usageValue = usageMeta(t, ownUsage, language);
+  const usageSection = (ownUsage || anyUsage) && (
+    <SessionInfoSection
+      id="usage"
+      title={t("sessionInfo.usage")}
+      icon={rowIcon("agent.activity")}
+      open={state.usage}
+      onOpenChange={fold("usage")}
+      meta={usageValue && value(usageValue)}
+    >
+      <UsageSection
+        own={ownUsage}
+        sessions={allSessions ?? []}
+        chatId={chatId}
+        onOpen={onOpenChat}
+        onCompact={onCompact}
+        onShowSubagents={subagentsSection ? showSubagents : undefined}
+        locale={language}
+      />
+    </SessionInfoSection>
+  );
   return (
     <div ref={body} className="acpmux-session-info__body" data-layout={layout}>
       {banner}
@@ -1360,6 +1441,7 @@ export function SessionInfo({
         sections={{
           environment,
           context,
+          usage: usageSection,
           connectors,
           changes,
           sources: sourcesSection,

@@ -83,8 +83,9 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
+import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
-import { errorMessage } from "./transportErrors";
+import { errorMessage, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabChat, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
@@ -1216,6 +1217,7 @@ const MessageRow = memo(
                   blocker: false,
                   promptIds: [...row.inboxThread.promptIds],
                   ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
+                  ...(row.inboxThread.fromHarness ? { fromHarness: row.inboxThread.fromHarness } : {}),
                 },
               ],
             }}
@@ -5758,6 +5760,7 @@ function AcpmuxPane() {
   // This Mac's own name (`localMachineName`): `machineName` names a seeded chat's machine instead.
   const [localMachineName, setLocalMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -7076,6 +7079,8 @@ function AcpmuxPane() {
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
   );
+  // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
+  const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
   const reconnectPeer = useCallback(
     (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
     [],
@@ -8208,6 +8213,7 @@ function AcpmuxPane() {
     snapshot: cardSnapshot,
     machineName,
     repository: githubRepository,
+    cloudRepositoryAvailable,
     shell,
     onOpenOutput: quick ? undefined : sessionInfoSubagent ? openSubagentOutput : openOutput,
     onOpenSourceFile: quick || !sessionInfoLocal ? undefined : (path) => openSourceFile(path, callNative),
@@ -8235,7 +8241,10 @@ function AcpmuxPane() {
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     remoteControl: sessionInfoRemoteControl,
+    // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
+    onOpenChat: openSenderChat,
     onCompact: compactChat,
+    onShowUsage: refreshUsage,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
@@ -9017,10 +9026,33 @@ function AcpmuxPane() {
   const folderPick = useRef(0);
   const shownSession = useRef(snapshot.sessionId);
   shownSession.current = snapshot.sessionId;
+  /// Ends the folder request still waiting (its host reply, its question, or its Use Home Folder
+  /// answer) as cancelled. A newer request or worktree replaces it: its folder is never used, and
+  /// its sender settles instead of waiting forever (a New Tab send would stay "asking" and ignore
+  /// every later Return).
+  const dropFolderRequest = useRef<(() => void) | undefined>(undefined);
 
   const requestFolder = useCallback(
-    (cwd: string, use: (folder: string) => void, cancel?: () => void): Promise<void> => {
+    (cwd: string, use: (folder: string) => void, cancel?: (refusal?: unknown) => void): Promise<void> => {
+      dropFolderRequest.current?.();
       const pick = ++folderPick.current;
+      // This request ends once: with the folder the host took, or cancelled. Only its own end
+      // settles its sender; a newer request's sender keeps waiting for its own reply.
+      let ended = false;
+      const end = () => {
+        if (ended) return false;
+        ended = true;
+        if (dropFolderRequest.current === dropped) dropFolderRequest.current = undefined;
+        return true;
+      };
+      // `refusal`: the host refused the path itself, which its sender reports; else cancelled.
+      const dropped = (refusal?: unknown) => {
+        if (end()) cancel?.(refusal);
+      };
+      const took = (folder: string) => {
+        if (end()) use(folder);
+      };
+      dropFolderRequest.current = dropped;
       folderConfirmGeneration.current += 1;
       folderConfirmInFlight.current = false;
       setFolderConfirming(false);
@@ -9035,11 +9067,16 @@ function AcpmuxPane() {
         callNative,
         cwd,
         (folder) => {
-          if (pick === folderPick.current && stillHere()) use(folder);
+          // A stale reply (a newer pick, another chat) uses nothing, and still ends this request.
+          if (pick === folderPick.current && stillHere()) took(folder);
+          else dropped();
         },
-        cancel,
+        (refusal) => (pick === folderPick.current && stillHere() ? dropped(refusal) : dropped()),
       ).then((ask) => {
-        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId, ...visitOf(visit) });
+        if (!ask) return;
+        if (pick === folderPick.current && stillHere())
+          setFolderAsk({ ask, use: took, cancel: () => dropped(), sessionId, ...visitOf(visit) });
+        else dropped();
       });
     },
     [trustVisit],
@@ -9070,7 +9107,10 @@ function AcpmuxPane() {
           if (freshRef.current) setProjectDraft(folder);
           else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
         },
-        refused,
+        // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
+        (refusal) => {
+          if (refusal !== undefined) refused?.();
+        },
       );
     },
     [folderContinuation, requestFolder],
@@ -9080,7 +9120,9 @@ function AcpmuxPane() {
   const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
   const startInWorktree = useCallback(
     (cwd: string) => {
-      // A newer folder pick wins over this worktree, as between two picks.
+      // A newer folder pick wins over this worktree, as between two picks; the request this one
+      // replaces ends as cancelled.
+      dropFolderRequest.current?.();
       const pick = ++folderPick.current;
       folderConfirmGeneration.current += 1;
       folderConfirmInFlight.current = false;
@@ -9508,6 +9550,7 @@ function AcpmuxPane() {
           cloudCredentialRecoveryAvailable?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
+          cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
           model?: unknown;
@@ -9516,6 +9559,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
+        setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
@@ -9804,7 +9848,7 @@ function AcpmuxPane() {
           expectedSessionId?: string,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
-            throw new Error(translate("switch.cancelled"));
+            throw startCancelled();
           // The reader sent it: by default the transcript goes to its latest message now, even
           // scrolled up. With the preference off, only a reader already at the latest row follows;
           // an up-scroll keeps its row and offset while this prompt and its reply arrive below.
@@ -9912,7 +9956,7 @@ function AcpmuxPane() {
           };
           const ownsSession = () =>
             !expectedSessionId || (directClient.current === client && client.selectedSession === expectedSessionId);
-          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
+          if (!ownsSession()) throw startCancelled();
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
@@ -9958,9 +10002,9 @@ function AcpmuxPane() {
             // Creating the first session must not renew a canceled send's intent.
             cancelEpoch: sendOwner.cancelEpoch,
           };
-          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
+          if (!ownsSession()) throw startCancelled();
           await persistSession(sessionId);
-          if (!ownsSession()) throw new Error(translate("switch.cancelled"));
+          if (!ownsSession()) throw startCancelled();
           if (client.trustGeneration !== sendOwner.generation || client.selectedSession !== sendOwner.sessionId) {
             if (!accepted) restorePrompt(text, attachments);
             throw new Error("agent_session.changed_during_send");
@@ -11990,6 +12034,8 @@ function AcpmuxPane() {
     const use = (cwd: string) => {
       if (generation === folderConfirmGeneration.current && inThisVisit(asked, shownSession.current, trustVisit()))
         pending.use(cwd);
+      // Stale (another chat, a newer pick): nothing is used, and its sender stops waiting.
+      else pending.cancel?.();
     };
     folderConfirmInFlight.current = true;
     setFolderConfirming(asked);
@@ -13599,6 +13645,7 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
+        <CloudEnvironmentEditor />
         <DeleteChatDialog
           open={deleteConfirmOpen}
           onOpenChange={(next) => {
