@@ -10,7 +10,7 @@ use crate::rpc::{RpcError, method};
 use cmux_host::identity::HostIdentity;
 use serde_json::{Value, json};
 use sha2::Digest;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -282,7 +282,7 @@ fn exact_session(hub: &Hub, id: &str) -> Result<Arc<crate::hub::Session>, RpcErr
 fn bound_session(hub: &Hub, scope: &TriggerScope) -> Result<Arc<crate::hub::Session>, RpcError> {
     let session = exact_session(hub, &scope.session)?;
     let meta = session.meta();
-    if meta.cwd != PathBuf::from(&scope.cwd)
+    if meta.cwd != Path::new(&scope.cwd)
         || meta.harness != scope.harness
         || meta.workspace_id.as_deref() != Some(scope.workspace.as_str())
     {
@@ -294,7 +294,7 @@ fn bound_session(hub: &Hub, scope: &TriggerScope) -> Result<Arc<crate::hub::Sess
 async fn ensure(hub: &Arc<Hub>, scope: &TriggerScope) -> Result<Value, RpcError> {
     if let Ok(session) = exact_session(hub, &scope.session) {
         let meta = session.meta();
-        if meta.cwd != PathBuf::from(&scope.cwd)
+        if meta.cwd != Path::new(&scope.cwd)
             || meta.harness != scope.harness
             || meta.workspace_id.as_deref() != Some(scope.workspace.as_str())
         {

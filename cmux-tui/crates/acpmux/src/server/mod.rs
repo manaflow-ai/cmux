@@ -351,10 +351,6 @@ impl Conn {
         self.trigger.lock_or_recover().is_some()
     }
 
-    pub(super) fn trigger_scope(&self) -> Option<TriggerScope> {
-        self.trigger.lock_or_recover().clone()
-    }
-
     /// Admit the first verified scope, or require retries to carry the exact
     /// same scope. This prevents a connection from being retargeted between
     /// deliveries while retaining its trigger principal.
