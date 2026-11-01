@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 package import Security
 
@@ -28,7 +29,9 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        // No UI: an item another signature of this bundle id made is refused, never prompted for.
+        guard LoginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
+              let data = result as? Data else { return nil }
         return try? JSONDecoder().decode(BrowserHTTPRememberedLogin.self, from: data)
     }
 
