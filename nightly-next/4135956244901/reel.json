@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4135956244901",
+  "notes": "notes/4135956244901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31379,
+      "title": "base red: composer tests follow /login becoming a cmux command, and jsdom Range gets rects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31395,
+      "title": "fix cloud image user bus startup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31330,
+      "title": "debug(app): debug.focus names the creation hold of each window, so a held key names its holder",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28501,
+      "title": "NEXT: attachments show their source app's icon at the top-right corner (carry #27574)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31033,
+      "title": "cmux NEXT: opening an existing chat adopts the prewarmed page once its client is connected (carries #27759)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31137,
+      "title": "fix(ci): route next fast gates through reconciled runner pool",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
