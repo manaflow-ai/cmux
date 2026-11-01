@@ -5,6 +5,7 @@
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { RunTranscript } from "./RunTranscript";
+import { usePageNow } from "../../ui/pageClock";
 import { runBlocks } from "./runBlocks";
 export { runBlocks } from "./runBlocks";
 import type { Presentation } from "./presentation";
@@ -31,16 +32,10 @@ export function participantNames(people?: ReadonlyMap<string, HomeParticipant>):
   return new Map([...people].map(([id, participant]) => [id, participant.name]));
 }
 
-/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
+/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still.
+ * Every card shares the page's one second clock, which stops while the page is hidden. */
 export function useNow(running: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+  return usePageNow(running);
 }
 
 /** "Working for 42s" / "Worked for 1m 12s" / "Failed after 8s" / "Stopped after 3s", or

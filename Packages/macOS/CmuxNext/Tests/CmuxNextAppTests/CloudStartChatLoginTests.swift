@@ -58,7 +58,8 @@ struct CloudStartChatLoginTests {
         #expect(step(cached: true) == .install)
         #expect(step(cached: false) == .confirmThenInstall)
         // Never: a production build, a machine the caller does not own (a teammate's), one that
-        // already has a login, no signed-in user, or a harness whose login stays per machine.
+        // already has a login that stays (not a rejected one: CloudMachineLogin.needsLogin), no
+        // signed-in user, or a harness whose login stays per machine.
         #expect(step(enabled: false, cached: true) == .skip)
         #expect(step(owns: false, cached: true) == .skip)
         // A team guest, even the caller's own (a creator's team machine): skipped before any confirm,
@@ -71,9 +72,8 @@ struct CloudStartChatLoginTests {
         #expect(step(provider: nil) == .skip)
     }
 
-    @Test func theMachineProbeUsesTheImagesOwnDetection() {
-        #expect(CloudStartChat.machineLoginProbe.contains("cmux_agent_has_own_login claude"))
-        #expect(!CloudStartChat.machineLoginProbe.contains("sk-ant"))
+    /// The machine's login itself is read by `CloudMachineLogin` (CloudMachineLoginTests).
+    @Test func theGuestProbeReadsTheVMKind() {
         #expect(CloudStartChat.ownerGuestProbe.contains("/etc/cmux/vm-kind"))
     }
 }

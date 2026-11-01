@@ -106,6 +106,8 @@ public actor AgentSessionAttachClient {
         var folders = false
         /// `agent-session-settings-v1`.
         var settings = false
+        /// `agent-session-login-v1`.
+        var login = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -399,6 +401,37 @@ public actor AgentSessionAttachClient {
         return try await call(cmd, params)
     }
 
+    /// Whether the daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
+    public func servesLogin() async -> Bool {
+        (try? await liveConnection())?.1.login ?? false
+    }
+
+    /// How long each login step may wait, past the daemon's own wait for it: start waits for the
+    /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's
+    /// approval in the browser (Codex, 15 min).
+    static let loginFinishTimeout: Duration = .seconds(15 * 60)
+    static func loginTimeout(_ op: String) -> Duration? {
+        switch op {
+        case "finish": loginFinishTimeout
+        case "start": Duration.seconds(35)
+        case "api_key": Duration.seconds(80)
+        default: nil
+        }
+    }
+
+    /// `agent-session-login` (`agent-session-login-v1`): one step of the attached chat's agent's own
+    /// sign-in on that machine, as acpmux's `_acpmux/agent_login/<op>` on the tab's own session.
+    /// acpmux's refusal is an answer (`{refused: {reason}}`); a daemon without the verb answers
+    /// `unsupported`, so the card is not offered.
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.login else { return Data(#"{"refused":{"reason":"unsupported"}}"#.utf8) }
+        var params: [String: any Sendable] = ["op": op]
+        for (key, value) in fields { params[key] = value }
+        return try await call("agent-session-login", params,
+                              timeout: Self.loginTimeout(op) ?? requestTimeout)
+    }
+
     /// Reads one image from the attached session's host acpmux (`agent-session-media`).
     public func media(path: String) async throws -> Data {
         _ = try await liveTransport()
@@ -569,7 +602,8 @@ public actor AgentSessionAttachClient {
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
-                            settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue))
+                            settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
+                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).
