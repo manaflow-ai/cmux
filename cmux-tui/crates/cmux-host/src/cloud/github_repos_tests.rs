@@ -126,8 +126,10 @@ fn github_repos_authenticated_get_uses_platform_origin_and_refreshes_once() {
     use cmux_server_core::install_key::{InstallKey, SystemRandom};
     use std::sync::{Arc, Mutex};
 
+    /// GET requests seen (url, bearer), token posts, GET count.
+    type FakeState = (Vec<(String, Option<String>)>, usize, usize);
     #[derive(Clone, Default)]
-    struct Fake(Arc<Mutex<(Vec<(String, Option<String>)>, usize, usize)>>);
+    struct Fake(Arc<Mutex<FakeState>>);
     impl Http for Fake {
         fn post(&self, url: &str, _: &Value, _: Option<&str>) -> Result<(u16, Value), String> {
             let mut state = self.0.lock().unwrap();

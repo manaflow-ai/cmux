@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cloud::client::Store;
-use crate::cloud::wire::{BIND_FILE, BOUND_FILE, Bound, INSTALL_KEY_FILE};
+use crate::cloud::wire::INSTALL_KEY_FILE;
 
 pub const SOCKET: &str = "/run/cmux-host/identity.sock";
 /// Written only after a successful enrollment, not when a key is rotated.
@@ -58,7 +58,11 @@ pub(crate) fn record(store: &mut dyn Store, machine: &str, key: &InstallKey) -> 
 }
 
 /// The caller supplies a NEW metadata observation, never the cached status id.
+/// Its only caller is the Linux host loop (`linux/mod.rs`), so it is compiled there and in tests.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn enrolled(store: &dyn Store, fresh_instance: &str) -> Result<HostIdentity, String> {
+    use crate::cloud::wire::{BIND_FILE, BOUND_FILE, Bound};
+
     if fresh_instance.is_empty() || store.present(BIND_FILE)? {
         return Err("identity enrollment is pending".to_owned());
     }
