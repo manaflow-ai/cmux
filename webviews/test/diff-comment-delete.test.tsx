@@ -7,7 +7,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -33,6 +33,7 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.getElementById("root")!;
