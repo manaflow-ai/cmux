@@ -21,6 +21,23 @@ export function collapsedPromptHeight(height: number, lineHeight: number): numbe
   return height > limit + 1 ? limit + PROMPT_MORE_HEIGHT : height;
 }
 
+/// A prompt longer than this many characters (a pasted log, a base64 blob) draws as literal text in
+/// one text node: no Markdown, no link scan and no break points, each of which costs the main thread
+/// per character or per token, and a prompt of megabytes froze the chat that held it (Leo,
+/// 2026-10-31: "this is completely hardlocked bc of message size"). Collapsed, it draws only its
+/// head (`HUGE_PROMPT_HEAD_CHARS`), far more than ten lines at any width; Show more draws it whole.
+export const HUGE_PROMPT_CHARS = 200_000;
+export const HUGE_PROMPT_HEAD_CHARS = 4_000;
+
+export const isHugePrompt = (text: string) => text.length > HUGE_PROMPT_CHARS;
+
+/// The first `chars` UTF-16 units of `text`, never ending inside a surrogate pair.
+export function promptHead(text: string, chars: number): string {
+  if (text.length <= chars) return text;
+  const code = text.charCodeAt(chars - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? chars - 1 : chars);
+}
+
 /// Whether a prompt is likely taller than the collapsed lines, before it is laid out.
 export const looksLongPrompt = (text: string) =>
   text.length > LONG_PROMPT_CHARS || text.split("\n", COLLAPSED_PROMPT_LINES + 1).length > COLLAPSED_PROMPT_LINES;

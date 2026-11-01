@@ -29,7 +29,13 @@ import {
 } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import {
+  PASTE_CHIP_HEIGHT,
+  type PasteRange,
+  collapsedPromptHeight,
+  isHugePrompt,
+  promptParts,
+} from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
@@ -1597,6 +1603,15 @@ function measuredRowHeight(
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
+  // its height is those lines and Show more, never a lex or measure of megabytes of text.
+  if (row.kind === "user" && !pasted && row.from !== "chief" && isHugePrompt(row.text) && !chiefEnvelope(row.text)) {
+    const height =
+      messageBelow(beforeFooter) +
+      chromeHeight(row, actions) +
+      collapsedPromptHeight(Number.POSITIVE_INFINITY, metrics().lineHeight);
+    return finish(beforeFooter ? height : Math.max(34, height));
+  }
   const plainUser =
     row.kind === "user" &&
     !pasted &&
