@@ -619,6 +619,7 @@ test("without acpmux's queue_get a held card whose record the pane lacks stays U
   const { client, view, until } = await openClient(make);
   try {
     await until(() => view.shown.queue?.[0]?.updating === true);
+    // fixed-wait: proving no queue_get is sent means outwaiting one request turn; no event marks its absence.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(log).not.toContain("_acpmux/queue_get");
     expect(view.shown.queue[0]?.updating).toBe(true);
