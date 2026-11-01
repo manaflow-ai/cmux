@@ -120,3 +120,41 @@ test("times parse and print", () => {
     ]),
   ).toBe(false);
 });
+
+test("the cmux tool's own note: its header line names the file, length and size; #N lines time each frame", () => {
+  const path = "/Users/demo/Library/Application Support/cmux/Chat Uploads/screen recording.mp4";
+  const output = [
+    `${path}: 16.40 s, 1920x1080, 30 fps, no audio. 3 frames below, in order, at most 768 px on the longest side:`,
+    "#1 at 2.73 s",
+    "#2 at 8.20 s",
+    "#3 at 13.67 s (change 4.2)",
+  ].join("\n");
+  const video = videoFrames(call({ inputSummary: JSON.stringify({ path: "~/clip.mp4" }), output }))!;
+  expect(video.path).toBe(path);
+  expect(video.name).toBe("screen recording.mp4");
+  expect(video.durationMs).toBe(16_400);
+  expect([video.width, video.height]).toEqual([1920, 1080]);
+  expect(video.frames.map((frame) => frame.atMs)).toEqual([2_730, 8_200, 13_670]);
+  expect(video.count).toBe(3);
+});
+
+test("identical frames keep their places and times; the count is what the call returned", () => {
+  const same = png(1);
+  const video = videoFrames(call({ images: [same, same, png(3)] }))!;
+  expect(video.frames.map((frame) => [frame.src, frame.atMs])).toEqual([
+    [same, 0],
+    [same, 5_500],
+    [png(3), 11_000],
+  ]);
+  const many = Array.from({ length: 40 }, (_, index) => png(index));
+  const capped = videoFrames(call({ output: "", images: many }))!;
+  expect(capped.frames.length).toBe(32);
+  expect(capped.count).toBe(40);
+});
+
+test("a size in the file name and a line that starts with a decimal are not read as facts", () => {
+  const output = ["Video: /tmp/clip_1280x720.mp4", "12.5 s long, 640×360", "1. 0:01.0"].join("\n");
+  const video = videoFrames(call({ inputSummary: "{}", output, images: [png(1)] }))!;
+  expect([video.width, video.height]).toEqual([640, 360]);
+  expect(video.frames).toEqual([{ src: png(1), atMs: 1_000 }]);
+});

@@ -127,7 +127,7 @@ function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?:
   const label = useMemo(
     () =>
       video
-        ? t("tools.videoFrames", { n: video.frames.length })
+        ? t("tools.videoFrames", { n: video.count })
         : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
     [t, video, call, tool, names],
   );

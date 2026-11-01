@@ -64,12 +64,14 @@ function framesItem(count: number, named: boolean) {
     "",
   );
   const times = Array.from({ length: count }, (_, index) => Math.round((index * durationMs) / count));
-  const note = [
-    ...(named ? [`Video: ${path}`] : []),
-    `Duration: ${frameTime(durationMs)} (16.4 s), 1920x1080, 30 fps`,
-    `${count} frames:`,
-    ...times.map((ms, index) => `${index + 1}. ${frameTime(ms)}`),
-  ].join("\n");
+  // Named: the cmux tool's own note (cmux-tui video_tools.rs `summary`). Unnamed: another tool's.
+  const note = named
+    ? [
+        `${path}: ${(durationMs / 1000).toFixed(2)} s, 1920x1080, 30 fps, no audio. ${count} frames below, in order, at most 768 px on the longest side:`,
+        ...times.map((ms, index) => `#${index + 1} at ${(ms / 1000).toFixed(2)} s`),
+      ]
+    : [`Duration: ${frameTime(durationMs)}, 1920x1080`, ...times.map((ms, index) => `${index + 1}. ${frameTime(ms)}`)];
+  const text = note.join("\n");
   const images = times.map((_, index) => {
     const data = paint(index, count);
     return {
@@ -77,7 +79,7 @@ function framesItem(count: number, named: boolean) {
       content: { type: "image", mimeType: "image/jpeg", data: data.slice(data.indexOf(",") + 1) },
     };
   });
-  const content = [{ type: "content", content: { type: "text", text: note } }, ...images];
+  const content = [{ type: "content", content: { type: "text", text } }, ...images];
   // The pane passes the update's text as the call's output (direct.ts), its images as its images.
   return mergeToolItem(
     call,

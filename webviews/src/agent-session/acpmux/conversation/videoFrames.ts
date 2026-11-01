@@ -30,6 +30,8 @@ export type VideoFrames = {
   width?: number;
   height?: number;
   frames: VideoFrame[];
+  /// How many frames the call returned (the card draws at most `MAX_VIDEO_FRAMES`).
+  count: number;
   /// The note's text without the frames, for the opened row.
   text: string;
 };
@@ -39,7 +41,11 @@ export const MAX_VIDEO_FRAMES = 32;
 /// The largest frame drawn (its base64 text), as for any tool image (direct.ts).
 const MAX_FRAME_CHARS = 8 * 1024 * 1024;
 const VIDEO_PATH = /(?:^|[\s"'`(=:])(\/[^\s"'`()<>[\]]+\.(?:mov|mp4|m4v|webm|mkv|avi))(?![\w-])/i;
+const VIDEO_NAME = /\S*\.(?:mov|mp4|m4v|webm|mkv|avi)\b/gi;
 const KEYED_PATH = /^(?:video|file|path|source)\s*:\s*((?:\/|file:\/\/).+\.(?:mov|mp4|m4v|webm|mkv|avi))\s*$/i;
+/// The cmux tool's first line: `<path>: 16.40 s, 1920x1080, 30 fps, no audio. 8 frames below, …`
+/// (cmux-tui `video_tools.rs` `describe`); the path is the file the tool read, spaces and all.
+const HEADER = /^(.+?\.(?:mov|mp4|m4v|webm|mkv|avi)):\s+(\d+(?:\.\d+)?)\s*s,\s*(\d{1,5})\s*[x×]\s*(\d{1,5})\b/i;
 const TOOL_NAME = /(?:^|[._\s:/-])video[_-]?frames$/i;
 
 /// Whether `tool` is a call of the `video_frames` tool (any MCP server's, by Claude Code's
@@ -64,12 +70,16 @@ export function videoFrames(tool: Tool): VideoFrames | undefined {
 function parse(tool: Tool): VideoFrames | undefined {
   if (tool.status !== "completed" || !isVideoFramesCall(tool)) return undefined;
   const { images, texts } = blocks(tool.output);
-  const sources = dedupe([...(tool.images ?? []), ...images]).slice(0, MAX_VIDEO_FRAMES);
+  // The call's own image blocks, else its envelope's: never both, and never deduped, so a still
+  // screen's identical frames keep their places and their times.
+  const all = tool.images?.length ? tool.images : images;
+  const sources = all.slice(0, MAX_VIDEO_FRAMES);
   if (sources.length === 0) return undefined;
   const text = texts.join("\n\n").trim();
   const facts = readFacts(text);
   const args = mcpCall(tool)?.args;
-  const path = argPath(args) ?? facts.path;
+  // The note names the file the tool read (resolved); the argument is what the agent asked for.
+  const path = facts.header ? facts.path : (argPath(args) ?? facts.path);
   const frames = sources.map((src, index) => {
     const atMs = facts.times[index];
     return atMs === undefined ? { src } : { src, atMs };
@@ -79,11 +89,10 @@ function parse(tool: Tool): VideoFrames | undefined {
     ...(facts.durationMs !== undefined ? { durationMs: facts.durationMs } : {}),
     ...(facts.width && facts.height ? { width: facts.width, height: facts.height } : {}),
     frames,
+    count: all.length,
     text,
   };
 }
-
-const dedupe = (values: string[]) => [...new Set(values)];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -144,6 +153,8 @@ export function baseName(path: string): string {
 }
 
 type Facts = {
+  /// The note opened with the cmux tool's header line.
+  header?: boolean;
   path?: string;
   name?: string;
   durationMs?: number;
@@ -202,6 +213,14 @@ function readFacts(text: string): Facts {
   const json = parseJSONValue(text);
   if (isRecord(json)) return jsonFacts(json);
   const facts: Facts = { times: [] };
+  const header = HEADER.exec(text.trimStart());
+  if (header) {
+    facts.header = true;
+    facts.path = header[1]!.trim();
+    facts.durationMs = Math.round(Number(header[2]) * 1000);
+    facts.width = Number(header[3]);
+    facts.height = Number(header[4]);
+  }
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -215,16 +234,16 @@ function readFacts(text: string): Facts {
       if (time) facts.durationMs = parseTime(time[1]!);
     }
     if (facts.width === undefined) {
-      const size = /\b(\d{2,5})\s*[x×]\s*(\d{2,5})\b/.exec(line);
+      // Not in a path or a file name (`clip_1280x720.mp4`).
+      const size = /(?:^|[\s,(·])(\d{2,5})\s*[x×]\s*(\d{2,5})\b/.exec(line.replace(VIDEO_NAME, " "));
       if (size) {
         facts.width = Number(size[1]);
         facts.height = Number(size[2]);
       }
     }
     // A frame's line: "frame 3 at 0:04.0", "#3 0:04.0", "3. 0:04.0", "- 0:04.0".
-    const frame = /^(?:[-*•]\s*)?(?:frame\s*#?\s*\d+\b|#\d+\b|\d+[.)])\s*[:\-–—@]?\s*(?:at\s+|t\s*=\s*)?(.*)$/i.exec(
-      line,
-    );
+    const frame =
+      /^(?:[-*•]\s*)?(?:frame\s*#?\s*\d+\b|#\d+\b|\d+[.)](?!\d))\s*[:\-–—@]?\s*(?:at\s+|t\s*=\s*)?(.*)$/i.exec(line);
     const bullet = !frame && /^[-*•]\s+(?:at\s+|t\s*=\s*)?(.*)$/i.exec(line);
     const rest = frame?.[1] ?? (bullet ? bullet[1] : undefined);
     if (rest !== undefined && !/\b(duration|length)\b/.test(lower)) {

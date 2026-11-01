@@ -60,10 +60,9 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
       <button
         key={index}
         type="button"
-
         className={className}
         data-open-image
-        title={alt(frame) || t("image.view")}
+        aria-label={alt(frame) || t("image.view")}
         onClick={() => openImage(frame.src, alt(frame))}
       >
         {image}
@@ -77,7 +76,7 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
         <button
           type="button"
           className="cv-video-frames__name is-playable"
-          title={video.path}
+          /* tooltip-allow: the full path behind the shown file name */ title={video.path}
           aria-label={length ? t("composer.playVideo", { name, length }) : t("media.play")}
           onClick={() => void callChipHost("video.quickLook", { src: video.path! })}
         >
@@ -86,7 +85,10 @@ export function VideoFramesCard({ video }: { video: VideoFrames }) {
         </button>
       ) : (
         name && (
-          <span className="cv-video-frames__name" title={video.path}>
+          <span
+            className="cv-video-frames__name"
+            /* tooltip-allow: the full path behind the shown file name */ title={video.path}
+          >
             <span className="cv-video-frames__label">{name}</span>
           </span>
         )
