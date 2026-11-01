@@ -1,4 +1,5 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { sliceWhole } from "../../ui/wholeChars";
 
 /// A chat starting in Cloud, as the chat shows it (CloudStartView; cloud work mode, leo-workspace
 /// design/cloud-work-mode.md): while the host's `cloud.startChat` runs (a new machine boots in
@@ -113,13 +114,13 @@ export function cloudStartBegun(
 function line(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.replace(/\s+/g, " ").trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 function logLine(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const text = value.trim();
-  return text ? (text.length > max ? `${text.slice(0, max - 1)}…` : text) : undefined;
+  return text ? (text.length > max ? `${sliceWhole(text, max - 1)}…` : text) : undefined;
 }
 
 /// `current` with the host's push `push` taken in: only for the same start while it runs, field by

@@ -19,6 +19,7 @@ import itertools
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -322,6 +323,20 @@ class TrustedRoute(unittest.TestCase):
             event="workflow_dispatch", ref="refs/heads/nightly-next",
         )
         self.assertEqual(selector, "")
+
+
+class NightlyOnlyBuilderRoute(unittest.TestCase):
+    def test_builder_only_while_a_runner_carrying_it_is_idle(self) -> None:
+        builder, plain = picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL
+
+        def runner(status: str = "online", busy: bool = False, *labels: str) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label} for label in labels or (plain, builder)]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(busy=True), runner()])[0], builder)
+        for label, runners in ((builder, [runner(busy=True)]), (builder, [runner("offline")]),
+                               (builder, [runner("online", False, plain)]), (builder, None),
+                               ("", [runner()]), (plain, [runner()]), ("glaeda-unregistered", [runner()])):
+            with self.subTest(label=label, runners=runners):
+                self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
 
 
 class BlacksmithRoute(unittest.TestCase):
@@ -773,5 +788,26 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(bool(evaluate(parse_expression(marker["if"]), context)), wanted)
 
 
+class BuilderReadDeadline(unittest.TestCase):
+    def test_a_slow_builder_read_takes_the_plain_label_within_the_deadline(self):
+        import time as _time
+        def slow(_token, _repo):
+            _time.sleep(5)
+            return [{"status": "online", "busy": False, "labels": [{"name": picker.NIGHTLY_ONLY_BUILDER_LABEL}]}]
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / "output"
+            env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_REF": "refs/heads/nightly-next", "GITHUB_EVENT_NAME": "push",
+                   "NIGHTLY_ONLY_LABEL": picker.NIGHTLY_ONLY_LABEL,
+                   "NIGHTLY_ONLY_BUILDER_LABEL": picker.NIGHTLY_ONLY_BUILDER_LABEL,
+                   "ROUTE_TOKEN": "token", "GITHUB_OUTPUT": str(out)}
+            with mock.patch.object(picker, "BUILDER_READ_SECONDS", 0.2):
+                started = _time.monotonic()
+                self.assertEqual(picker.main(env, read_runners=slow), 0)
+                self.assertLess(_time.monotonic() - started, 2)
+            self.assertIn(f"owned={picker.NIGHTLY_ONLY_LABEL}\n", out.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
+

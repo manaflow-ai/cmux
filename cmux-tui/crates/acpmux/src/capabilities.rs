@@ -338,6 +338,10 @@ mod tests {
         let hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "caps-test"}});
         let init = client.request(method::INITIALIZE, hello).await.unwrap();
         assert_eq!(init.pointer("/_meta/acpmux/capabilities"), Some(&expected), "{init}");
+        assert!(
+            client.daemon_lists(TRIGGER_CHAT),
+            "trigger chat capability must gate its CLI helper"
+        );
 
         let printed: Value = serde_json::from_str(&render(true)).unwrap();
         assert_eq!(printed, json!({"capabilities": expected}));

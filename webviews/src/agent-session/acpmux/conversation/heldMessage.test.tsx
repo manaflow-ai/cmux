@@ -202,9 +202,14 @@ test("no notice entry point turns a person's prompt into a notice (every person 
     untyped: true,
   };
   // The same words with only the row's marks (a message object that says nothing about its sender).
-  const markedOnly: AcpmuxRow = { ...declined, id: "declined-g-5", incoming: { kind: "message", message: { name: CY.name, text, raw: text } } };
+  const markedOnly: AcpmuxRow = {
+    ...declined,
+    id: "declined-g-5",
+    incoming: { kind: "message", message: { name: CY.name, text, raw: text } },
+  };
   for (const row of [held, heldNoAuthor, guest, declined, markedOnly]) {
-    if (row.incoming?.kind === "message" && row.incoming.message.fromPerson) expect(laneNotice(row.incoming.message)).toBeUndefined();
+    if (row.incoming?.kind === "message" && row.incoming.message.fromPerson)
+      expect(laneNotice(row.incoming.message)).toBeUndefined();
     expect(noticeOf(row)).toBeUndefined();
     // Between two lane reports it is never folded into their batch.
     const batched = batchLaneNotices([report("r-1"), row, report("r-2")]);
@@ -393,7 +398,14 @@ test("Approve on a card drawn at revision r sends r after the client heard r+1",
   try {
     daemon.emit(id, {
       mux: "queued",
-      msg: { promptId: "g-1", turnId: "t-1", text: "Retry on 429", awaitingOwner: true, revision: 4, _meta: fromCyMeta },
+      msg: {
+        promptId: "g-1",
+        turnId: "t-1",
+        text: "Retry on 429",
+        awaitingOwner: true,
+        revision: 4,
+        _meta: fromCyMeta,
+      },
     });
     await until(() => view.shown.queue?.length === 1);
     // The card as drawn now, wired to the client as App.tsx wires it.

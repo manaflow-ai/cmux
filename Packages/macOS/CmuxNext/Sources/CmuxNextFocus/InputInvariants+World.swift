@@ -1,18 +1,21 @@
-import CmuxNextFocus
-
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
 // section 2.5). Valid only once effects and presentation settled; a pane
 // whose selected content is not presented yet is reported as unsettled and
 // its window's content checks are skipped.
 extension InputInvariants {
-    struct WorldResult: Hashable, Sendable, Codable {
-        var violations: [InputViolation]
+    public struct WorldResult: Hashable, Sendable, Codable {
+        public var violations: [InputViolation]
         /// Windows skipped because content was still being presented.
-        var unsettled: [String]
+        public var unsettled: [String]
+
+        public init(violations: [InputViolation], unsettled: [String]) {
+            self.violations = violations
+            self.unsettled = unsettled
+        }
     }
 
-    static func world(_ observation: InputObservation) -> WorldResult {
+    public static func world(_ observation: InputObservation) -> WorldResult {
         var out: [InputViolation] = []
         var unsettled: [String] = []
         for window in observation.windows {
@@ -79,7 +82,7 @@ extension InputInvariants {
     }
 
     /// The responder AppKit should report for `resolved` (W1; `debug.focus` uses the same table).
-    static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
+    public static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
         switch resolved {
         case .terminal(let pane, _): .content(pane: pane)
         // A Chromium page has the keys in its own window; this window keeps no responder.
@@ -190,7 +193,7 @@ extension InputInvariants {
 
 extension FocusEvent.Responder {
     /// The pane a pane-scoped responder is in.
-    nonisolated var pane: String? {
+    public var pane: String? {
         switch self {
         case .content(let pane), .addressBar(let pane), .findBar(let pane), .devTools(let pane): pane
         default: nil

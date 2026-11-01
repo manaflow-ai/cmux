@@ -498,6 +498,8 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
+        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs
     }
