@@ -311,9 +311,13 @@ class WorkflowTests(unittest.TestCase):
     def test_publish_takes_every_build_detail_from_the_selected_source(self):
         job = workflow()["jobs"]["publish-nightly"]
         self.assertIn("recover-nightly-next-notarization", job["needs"])
-        # Credentialed publication must claim an owned Mac before checkout or any
-        # release token; source selection follows that gate.
-        self.assertEqual(job["steps"][0]["name"], "Hold the whole Mac before any credential")
+        # Publication source selection and checkout precede the exact claim gate;
+        # no release token is minted until the gate and helper both pass.
+        gate = step(job, "Hold the whole Mac before any credential")
+        gate_index = job["steps"].index(gate)
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publish ref")))
+        self.assertGreater(gate_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
+        self.assertGreater(job["steps"].index(step(job, "Claim the whole Mac for signing")), gate_index)
         self.assertEqual(step(job, "Select the build to publish")["id"], "source")
         text = yaml.safe_dump(job)
         for stale in (
