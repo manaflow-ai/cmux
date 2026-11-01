@@ -114,6 +114,12 @@ async function installGlass(mode: string): Promise<void> {
     blur: 0,
     tint: "rgba(0, 0, 0, 0.18)",
   });
-  if (mode === "lens" || mode === "lens-flat" || mode === "prism")
-    await until(() => root.hasAttribute("data-glass-lens"));
+  if (mode === "lens" || mode === "lens-flat" || mode === "prism") {
+    // The lens needs WebGL: a browser without it would measure CSS glass under the lens's name.
+    const deadline = performance.now() + 8_000;
+    while (!root.hasAttribute("data-glass-lens")) {
+      if (performance.now() > deadline) throw new Error(`glass=${mode}: the WebGL lens did not start in this browser`);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  }
 }
