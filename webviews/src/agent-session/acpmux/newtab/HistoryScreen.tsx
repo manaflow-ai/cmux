@@ -30,7 +30,7 @@ export function HistoryScreen({
         load={load}
         onOpen={onOpen}
         // Each chat opens through Open Chat, as a click does: in a new workspace of this space.
-        onBring={(keys) => keys.forEach(onOpen)}
+        onBring={(keys) => Promise.all(keys.map(onOpen)).then(() => undefined)}
         {...(onOpenInTerminal ? { onOpenInTerminal } : {})}
         {...(onViewOnly ? { onViewOnly } : {})}
         {...(now !== undefined ? { now } : {})}
