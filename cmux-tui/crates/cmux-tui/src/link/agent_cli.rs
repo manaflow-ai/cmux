@@ -78,6 +78,10 @@
 //! `SOURCE_LEASE_SECONDS`), so the caller syncs the bulk before the move and
 //! this copies only what changed since.
 //!
+//! `--interrupt` stops a running turn only on a source whose `identify` lists
+//! `agent-transfer-continues-v1` (its acpmux continues the turn where the
+//! chat lands); an older source refuses the move while the turn runs.
+//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...,
@@ -358,7 +362,10 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     }
     let vm_kind = target_vm_kind(args)?;
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
-    let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
+    // A running turn stops for the move only where it goes on afterwards: an older source would
+    // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
+    let interrupt = args.interrupt && source_continues(&args.from);
+    let mut params = json!({"surface": args.surface, "interrupt": interrupt});
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
@@ -487,6 +494,14 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             Err(Failed::new(code, format!("the folder's last changes: {error}")))
         }
     }
+}
+
+/// Whether the source daemon's acpmux continues a turn the move stops; false when it does not
+/// say so, or does not answer `identify`.
+fn source_continues(socket: &std::path::Path) -> bool {
+    let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY;
+    let identity = super::machine_gate::identify(socket);
+    identity.as_ref().and_then(super::machine_gate::served).is_some_and(|s| s.contains(&capability))
 }
 
 /// The `vm_kind` the target is sent (module docs): none without
