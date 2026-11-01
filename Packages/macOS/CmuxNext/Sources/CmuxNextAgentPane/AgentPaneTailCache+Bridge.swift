@@ -28,7 +28,12 @@ extension AgentPaneTailCache {
         guard method == "chat.tail" else {
             return AgentPaneReply.failure(code: "native.invalid_request", message: "No such chat tail request")
         }
-        shared.remember(params?["tail"].flatMap { JSONValue(foundation: $0) }, for: session)
+        let tail = params?["tail"].flatMap { JSONValue(foundation: $0) }
+        if params?["ifNewer"] as? Bool == true {
+            if let tail { shared.rememberIfNewer(tail, for: session) }
+        } else {
+            shared.remember(tail, for: session)
+        }
         return AgentPaneReply.success()
     }
 }

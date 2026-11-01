@@ -149,7 +149,8 @@ enum DebugNewTab {
             \(before)
             const field = document.querySelector('.nt-field, .acpmux-newtab-field');
             const openTabs = [...document.querySelectorAll('.nt-open-tab .nt-row-title')].map((title) => title.textContent);
-            return JSON.stringify({ text: field ? field.value : null, focused: !!field && document.activeElement === field,
+            return JSON.stringify({ text: field ? (field.acpmuxMarkdownField?.plainText() ?? field.value) : null,
+                                    focused: !!field && field.contains(document.activeElement),
                                     open_tabs: openTabs });
             """
         guard let text = try? await view.callPageScript(script) as? String,

@@ -22,7 +22,7 @@ import {
   type LinkItem,
   type SourceKind,
 } from "../attachments";
-import type { UploadProgressReport, UploadResult } from "../cloudUploads";
+import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close, FileDoc, ImageIcon, Retry, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
@@ -31,7 +31,9 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
+import { pastesPlaced } from "./composerCopy";
 import { attachSources } from "./attachmentSources";
+import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -39,6 +41,7 @@ import { callChipHost } from "../chips/host";
 import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
+import { TextAttachmentCard } from "./TextAttachmentCard";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -75,11 +78,7 @@ export type AttachmentIntakeOptions = {
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
   /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
-  upload?(
-    files: File[],
-    cancelled?: (index: number) => boolean,
-    progress?: UploadProgressReport,
-  ): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -148,8 +147,9 @@ export type PendingAttachment = {
   image: boolean;
   scope?: string;
   failed?: string;
-  /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
-  /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
+  /// Streaming to the session's machine (a file of any size). A send waits for it, as for every
+  /// file the person added, and the composer stays free meanwhile: a prompt never goes without
+  /// the file it was sent with (Leo, 2026-11-01: "i had to retry to get it to load???").
   uploading?: boolean;
   /// How much of it reached the session's machine, 0 to 1, while it streams: its tile shows it.
   progress?: number;
@@ -158,6 +158,9 @@ export type PendingAttachment = {
   /// its Retry makes it or its × takes it out, so a prompt never goes without the recording it was
   /// sent with.
   bound?: boolean;
+  /// Its upload failed (the host's words, after its own tries again): a send waits for its Retry
+  /// or x. A file the composer refused (`failed` alone, which Retry cannot change) holds none.
+  uploadFailed?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -230,6 +233,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  const cancellationListeners = useRef(new Set<() => void>());
+  /// Each chip whose upload failed: how often it was tried again on its own (uploadRetry.ts), and
+  /// what stops a try still waiting. Its x, a send or a settle ends it.
+  const autoRetries = useRef(new Map<string, { tries: number; stop: () => void }>());
+  /// `retry`, for a try again that intake starts on its own (declared below it).
+  const retryRef = useRef<(id: string) => void>(() => {});
   /// Files of chips cancelled while still loading (their node deleted from the prompt), by id: an
   /// undo that brings the node back reads its file again under the same id (`revive`).
   const parked = useRef(new Map<string, PendingSource>());
@@ -267,6 +276,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const places = useRef(new Map<string, number>());
   const gestures = useRef(0);
   const scope = options.scope;
+  useLayoutEffect(() => {
+    for (const changed of cancellationListeners.current) changed();
+  }, [attachments, scope]);
   const lastScope = useRef(scope);
   // Before paint: a carried placeholder never leaves the strip for a frame.
   useLayoutEffect(() => {
@@ -387,6 +399,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const id = shown[index]!.id;
       if (!owns(index)) return false;
       sources.current.delete(id);
+      autoRetries.current.get(id)?.stop();
+      autoRetries.current.delete(id);
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
@@ -416,6 +430,35 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
+      // An upload that failed (its host's words, never a file the composer refused) is tried again
+      // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
+      // One the host refused outright (the app could not save it) shows Retry at once.
+      if (uploads && "text" in error) {
+        const kept = autoRetries.current.get(id);
+        kept?.stop();
+        const tries = error.final ? UPLOAD_AUTO_RETRIES : (kept?.tries ?? 0);
+        const source = owned[index];
+        const still = () => sources.current.get(id) === source;
+        const giveUp = () => {
+          if (!still()) return;
+          setPending((chips) =>
+            chips.map((chip) =>
+              chip.id === id ? { ...chip, failed, uploadFailed: true, uploading: false, progress: undefined } : chip,
+            ),
+          );
+        };
+        const stop = retryUploadLater(
+          tries,
+          () => {
+            if (still()) retryRef.current(id);
+          },
+          giveUp,
+        );
+        autoRetries.current.set(id, { tries: tries + 1, stop });
+        if (tries < UPLOAD_AUTO_RETRIES)
+          setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, progress: undefined } : chip)));
+        return;
+      }
       setPending((chips) =>
         chips.map((chip) => (chip.id === id ? { ...chip, failed, uploading: false, progress: undefined } : chip)),
       );
@@ -437,18 +480,28 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // A file not yet a chip: its tile's x. One already a chip (an image whose original still
           // uploads): the chip is gone from the strip (its x, or it was sent), so its original
           // would go nowhere.
-          cancelled: (index) => {
-            const chip = made[index];
-            if (!chip) return !owns(index);
-            return chipRemoved({
-              chip,
-              stagedHere: staged.has(chip),
-              everDrawn: everStaged.current.has(chip),
-              pastedIn: batch.scope,
-              showing: live.current.options.scope,
-              strip: stagedNow.current,
-            });
-          },
+          cancelled: Object.assign(
+            (index: number) => {
+              const chip = made[index];
+              if (!chip) return !owns(index);
+              return chipRemoved({
+                chip,
+                stagedHere: staged.has(chip),
+                everDrawn: everStaged.current.has(chip),
+                pastedIn: batch.scope,
+                showing: live.current.options.scope,
+                strip: stagedNow.current,
+              });
+            },
+            {
+              subscribe: (_index: number, changed: () => void) => {
+                cancellationListeners.current.add(changed);
+                return () => {
+                  cancellationListeners.current.delete(changed);
+                };
+              },
+            },
+          ),
         },
         {
           ready,
@@ -570,6 +623,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }
     making.current.delete(id);
     sources.current.delete(id);
+    autoRetries.current.get(id)?.stop();
+    autoRetries.current.delete(id);
+    for (const changed of cancellationListeners.current) changed();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
@@ -640,9 +696,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
     void intake([file], source.uploads, undefined, id);
   });
+  retryRef.current = retry;
+  // A try again still waiting (its timer, its key and click listeners) goes with the composer.
+  useEffect(
+    () => () => {
+      for (const { stop } of autoRetries.current.values()) stop();
+      autoRetries.current.clear();
+    },
+    [],
+  );
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (live.current.options.locked?.()) return;
+      if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
       const pasted = filesFrom(event.clipboardData);
@@ -676,13 +741,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
-  /// The chips still loading that a send waits for: a failed one waits for its Retry or x, and one
-  /// streaming to the session's machine stays for the next prompt, neither holds the send. A chip
-  /// the host makes (`bound`) holds it even once failed, until its Retry or x.
-  const loading = shown.filter((chip) => chip.bound || (!chip.failed && !chip.uploading)).length;
-  /// The chips not yet a chip or a failure, uploads included (useSendWhenAttached's `unsettled`); a
-  /// failed host-made chip still counts.
-  const unsettled = shown.filter((chip) => chip.bound || !chip.failed).length;
+  /// The chips a send waits for. One still reading, one streaming to the session's machine and
+  /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
+  /// so a prompt never goes without a file the person added. Before, a send made while a pasted
+  /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
+  /// A file the composer refused (no images here, one that would not decode) holds none: its
+  /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
+  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
+  /// The same chips (useSendWhenAttached's `unsettled`).
+  const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
   /// waits for them a few seconds at most (composer/videoAttachments.ts).
   const videoReading = useVideoInfo(
@@ -720,10 +787,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// after the render that has the chips, so it must read the composer's state then (a ref). A new
 /// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
 ///
-/// `unsettled` (default `pending`) also counts the files streaming to the session's machine: a send
-/// made while files were still being read waits for those too, so the files it was sent with go
-/// with it (or their x lets it go without them); a send made once only uploads are left goes at
-/// once, and they stay for the next prompt. While one waits, a later send replaces it.
+/// `unsettled` (default `pending`) is what a held send waits for once it holds. The composer counts
+/// files streaming to the session's machine and failed uploads in both, so a send waits for every
+/// file the person added (or its x lets it go without it). While one waits, a later send replaces it.
 export function useSendWhenAttached(
   pending: number,
   scope?: string,
@@ -822,8 +888,11 @@ export function AttachmentStrip({
   onRetry,
   onReorder,
   originalFailures,
+  selected = false,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// The prompt's whole draft is selected (Select All): the chips are in it, and show so.
+  selected?: boolean;
   /// Why a staged image's original failed to upload, by chip id (useAttachmentIntake): its chip
   /// shows Retry (`onRetry`) while its preview still sends.
   originalFailures?: Readonly<Record<string, string>>;
@@ -886,6 +955,7 @@ export function AttachmentStrip({
     <fieldset
       ref={stripRef}
       className="acpmux-attachments"
+      data-selected={selected ? "" : undefined}
       data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
       aria-describedby={onReorder && attachments.length > 1 ? hint : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}
@@ -1180,22 +1250,18 @@ export function AttachmentChip({
     const lines = pasteLines(text);
     const count = new Intl.NumberFormat(language).format(lines);
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
-    const body = (
-      <>
-        <span className="acpmux-attachment-pasted-name">{attachment.name || pasteName(text)}</span>
-        <span className="acpmux-attachment-pasted-lines">
-          {`${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`}
-        </span>
-      </>
-    );
+    const label = `${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`;
+    const accessible = `${attachment.name || pasteName(text)}, ${label}`;
+    const body = <TextAttachmentCard text={text} label={label} />;
     return menu(
       expand,
-      <div className="acpmux-attachment acpmux-attachment-pasted">
+      <div className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card">
         {expand ? (
           <button
             type="button"
             className="acpmux-attachment-pasted-open"
-            /* tooltip-allow: the chip shows the paste's first words; the tooltip says a click puts it back in the prompt */
+            aria-label={accessible}
+            /* tooltip-allow: the chip shows the paste's first lines; the tooltip says a click puts it back in the prompt */
             title={t(ATTACHMENT_LABELS.editPasted)}
             onClick={expand}
           >
@@ -1207,6 +1273,26 @@ export function AttachmentChip({
         {remove}
       </div>,
       t(ATTACHMENT_LABELS.editPasted),
+    );
+  }
+  // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first
+  // lines, under its name and line count.
+  if (attachment.kind === "text" && attachment.text !== undefined) {
+    const lines = pasteLines(attachment.text);
+    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
+    return menu(
+      undefined,
+      <div
+        className="acpmux-attachment acpmux-attachment-pasted acpmux-text-card"
+        data-text-kind="file"
+        /* tooltip-allow: the card cuts a long name; the tooltip has it whole */
+        title={attachment.path ?? attachment.name}
+      >
+        <span className="acpmux-attachment-pasted-open">
+          <TextAttachmentCard text={attachment.text} label={label} />
+        </span>
+        {remove}
+      </div>,
     );
   }
   if (attachment.kind === "document" && attachment.data) {
@@ -1307,7 +1393,7 @@ function PdfAttachmentChip({
           <PdfSheetPreview />
         </button>
         <span className="acpmux-attachment-document-meta">
-          <FileDoc size={15} />
+          <FileDoc size={16} />
           <span className="acpmux-attachment-document-name">{attachment.name}</span>
           <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
         </span>
@@ -1344,7 +1430,7 @@ function PdfAttachmentChip({
             rel="noreferrer"
             aria-label={t(ATTACHMENT_LABELS.openAttachment, { name: attachment.name })}
           >
-            <FileDoc size={15} />
+            <FileDoc size={16} />
             <span>{attachment.name}</span>
           </a>
         )}

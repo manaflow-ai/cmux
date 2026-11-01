@@ -112,6 +112,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         self.focusRequested = focusRequested
     }
 
+    /// This run scoped to the machine that owns its target (nil: unscoped). A forked or SSH machine
+    /// keeps this Mac's tab ids, so the id alone can name two tabs.
+    public func onMachine(_ machineID: String?) -> ActionInvocation {
+        var scoped = self
+        scoped.targetMachineID = machineID
+        return scoped
+    }
+
     /// Whether the run may change this client's focus, selection, shown
     /// workspace or key window.
     public var allowsViewChange: Bool {

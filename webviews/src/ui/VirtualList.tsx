@@ -12,6 +12,8 @@ export interface VirtualListProps {
   estimateSize(index: number): number;
   /** The highlighted row: always rendered, scrolled into view when it changes. */
   activeIndex?: number;
+  /** Changes when the same index names a different result set or active item. */
+  activeScrollKey?: string;
   renderRow(index: number, style: CSSProperties): ReactNode;
   className?: string;
   id?: string;
@@ -23,12 +25,16 @@ export interface VirtualListProps {
   scrollParent?: string;
 }
 
-/** Scrolls `scrollTo(index)` whenever `index` changes (a narrow wrapper around the one effect). */
-function useScrollToIndex(index: number | undefined, scrollTo: (index: number) => void) {
-  const last = useRef<number | undefined>(undefined);
+/** The active result can change without changing its numeric index (a filtered folder). */
+function useScrollToIndex(index: number | undefined, key: string | undefined, scrollTo: (index: number) => void) {
+  const last = useRef<{ index: number; key: string | undefined } | null>(null);
   useLayoutEffect(() => {
-    if (index === undefined || index < 0 || index === last.current) return;
-    last.current = index;
+    if (index === undefined || index < 0) {
+      last.current = null;
+      return;
+    }
+    if (last.current?.index === index && last.current.key === key) return;
+    last.current = { index, key };
     scrollTo(index);
   });
 }
@@ -37,6 +43,7 @@ export function VirtualList({
   count,
   estimateSize,
   activeIndex,
+  activeScrollKey,
   renderRow,
   className,
   id,
@@ -90,7 +97,7 @@ export function VirtualList({
       return indexes;
     },
   });
-  useScrollToIndex(activeIndex, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
+  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
   // The range extractor adds the active row to a measured range; before the first measure (no
   // viewport yet) there is no range, so the active row is added here from its estimated place.
   const items = virtualizer

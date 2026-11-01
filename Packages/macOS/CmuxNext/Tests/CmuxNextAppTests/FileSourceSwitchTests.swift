@@ -15,7 +15,7 @@ import Testing
 ///   Markdown page opens its source in the code editor.
 /// - Open as Page (`file.openAsPage`) on a code editor tab: the file opens rendered again.
 /// The tab menu shows each only on a tab it applies to.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct FileSourceSwitchTests {
     private static func folder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cn-source-\(UUID().uuidString.prefix(8))")

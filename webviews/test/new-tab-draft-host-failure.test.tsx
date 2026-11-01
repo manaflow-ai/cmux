@@ -88,7 +88,9 @@ async function until(check: () => boolean, what: string, within = 15_000) {
   expect(check(), what).toBe(true);
 }
 
-type FieldElement = HTMLElement & { acpmuxMarkdownField?: { value(): string } };
+type FieldElement = HTMLElement & {
+  acpmuxMarkdownField?: { value(): string; type(text: string): unknown };
+};
 const promptField = () => {
   const element = host.querySelector<FieldElement>(".acpmux-composer-prompt");
   return element?.querySelector("[contenteditable]") ? element.acpmuxMarkdownField : undefined;
@@ -141,12 +143,19 @@ async function mount(template: "classic" | "default") {
   };
 }
 
-function typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string) {
+function typeInto(field: FieldElement, text: string) {
+  if (field.acpmuxMarkdownField) {
+    field.acpmuxMarkdownField.type(text);
+    return;
+  }
+  const input = field as HTMLInputElement;
   const proto =
-    field instanceof dom.window.HTMLTextAreaElement ? dom.window.HTMLTextAreaElement : dom.window.HTMLInputElement;
-  Object.getOwnPropertyDescriptor(proto.prototype, "value")!.set!.call(field, text);
-  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    input instanceof dom.window.HTMLTextAreaElement ? dom.window.HTMLTextAreaElement : dom.window.HTMLInputElement;
+  Object.getOwnPropertyDescriptor(proto.prototype, "value")!.set!.call(input, text);
+  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 }
+
+const fieldValue = (field: FieldElement) => field.acpmuxMarkdownField?.value() ?? (field as HTMLInputElement).value;
 
 for (const [template, selector] of [
   ["default", ".nt-field"],
@@ -154,22 +163,27 @@ for (const [template, selector] of [
 ] as const) {
   test(`${template} New Tab: text typed before a failed handshake moves to the chat composer and back`, async () => {
     const pane = await mount(template);
+    const draft = template === "default" ? "Keep **bold** and \\_literal\\_" : "draft typed before the handshake";
     // The page draws before the handshake; the person types into it at once.
-    const field = () => host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
+    const field = () => host.querySelector<FieldElement>(selector);
     await until(() => field() !== null, "the New Tab page draws before the handshake");
-    await act(async () => typeInto(field()!, "draft typed before the handshake"));
-    expect(field()!.value).toBe("draft typed before the handshake");
+    await until(
+      () => template === "classic" || !!field()?.querySelector("[contenteditable]"),
+      "the New Tab editor is ready",
+    );
+    await act(async () => typeInto(field()!, draft));
+    expect(fieldValue(field()!)).toBe(draft);
 
     // The host fails before its handshake: the chat view (error card and composer) takes the page's
     // place, and its composer keeps the typed text.
     await act(async () => pane.fail());
     await until(() => field() === null && promptField() !== undefined, "the chat view stands in for the page");
-    await until(() => composerText() === "draft typed before the handshake", "the composer keeps the draft");
+    await until(() => composerText() === draft, "the composer keeps the draft");
 
     // The host answers a retry: the page comes back with the draft.
     pane.answer();
     await until(() => field() !== null, "the New Tab page comes back after the handshake", 30_000);
-    expect(field()!.value).toBe("draft typed before the handshake");
+    await until(() => fieldValue(field()!) === draft, "the page restores the serialized draft");
   }, 60_000);
 }
 
@@ -231,5 +245,5 @@ test("an existing chat that failed before its handshake and recovered gives a la
     ),
   );
   await until(() => host.querySelector(".nt-field") !== null, "the New Tab page");
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")!.value).toBe("");
+  expect(fieldValue(host.querySelector<FieldElement>(".nt-field")!)).toBe("");
 }, 60_000);

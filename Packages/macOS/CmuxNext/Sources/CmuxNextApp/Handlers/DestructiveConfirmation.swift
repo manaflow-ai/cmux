@@ -124,9 +124,7 @@ enum DestructiveConfirmation {
     }
 
     /// The same for `tabs` (their live terminals only).
-    static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] {
-        await runningPrograms(bySurface: tabs, on: daemon).programNames
-    }
+    static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] { await runningPrograms(bySurface: tabs, on: daemon).programNames }
 
     /// The same, per asked terminal: each live terminal's foreground program,
     /// or nil when it runs none (or did not answer). One gesture asks once and
@@ -134,10 +132,11 @@ enum DestructiveConfirmation {
     static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
         let surfaces = tabs.filter { $0.kind == .pty && !$0.dead }.map(\.surface)
         guard let connection = daemon.connection, !surfaces.isEmpty else { return [:] }
+        await daemon.closeReadStarts() // a test may hold the read here (debug.close.hold, DEBUG and bench builds)
         return await withTaskGroup(of: (SurfaceID, String?).self) { group in
             for surface in surfaces {
                 group.addTask {
-                    (surface, try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1)).runningProgram)
+                    (surface, await connection.readProcessInfo(surface, timeout: .seconds(1))?.runningProgram)
                 }
             }
             var programs: RunningPrograms = [:]

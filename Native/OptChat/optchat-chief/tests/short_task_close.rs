@@ -167,14 +167,17 @@ fn finish_a1(report: &str, ran: Duration) -> (Vec<String>, Option<String>) {
     while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(200)) {
         h.brain.step(input);
     }
-    let workspace = h.brain.state().sub("a1").and_then(|(_, s)| s.workspace.clone());
+    let workspace = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.workspace.clone());
     (recorder.closed.lock().unwrap().clone(), workspace)
 }
 
 #[test]
 fn a_short_task_that_landed_closes_its_workspace_when_it_finishes() {
-    let (closed, workspace) =
-        finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
+    let (closed, workspace) = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
     assert_eq!(closed.len(), 1, "the short task's workspace closes");
     // Its closed key is forgotten, so `control show` opens a new one
     // instead of answering that it already has one.

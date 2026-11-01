@@ -88,6 +88,11 @@ pub struct RunSteps {
     /// arrived) sharpen the line but keep its start, so the elapsed time stays the call's.
     activity_tool: Option<String>,
     activity_dirty: bool,
+    /// The tool calls announced and not ended, in announce order, each with its
+    /// line and when it was announced (ms). Claude Code runs a message's calls in
+    /// order, so a call announced while an earlier one runs waits for it: the line
+    /// keeps naming the earlier one, and moves on when it ends.
+    running: Vec<(String, String, u64)>,
 }
 
 /// One talk or thought step's live stream (`step.delta`): the text sent so
@@ -267,6 +272,16 @@ impl RunSteps {
     /// A tool call started or its input arrived (ACP `tool_call`).
     pub fn tool_call(&mut self, id: &str, name: &str, update: &Value, at: Option<u64>) {
         let doing = activity_line(name, update);
+        match self.running.iter_mut().find(|(call, _, _)| call == id) {
+            Some((_, line, _)) => line.clone_from(&doing),
+            None => self
+                .running
+                .push((id.to_owned(), doing.clone(), epoch_ms())),
+        }
+        let holder_runs = self
+            .activity_tool
+            .as_ref()
+            .is_some_and(|tool| self.running.iter().any(|(call, _, _)| call == tool));
         if self.activity.as_ref().is_none_or(|(old, _)| *old != doing) {
             match (&mut self.activity, self.activity_tool.as_deref()) {
                 // The same call, its input known now: a sharper line, the same start.
@@ -274,6 +289,9 @@ impl RunSteps {
                     *line = doing;
                     self.activity_dirty = true;
                 }
+                // An earlier call still runs: this one waits for it (Leo's
+                // "ToolSearch 3m 19s" was a ToolSearch queued behind a shell loop).
+                _ if holder_runs => {}
                 _ => {
                     self.set_activity(doing);
                     self.activity_tool = Some(id.to_owned());
@@ -329,6 +347,10 @@ impl RunSteps {
                 .or_insert_with(|| json!("running"));
         }
         let ended = matches!(status, Some("done" | "failed"));
+        if ended {
+            self.call_ended(id);
+        }
+        let step = self.upsert(&step_id("tool", id), "tool");
         let tool = tool_of(&mut step.value);
         if !name.is_empty() || !tool.contains_key("name") {
             tool.insert("name".into(), json!(tool_name(name)));
@@ -373,6 +395,24 @@ impl RunSteps {
                 mime_type,
                 data,
             });
+        }
+    }
+
+    /// Call `id` ended. When the line named it, the line moves to the earliest
+    /// call still running, or to the model ("Thinking"), from now: a queued call's
+    /// time waiting behind the one that ended is not its own, and the steps'
+    /// starts never go back.
+    fn call_ended(&mut self, id: &str) {
+        self.running.retain(|(call, _, _)| call != id);
+        if self.activity_tool.as_deref() != Some(id) {
+            return;
+        }
+        match self.running.first().cloned() {
+            Some((call, line, _)) => {
+                self.set_activity(line);
+                self.activity_tool = Some(call);
+            }
+            None => self.set_activity("Thinking".to_owned()),
         }
     }
 

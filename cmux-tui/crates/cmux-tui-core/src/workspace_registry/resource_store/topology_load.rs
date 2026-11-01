@@ -164,7 +164,7 @@ pub(crate) fn load_resource_topology_scoped(
 }
 
 /// Revision, active workspace and every live workspace's active screen.
-fn load_topology_frame(
+pub(crate) fn load_topology_frame(
     connection: &Connection,
     session_id: SessionPublicId,
     generation: String,

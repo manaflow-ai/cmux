@@ -1,15 +1,16 @@
 // The composer's look (Leo 2026-10-22: "first dot claude, second dot codex. since it's just all looks
-// anyways"): one composer, two layouts of the same controls. `claude`, the default, is today's
-// composer, Claude Code's (with the plain footer, the mode, model and effort in the quiet row under
-// the box). `codex` lays them out as Codex desktop does: one row inside the box under the prompt, +
-// and the mode on the left, the context ring, the model and effort, the mic and Send on the right,
-// and the look dots in that row's empty middle (Leo 2026-10-30: "the bypass/context/model picker
-// stuff should literally be inside the composer box"; "no just codex"). On New Tab the folder and computer strip stay in Codex's tray
-// (composerLocation.css, newtab/screen.css). Dots pick it: on New Tab the page's three (newtab/tabDots.ts: Claude Minimal,
-// Claude Minimal with the quick actions, Codex Minimal), in a chat two on hover in the composer's
-// bottom area (LookSwitch.tsx). The choice is the
-// viewer's, kept in localStorage across chats, panes and launches (in step by the `storage` event),
-// as the transcript's wrap choice is (conversation/blockWrap.ts).
+// anyways"): one composer, two looks of the same controls. Both lay the buttons out as Claude's, the
+// default: + left of the prompt, the send slot and the mic right of it on the prompt's row, and the
+// mode, the model and effort and the context ring in the quiet row under the box (Leo 2026-11-01:
+// "the placement of the buttons are just really bad compared to our claude code version", then "we
+// already have a good version"). `codex` keeps only Codex's folder and computer tray tucked under
+// the box's top edge and the accent on Full access (composerLook.css). Replaced: Codex's own row in
+// the box under the prompt (cmux #28901, last good commit 8b44a8a1dc2), kept in gallery
+// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Dots pick it: on New Tab the page's three
+// (newtab/tabDots.ts: Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), in a chat
+// two on hover in the composer's bottom area (LookSwitch.tsx). The choice is the viewer's, kept in
+// localStorage across chats, panes and launches (in step by the `storage` event), as the transcript's
+// wrap choice is (conversation/blockWrap.ts).
 import { useSyncExternalStore } from "react";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
@@ -80,11 +81,4 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
 /// The composer's look; re-renders the caller when it changes, here or in another pane.
 export function useComposerLook(): ComposerLook {
   return useSyncExternalStore(subscribe, current, current);
-}
-
-/// Whether the mode, model and effort sit in the quiet row under the box (Claude's look,
-/// ComposerFoot.tsx) rather than in the box's own row (Codex's look, Leo 2026-10-30: "the
-/// bypass/context/model picker stuff should literally be inside the composer box").
-export function useQuietRow(): boolean {
-  return useComposerLook() !== "codex";
 }

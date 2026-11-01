@@ -3,9 +3,14 @@
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
 set -euo pipefail
 if [ "$TAG_MOVE_OUTCOME" = "success" ] && [ "$CHANNEL_RELEASE_TAG" = nightly-next ]; then
+  if [ "${NEXT_FEED_CURRENT:-false}" != true ]; then
+    echo "tag_status=unpublished" >> "$GITHUB_OUTPUT"
+    echo "The nightly-next feed did not accept this build; no release metadata or tag will move."
+    exit 0
+  fi
   echo "tag_status=updated" >> "$GITHUB_OUTPUT"
   {
-    echo "### Feed updated"
+    echo "### Feed current"
     echo ""
     echo "\`$CHANNEL_FEED_BASE\` serves \`$HEAD_SHA\` from R2; publish-nightly-next-github copies it to the release and moves the tag."
   } >> "$GITHUB_STEP_SUMMARY"

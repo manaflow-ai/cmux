@@ -5,6 +5,7 @@ import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
+import { FileSearchLoading } from "./FileSearchLoading";
 
 /// How long typing settles before the picker asks again (as Search files does).
 const MENTION_DEBOUNCE_MS = 80;
@@ -135,6 +136,7 @@ export function MentionMenu({
       className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >
+      {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
       {items.map((item, index) => (
         <PickerOption
           key={item.key}
@@ -165,7 +167,11 @@ export function MentionMenu({
             : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
         </PickerOption>
       ))}
-      {note && <output className="acpmux-file-note">{note}</output>}
+      {note && (
+        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+          {note}
+        </output>
+      )}
     </PickerOptionList>
   );
 }

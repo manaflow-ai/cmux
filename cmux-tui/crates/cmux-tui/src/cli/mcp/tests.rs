@@ -348,6 +348,37 @@ impl Backend for Fake {
         }
     }
 
+    // The fake's chat rows stand in for scoped acpmux info, separate from the
+    // daemon's terminal/agent records and the app's visible tab topology.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::super::agents::chat::ChatCommand,
+        _idempotency_key: Option<&str>,
+        _origin: &str,
+    ) -> Result<Value, CallFailure> {
+        let super::super::agents::chat::ChatCommand::State { target } = command else {
+            return Err(CallFailure::local(FailureKind::NotRun, "usage.invalid", "read only"));
+        };
+        self.sent.borrow_mut().push(json!({"kind": "chat", "session": session, "target": target}));
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        let chat = live
+            .daemon
+            .as_ref()
+            .or(self.daemon_snapshot.as_ref())
+            .and_then(|daemon| daemon["chats"].as_array())
+            .and_then(|chats| chats.iter().find(|chat| chat["chat"] == target.as_str()));
+        match chat {
+            Some(chat) => Ok(json!({"schema_version": 1, "action": "chat.state", "result": chat})),
+            None => Err(CallFailure::local(
+                FailureKind::NotRun,
+                "selector.not_found",
+                "no scoped acpmux chat",
+            )),
+        }
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -1486,6 +1517,7 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod machine_catalog;
+mod retained;
 mod settings;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {

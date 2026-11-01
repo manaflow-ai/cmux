@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextControl
+import CmuxNextRemote
 import CmuxNextSettings
 import Foundation
 
@@ -14,6 +15,11 @@ import Foundation
 ///   and `debug.server_reach.cleanup {host, chief?}` archives that chief and
 ///   revokes the server (`server.revoke`). Both go to the API Worker as the
 ///   signed-in user with origin `user`.
+/// - DEV builds only: `debug.server_reach.probe_fixture {name?, remove?}` adds a
+///   server on this Mac whose socket does not exist, so its daemon's first
+///   connect keeps failing as a starting daemon's does (captures of a launch's
+///   connecting moment); `remove: true` closes and removes it. No account or
+///   network call; the sidebar lists it until removed or the app quits.
 enum ServerReachControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         var methods: [ControlMethod] = [
@@ -59,8 +65,38 @@ enum ServerReachControl {
                 out["servers"] = await MainActor.run { report(services) }
                 return .object(out)
             }.withDeadline(.fixed(.seconds(60))),
+            .mainActor("debug.server_reach.probe_fixture") { [weak services] call in
+                guard let services else { throw ControlError(code: "unavailable", message: "no services") }
+                return .value(try probeFixture(services, call.params))
+            },
         ]
         return methods
+    }
+
+    /// `debug.server_reach.probe_fixture`: one fixture server whose first connect never succeeds.
+    @MainActor
+    private static func probeFixture(_ services: AppServices, _ params: [String: JSONValue]) throws -> JSONValue {
+        let machines = services.machines
+        let socket = NSTemporaryDirectory() + "cmux-probe-fixture-\(ProcessInfo.processInfo.processIdentifier).sock"
+        let reach: ServerReach
+        do {
+            reach = try ServerReach(hostID: "host_probefixture01", installID: "inst_probefixture01",
+                                    name: params["name"]?.stringValue ?? "Probe Server", route: .unix(socket))
+        } catch {
+            throw ControlError.invalidParams("bad fixture: \(error)")
+        }
+        if params["remove"]?.boolValue == true {
+            machines.removeServer(reach.machineID)?.close()
+            return report(services)
+        }
+        if machines.server(reach.machineID) == nil {
+            let session = ServerMachineSession(reach: reach, binary: nil, paths: SSHPaths(root: URL(fileURLWithPath: NSTemporaryDirectory())),
+                                               environment: { [:] }, localIdentity: { [machines] in machines.local.identity },
+                                               mainWork: services.mainWork)
+            machines.add(session)
+            session.connect()
+        }
+        return report(services)
     }
 
     /// The chief's current revision, or nil when `chief.list` does not list it.

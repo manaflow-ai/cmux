@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -17,9 +19,14 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
@@ -35,6 +42,8 @@ beforeAll(() => {
     },
   });
   Object.assign(scope, {
+    // ProseMirror's (the New Tab screen's Markdown field): the selection, Node, MutationObserver.
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     window,
     document: window.document,
     navigator: window.navigator,
@@ -46,6 +55,10 @@ beforeAll(() => {
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The New Tab screen's field is the composer's Markdown field (ProseMirror).
+    KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
+    FocusEvent: window.FocusEvent,
   });
   host = window.document.getElementById("root")!;
 });
@@ -59,6 +72,54 @@ afterAll(() => {
 
 const noop = () => {};
 
+const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+/// The page's field as a person meets it: the element that takes focus and clicks, typing, the
+/// caret, and the selection. The classic page's is an input; the New Tab screen's is the
+/// composer's Markdown field, driven through its handle (its editor mounts a moment after it).
+type Field = {
+  element: HTMLElement;
+  type(text: string): void;
+  setCaret(offset: number): void;
+  selection(): [number, number];
+};
+
+async function fieldIn(selector: string): Promise<Field> {
+  const found = host.querySelector<HTMLElement>(selector)!;
+  if (found instanceof window.HTMLInputElement || found instanceof window.HTMLTextAreaElement) {
+    const input = found;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+    return {
+      element: input,
+      type: (text) => {
+        setValue.call(input, text);
+        input.dispatchEvent(new window.Event("input", { bubbles: true }));
+      },
+      setCaret: (offset) => input.setSelectionRange(offset, offset),
+      selection: () => [input.selectionStart ?? -1, input.selectionEnd ?? -1],
+    };
+  }
+  const markdown = found as MarkdownFieldElement;
+  for (
+    let turn = 0;
+    turn < 200 && !(markdown.acpmuxMarkdownField && markdown.querySelector("[contenteditable]"));
+    turn++
+  )
+    await settle();
+  const handle = markdown.acpmuxMarkdownField!;
+  return {
+    element: markdown.querySelector<HTMLElement>("[contenteditable]")!,
+    type: (text) => {
+      handle.type(text);
+    },
+    setCaret: (offset) => handle.setCaret(offset),
+    selection: () => {
+      const { selectionStart, selectionEnd } = handle.text();
+      return [selectionStart, selectionEnd];
+    },
+  };
+}
+
 /// Shows a page as the App does (a new inline input-ready callback on every render), places the
 /// caret in typed text, then re-renders and clicks the focused field as a person would.
 async function caretAfterUpdates(page: (onInputReady: (token: string) => void) => ReactElement, selector: string) {
@@ -68,18 +129,15 @@ async function caretAfterUpdates(page: (onInputReady: (token: string) => void) =
   const render = () => root.render(page((token) => ready.push(token)));
   try {
     await act(async () => render());
-    const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
-    expect(window.document.activeElement).toBe(field);
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-    await act(async () => {
-      setValue.call(field, "hello world");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
-    field.setSelectionRange(3, 3);
+    const field = await fieldIn(selector);
+    const element = field.element;
+    expect(window.document.activeElement).toBe(element);
+    await act(async () => field.type("hello world"));
+    await act(async () => field.setCaret(3));
     let focused = 0;
-    field.addEventListener("focus", () => (focused += 1));
-    const focus = field.focus.bind(field);
-    field.focus = (options?: FocusOptions) => {
+    element.addEventListener("focus", () => (focused += 1));
+    const focus = element.focus.bind(element);
+    element.focus = (options?: FocusOptions) => {
       focused += 1;
       focus(options);
     };
@@ -87,15 +145,54 @@ async function caretAfterUpdates(page: (onInputReady: (token: string) => void) =
     await act(async () => render());
     await act(async () => render());
     await act(async () => {
-      field.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
-      field.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
-      field.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      element.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+      element.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+      element.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    return { focused, selection: [field.selectionStart, field.selectionEnd], ready };
+    await settle();
+    return { focused, selection: field.selection(), ready };
   } finally {
     await act(async () => root.unmount());
   }
 }
+
+test("a prefilled New Tab location is selected only after the editor is ready", async () => {
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const ready: string[] = [];
+  const root: Root = (await import("react-dom/client")).createRoot(host);
+  const location = "https://example.com/a-long-prefilled-location";
+  const render = () =>
+    root.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        location={location}
+        inputToken="token-location"
+        onInputReady={(token) => ready.push(token)}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    );
+  try {
+    await act(async () => render());
+    const field = await fieldIn(".nt-field");
+    expect(field.selection()).toEqual([0, location.length]);
+    expect(ready).toEqual(["token-location"]);
+    field.type("x");
+    await settle();
+    const markdown = host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+    expect(markdown.plainText()).toBe("x");
+    await act(async () => render());
+    await settle();
+    expect(ready).toEqual(["token-location"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 
 test("the New Tab screen keeps the caret where it is across updates and a click into its field", async () => {
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");

@@ -160,8 +160,8 @@ final class TabCell {
     /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
     var closeButtonRect: CGRect?
 
-    /// Title font; the strip updates it when the chrome font size changes.
-    var titleFont = Typography.body {
+    /// Title font; the strip updates it when the tab or chrome font size changes.
+    var titleFont = Typography.tabTitle {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont
@@ -196,9 +196,12 @@ final class TabCell {
     private func buildLayers() {
         let root = layer
         root.masksToBounds = false
-        backgroundLayer.cornerCurve = .continuous
+        backgroundLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
+        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
+        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
+        titleLayer.truncation = .middle
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
@@ -434,9 +437,10 @@ final class TabCell {
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
         let marksOnIcon = !visibility.showsTitle
-        // On the icon, a working agent keeps its brand mark, with the spinner as a small badge on it.
+        // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
+        // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
-        let spinnerBadgesMark = spinnerOnIcon && { if case .agentMark = item.icon { true } else { false } }()
+        let spinnerBadgesMark = spinnerOnIcon && (item.indicator.isWorking || { if case .agentMark = item.icon { true } else { false } }())
         let showsIconArt = visibility.showsIcon && (!spinnerOnIcon || spinnerBadgesMark)
         // Bounds and position, not frame: a hibernated tab's icon is scaled (TabCell+HibernationRing).
         iconLayer.bounds = CGRect(origin: .zero, size: iconFrame.size)
@@ -485,9 +489,10 @@ final class TabCell {
         setCloseButtonRect(closeRect, pill: bounds)
 
         if visibility.showsTitle {
-            // The title always spans to the trailing inset, so it never moves
-            // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it.
+            // The title spans to the trailing inset while it fits. A clipped
+            // title uses the visible area as its rest width so middle
+            // truncation and the trailing fade share the same edge; the x or
+            // badge still overlays the trailing inset without hiding its tail.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
@@ -495,9 +500,18 @@ final class TabCell {
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
             // The marquee fades glyphs out across the icon-title gap.
+            let textWidth = titleWidth()
+            let visibleWidth = visibleEnd - titleX
+            let isMiddleTruncated = textWidth > visibleWidth + 0.5
+            let restWidth = isMiddleTruncated ? visibleWidth : span
             let geometry = TitleFadeGeometry(
-                textWidth: titleWidth(), span: span, visibleWidth: visibleEnd - titleX,
-                leadingPadding: m.iconTitleSpacing, trailingPadding: 0, fadeWidth: m.titleFadeWidth
+                textWidth: textWidth, span: span, visibleWidth: visibleWidth,
+                leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
+                // Keep the existing trailing fade for every clipped title;
+                // the rest width above keeps the suffix inside that visible
+                // area before the close button or badge.
+                fadeWidth: m.titleFadeWidth,
+                restWidth: restWidth
             )
             let frame = CGRect(x: pixel(titleX), y: pixel(midY - lineHeight / 2), width: span, height: lineHeight)
             if onPath {

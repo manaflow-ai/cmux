@@ -21,6 +21,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod app_orphan;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -31,10 +32,10 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
-mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
+pub(crate) mod owner_exit;
 mod persist_retry;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
@@ -531,9 +532,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
-    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
-    // bundle is read before the ready line.
-    let dev_orphan = dev_orphan::watch();
+    // A daemon whose cmux app is gone (`daemon/app_orphan.rs`); its bundle is
+    // read before the ready line.
+    // A memory store without agent hosts loses every chat on a stop, so a NIGHTLY or Release
+    // daemon then never stops for its app (as `AcpmuxVersionHandoff` never restarts one).
+    let app_orphan = app_orphan::watch(keeps_chats_across_stop(&hub, memory_store));
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -545,7 +548,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         &socket_path(),
     ));
     let _home_watch = AbortOnDrop(home_gone.abort_handle());
-    // Unused for its grace on a home of its own: a normal stop (`daemon/unused_exit.rs`).
+    // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
+    // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
     // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
@@ -643,10 +647,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
@@ -660,10 +665,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
@@ -1159,6 +1165,17 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     let home = home();
     let path = socket_path();
     connect_with_systemctl("systemctl", &home, &path, autostart, || Client::connect(&path)).await
+}
+
+/// Connect a trigger client without forwarding ambient session caller
+/// credentials into the daemon connection.
+pub async fn connect_without_caller(autostart: bool) -> Result<Arc<Client>> {
+    let home = home();
+    let path = socket_path();
+    connect_with_systemctl("systemctl", &home, &path, autostart, || {
+        Client::connect_without_caller(&path)
+    })
+    .await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
@@ -1764,6 +1781,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let cwd = std::env::current_dir().context("this command's folder")?;
     let socket = std::env::var_os("ACPMUX_SOCKET");
     cmd.env_remove("ACPMUX_SOCKET");
+    // A daemon a command starts has no owner app: only the app's launcher names one
+    // (`daemon/owner_exit.rs`), so a CLI run from an agent or a harness never ties the new daemon
+    // to the app that started an older one.
+    cmd.env_remove(owner_exit::OWNER_APP_PID_ENV);
     for (key, value) in login_placement::daemon_env(&home(), socket.as_deref(), &cwd) {
         cmd.env(key, value);
     }
@@ -1839,6 +1860,41 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+/// Whether a stop keeps this daemon's chats: agents under agent hosts (as the hub runs them,
+/// never for a memory store, whatever `ACPMUX_AGENT_HOSTS` says), or chats on disk. The
+/// app-orphan watch never stops a NIGHTLY or Release daemon without it.
+fn keeps_chats_across_stop(hub: &Hub, memory_store: bool) -> bool {
+    hub.agent_hosts_enabled() || !memory_store
+}
+
+#[cfg(test)]
+mod keeps_chats_tests {
+    use super::*;
+    use crate::config::StoreMode;
+
+    fn hub(mode: StoreMode, dir: &std::path::Path) -> std::sync::Arc<Hub> {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = mode;
+        let store = crate::store::open(&cfg.store, dir).unwrap();
+        let hub = Hub::new(cfg, store);
+        // What `run` does with the default environment (no `ACPMUX_AGENT_HOSTS=0`).
+        hub.enable_agent_hosts();
+        hub
+    }
+
+    #[test]
+    fn a_memory_daemon_with_the_default_env_keeps_no_chats_across_a_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        // `--memory`, default env: agent hosts asked for, but a memory store never runs them,
+        // so the app-orphan watch must never stop it (its chats would be lost).
+        let memory = hub(StoreMode::Memory, dir.path());
+        assert!(!memory.agent_hosts_enabled());
+        assert!(!keeps_chats_across_stop(&memory, true));
+        let local = hub(StoreMode::Local, dir.path());
+        assert!(keeps_chats_across_stop(&local, false));
     }
 }
 
