@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4132201832701",
+  "notes": "notes/4132201832701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30946,
+      "title": "fix(composer): leaving New Tab shell mode keeps the field focused (base red from #29659)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29003,
+      "title": "acpmux: _acpmux/queue_get reads a held prompt whole for the owner (carries #26855)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31016,
+      "title": "test(cloud): fix the bring-back stand-in's --ask-first check; Cloud suites wait for their work, not fixed sleeps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30194,
+      "title": "cmux NEXT model picker: compact like Claude Code's menu (as wide as its rows), one tab per harness pinned",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31049,
+      "title": "base red: web-lint, #30739's useless spread, #30003's role=group, and a design-token baseline that can shrink",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30652,
+      "title": "Agent pane: inbox rows share the tool rows' icon column; a sender's mark is its real harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30878,
+      "title": "ci: secretless Linux jobs read RUNNER_POOLS.linux, not a hard-coded Blacksmith size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31038,
+      "title": "base red: fill #30586's and #30550's new strings in the 12 missing languages",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31037,
+      "title": "base red: the cmux-tui tree key and cmux-tui-spec paths cover #28947's link-token fixtures",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31056,
+      "title": "link seed pull --or-copy: a seeded folder on a machine without the export asks for the update; the capability checked directly",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
