@@ -44,9 +44,20 @@ extension TabDragSession {
 
     final class Drag {
         let source: Source
+        var work = TabDragWork()
+        /// Drag events moved the pointer since the last hit test; the next frame runs it (`move`).
+        var pointerMoved = false
+        /// The point where the last frame's autoscroll found nothing to scroll; a frame at the
+        /// same point skips the check.
+        var autoscrollIdleAt: CGPoint?
+        /// The hit test's resolver context, kept until what it read changes (`cachedContext`).
+        var keptContext: (context: TabDragContext, changed: TabDragChangeFlag, owners: [ObjectIdentifier?])?
+        let windowOrder = TabDragWindowOrder()
         let lifecycle: TabDragLifecycle
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion
+        /// The motion the ghost last rendered; a frame renders only when it differs (`tick`).
+        var renderedMotion: TabDragGhostMotion?
         var point: CGPoint
         /// Pointer velocity in points per second, from `samplePointer`.
         var pointerVelocity = CGVector.zero
