@@ -10,6 +10,7 @@ import type { AgentQuestion } from "./question/model";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
+import type { SessionUsageStats } from "./usageStats";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
@@ -458,6 +459,7 @@ export type AcpmuxRow = {
     count: number;
     promptIds: readonly string[];
     fromSession?: string;
+    fromHarness?: string;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -746,6 +748,9 @@ export type AcpmuxSnapshot = {
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
     /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
+    /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
+    /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
+    usageStats?: SessionUsageStats;
     host?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
@@ -1785,11 +1790,13 @@ function measuredRowHeight(
     // an opened message does, its text read from the notice (else its preview).
     const { threads } = row.incoming.notice;
     const line = TOOL_ROW_HEIGHT;
-    const grouped = threads.length > 1 && inboxNoticeLook() === "group";
-    if (grouped && !messageOpened(sessionId, row.id)) return finish(line + LINE_FRAME);
+    // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
+    const head = TOOL_ROW_HEIGHT;
+    const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
+    if (grouped && !messageOpened(sessionId, row.id)) return finish(head + LINE_FRAME);
     const { lineHeight } = metrics();
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    let height = (grouped ? line : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       height += line;
       if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
@@ -2092,7 +2099,7 @@ import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
-import { inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

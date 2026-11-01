@@ -114,3 +114,26 @@ test("a missing setup script is plain text without an environment callback", () 
   expect(html).toContain("Add a setup script to install dependencies and configure your environment.");
   expect(html).not.toContain('class="acpmux-cloud-start__link"');
 });
+
+test("initialized sessions collapse to one quiet line", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
+  );
+  expect(html).toContain("Initialized session");
+  expect(html).not.toContain('data-step-id="machine"');
+});
+
+test("startup durations use the supplied clock", () => {
+  const rows = startupChecklist({ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }, undefined, 3_500);
+  expect(rows[0]?.duration).toBe("2.5s");
+});
+
+test("setup hint becomes a link when an environment callback is provided", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      onOpenEnvironment={() => undefined}
+    />,
+  );
+  expect(html).toContain('class="acpmux-cloud-start__link"');
+});

@@ -2261,7 +2261,7 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
         await ctx.type("Read @ini");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[role=option]") !== null);
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
         await ctx.type("now");
