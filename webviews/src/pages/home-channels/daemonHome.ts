@@ -73,6 +73,8 @@ const RUNS_CAPABILITY = "conversation-runs-v1";
 const RUN_ANSWERS_CAPABILITY = "conversation-run-answers-v1";
 /** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
 const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
+/** Limit parallel Cloud owner reads without discarding agents from a group conversation. */
+const CLOUD_RUN_READ_BATCH = 8;
 /** A Chief's live run frames (`conversation-live*`, the `conversation-live` event for a page that asks). */
 const LIVE_CAPABILITY = "chief-live-v1";
 /** A Cloud Chief's live frames through the daemon (`cloud-conversation-live`). */
@@ -1138,8 +1140,7 @@ export class DaemonHomeClient implements PageClient {
       return { runs: [], hasMore: false };
     const agents = (this.cloud.summary(id)?.participants ?? [])
       .filter((participant) => participant.kind === "agent")
-      .map((participant) => participant.id)
-      .slice(0, 8);
+      .map((participant) => participant.id);
     const limit = Math.min(bounded(params.limit, 20), 100);
     const beforeStartedAt =
       typeof params.beforeStartedAt === "number" && Number.isFinite(params.beforeStartedAt)
@@ -1147,22 +1148,28 @@ export class DaemonHomeClient implements PageClient {
         : undefined;
     // Fetch owner pages wide enough to include timestamp ties at the global boundary.
     const ownerLimit = Math.max(limit, 100);
-    const lists = await Promise.all(
-      agents.map((agent) =>
-        this.cloud
-          .read("cloud-conversation-runs", {
-            conversation: id,
-            agent,
-            limit: ownerLimit,
-            ...(beforeStartedAt === undefined ? {} : { before_started_at: beforeStartedAt }),
-          })
-          .then((found) => ({
-            runs: ((found.runs as Json[] | undefined) ?? []).map(run),
-            hasMore: found.has_more === true,
-          }))
-          .catch(() => ({ runs: [] as HomeRun[], hasMore: false })),
-      ),
-    );
+    const lists: Array<{ runs: HomeRun[]; hasMore: boolean }> = [];
+    // A conversation can have more than eight Chiefs. Read every listed agent, but keep
+    // the existing maximum of eight simultaneous Cloud requests.
+    for (let at = 0; at < agents.length; at += CLOUD_RUN_READ_BATCH) {
+      const batch = await Promise.all(
+        agents.slice(at, at + CLOUD_RUN_READ_BATCH).map((agent) =>
+          this.cloud
+            .read("cloud-conversation-runs", {
+              conversation: id,
+              agent,
+              limit: ownerLimit,
+              ...(beforeStartedAt === undefined ? {} : { before_started_at: beforeStartedAt }),
+            })
+            .then((found) => ({
+              runs: ((found.runs as Json[] | undefined) ?? []).map(run),
+              hasMore: found.has_more === true,
+            }))
+            .catch(() => ({ runs: [] as HomeRun[], hasMore: false })),
+        ),
+      );
+      lists.push(...batch);
+    }
     const merged = lists.flatMap((list) => list.runs).sort((a, b) => b.startedAt - a.startedAt);
     // Keep every run tied at the page boundary. The cursor is timestamp-only and strict, so
     // dropping one of those ties would make it unreachable on the next request.
