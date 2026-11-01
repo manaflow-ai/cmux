@@ -23,15 +23,20 @@ KEYCHAIN="${CMUX_NATIVE_SIGNING_KEYCHAIN:-build.keychain}"
 "$CODESIGN_TOOL" --force --timestamp --keychain "$KEYCHAIN" --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_PATH"
 signature_info="$("$CODESIGN_TOOL" --display --verbose=4 "$DMG_PATH" 2>&1 || true)"
+authority="$(sed -n 's/^Authority=//p' <<<"$signature_info" | head -n 1)"
 if [[ "$APPLE_SIGNING_IDENTITY" =~ ^[0-9A-Fa-f]{40}$ ]]; then
-  "$SECURITY_TOOL" find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null \
+  identity_record="$("$SECURITY_TOOL" find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null \
     | grep -iF "$APPLE_SIGNING_IDENTITY" \
-    | grep -q 'Developer ID Application:' || { echo "error: DMG signature identity fingerprint mismatch" >&2; exit 1; }
+    | grep 'Developer ID Application:' | head -n 1 || true)"
+  identity_name="$(sed -n 's/.*Developer ID Application:/Developer ID Application:/p' <<<"$identity_record")"
+  [[ -n "$identity_name" && "$authority" == *"$identity_name"* ]] || { echo "error: DMG signature identity fingerprint mismatch" >&2; exit 1; }
 else
-  grep -Fq "Authority=$APPLE_SIGNING_IDENTITY" <<<"$signature_info" || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
+  [[ -n "$authority" && "$authority" == *"$APPLE_SIGNING_IDENTITY"* ]] || { echo "error: DMG signature identity mismatch" >&2; exit 1; }
 fi
-grep -Fq "TeamIdentifier=7WLXT3NR37" <<<"$signature_info" || { echo "error: DMG signature team mismatch" >&2; exit 1; }
-grep -Fq 'Identifier=' <<<"$signature_info" || { echo "error: DMG signature has no identifier" >&2; exit 1; }
+team_identifier="$(sed -n 's/^TeamIdentifier=//p' <<<"$signature_info" | head -n 1)"
+[[ "$team_identifier" == 7WLXT3NR37 ]] || { echo "error: DMG signature team mismatch" >&2; exit 1; }
+identifier="$(sed -n 's/^Identifier=//p' <<<"$signature_info" | head -n 1)"
+[[ -n "$identifier" ]] || { echo "error: DMG signature has no identifier" >&2; exit 1; }
 requirement_info="$("$CODESIGN_TOOL" --display --requirements :- "$DMG_PATH" 2>&1 || true)"
 grep -Fq 'designated' <<<"$requirement_info" || { echo "error: DMG signature has no designated requirement" >&2; exit 1; }
 grep -Fq 'anchor apple generic' <<<"$requirement_info" || { echo "error: DMG designated requirement is not Developer ID" >&2; exit 1; }
