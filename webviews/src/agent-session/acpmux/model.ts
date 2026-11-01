@@ -968,9 +968,13 @@ const TOOL_RUN_BOTTOM = 4;
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
+/// A short interim note folded into a run (conversation.css `.cv-tool-note`): one 20px line with
+/// the plain status gap above and below it.
+const NOTE_LINE = 20;
+const NOTE_GAP = 12;
 function activityStepHeight(item: AcpmuxActivity): number {
   const tool = item.tool;
-  if (!tool) return 26;
+  if (!tool) return item.kind === "note" ? NOTE_LINE + 2 * NOTE_GAP : 26;
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
