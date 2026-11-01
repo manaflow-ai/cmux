@@ -682,3 +682,24 @@ fn a_seed_folder_never_nests() {
     let refusal = start(&service, &world.start_params(&around, &third)).unwrap_err();
     assert_eq!(refusal.code, "seed.bad_request");
 }
+
+/// The bundle copy lives in a fresh 0700 folder of the daemon's own, named
+/// for the job, and both are gone when the job ends.
+#[test]
+fn the_bundle_copy_is_private_and_removed() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let world = World::new("copy");
+    write(&world.mac.join("a"), "a\nedited\n");
+    let snapshot = world.snapshot("one", &[&world.base]);
+    let folder = world.home.join("project");
+    let service = world.service();
+    let job = start(&service, &world.start_params(&folder, &snapshot)).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-git-seed-{job}"));
+    if let Ok(meta) = std::fs::symlink_metadata(&dir) {
+        assert!(meta.is_dir());
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+    }
+    assert_eq!(wait(&service, &job)["state"], "done");
+    assert!(!dir.exists(), "the copy's folder is removed");
+    assert!(!snapshot.bundle.exists(), "the upload is removed");
+}

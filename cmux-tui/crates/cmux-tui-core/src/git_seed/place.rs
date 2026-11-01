@@ -92,17 +92,41 @@ pub fn recheck(folder: &Path) -> Result<(), SeedRefusal> {
     }
 }
 
-/// A bundle copied out of the roots into this daemon's own file, removed on
-/// drop.
+/// A bundle copied out of the roots into a directory of this daemon's own,
+/// removed (with the directory) on drop.
 #[derive(Debug)]
 pub struct BundleCopy {
     pub path: PathBuf,
+    dir: PathBuf,
 }
 
 impl Drop for BundleCopy {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+        let _ = std::fs::remove_dir(&self.dir);
     }
+}
+
+/// A fresh directory for one job's bundle: `mkdir` (mode 0700) of a name
+/// carrying the job's random id, which fails on anything already there (a
+/// symlink or another user's directory included), then checked to be a
+/// directory this process owns with no access for anyone else.
+fn private_dir(id: &str) -> Result<PathBuf, SeedRefusal> {
+    use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
+    let refused =
+        |what: &str| SeedRefusal::bad_request(format!("cannot make a private folder: {what}"));
+    let dir = std::env::temp_dir().join(format!("cmux-git-seed-{id}"));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|error| refused(&error.to_string()))?;
+    let meta = std::fs::symlink_metadata(&dir).map_err(|error| refused(&error.to_string()))?;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        return Err(refused("it is not this daemon's own"));
+    }
+    Ok(dir)
 }
 
 /// Opens the uploaded bundle through `fs-v1`'s descriptor walk and copies
@@ -115,9 +139,8 @@ pub fn bundle(roots: &Roots, path: &str, id: &str) -> Result<BundleCopy, SeedRef
         crate::fs_ops::FsError::NotFound => SeedRefusal::bad_request("no bundle at that path"),
         _ => SeedRefusal::bad_request("the bundle is not a readable regular file"),
     })?;
-    let dir = std::env::temp_dir().join("cmux-git-seed");
-    let _ = std::fs::create_dir(&dir);
-    let copy = BundleCopy { path: dir.join(format!("{id}.bundle")) };
+    let dir = private_dir(id)?;
+    let copy = BundleCopy { path: dir.join("seed.bundle"), dir };
     let mut out = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

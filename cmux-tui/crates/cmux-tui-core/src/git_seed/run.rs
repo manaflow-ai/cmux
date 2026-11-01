@@ -557,6 +557,7 @@ impl Seed {
     /// `changed`: as for [`Self::submodules`]; a delta seed pulls only the
     /// changed paths, and only when one of them is an LFS file.
     fn lfs(&mut self, changed: Option<&[u8]>) -> Result<(), Failed> {
+        self.recheck()?;
         if !self.params.lfs {
             return Ok(());
         }
