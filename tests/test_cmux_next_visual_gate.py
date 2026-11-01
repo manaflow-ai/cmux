@@ -1214,7 +1214,7 @@ class WiringTests(unittest.TestCase):
             return next(l.strip() for l in job.splitlines() if l.startswith(f"    {key}:"))
 
         # The gate's `if`, after the signed build's own check: one of its two signing paths is always
-        # skipped, so an implicit success() would skip this job and let a failing gate's build publish.
+        # skipped, so an implicit success() would skip this advisory verdict job.
         gate_if = line(gate, "if").removeprefix("if: ")
         self.assertEqual(line(verdict, "if"),
                          f'if: "!cancelled() && needs.verify-final-dmg-nightly.result == \'success\' && {gate_if}"')
@@ -1291,8 +1291,12 @@ class WiringTests(unittest.TestCase):
         # The step's shell lives in its script (nightly.yml's size limit).
         recover = (ROOT / "scripts/ci/nightly-steps/recover-continue-pending-notarization.sh").read_text()
         # Recovery remains gated by the manifest, lineage, notarization and feed checks;
-        # it has no visual publication gate.
+        # it has no visual publication gate. Keep that positive ordering explicit.
         self.assertNotIn("nightly_next_canary_mode.py admit", recover)
+        self.assertLess(recover.index('source "$dir/manifest.env"'),
+                        recover.index("./scripts/ci/notarize-nightly-dmg.sh"))
+        self.assertLess(recover.index("./scripts/ci/notarize-nightly-dmg.sh"),
+                        recover.index('echo "accepted=true"'))
 
     def test_every_judged_build_is_recorded(self):
         report = self.job("report-visual-gate-nightly")

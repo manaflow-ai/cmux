@@ -355,6 +355,9 @@ class WorkflowTests(unittest.TestCase):
             "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
+        needs = workflow()["jobs"]["publish-nightly"]["needs"]
+        self.assertNotIn("visual-gate-nightly", needs)
+        self.assertNotIn("visual-gate-nightly-verdict", needs)
         # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published (or a
         # resumed one) is this run's source only after await-nightly-tree-marker passed
         # (main's G5, moved into the run): the selection step reads it as OWN_TREE.

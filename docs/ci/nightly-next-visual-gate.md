@@ -192,11 +192,11 @@ python3 scripts/cmux-next/visual-gate/visual_gate.py ~/.cache/pr-capture/<sha8>/
 | `report` | Captures and reports; never blocks. |
 | `enforce` | A failing verdict fails the advisory visual job and is recorded; publication is unaffected. |
 | `off` | Skips the gate. |
-| unset or `auto` | Reports indefinitely by default. Set `NIGHTLY_NEXT_VISUAL_GATE_ENFORCE_AFTER` to opt into the report-week auto mode; it still cannot block publication. |
+| unset or `auto` | Reports indefinitely. Use `report`, `enforce` or `off` explicitly to choose the advisory coverage mode. |
 
-This is the canary's one-week flip, read from this gate's own issue, plus a
-minimum of passes (`--min-passes 3`). A week in which the gate was mostly
-skipped proves nothing about the gate. The canary itself needs no passes.
+The visual gate's verdict issue remains a record for follow-up. A week in which
+the gate was mostly skipped proves nothing about the gate; publication still
+uses the signed, notarized, provenance-checked build path.
 
 ## Add a state
 
