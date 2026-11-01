@@ -58,13 +58,14 @@ test("a footer with only hover controls is empty; one with an answer, a label or
 
 const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 
-test("an empty footer adds no line and still fits its hover controls", () => {
-  // Between two prompts: the 16px turn gap has a 24px floor for the existing hover controls.
-  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(24);
-  // The chat's last one keeps that same turn gap before the composer.
+test("an empty footer draws no text and still fits its hover controls, centered", () => {
+  // Between two prompts: its hidden controls' 24px line and the 8px meta gap under it, as a footer
+  // with text, so pointed at they sit centered between the two (Leo, 2026-10-31).
+  expect(layoutConversation([prompt("p"), footer({ durationMs: 0 }), prompt("q")], 720).heights[1]).toBe(32);
+  // The chat's last one is the turn gap alone before the composer, at the controls' 24px floor.
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0 })], 720).heights[1]).toBe(24);
-  // A footer with an answer to copy keeps its line.
+  // A footer with an answer to copy keeps its line and the same meta gap.
   expect(layoutConversation([prompt("p"), footer({ durationMs: 0, text: "Done." }), prompt("q")], 720).heights[1]).toBe(
-    40,
+    32,
   );
 });

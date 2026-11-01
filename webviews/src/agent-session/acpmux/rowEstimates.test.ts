@@ -3,11 +3,12 @@
 // CSS draws (conversation/conversation.css, styles.css), so a row that mounts moves nothing below it
 // and scrolling up never jumps:
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
-//     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
+//     line that the footer takes the place of: its text and the 8px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - another agent's message: its one disclosure line, however long the message;
-//   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
-//     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
+//   - a turn's footer: its 24px line and the 8px meta gap, so it sits centered between the reply and
+//     the next message (Leo, 2026-10-31); the chat's last one (`.acpmux-row--last-footer`) ends at
+//     the 16px turn gap over the composer.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
@@ -30,19 +31,20 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
-test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
+test("a reply over its footer is its text and the 8px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
   const [over, summary] = heightsOf([reply("a", long), footer("f"), prompt("p")]);
-  // The same text: 8px below it alone, 4px over its footer.
-  expect(alone! - over!).toBeCloseTo(4, 5);
-  // The footer always keeps its 24px line and the 16px turn gap, including the last one.
-  expect(summary).toBe(40);
+  // The same text: the 8px message gap below it alone, the same 8px meta gap over its footer.
+  expect(alone! - over!).toBeCloseTo(0, 5);
+  // The footer keeps its 24px line and, under it, the same 8px meta gap as over it; the chat's last
+  // one ends at the 16px turn gap.
+  expect(summary).toBe(32);
   expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(40);
   // A one-line reply over its footer is shorter than a row's 34px floor.
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
-  expect(short! - 4).toBeGreaterThan(0);
+  expect(short! - 8).toBeGreaterThan(0);
 });
 
 test("a reply over its running turn's line is estimated as over the footer that takes its place", () => {
@@ -151,7 +153,7 @@ test("the chat's last footer is placed again when a prompt follows it", () => {
     rows,
     layout: first,
   });
-  expect(second.heights[1]).toBe(40);
+  expect(second.heights[1]).toBe(32);
 });
 
 test("a footer over another agent's line or a task's result keeps the turn gap", () => {
@@ -166,8 +168,8 @@ test("a footer over another agent's line or a task's result keeps the turn gap",
   };
   const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
   for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(40);
-  // The person's prompt after it still starts a turn of its own.
-  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(40);
+  // The person's prompt after it: the footer's line centered in two 8px meta gaps.
+  expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(32);
 });
 
 test("a task's result is its 26px line and the 8px message gap", () => {
@@ -192,7 +194,7 @@ test("a footer shaped by turnView, which carries its answer's text, is its 24px 
   expect(footers.length).toBe(2);
   expect(rows[footers[0]!]!.text).toBe(answer);
   const { heights } = layoutConversation(rows, 720);
-  expect(heights[footers[0]!]).toBe(40);
+  expect(heights[footers[0]!]).toBe(32);
   expect(heights[footers[1]!]).toBe(40);
 });
 
@@ -301,23 +303,23 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 });
 
 // A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten
-// lines over the 24px Show more line, inside the bubble's 16px of padding, with its 28px hover row
-// under it and the 8px message gap. Estimated any taller, the row shrinks once drawn and the
+// lines over the 24px Show more line, inside the bubble's 16px of padding, with its hover row under
+// it (the 8px meta gap and its 24px line) and the 8px message gap. Estimated any taller, the row shrinks once drawn and the
 // rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
 test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT + 4 + 24 + 8, 5);
-  expect(long!).toBeLessThan(16 + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT + 8 + 24 + 8, 5);
+  expect(long!).toBeLessThan(16 + 10.5 * lineHeight + 24 + 32 + 8);
 });
 
 test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(short!).toBeLessThan(16 + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
+  expect(short!).toBeLessThan(16 + COLLAPSED_PROMPT_LINES * lineHeight + 32 + 8);
 });
 
 // A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
@@ -329,7 +331,7 @@ test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT + 28 + 8, 5);
+  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT + 32 + 8, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
@@ -367,8 +369,8 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
 
 test("a status row between two replies is estimated in the middle of the gap", () => {
   // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
-  // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
-  // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
+  // The reply over the run ends at its action row (its 8px meta gap and 24px line, no message gap);
+  // the run (2px over its 22px row) ends 34px over the next reply, the action row's room and the
   // run's 2px top margin (conversation.css --cv-status-gap).
   const tool = {
     kind: "tool",
@@ -382,7 +384,7 @@ test("a status row between two replies is estimated in the middle of the gap", (
   const [alone] = heightsOf([before]);
   const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
   if (hasReplyActions(before as AcpmuxRow, run as AcpmuxRow)) {
-    expect(step).toBe(2 + 22 + 30);
+    expect(step).toBe(2 + 22 + 34);
     // The same reply over a prompt: its own action row, then the message gap.
     expect(reply).toBe(overPrompt! - 8);
   } else {

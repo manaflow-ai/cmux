@@ -945,11 +945,12 @@ const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
-/// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
-/// messages, 16px between turns (the paragraph gap plus a small separator).
-const META_GAP = 4;
+/// in conversation/conversation.css): a meta row on a 24px line centered between its message and the
+/// next, one 8px meta gap (the message gap) on each side; 8px between messages; 16px after a turn with
+/// no footer (the paragraph gap plus a small separator) and under the chat's last footer.
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+const META_GAP = MESSAGE_GAP;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
@@ -1371,10 +1372,10 @@ function fallbackRowHeight(
   if (row.kind === "sessionStart") return finish(37);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
-  // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
-  // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
-  if (row.kind === "turnSummary")
-    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
+  // A turn's footer: its meta line, then the meta gap, so it sits centered between the reply (whose
+  // meta gap is above it) and the next message. An empty footer (only hover controls,
+  // conversation/turns.ts isEmptyFooter) keeps that line for its hover controls.
+  if (row.kind === "turnSummary") return finish(META_ROW + META_GAP);
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
@@ -1582,15 +1583,20 @@ function measuredRowHeight(
   continuation = false,
   /// Whether a reply draws its own action row (`hasReplyActions`).
   actions = false,
+  /// The chat's last footer (`isLastFooter`): it ends at the turn gap over the composer.
+  lastFooter = false,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return finish(26 + MESSAGE_GAP);
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
+  // Every footer but the chat's last is its line and one meta gap (conversation.css
+  // `.acpmux-row.acpmux-turnSummary`): centered between the reply's meta gap above and the next
+  // message, empty or not. The last ends at the turn gap; an empty last one is that gap alone.
   if (row.kind === "turnSummary") {
-    const gap = continuation ? MESSAGE_GAP : TURN_GAP;
-    return isEmptyFooter(row) ? Math.max(META_ROW, gap) : META_ROW + gap;
+    if (lastFooter) return isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP;
+    return META_ROW + (continuation ? MESSAGE_GAP : META_GAP);
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
   if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
@@ -1809,6 +1815,7 @@ export function layoutConversation(
             sessionId,
             edge?.startsWith("continuation") === true,
             edge?.endsWith(ACTIONS_EDGE) === true,
+            edge === "last" || edge?.startsWith(`last${STATUS_EDGE}`) === true,
           );
       // A row that draws nothing stays at 0; a custom renderer's height is its own.
       if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));

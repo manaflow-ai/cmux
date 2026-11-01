@@ -64,7 +64,7 @@ export default componentEntry<Props>({
   variants: {
     shipped: {
       props: {},
-      note: "Selected: half the turn gap (the shared 8px message gap); speaker changes keep 16px.",
+      note: "Selected: the shared 8px meta gap under every footer before the next message, so the footer sits centered; another agent's line keeps 16px.",
     },
     "two-thirds": {
       props: { gap: "calc(var(--cv-turn-gap) * 2 / 3)" },

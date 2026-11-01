@@ -56,7 +56,7 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
         ),
       };
     });
-  test("same assistant uses the half-gap token; user and different-agent boundaries keep the full token", async () => {
+  test("same assistant and the person's prompt take the meta gap; a different agent's line keeps the full token", async () => {
     const page = await open();
     await page.waitForFunction(
       () => document.querySelector('[data-row-id="continuation-b"]')!.getBoundingClientRect().top > 0,
@@ -64,8 +64,9 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     const actual = await measure(page);
     expect(actual.same).toBeCloseTo(8, 1);
     expect(actual.peer).toBeCloseTo(16, 1);
-    expect(actual.user).toBeCloseTo(16, 1);
-    expect(actual.paddings).toEqual([8, 16, 16, 16]);
+    // The person's prompt: the footer sits centered, one meta gap (8px) on each side (Leo, 2026-10-31).
+    expect(actual.user).toBeCloseTo(8, 1);
+    expect(actual.paddings).toEqual([8, 16, 8, 16]);
     await page.evaluate(() => {
       const root = document.documentElement;
       root.style.setProperty("--ds-space-2", "10px");
@@ -74,7 +75,7 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     await page.waitForFunction(
       () => getComputedStyle(document.querySelector('[data-row-id="continuation-footer-a"]')!).paddingBottom === "10px",
     );
-    expect((await measure(page)).paddings).toEqual([10, 20, 20, 20]);
+    expect((await measure(page)).paddings).toEqual([10, 20, 10, 20]);
     await page.close();
   });
   test("public gallery before/after capture", async () => {

@@ -91,7 +91,13 @@ const checkSpacing =
       const middle = '[data-row-id="spacing-empty-middle"]';
       const controls = `${middle} .cv-turn-actions`;
       await ctx.waitFor(() => rect(controls).height > 0);
-      if (rect(middle).height !== 24 || rect(middle).height !== rect(controls).height)
+      // Its hidden controls' 24px line and the 8px meta gap under it, as a footer with text, so
+      // pointed at they sit centered between the prompts around it (Leo, 2026-10-31).
+      if (
+        rect(controls).height !== 24 ||
+        Math.abs(rect(controls).top - rect(middle).top) > 0.5 ||
+        Math.abs(rect(middle).height - (rect(controls).height + 8)) > 0.5
+      )
         throw new Error("Empty footer clips its hover controls or reserves an extra line");
       await ctx.hover({ selector: controls });
       if (rect(controls).bottom > rect('[data-row-id="spacing-tail-prompt"]').top + 0.5)
@@ -135,7 +141,7 @@ export default componentEntry<SpacingProps>({
     before: { props: { gap: 24 }, note: "Before: 24px leaves a larger empty band.", play: checkSpacing(24) },
     "empty-footer": {
       props: { emptyFooter: true },
-      note: "Empty footers keep their existing hover-control floor.",
+      note: "Empty footers keep their hover controls' line and the meta gap under it; the last is the turn gap alone.",
       play: checkSpacing(16, true),
     },
   },
