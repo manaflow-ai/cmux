@@ -361,11 +361,16 @@ impl Mux {
                 // a workspace the store never published (fuzz restore h1).
                 // The error goes on, so the receipt stays unsettled and the
                 // creation's recovery closes the stored row later.
-                self.discard_unpublished_workspace_from_memory(workspace);
-                eprintln!(
-                    "cmux-tui: staged workspace {public_id} left memory, but the store refused \
-                     its close: {error:#}"
-                );
+                match self.discard_unpublished_workspace_from_memory(workspace) {
+                    Ok(_) => eprintln!(
+                        "cmux-tui: staged workspace {public_id} left memory, but the store \
+                         refused its close: {error:#}"
+                    ),
+                    Err(discard) => eprintln!(
+                        "cmux-tui: the store refused the close of staged workspace {public_id} \
+                         ({error:#}), and it stays in memory: {discard}"
+                    ),
+                }
                 Err(error)
             }
         }
