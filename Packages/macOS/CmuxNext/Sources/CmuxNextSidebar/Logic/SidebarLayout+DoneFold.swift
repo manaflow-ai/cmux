@@ -9,6 +9,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         case done
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).
         case archived
+        /// The sidebar's one Archive section (``SidebarDoneFoldID/archive``): every archived workspace and wholly
+        /// archived group, under one "Archive (N)" row at the bottom (Lawrence 19197).
+        case archive
     }
 
     public var section: SectionID
@@ -22,6 +25,9 @@ public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
         self.group = group
         self.kind = kind
     }
+
+    /// The bottom "Archive (N)" row (`SidebarLayout+ArchiveSection`); its open state is kept with the folds'.
+    public static let archive = SidebarDoneFoldID(section: .pinned, group: nil, kind: .archive)
 
     /// The same list's fold of `kind`.
     func of(_ kind: Kind) -> SidebarDoneFoldID { SidebarDoneFoldID(section: section, group: group, kind: kind) }
@@ -93,9 +99,10 @@ nonisolated extension SidebarLayout {
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
     /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone || o.foldsArchived, o.filterMatches == nil, o.sessionTree == nil else { return false }
+        guard o.foldsDone || o.foldsArchived || o.archiveSection, o.filterMatches == nil, o.sessionTree == nil else { return false }
         return dragged.contains {
-            $0.id != o.activeWorkspaceID && ((o.foldsDone && $0.taskStatus == .done) || (o.foldsArchived && $0.isArchived))
+            $0.id != o.activeWorkspaceID
+                && ((o.foldsDone && $0.taskStatus == .done) || ((o.foldsArchived || o.archiveSection) && $0.isArchived))
         }
     }
 
