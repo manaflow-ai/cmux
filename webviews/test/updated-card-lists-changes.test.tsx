@@ -102,8 +102,9 @@ test("the Updated card says the version and date in words, not a raw build numbe
   expect(eyebrow).not.toContain("3934171");
   // Without the commit, the build line names the build number, as the Update Ready card does.
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build 3934171");
-  // The full build stays one hover away, for bug reports.
-  expect(host.querySelector(".wn-card-eyebrow")?.getAttribute("title")).toBe(data.version);
+  // No hover tooltip over the card's own words (msg 19191, 2026-10-31: a big "1.0.0-nightly.…" box
+  // covered the build line, "seems excessive"). The full build is a click on the commit away.
+  expect(host.querySelector(".wn-card [title]")).toBeNull();
 });
 
 test("a release version reads as itself, with its date", async () => {
@@ -138,7 +139,7 @@ test("the Updated card names the build by when it was made and its commit", asyn
   const local = new Intl.DateTimeFormat("en-US", time).format(new Date(leo.builtAt!)).replace(/\s/g, " ");
   const eyebrow = host.querySelector(".wn-card-eyebrow")?.textContent?.replace(/\s/g, " ");
   expect(eyebrow).toBe(`Updated to Nightly · ${local}`);
-  expect(host.querySelector(".wn-card-eyebrow")?.getAttribute("title")).toBe("1.0.0-nightly.4037004604601");
+  expect(host.querySelector(".wn-card [title]")).toBeNull();
   // Until the notes index loads, the card knows the commit but not the newest build.
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434");
 });
@@ -175,4 +176,31 @@ test("the build time reads in the person's locale and time zone", async () => {
   expect(cardLabel("1.2.0", leo.date, strings, "2026-10-26T19:38:52Z", "UTC").replace(/\s/g, " ")).toBe(
     "1.2.0 · Oct 26, 7:38 PM",
   );
+});
+
+// Lawrence on nightly 4124615690001 (2026-10-31): hovering the build line popped a tooltip with the
+// full version that covered "Build e7a61ac · Newest" ("seems excessive, could be done better"). The
+// commit is plain selectable text; a click copies the full version for a bug report and the line
+// says "Copied" in place of where it stands for a moment, with nothing popping over the card.
+test("a click on the build's commit copies the full version and says Copied in the line", async () => {
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  await renderCard(leo, index(["4037004604601"]));
+  const line = host.querySelector(".wn-card-build")!;
+  expect(line.textContent).toBe("Build a9d1434 · Newest");
+  const id = line.querySelector<HTMLElement>(".wn-card-build-id")!;
+  expect(id.textContent).toBe("a9d1434");
+  expect(id.getAttribute("role")).toBe("button");
+  expect(id.getAttribute("aria-label")).toBe("Copy Version 1.0.0-nightly.4037004604601");
+  await act(async () => {
+    id.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(copied).toEqual(["1.0.0-nightly.4037004604601"]);
+  // The same line, the same length class: no popover, no tooltip, no layout jump.
+  expect(line.textContent).toBe("Build a9d1434 · Copied");
+  expect(host.querySelector(".wn-card [title]")).toBeNull();
+  delete (window.navigator as { clipboard?: unknown }).clipboard;
 });
