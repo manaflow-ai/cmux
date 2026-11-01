@@ -115,12 +115,21 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
               text.first?.isWhitespace != true else { return false }
         let lower = text.lowercased()
         let secretMarkers = ["password=", "passwd=", "token=", "secret=", "api_key=", "apikey=",
-                             "authorization:", "bearer ", "aws_secret_access_key", "aws_session_token",
+                             "authorization:", "bearer ", "api-key", "aws_secret_access_key", "aws_session_token",
                              "client_secret", "private_key", "refresh_token", "-----begin"]
+        let normalized = lower.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let riskyPatterns = ["rm -rf", "rm -r ", "git reset --hard", "git push --force", "sudo ",
                              "curl |", "curl -s |", "wget |", "| sh", "| bash", "| zsh", "| /bin/sh",
                              "| /bin/bash"]
-        return !secretMarkers.contains(where: lower.contains) && !riskyPatterns.contains(where: lower.contains)
+        let hasURLCredentials = ["http://", "https://"].contains { scheme in
+            guard let schemeStart = lower.range(of: scheme)?.upperBound else { return false }
+            let authority = lower[schemeStart...].split(whereSeparator: { "/?#".contains($0) }).first ?? ""
+            guard let at = authority.lastIndex(of: "@") else { return false }
+            return authority[..<at].contains(":")
+        }
+        return !secretMarkers.contains(where: lower.contains)
+            && !hasURLCredentials
+            && !riskyPatterns.contains(where: normalized.contains)
     }
 
     fileprivate static func key(machine: String, cwd: String, command: String) -> String {
