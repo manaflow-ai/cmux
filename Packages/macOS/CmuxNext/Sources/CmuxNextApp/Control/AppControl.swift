@@ -289,7 +289,7 @@ final class AppControl {
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugWindowRecord.start(call.params, services: services))
+                return .value(services.windowRecord.start(call.params, services: services))
             },
             .async("debug.shortcut_hints") { [weak services] call in
                 await DebugShortcutHintControl().handle(call.params, services: services)
@@ -507,6 +507,10 @@ final class AppControl {
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
+            // A dialog's open and close, frame after frame, with its card and scrim progress.
+            .async("debug.dialog_strip") { [weak services] call in
+                await DebugDialog.strip(call.params, services)
+            }.withDeadline(.fixed(.seconds(20))),
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
@@ -562,15 +566,37 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAddDevice.showJoined(call.params, services: services))
             },
+            // Captures of This Mac's join consent: a fixture joined status, its switches and the one-time sheet.
+            .mainActor("debug.join_consent") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugJoinConsent.show(call.params, services: services))
+            },
             // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
             .mainActor("debug.daemon_update") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
             },
+            // Captures of an update handoff: `debug.terminal_state {state, surface?}` sets live terminal tabs'
+            // `terminal_state` (adopting, reconnecting, running, ...) as the daemon's push does; no daemon restart.
+            .mainActor("debug.terminal_state") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let name = call.params["state"]?.stringValue ?? "adopting"
+                guard let state = TerminalTabState(rawValue: name) else {
+                    return .value(["error": .string("unknown state"), "state": .string(name)])
+                }
+                let surface = call.params["surface"]?.intValue.map { SurfaceID(rawValue: UInt64($0)) }
+                let set = services.daemon.store.debugSetTerminalState(state, surface: surface)
+                return .value(["state": .string(name), "surfaces": .array(set.map { .number(Double($0.rawValue)) })])
+            },
             // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
+            .mainActor("debug.object_menu") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugObjectMenu.run(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }

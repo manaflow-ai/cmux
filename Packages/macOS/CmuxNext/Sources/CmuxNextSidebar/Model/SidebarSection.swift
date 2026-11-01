@@ -57,18 +57,29 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         /// The machine answers, but its cmux-tui did not start (or the
         /// remote command failed); the detail carries its error.
         case failed
+        /// A Cloud machine that ran lost its link or had it revoked; a
+        /// click connects it again. The detail carries why.
+        case disconnected
         /// A Cloud machine its owner (or a caller) paused; resumes on attach.
         case paused
         /// A Cloud machine the idle auto-pause parked; resumes on attach.
         case pausedIdle
+        /// A Cloud machine whose pause cmux Cloud accepted and has not finished.
+        case pausing
+        /// A Cloud machine whose resume cmux Cloud accepted and has not finished.
+        case resuming
+        /// A Cloud machine whose delete cmux Cloud accepted and has not finished.
+        case deleting
 
         /// The machine cannot connect until the person acts (sign-in,
-        /// network, install or update). In one list its workspaces' second
-        /// line names the status (cx-mdo0); no header or status row shows.
+        /// network, install or update). In one list its workspaces' rows say
+        /// the status to VoiceOver and an expanded row's meta line names it
+        /// (cx-mdo0); no header or status row shows.
         public var needsAttention: Bool {
             switch self {
-            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
-            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle: false
+            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed, .disconnected: true
+            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing, .paused, .pausedIdle,
+                 .pausing, .resuming, .deleting: false
             }
         }
     }

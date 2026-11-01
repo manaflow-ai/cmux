@@ -164,6 +164,259 @@ fn agent_hook_transitions_post_durable_notifications_once() {
 }
 
 #[test]
+fn a_turn_that_ends_while_its_subagents_run_finishes_when_the_last_one_ends() {
+    // manaflow-ai/cmux#25563: Claude Code's `Stop` comes while background
+    // subagents it started still run; the dot waits for the whole task.
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let surface_id = surface.id;
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let apply = |event: &str, native: Value, sequence: u64| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    let session = serde_json::json!({"session_id": "native-1"});
+    let child = |agent: &str| serde_json::json!({"session_id": "native-1", "agent_id": agent});
+    apply("SessionStart", session.clone(), 1);
+    apply("UserPromptSubmit", session.clone(), 2);
+    apply("SubagentStart", child("agent-a"), 3);
+    apply("SubagentStart", child("agent-b"), 4);
+    apply("Stop", session.clone(), 5);
+    assert!(mux.resource_notifications(16).is_empty(), "its subagents still run");
+    assert!(!mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+    apply("SubagentStop", child("agent-a"), 6);
+    assert!(mux.resource_notifications(16).is_empty(), "one subagent still runs");
+
+    apply("SubagentStop", child("agent-b"), 7);
+    let posted = mux.resource_notifications(16);
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].title, "Claude finished");
+    assert!(mux.surface_notification(surface_id).is_some_and(|marker| marker.unread));
+
+    // A subagent that ends inside its turn (a foreground one) holds nothing.
+    apply("UserPromptSubmit", session.clone(), 8);
+    apply("SubagentStart", child("agent-c"), 9);
+    apply("SubagentStop", child("agent-c"), 10);
+    apply("Stop", session.clone(), 11);
+    assert_eq!(mux.resource_notifications(16).len(), 2);
+
+    // A start that arrives after its own end counts nothing.
+    apply("SubagentStop", child("agent-d"), 12);
+    apply("SubagentStart", child("agent-d"), 13);
+    apply("UserPromptSubmit", session.clone(), 14);
+    apply("Stop", session.clone(), 15);
+    assert_eq!(mux.resource_notifications(16).len(), 3);
+
+    // A foreground subagent of an interrupted turn whose end never came
+    // does not hold the next turn's finish.
+    apply("UserPromptSubmit", session.clone(), 16);
+    apply("SubagentStart", child("agent-e"), 17);
+    apply("UserPromptSubmit", session.clone(), 18);
+    apply("Stop", session.clone(), 19);
+    assert_eq!(mux.resource_notifications(16).len(), 4);
+
+    // A session that ends posts the finish it held.
+    apply("UserPromptSubmit", session.clone(), 20);
+    apply("SubagentStart", child("agent-f"), 21);
+    apply("Stop", session.clone(), 22);
+    assert_eq!(mux.resource_notifications(16).len(), 4, "agent-f still runs");
+    apply("SessionEnd", session, 23);
+    assert_eq!(mux.resource_notifications(16).len(), 5);
+}
+
+#[test]
+fn a_held_agent_finish_retries_after_notification_preparation_fails() {
+    for event in ["SubagentStop", "SessionEnd", "SessionStart"] {
+        assert_held_agent_finish_retries(event);
+    }
+}
+
+#[test]
+fn stale_child_hooks_cannot_hold_a_new_sessions_finish() {
+    for (new_session, replay_sequence) in [("new", 2), ("new", 6), ("old", 6)] {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().unwrap();
+        let ingress = |event: &str, session: &str, observed: u64| {
+            let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal.to_string()),
+                serde_json::json!({"session_id": session, "agent_id": "old-child"}),
+            )
+            .unwrap();
+            crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed);
+            ingress
+        };
+        let old_child = ingress("SubagentStart", "old", 200);
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old", 100), 1).unwrap();
+        mux.apply_agent_hook_record(&old_child, 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", "old", 300), 3).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", new_session, 400), 4).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", new_session, 500), 5).unwrap();
+        mux.apply_agent_hook_record(&old_child, replay_sequence).unwrap();
+        mux.apply_agent_hook_record(&ingress("Stop", new_session, 700), 7).unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 1, "{new_session}, replay sequence {replay_sequence}");
+        assert_eq!(posted[0].title, "Claude finished");
+    }
+}
+
+#[test]
+fn a_child_completion_projected_after_its_parents_stop_releases_the_finish() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let apply = |event: &str, sequence| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    apply("SessionStart", 1);
+    apply("UserPromptSubmit", 2);
+    apply("SubagentStart", 3);
+    apply("Stop", 5);
+    assert!(mux.resource_notifications(16).is_empty());
+    // Journal commits are ordered, but independent ingress projections can finish out of order.
+    apply("SubagentStop", 4);
+    assert_eq!(mux.resource_notifications(16).len(), 1);
+    apply("SubagentStop", 4);
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
+}
+
+#[test]
+fn a_committed_child_start_holds_a_later_stop_before_its_own_projection() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for event in ["SessionStart", "UserPromptSubmit"] {
+        mux.append_journal_ingress(&ingress(event), "test", event).unwrap();
+    }
+    // The writer committed this ingress, but its caller has not projected it yet (or
+    // received an indeterminate result after commit admission). Its retry row is durable.
+    let child = ingress("SubagentStart");
+    let validated = mux.journal_kernel.validate_ingress(&child).unwrap();
+    let child_commit = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .append_journal_ingress(&child, &validated, "test", "child-start")
+        .unwrap();
+    mux.append_journal_ingress(&ingress("Stop"), "test", "parent-stop").unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "the committed child still runs");
+    mux.finish_journal_ingress(&child, "test", "child-start", child_commit).unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "late projection changes nothing");
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1);
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
+}
+
+#[test]
+fn a_committed_stop_preserves_background_children_for_the_next_turn() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for event in ["SessionStart", "UserPromptSubmit", "SubagentStart"] {
+        mux.append_journal_ingress(&ingress(event), "test", event).unwrap();
+    }
+    let stop = ingress("Stop");
+    let validated = mux.journal_kernel.validate_ingress(&stop).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .append_journal_ingress(&stop, &validated, "test", "first-stop")
+        .unwrap();
+    mux.append_journal_ingress(&ingress("UserPromptSubmit"), "test", "second-prompt").unwrap();
+    mux.append_journal_ingress(&ingress("Stop"), "test", "second-stop").unwrap();
+    assert!(mux.resource_notifications(16).is_empty(), "the background child still runs");
+    mux.append_journal_ingress(&ingress("SubagentStop"), "test", "child-stop").unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "only the latest turn finishes");
+}
+
+fn assert_held_agent_finish_retries(release_event: &str) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-held-finish-retry-{}", WorkspacePublicId::random().unwrap()));
+    let mux = open_persistent_test_mux("held-finish-retry", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "retry-session", "agent_id": "child"}),
+        )
+        .unwrap()
+    };
+    for (sequence, event) in
+        ["SessionStart", "UserPromptSubmit", "SubagentStart", "Stop"].into_iter().enumerate()
+    {
+        mux.apply_agent_hook_record(&ingress(event), sequence as u64 + 1).unwrap();
+    }
+    assert!(mux.resource_notifications(16).is_empty());
+
+    // Fail before posting, as a transient store error can. The durable hook
+    // projector retries the same release hook after the store becomes available.
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_held_notification BEFORE INSERT ON resource_effect_receipts
+             WHEN NEW.operation = 'notification.create'
+             BEGIN SELECT RAISE(ABORT, 'forced notification preparation failure'); END;",
+        )
+        .unwrap();
+    let release = ingress(release_event);
+    let error = mux.apply_agent_hook_record(&release, 5).unwrap_err();
+    assert!(format!("{error:#}").contains("forced notification preparation failure"));
+    assert!(mux.resource_notifications(16).is_empty());
+    connection.execute_batch("DROP TRIGGER fail_held_notification").unwrap();
+
+    mux.apply_agent_hook_record(&release, 5).unwrap();
+    let posted = mux.resource_notifications(16);
+    assert_eq!(posted.len(), 1, "{release_event} must retry the held finish");
+    assert_eq!(posted[0].title, "Claude finished");
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+    mux.apply_agent_hook_record(&release, 5).unwrap();
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a replay must not post twice");
+    drop(connection);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn notification_ack_is_per_client_and_replay_safe() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();

@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextSettings
 public import Foundation
 
-/// The "Did you know" card (BOTTOM-LEFT-CARDS K1): one tip a day for a
-/// feature the user has not used, picked only at launch and when cmux
+/// The "Did you know" card (BOTTOM-LEFT-CARDS K1): a tip for a feature the
+/// user has not used, at most one every 14 days across every tip in the app
+/// (``TipChooser``, `FeatureTipBudget`), picked only at launch and when cmux
 /// becomes active again (never while the user works in it), dismissable per
 /// tip, muted for a day or a week (``TipMenuOption``; the end is read only
 /// here, when a tip would show), off with `sidebar.cards.tips`. Usage flags
@@ -16,7 +18,8 @@ extension UpdaterService {
             if tip != nil { tip = nil }
             return
         }
-        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id)
+        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id,
+                                              budgetOpen: tipBudget.isOpen(at: date))
         storeTipState(state)
         if tip != next { tip = next }
     }
@@ -68,6 +71,9 @@ extension UpdaterService {
         }
         tip = TipCatalog.all.first { $0.id == id } ?? TipCatalog.all.first
     }
+
+    /// The one record of when a tip last showed, shared with the agent chat's feature tips.
+    var tipBudget: FeatureTipBudget { FeatureTipBudget(defaults: defaults) }
 
     func storeTipState(_ state: TipState) {
         guard state != tipState else { return }

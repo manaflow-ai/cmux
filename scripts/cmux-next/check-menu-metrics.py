@@ -39,6 +39,9 @@ DEBT = {
 NOT_MENUS = {
     # The Mac screen's toggle switch: its knob inset sits in a file that also adds NSMenuItem helpers.
     "CmuxNextMacScreen/MacScreenButtons.swift",
+    # The DEBUG `debug.object_menu` capture command: its NSPoint is where it pops the pane's own menu up
+    # (80 pt into a pane whose tab bar is hidden), a click location, not a row of a menu it draws.
+    "CmuxNextApp/Control/DebugObjectMenu.swift",
 }
 # The system menu bar's status item (`MenuBarIcon`) is an icon, not a menu.
 NOT_SURFACE = re.compile(r"MenuBar")
@@ -105,8 +108,7 @@ def web_violations(text):
     columns = {"padding", "padding-inline", "padding-inline-start", "padding-inline-end",
                "gap", "column-gap", "grid-template-columns", "inset-inline-start"}
     migrated = {".ui-menu-item.acpmux-access-item", ".ui-menu-item.acpmux-effort-item",
-                ".acpmux-access-item .ui-menu-check", ".acpmux-effort-item .ui-menu-check",
-                ".acpmux-quick-item .ui-menu-check", ".acpmux-quick-item .ui-menu-shortcut"}
+                ".acpmux-access-item .ui-menu-check", ".acpmux-effort-item .ui-menu-check"}
     found = []
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
         selector, body = match.group(1).strip(), match.group(2)
@@ -122,8 +124,8 @@ def web_violations(text):
 
 def main():
     self_test()
-    assert web_violations(".acpmux-quick-item .ui-menu-check { inset-inline-start: 10px; }")
-    assert not web_violations(".acpmux-quick-item .ui-menu-check { inset-inline-start: var(--cmux-menu-state-x); }")
+    assert web_violations(".acpmux-access-item .ui-menu-check { inset-inline-start: 10px; }")
+    assert not web_violations(".acpmux-access-item .ui-menu-check { inset-inline-start: var(--cmux-menu-state-x); }")
     args = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
     root = os.path.abspath(args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     base = os.path.join(root, SOURCES)

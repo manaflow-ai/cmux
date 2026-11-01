@@ -321,7 +321,9 @@ fn a_stopped_timer_is_said_and_started() {
     assert!(r.detail.contains("not running"), "{r:?}");
 }
 
-/// The real probe, run by `sh` against a fake `systemctl` in a scratch home.
+/// The real probe, run by `sh` against a fake `systemctl` in a scratch home (unix: modes,
+/// symlinks and a shell).
+#[cfg(unix)]
 mod probe_in_a_shell {
     use super::*;
     use std::fs;
@@ -795,6 +797,23 @@ esac
         fs::remove_dir_all(&dir).unwrap();
         assert!(found.cloud_unknown && !found.cloud, "{found:?}");
         assert!(probe_script().contains("[ -e /etc/cmux ] && [ ! -x /etc/cmux ]"));
+    }
+
+    /// The Cloud VM mark is read through `hosts::cloud_vm_check`, so a Cloud VM
+    /// with no acpmux.service of acpmux's own is `cloud` (cmux moves it) and
+    /// one whose daemon is that unit's gets the timer as any Linux host does
+    /// (a fleet lane host, 2026-10-30). The check itself: `host_update_tests.rs`.
+    #[test]
+    fn a_cloud_vm_is_said_through_the_shared_check() {
+        let dir = std::env::temp_dir().join(format!("acpmux-cloud-mark-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("vm-kind"), "team\n").unwrap();
+        let script = probe_script().replace("/etc/cmux", &dir.display().to_string());
+        let found = parse(&run(NONE, &script).0);
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(found.cloud && !found.cloud_unknown, "{found:?}");
+        assert!(probe_script().contains(&hosts::cloud_vm_check()));
+        assert!(probe_script().contains("if [ -n \"$acpmux_cloud\" ]; then echo ACPMUX_AU=cloud"));
     }
 
     /// A unit that is not a regular file (a FIFO, which `cmp` would wait on

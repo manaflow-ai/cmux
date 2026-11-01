@@ -122,7 +122,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     /// The machine config's name rule (`[A-Za-z_][A-Za-z0-9_]*`, at most 128), and not a name the
     /// machine's shell, libc, python or cmux owns: the same list as the applier (``CloudMachineConfig``)
     /// and `cmux cloud secret set`, so a value under such a name is never delivered, whatever made it.
-    static func isName(_ name: String) -> Bool {
+    public static func isName(_ name: String) -> Bool {
         guard let first = name.unicodeScalars.first, name.count <= 128 else { return false }
         let letter = { (c: Unicode.Scalar) in c.isASCII && (CharacterSet.letters.contains(c) || c == "_") }
         guard letter(first), name.unicodeScalars.allSatisfy({ letter($0) || ("0"..."9").contains($0) }) else { return false }
@@ -285,6 +285,8 @@ public struct CloudMachineSecrets: Equatable, Sendable {
 
     public struct DeliveryFailed: Error, Equatable {
         public var reason: String
+
+        public init(reason: String) { self.reason = reason }
     }
 
     /// The receiver's error codes; any other answer is reported as `unexpected`, so nothing a
@@ -292,15 +294,17 @@ public struct CloudMachineSecrets: Equatable, Sendable {
     static let errorCodes: Set<String> = ["no-tty", "mkdir", "mktemp", "too-large", "eof", "bad-base64", "bad-name", "bad-line", "duplicate", "write", "interrupted", "nonce", "bad-mac"]
 
     /// Runs the receiver in a new terminal, types the payload once it says echo is off, and closes
-    /// the terminal. Answers how many names the machine wrote.
+    /// the terminal. Answers how many names the machine wrote. `receiverAt` and `ticketAt` are where the
+    /// link put them (an own machine's are under its own home, `SSHMachineSecrets`).
     public static func deliver(_ values: [(name: String, value: String)], over link: Link,
-                               nonce: String = randomHex(), key: String = randomHex()) async throws -> Int {
+                               nonce: String = randomHex(), key: String = randomHex(),
+                               receiverAt: String = receiverPath, ticketAt: String = ticketPath) async throws -> Int {
         let typed = payload(values, key: key)
         // The receiver's own limits: a set too large is refused here, before any terminal opens.
         guard typed.count <= maxPayloadBytes, envFileBytes(values) <= maxEnvFileBytes else { throw DeliveryFailed(reason: "too-large") }
         // The names travel with the key: the receiver writes these and nothing else.
         try await link.writeTicket(ticket(nonce: nonce, key: key, names: values.map(\.name)))
-        let terminal = try await link.start(["sh", receiverPath, ticketPath])
+        let terminal = try await link.start(["sh", receiverAt, ticketAt])
         let outcome: Result<String, any Error>
         do {
             let opened = try await link.waitFor(terminal, "\(ready) \(nonce)|\(error) [a-z-]+", waitSeconds)
@@ -353,7 +357,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
 
     /// The receiver (`~/.cmux/machine-config/receive-secrets`, run with `sh`). It replaces the whole
     /// file, so a removed or renamed secret goes too; the payload stays in a 0700 temporary folder
-    /// that is removed on every exit. It needs nothing but sh, stty, base64 and mktemp.
+    /// that is removed on every exit. It needs nothing but sh, stty, base64, mktemp and sha256sum or shasum.
     public static let receiver = #"""
         #!/bin/sh
         # cmux secret receiver, written by the cmux app (cmux cloud deliver-secrets). Values arrive
@@ -381,6 +385,9 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         trap cleanup EXIT
         trap 'echo "CMUX-SECRETS-ERR interrupted"; exit 1' INT HUP TERM
         stty -echo 2>/dev/null || { echo "CMUX-SECRETS-ERR no-tty"; exit 1; }
+        # SHA-256 and base64 decoding as Linux (coreutils) or macOS (shasum, base64 -D) spell them.
+        digest() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
+        unbase64() { if printf 'eA==' | base64 -d >/dev/null 2>&1; then base64 -d; else base64 -D; fi; }
         case "$nonce" in ''|*[!0-9A-Fa-f]*) echo "CMUX-SECRETS-ERR nonce"; exit 1 ;; esac
         case "$mackey" in ''|*[!0-9A-Fa-f]*) echo "CMUX-SECRETS-ERR nonce"; exit 1 ;; esac
         echo "CMUX-SECRETS-READY $nonce"
@@ -396,9 +403,9 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         done
         [ "${line:-}" = "CMUX-SECRETS-END $mackey" ] || { echo "CMUX-SECRETS-ERR eof"; exit 1; }
         # Only what the app typed: the key never reached a screen, so nobody else could make this match.
-        want=$({ printf '%s\n' "$mackey"; cat "$tmp/b64"; } | sha256sum | cut -d' ' -f1)
+        want=$({ printf '%s\n' "$mackey"; cat "$tmp/b64"; } | digest | cut -d' ' -f1)
         [ -n "$mac" ] && [ "$mac" = "$want" ] || { echo "CMUX-SECRETS-ERR bad-mac"; exit 1; }
-        base64 -d < "$tmp/b64" > "$tmp/pairs" 2>/dev/null || { echo "CMUX-SECRETS-ERR bad-base64"; exit 1; }
+        unbase64 < "$tmp/b64" > "$tmp/pairs" 2>/dev/null || { echo "CMUX-SECRETS-ERR bad-base64"; exit 1; }
         n=0
         : > "$tmp/env"
         while IFS= read -r pair || [ -n "$pair" ]; do
@@ -420,7 +427,7 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         sync "$tmp/env" 2>/dev/null || true
         mv -f "$tmp/env" "$out" || { echo "CMUX-SECRETS-ERR write"; exit 1; }
         # Proof that this receiver, which holds the key, wrote the set: an OK typed by anyone else lacks it.
-        tok=$(printf '%s\nok %s' "$mackey" "$n" | sha256sum | cut -c1-32)
+        tok=$(printf '%s\nok %s' "$mackey" "$n" | digest | cut -c1-32)
         echo "CMUX-SECRETS-OK $n $tok"
         """#
 }

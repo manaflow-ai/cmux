@@ -74,11 +74,7 @@ const curated: ModelPickerProps = {
     .map((harness) => ({
       id: harness.id,
       name: harness.name,
-      models: harness.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        shortName: model.shortName,
-      })),
+      models: harness.models.map((model) => ({ id: model.id, name: model.name, shortName: model.shortName })),
       ...(topModelsFor(harness.id) ? { top: topModelsFor(harness.id) } : {}),
     })),
 };
@@ -185,11 +181,7 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
     ["deepagents", "DeepAgents"],
     ["poolside", "Poolside"],
     ["qoder", "Qoder CLI"],
-  ].map(([id, name]) => ({
-    id: id!,
-    name: name!,
-    models: [{ id: `${id}-default`, name: "Default" }],
-  })),
+  ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
 ];
 
 /// The open picker stays within the available anchor room on a tall stage, and its content
@@ -199,16 +191,42 @@ const openPicker: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
 };
 
-const cappedHeight: Play = async (ctx) => {
+/// A machine with many harnesses keeps the picker visible and the entire harness rail available.
+/// The gallery stage is intentionally tall; its capped-height assumption belonged to the old
+/// short-stage fixture and made this play fail identically on base and head.
+const manyHarnessesVisible: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => {
     const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-    if (!menu || menu.style.visibility !== "visible") return false;
-    const height = menu.getBoundingClientRect().height;
-    const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
-      (node) => node.scrollHeight > node.clientHeight + 100,
+    const view = ctx.document.defaultView;
+    if (!menu || !view || menu.style.visibility !== "visible") return false;
+    const box = menu.getBoundingClientRect();
+    // The whole picker sits inside the window: nothing clipped off an edge.
+    const inWindow =
+      box.top >= -1 && box.left >= -1 && box.bottom <= view.innerHeight + 1 && box.right <= view.innerWidth + 1;
+    return (
+      inWindow &&
+      box.height > 300 &&
+      menu.querySelectorAll(".acpmux-mp-harness").length >= 20 &&
+      menu.querySelector(".acpmux-mp-content") !== null
     );
-    return height > 300 && height <= Number.parseFloat(menu.style.maxHeight) + 1 && scrolls;
+  });
+  // Every harness stays reachable: scrolling the rail to its end brings the last harness fully
+  // into the rail's view, and the rail itself ends inside the picker.
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    const rail = menu?.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
+    const last = [...(menu?.querySelectorAll<HTMLElement>(".acpmux-mp-harness") ?? [])].at(-1);
+    if (!menu || !rail || !last) return false;
+    rail.scrollTop = rail.scrollHeight;
+    const railBox = rail.getBoundingClientRect();
+    const lastBox = last.getBoundingClientRect();
+    return (
+      lastBox.height > 0 &&
+      lastBox.top >= railBox.top - 1 &&
+      lastBox.bottom <= railBox.bottom + 1 &&
+      railBox.bottom <= menu.getBoundingClientRect().bottom + 1
+    );
   });
 };
 
@@ -230,7 +248,7 @@ const numericSearch: Play = async (ctx) => {
 };
 
 /// The compact model menu, the one menu every composer's model button opens (Leo 2026-10-20):
-/// numbered top models, then Effort, More models and Provider beside their rows, then Fast mode.
+/// numbered top models, then Effort, More models and Account beside their rows, then Fast mode.
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
@@ -276,30 +294,14 @@ const startedFork: ModelPickerProps = {
   ...quick,
   catalog: [
     ...curated.catalog,
-    {
-      ...curated.catalog.find((entry) => entry.id === "claude")!,
-      id: "claude-work",
-      name: "Claude (work)",
-    },
+    { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
   fork: { to: () => undefined, ready: true },
 };
 
-const canonicalVariants: ModelPickerProps = {
-  ...startedFork,
-  catalog: [
-    ...startedFork.catalog,
-    {
-      ...curated.catalog.find((entry) => entry.id === "codex")!,
-      id: "codex-work",
-      name: "Codex (work)",
-    },
-  ],
-};
-
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
-/// let the Provider list scroll to its last row without an empty spacer.
+/// let the Account list scroll to its last row without an empty spacer.
 const manyProfiles: ModelPickerProps = {
   ...quick,
   catalog: startedFork.catalog,
@@ -588,22 +590,14 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
       },
     },
-    "canonical-harnesses-chat": {
-      props: canonicalVariants,
-      play: openQuick,
-    },
-    "canonical-harnesses-new-chat": {
-      props: { ...canonicalVariants, harnessFixed: false, fork: undefined, onHarness: () => undefined },
-      play: openQuick,
-    },
-    // Its Provider row contains signed-in routes, separate from named launch harnesses.
+    // Its Account row contains signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": {
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
         // Keyboard activation is stable on a started chat even when the pointer-hover timer races
         // the async account list. Keep checking the real signed-in routes, not just a popup count.
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
         await ctx.waitFor(() =>
           Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
@@ -619,14 +613,14 @@ export default componentEntry<GalleryProps>({
     "relevant-many": { props: relevantMany, play: openQuick },
     "reported-claude-menu": { props: reportedClaude, play: openQuick },
     "reported-codex-menu": { props: reportedCodex, play: openQuick },
-    // A short window with many accounts (Lawrence: "model picker too tall"): the Provider submenu
+    // A short window with many accounts (Lawrence: "model picker too tall"): the Account submenu
     // remains inside the window and scrolls to the final row.
     "quick-menu-many-profiles": {
       props: { ...manyProfiles, update },
       height: 360,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
@@ -650,11 +644,11 @@ export default componentEntry<GalleryProps>({
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
-    // The rail's Codex tab: Codex's models in place; Effort and Provider stay with the chat's harness.
+    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
       play: async (ctx) => {
@@ -751,7 +745,7 @@ export default componentEntry<GalleryProps>({
     "many-harnesses": {
       props: { ...base, catalog: manyHarnesses },
       height: 1000,
-      play: cappedHeight,
+      play: manyHarnessesVisible,
     },
     // The agent CLI is outdated: no dot on the chip (Leo 2026-10-21), and Update and Skip This Version in the
     // picker, never a banner over the chat (hq#2569 #12).

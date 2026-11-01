@@ -20,7 +20,14 @@ This guard covers every workflow:
   forty dispatches in 13 minutes, nx-chat's two fallback compiles among them,
   each with 0 jobs. The group must be keyed per pull request, commit, run or
   branch ref. cancel-in-progress is allowed only where the key is the pull
-  request or the ref, where the cancelled run is a superseded head.
+  request or the ref, where the cancelled run is a superseded head;
+- no runs-on lands on blacksmith-12vcpu-macos-26 when every picker before it
+  answers nothing. That label started no job from about 02:11Z on 2026-10-28
+  (and for hours on 10-20 and 10-26) while 61 cmux jobs queued on it; GitHub
+  never moves a queued job. A job may still take 12 vCPU from a picker that
+  skips a stalled label (next_macos_cascade.py, simple_pool_picker.py,
+  nightly_sign_runner.py), never as its literal last resort. A variable naming
+  12 vCPU is checked where its value is known, by ci-repo-variables.yml.
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ from __future__ import annotations
 import json
 import importlib.util
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -35,6 +43,17 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runs_on_labels  # noqa: E402
+
+# Blacksmith's 12 vCPU macOS 26 label: 5 slots, and stalled for hours on 2026-10-20, -26 and -28.
+LARGE_MAC = "blacksmith-12vcpu-macos-26"
+# What a picker job, an input or a matrix leg gives a runs-on; '' when the picker answered nothing.
+PICKER_CONTEXTS = ("needs", "inputs", "steps", "matrix", "env", "jobs", "strategy")
+# Jobs that keep the label as their literal last resort, and why. None today: the keyed signing jobs read a
+# stall-aware picker since cmux#27066. A new entry needs a reason; one no job needs any more fails the test.
+LARGE_MAC_LAST_RESORT: dict[str, str] = {}
 
 # One machine: a per-runner glaeda label, or a mini or perf host's name.
 SINGLE_HOST = re.compile(
@@ -53,6 +72,15 @@ POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNN
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
 # unregistered or unread slot never holds a feed's compile.
 RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
+# Runner variables that name an owned, reserved or otherwise single-host route.
+# A terminal value from any of these is a dead-end queue when its listener is
+# offline; every one needs a later pool fallback in the same runs-on chain.
+RESERVED_RUNNER_VARIABLES = (
+    "vars.CI_SIDE_LANE_RUNNER", "vars.CI_LIGHT_LANE_RUNNER", "vars.CI_FAST_LANE_RUNNER",
+    "vars.CI_SESSION_LANE_RUNNER", "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "vars.CI_DEV_COMPILE_RUNNER", "vars.CI_NIGHTLY_TRUSTED_RUNNER",
+    "vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "vars.CI_IOS_INTERNAL_RUNNER",
+)
 # An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
 # second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
 OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
@@ -91,6 +119,25 @@ def unconditional(alternative: str) -> bool:
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
     return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+
+
+def terminal_reserved(expression: str, variable: str) -> bool:
+    """Whether the final value of a runs-on chain is a reserved label variable.
+
+    A variable in a guarded preference is safe only when a later alternative
+    names a pool. If the final ``||``/``&&`` value is the reserved variable,
+    an offline or non-listening reservation leaves GitHub with one dead queue.
+    Keep this structural check independent of the particular runner class so
+    newly added reserved labels cannot bypass the no-single-host rule.
+    """
+    text = unwrap(expression)
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        return terminal_reserved(alternatives[-1], variable)
+    operands = split_top(text, "&&")
+    if len(operands) > 1:
+        return terminal_reserved(operands[-1], variable)
+    return text.strip() == variable
 
 
 def conjuncts(text: str) -> list[str]:
@@ -255,6 +302,44 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+MATRIX_KEY = re.compile(r"\bmatrix\.([A-Za-z_][\w-]*)")
+
+
+def lands_on_large_mac(job: dict) -> bool:
+    """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset).
+
+    Fails closed: a runs-on that spells LARGE_MAC but whose value the resolver cannot read (a fromJSON() or
+    format() of it, an expression it cannot parse) counts as landing there.
+    """
+    text = runs_on_text(job)
+    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job.get("strategy"), dict) else None
+    for key in MATRIX_KEY.findall(text):
+        if isinstance(matrix, str):
+            # A matrix built at run time (fromJSON of a picker's output): fails closed only if it spells the label.
+            if LARGE_MAC in matrix:
+                return True
+            continue
+        if not isinstance(matrix, dict):
+            continue
+        # The axis itself, and every include entry that sets that key (`include:` adds or extends combinations).
+        includes = matrix.get("include") if isinstance(matrix.get("include"), list) else []
+        values = [matrix.get(key, ""), *(entry.get(key, "") for entry in includes if isinstance(entry, dict))]
+        if LARGE_MAC in yaml.safe_dump(values) or (isinstance(matrix.get("include"), str) and LARGE_MAC in matrix["include"]):
+            return True
+    if LARGE_MAC not in text:
+        return False
+    runs_on = job.get("runs-on")
+    if isinstance(runs_on, dict):
+        runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
+                                                 else runs_on.get("labels") or [])]
+    try:
+        labels = runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)
+    except ValueError:
+        return True
+    unread = any(isinstance(label, runs_on_labels.Unknown) and str(label).endswith("(...)") for label in labels)
+    return unread or LARGE_MAC in {str(label) for label in labels}
+
+
 # The rescue's re-run actors (owned_pool_rescue.RESCUE_ACTOR, pr_runner_pool.RESCUE_ACTORS) and the attempts
 # it can reach. An alternative that names an owned role label must be false for each of them on each attempt
 # after the first, so the rescue never re-queues a job on the pool it moved it from.
@@ -361,6 +446,76 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
         if f"needs.{placement}.outputs.gui_overflow" not in text:
             found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
     return found
+# A pull request from a fork: its own fixed route, before any placement output is read.
+FORK_CLAUSE = "head.repo.full_name != github.repository"
+# A Blacksmith macOS label literal.
+BLACKSMITH_MAC_LITERAL = re.compile(r"'blacksmith-[0-9]+vcpu-macos-[0-9.]+'")
+
+
+def flat_alternatives(expression: str) -> list[str]:
+    """The `||` alternatives of `expression` in the order they are tried, with parenthesized groups of
+    alternatives flattened: `a || (b || c) || d` -> [a, b, c, d]."""
+    found = []
+    for part in split_top(unwrap(expression), "||"):
+        part = unwrap(part)
+        found += flat_alternatives(part) if len(split_top(part, "||")) > 1 else [part]
+    return found
+
+
+def separate_pr_cascade(alternative: str) -> bool:
+    """A complete non-display PR picker route, separate from the later push GUI route.
+
+    Require allocated overflow legs and fresh owned/retry outputs; an event-gated
+    fixed label alone is still a pin, not a separate picker route.
+    """
+    terms = conjuncts(alternative)
+    if len(terms) != 2 or terms[0] != "github.event_name == 'pull_request'":
+        return False
+    route = terms[1]
+    if "outputs.gui_overflow" in route or not unconditional(route):
+        return False
+    legs = flat_alternatives(route)
+    freshness = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)"
+    for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "owned_jobs"):
+        matches = [leg for leg in legs if f"outputs.{output}" in leg]
+        if len(matches) != 1 or freshness not in conjuncts(matches[0]):
+            return False
+    if not any(freshness in conjuncts(leg) and conjuncts(leg)[-1] ==
+               "needs.macos-placement.outputs.retry_runner" for leg in legs):
+        return False
+    # Every literal before the terminal fallback must come from an allocation.
+    for leg in legs[:-1]:
+        if BLACKSMITH_MAC_LITERAL.search(leg) and not any(
+            f"outputs.blacksmith_{size}_jobs" in leg for size in (12, 6)
+        ):
+            return False
+    return True
+
+
+def overflow_preempted(text: str) -> list[str]:
+    """The alternatives that send a GUI job to a fixed Blacksmith macOS label before its placement's gui_overflow.
+
+    side_lane_placement.py writes gui_overflow as the Blacksmith size the GUI jobs take when no owned GUI runner
+    has room (next_macos_cascade.gui_overflow_label(): 12 vCPU while it moves, else 6 vCPU), on attempt 1 and
+    on the rescue's re-run. An alternative before it that names a Blacksmith literal decides the size instead:
+    run 41123927916 (cmux#28497, 2026-10-30) ran swift-test on 6 vCPU on both attempts through such legs
+    (`runner != '' && 'blacksmith-6vcpu-macos-26'`, `github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26'`).
+    A fork clause or complete non-display PR picker route may come first; a literal after
+    the gui_overflow read is the last resort.
+    """
+    found = []
+    for expression in EXPRESSION.findall(text) or [text]:
+        if "outputs.gui_overflow" not in expression:
+            continue
+        for alternative in flat_alternatives(expression):
+            if "outputs.gui_overflow" in alternative:
+                break
+            if (BLACKSMITH_MAC_LITERAL.search(alternative) and FORK_CLAUSE not in alternative
+                    and not separate_pr_cascade(alternative)):
+                found.append(alternative)
+    return found
+
+
 # Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
 # next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
 # Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
@@ -467,6 +622,20 @@ class RunsOnFallbackTests(unittest.TestCase):
     def test_workflows_are_found(self) -> None:
         self.assertIn("cmux-next.yml", {path.name for path in workflows()})
 
+    def test_no_job_falls_back_to_the_large_blacksmith_mac(self) -> None:
+        failures, seen = [], set()
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                key = f"{path.name}#{job_id}"
+                hit = lands_on_large_mac(job)
+                if hit and key in LARGE_MAC_LAST_RESORT:
+                    seen.add(key)
+                elif hit:
+                    failures.append(key)
+        self.assertEqual(failures, [], f"{LARGE_MAC} stalls for hours at a time: take it only from a picker that "
+                                       "skips a stalled label, with an owned Mac or blacksmith-6vcpu-macos-26 last")
+        self.assertEqual(set(LARGE_MAC_LAST_RESORT) - seen, set(), "an exception no job needs any more: drop it")
+
     def test_no_runs_on_names_one_machine(self) -> None:
         failures = []
         for path in workflows():
@@ -502,8 +671,29 @@ class RunsOnFallbackTests(unittest.TestCase):
                 alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
                 if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
                     failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertIn("build-sign-notarize-nightly", seen)
         self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
+        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
+        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            for expression in EXPRESSION.findall(runs_on_text(job)):
+                for alternative in split_top(unwrap(expression), "||"):
+                    match = owned.search(alternative)
+                    if not match:
+                        continue
+                    seen.add(job_id)
+                    guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
+                    if not guards & {term.strip() for term in conjuncts(alternative)}:
+                        failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
+        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
@@ -556,6 +746,27 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertEqual(failures, [], "a gui or session pool is one queue: it needs a member off it")
         self.assertGreaterEqual(seen, 3, "cmux-next's swift-test, daemon-test and generated-files read the gui pool")
 
+    def test_no_runs_on_chain_ends_on_the_reserved_side_label(self) -> None:
+        failures = []
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                for expression in EXPRESSION.findall(runs_on_text(job)):
+                    for variable in RESERVED_RUNNER_VARIABLES:
+                        if terminal_reserved(expression, variable):
+                            failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
+        self.assertEqual(failures, [], "a reserved runner label must never be the final runs-on value")
+
+    def test_cmux_next_fast_tier_uses_the_cascade_before_deferring_to_base_queue(self) -> None:
+        fast = load(WORKFLOWS / "cmux-next.yml")["jobs"]["fast-tier"]
+        expression = runs_on_text(fast)
+        retry = expression.index("needs.macos-placement.outputs.retry_runner")
+        deferred = expression.index("needs.macos-placement.outputs.deferred_runner")
+        legacy = expression.index("vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(retry, deferred)
+        self.assertLess(deferred, legacy)
+        self.assertIn(".github/workflows/cmux-next.yml", rescued_paths())
+        self.assertNotIn("needs.macos-placement.outputs", fast["if"])
+
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"
         gui = "'glaeda-gui-std-xcode-26.6'"
@@ -595,6 +806,44 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(role_label_problems(here, placed, {here}))
         self.assertEqual(role_label_problems(here, placed.replace(
             "|| github.run_attempt == 1", "|| needs.p.outputs.gui_overflow || github.run_attempt == 1"), {here}), [])
+
+    def test_no_fixed_blacksmith_leg_comes_before_the_gui_overflow(self) -> None:
+        failures, seen = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                labels = {"runs-on": runs_on_text(job)}
+                runner_copy = (job.get("env") or {}).get("CMUX_NEXT_RUNNER")
+                if isinstance(runner_copy, str):
+                    labels["CMUX_NEXT_RUNNER"] = runner_copy
+                for key, text in labels.items():
+                    seen += "outputs.gui_overflow" in text
+                    failures += [f"{path.name} {job_id} {key}: {alternative}" for alternative in overflow_preempted(text)]
+        self.assertEqual(failures, [], "a GUI job takes the Blacksmith size its placement names (gui_overflow); a fixed "
+                                       "Blacksmith leg may come only after it, as the last resort, or for a fork")
+        self.assertGreaterEqual(seen, 6, "cmux-next's swift-test, daemon-test and generated-files read gui_overflow")
+
+    def test_the_overflow_rule_catches_what_it_is_for(self) -> None:
+        overflow = "needs.p.outputs.gui_overflow != '' && needs.p.outputs.gui_overflow"
+        fork = "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26'"
+        small = "'blacksmith-6vcpu-macos-26'"
+        self.assertEqual(overflow_preempted(f"${{{{ {fork} || needs.p.outputs.gui_runner || {overflow} || {small} }}}}"), [])
+        # Run 41123927916's two legs, at the top level or inside a group.
+        self.assertTrue(overflow_preempted(f"${{{{ (needs.p.outputs.runner != '' && {small}) || {overflow} || {small} }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ a || ({fork} || github.run_attempt != 1 && {small} || {overflow}) }}}}"))
+        self.assertTrue(overflow_preempted(f"${{{{ x && 'blacksmith-12vcpu-macos-26' || {overflow} || {small} }}}}"))
+        # No gui_overflow read: another rule's business.
+        self.assertEqual(overflow_preempted(f"${{{{ a && {small} || 'glaeda-side-std-xcode-26.6' }}}}"), [])
+
+    def test_separate_pr_cascade_does_not_preempt_push_gui_overflow(self) -> None:
+        jobs = load(WORKFLOWS / "cmux-next.yml")["jobs"]
+        route = runs_on_text(jobs["swift-test"])
+        self.assertEqual(overflow_preempted(route), [])
+        # Losing the allocation or its attempt freshness must not create an exemption.
+        self.assertTrue(overflow_preempted(route.replace("outputs.owned_jobs", "outputs.missing_jobs")))
+        self.assertTrue(overflow_preempted(route.replace("outputs.placed_attempt", "outputs.stale_attempt")))
+        for prefix in ("github.event_name == 'pull_request' && ", ""):
+            self.assertTrue(overflow_preempted(
+                "${{ " + prefix + "'blacksmith-6vcpu-macos-26' || needs.p.outputs.gui_overflow }}"))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
@@ -652,6 +901,28 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(SINGLE_HOST.search("runs-on: cmux22"))
         self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-26.6"))
         self.assertFalse(SINGLE_HOST.search("blacksmith-6vcpu-macos-26"))
+        # The large-Mac rule: a literal last resort fails; a picker's answer, or a 6 vCPU last resort, passes.
+        owner = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        self.assertTrue(lands_on_large_mac({"runs-on": "blacksmith-12vcpu-macos-26"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                       "'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "vars.X || 'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}",
+                                            "strategy": {"matrix": {"pool": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                        "'blacksmith-6vcpu-macos-26' }}"}))
+        # A literal hidden in a function the resolver cannot read fails closed; a matrix key runs-on never reads
+        # does not count.
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "fromJSON(needs.p.outputs.runs_on || "
+                                                       "'[\"blacksmith-12vcpu-macos-26\"]') }}"}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "pool": ["blacksmith-6vcpu-macos-26"], "note": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26"}, {"pool": "blacksmith-12vcpu-macos-26"}]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {
+            "include": [{"pool": "blacksmith-6vcpu-macos-26", "note": "blacksmith-12vcpu-macos-26"}]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.large == 'true' && "
+                                                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}"}))
 
 
 if __name__ == "__main__":

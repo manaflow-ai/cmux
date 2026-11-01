@@ -95,10 +95,16 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
         "systemctl --user --no-pager show acpmuxsessions.slice -p MemoryMax -p MemoryHigh -p TasksMax -p MemorySwapMax"
     );
     let set = calls[1];
+    // The slice's task default is a quarter of this machine's threads-max,
+    // between 16384 and 262144 (16384 when it can't be read).
+    let tasks = std::fs::read_to_string("/proc/sys/kernel/threads-max")
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .map_or(16_384, |n| (n / 4).clamp(16_384, 262_144));
     assert!(
         set.starts_with("systemctl --user set-property --runtime acpmuxsessions.slice MemoryMax=")
             && set.contains(" MemoryHigh=")
-            && set.ends_with(" TasksMax=16384 MemorySwapMax=infinity"),
+            && set.ends_with(&format!(" TasksMax={tasks} MemorySwapMax=infinity")),
         "{set}"
     );
     let at = |needle: &str| log.iter().position(|l| l.contains(needle)).unwrap();

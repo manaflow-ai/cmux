@@ -57,6 +57,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
 
+    /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
+    /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
     /// Corner of the close button's hover and pressed fill: Helium's rounded
     /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
@@ -160,7 +162,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
-        cornerRadius = Metrics.itemCornerRadius
+        cornerRadius = Metrics.tabCornerRadius
         closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value

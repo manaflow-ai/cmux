@@ -18,6 +18,37 @@ export function hostIsReconnecting(error: unknown): boolean {
   return fields?.code === undefined;
 }
 
+/// A handshake refused because a reply would pass one message (`message.too_large`: a chat
+/// whose records together were too large to open, on an acpmux before #28754). Asking again gets
+/// the same reply, so the pane never asks on its own; the line's Retry still asks (Leo,
+/// 2026-10-31: "this is completely hardlocked bc of message size").
+export function hostRefusedTooLarge(error: unknown): boolean {
+  return (error as { reason?: unknown } | null)?.reason === "message.too_large";
+}
+
+/// How long a pane's handshakes may keep failing while the host is still recovering (an update's
+/// handoff, a daemon starting or restarting, a start that lost the lock race) before the pane says
+/// so. Until then the pane shows nothing: no card, no header status, no button (Leo, 2026-10-29:
+/// "STOP SHOWING FUCKING BULLSHIT ON LOAD"). 25 s: a daemon after an update answered 10 s after the
+/// first failed handshake in the logged timeline (#27283), so a recovery past 25 s is a failure.
+/// The page's own retries keep running past it, and a connect clears the line.
+export const HOST_ERROR_DEADLINE_MS = 25_000;
+
+/// Whether a failed handshake is said (one line above the composer) after the handshakes have been
+/// failing for `failingForMs`. A refusal the host cannot recover from by itself (acpmux missing,
+/// another build's daemon, a refused chat) is said at once; a recovery only after the deadline.
+export function hostErrorShows(error: unknown, failingForMs: number): boolean {
+  return !hostIsReconnecting(error) || failingForMs >= HOST_ERROR_DEADLINE_MS;
+}
+
+/// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
+/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers (a
+/// 30 s cap saw a ready daemon up to 32 s late, #27283's replay); a refusal that waits on the
+/// person backs off to 30 s, so a host without a daemon is not asked four times a second.
+export function nextRetryDelay(delay: number, recovering: boolean): number {
+  return Math.min(delay * 2, recovering ? 2_000 : 30_000);
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.

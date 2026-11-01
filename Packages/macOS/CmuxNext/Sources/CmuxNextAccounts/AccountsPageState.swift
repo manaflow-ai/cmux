@@ -82,6 +82,9 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
     }
 
     public let teams: Teams?
+    /// The account's teams with roles, details and the create, rename and
+    /// delete forms (``TeamList``); nil when signed out.
+    public let teamList: TeamList?
     public let refresh: String
     public let refreshing: Bool
     /// cmux's own account: who is signed in, sign in, switch and sign out.
@@ -102,15 +105,22 @@ public enum AccountsPageAction: Equatable, Sendable {
     case runSetupToken, cancelPaste
     case saveKey(AIProvider, String), sendToCodeRouter(AIProvider, String)
     case selectTeam(String)
+    /// A gesture of the Teams part (`team.<gesture>`).
+    case team(TeamGesture)
 
-    /// Parses the page's `{action, provider?, account?, secret?, team?}` from its field lookup.
+    /// Parses the page's `{action, provider?, account?, secret?, team?, name?}` from its field lookup.
     public init?(field: (String) -> String?) {
         self.init(action: field("action") ?? "", provider: field("provider"), account: field("account"),
-                  secret: field("secret"), team: field("team"))
+                  secret: field("secret"), team: field("team"), name: field("name"))
     }
 
-    /// Parses `{action, provider?, account?, secret?, team?}`; nil for an unknown action or provider.
-    public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil) {
+    /// Parses `{action, provider?, account?, secret?, team?, name?}`; nil for an unknown action or provider.
+    public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil, name: String? = nil) {
+        if action.hasPrefix("team.") {
+            guard let gesture = TeamGesture(action: String(action.dropFirst("team.".count)), team: team, name: name) else { return nil }
+            self = .team(gesture)
+            return
+        }
         // cmux's row: `cmux.<gesture>` (`cmux.signIn`, `cmux.signOut`, …).
         if action.hasPrefix("cmux.") {
             guard let gesture = CmuxAccountAction(rawValue: String(action.dropFirst("cmux.".count))) else { return nil }
@@ -153,6 +163,7 @@ extension AccountsModel {
     public var pageState: AccountsPageState {
         AccountsPageState(
             teams: pageTeams,
+            teamList: pageTeamList,
             refresh: AccountsStrings.refresh, refreshing: isRefreshing,
             cmux: Self.cmuxRow(services.cmuxAccount),
             removeTitle: AccountsStrings.remove,
@@ -189,6 +200,7 @@ extension AccountsModel {
             pasteTarget = nil
             connect(provider, pasted: secret)
         case .selectTeam(let id): await selectTeam(id)
+        case .team(let gesture): return await perform(gesture)
         }
         return nil
     }

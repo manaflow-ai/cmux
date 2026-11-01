@@ -88,7 +88,16 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     // underline and nothing in the bubble's left gutter.
     const pending = sendNow!.closest(".cv-user__pending")!;
     expect(pending.classList.contains("cv-user__pending--beside")).toBe(false);
-    expect(pending.querySelector("svg")).toBeNull();
+    // No clock: Send now is text alone. The row's only glyphs are its own icon buttons, Copy
+    // (Leo, 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on these
+    // steers"; #27313, inside the row since #27256).
+    const sendNowButton = pending.querySelector(".cv-user__send-now")!;
+    expect(sendNowButton.querySelector("svg")).toBeNull();
+    const copy = pending.querySelector(`button[aria-label="${translate("turn.copy")}"]`);
+    expect(copy).not.toBeNull();
+    expect(copy!.querySelector("svg")).not.toBeNull();
+    const glyphs = [...pending.querySelectorAll("svg")];
+    expect(glyphs.every((svg) => svg.closest("button.cv-iconbtn") !== null)).toBe(true);
     const actions = pending.parentElement!;
     expect(actions.classList.contains("cv-user__actions")).toBe(true);
     const bubble = actions.previousElementSibling!;
@@ -96,7 +105,10 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(bubble.textContent).toContain("Also keep the old flag working");
     expect(actions.firstElementChild).toBe(pending);
     const message = bubble.closest(".cv-user")!;
-    expect([...message.children].map((child) => child.className)).toEqual([
+    // The bubble and its action row share one body, so the waiting controls stay attached to their
+    // bubble (#27168); nothing else sits in the message, its left gutter included.
+    expect([...message.children].map((child) => child.className)).toEqual(["cv-user__body"]);
+    expect([...message.firstElementChild!.children].map((child) => child.className)).toEqual([
       "ui-glass cv-user__bubble selectable",
       "cv-user__actions",
     ]);

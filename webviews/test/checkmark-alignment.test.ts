@@ -12,20 +12,16 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
+  // The model picker (.acpmux-quick-menu and its Effort and Account side menus) keeps its own settled
+  // columns (leo-workspace design/model-picker.md; its running row's check shares the ⌘N column,
+  // #29791) and is measured by quick-model-menu-layout.test.ts and model-menu-density.browser.test.ts.
   const cases = [
     { name: "plus", entry: "agent-pane.composer-plus-menu", variant: "balanced", popup: ".acpmux-palette-menu" },
     { name: "chat", entry: "agent-pane.header-tools", variant: "menu-open", popup: ".acpmux-chat-menu-popover" },
-    {
-      name: "account",
-      entry: "agent-pane.composer-pickers",
-      variant: "claude-direct-accounts",
-      popup: ".acpmux-quick-submenu",
-    },
     { name: "shared", entry: "ui.menu", variant: "open", popup: ".ui-menu" },
     { name: "select", entry: "ui.select", variant: "open", popup: ".ui-menu" },
     { name: "context", entry: "ui.context-menu", variant: "open", popup: ".ui-context-menu" },
     { name: "combobox", entry: "ui.combobox", variant: "open", popup: ".ui-combobox-popup" },
-    { name: "model", entry: "agent-pane.composer-pickers", variant: "claude-model-menu", popup: ".acpmux-quick-menu" },
     { name: "access", entry: "agent-pane.composer-pickers", variant: "permission-menu", popup: ".acpmux-access-menu" },
     { name: "project", entry: "agent-pane.project-chooser", variant: "open-current", popup: ".acpmux-project-menu" },
   ];
@@ -66,7 +62,7 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
               ...menu.querySelectorAll<HTMLElement>(
                 ".ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item",
               ),
-            ].filter((row) => !row.classList.contains("acpmux-quick-effort-segment"));
+            ];
             return rows.map((row) => {
               const box = row.getBoundingClientRect();
               const check = row.querySelector<HTMLElement>(".ui-menu-check, .acpmux-project-check");

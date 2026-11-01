@@ -11,7 +11,7 @@ package nonisolated struct BillingStrings {
     package static var unavailable: String { String(localized: "billing.error.unavailable", defaultValue: "Billing is not available in this build.", table: "Billing", bundle: .module) }
     package static var badResponse: String { String(localized: "billing.error.badResponse", defaultValue: "cmux.com sent no checkout page; retry in a minute.", table: "Billing", bundle: .module) }
     package static var badOpen: String { String(localized: "billing.error.badOpen", defaultValue: "`open` must be auto, cmux, default or none.", table: "Billing", bundle: .module) }
-    package static var badPlan: String { String(localized: "billing.error.badPlan", defaultValue: "`plan` must be pro, max or team.", table: "Billing", bundle: .module) }
+    package static var badPlan: String { String(localized: "billing.error.badPlan", defaultValue: "`plan` must be go, pro, max or team.", table: "Billing", bundle: .module) }
     package static var teamRequired: String { String(localized: "billing.error.teamRequired", defaultValue: "A Team checkout needs `teamId` (a team you administer).", table: "Billing", bundle: .module) }
 }
 
@@ -33,7 +33,7 @@ extension BillingStrings {
         switch plan {
         case "max": "cmux Max"
         case "team": "cmux Team"
-        case "go": "cmux Go"
+        case "go": "cmux Plus"
         default: "cmux Pro"
         }
     }
