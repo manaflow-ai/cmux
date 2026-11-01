@@ -257,7 +257,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a tool run's summary line lights its words on hover and keeps its glyph's tone", async () => {
+  test("a tool run's summary line lights its words on hover only and keeps its glyph's tone", async () => {
     const page = await open();
     const run = page.locator(".acpmux-row button.cv-tool.is-run", { hasText: "Ran 2 commands" });
     const look = () =>
@@ -275,6 +275,16 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const hovered = await look();
     expect(hovered.text).not.toBe(rest.text);
     expect(hovered.icon).toBe(rest.icon);
+    // Open and still focused from the click, with the pointer gone, it is back at rest: only hover lights it.
+    await run.click();
+    await page.mouse.move(0, 0);
+    await page.waitForFunction((before) => {
+      const text = document.querySelector(".acpmux-row button.cv-tool.is-run .cv-tool__text");
+      return text && getComputedStyle(text).color === before && !text.getAnimations().length;
+    }, rest.text);
+    expect(await run.getAttribute("aria-expanded")).toBe("true");
+    expect(await run.evaluate((node) => node === document.activeElement)).toBe(true);
+    expect(await look()).toEqual(rest);
     await page.close();
   });
 

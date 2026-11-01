@@ -2057,14 +2057,15 @@ pre.cv-math-source {
 /* Tool calls are background activity: focus restores the primary tone without changing the
    row's geometry. A step row draws nothing more on hover (Leo 2026-10-13, #20330: tool rows
    "no longer change on hover"; agent-pane-step-rows.test.ts), so only focus lifts it. */
-/* A session link chip in the row (AgentTag.css) lights alone: its focus is not the row's. */
-.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)),
+/* A session link chip in the row (AgentTag.css) lights alone: its focus is not the row's. A tool
+   run's or group's summary line lights on hover only (below), so its focus is left out. */
+.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 .cv-worked:hover,
 .cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
-.cv-tool:focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
+.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
@@ -2121,8 +2122,10 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the primary tone on hover, as Worked
-   for does; its glyph keeps its tone. The inner step rows keep their own hover (below). */
+/* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
+   primary tone on hover only, as Worked for does. Open or focused (a click leaves the focus on it),
+   its glyph, words and chevron keep their rest tones; keyboard focus still draws the ring. The inner
+   step rows keep their own hover (below). */
 .cv-tool.is-run > .cv-tool__text {
   transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
