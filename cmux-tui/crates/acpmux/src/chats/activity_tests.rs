@@ -33,15 +33,15 @@ async fn closed_activity_keeps_preview_parent_and_newest_session_precedence() {
         ),
     ]);
     let activity = hub.chat_activity();
-    let mut chat = json!({"key": "claude:chat"});
+    let mut chat = json!({"key": "claude-code:chat"});
     activity.decorate(&mut chat);
     assert_eq!(
         chat,
-        json!({"key": "claude:chat", "attention": null,
-        "preview": "new reply", "parent": "claude:root"})
+        json!({"key": "claude-code:chat", "attention": null,
+        "preview": "new reply", "parent": "claude-code:root"})
     );
-    assert!(activity.has_parent("claude:chat"));
-    let mut missing = json!({"key": "claude:missing", "attention": "unread"});
+    assert!(activity.has_parent("claude-code:chat"));
+    let mut missing = json!({"key": "claude-code:missing", "attention": "unread"});
     activity.decorate(&mut missing);
     assert_eq!(missing["attention"], Value::Null);
 }
@@ -81,7 +81,7 @@ async fn activity_parent_keeps_lineage_precedence_expiry_and_one_level_visibilit
         assert_eq!(hub.spawned_by(&session.meta()), expected);
         assert_eq!(
             hub.chat_activity_fields(&session)["parent"],
-            if listed { json!("claude:root") } else { Value::Null }
+            if listed { json!("claude-code:root") } else { Value::Null }
         );
     }
 }
