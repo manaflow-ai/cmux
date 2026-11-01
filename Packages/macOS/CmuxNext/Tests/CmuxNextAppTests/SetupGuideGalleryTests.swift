@@ -16,7 +16,7 @@ import Testing
             view.layoutSubtreeIfNeeded()
             let scroll = try #require(view.subviews.first as? NSScrollView)
             let document = try #require(scroll.documentView)
-            let labels = document.subviews.compactMap { $0 as? NSTextField }
+            let labels = document.subviews.compactMap { $0 as? ThemedLabel }
             #expect(labels.count == 12)
             for (first, second) in zip(labels, labels.dropFirst()) {
                 #expect(first.frame.maxY <= second.frame.minY)
