@@ -54,6 +54,20 @@ struct AgentPaneMoreMenuTests {
         #expect(Self.origin(CGRect(x: 400, y: 420, width: 24, height: 24), window: window) == CGPoint(x: 400, y: 418))
     }
 
+    /// A short window near the screen's top, room for the menu on neither side in it: below fits on
+    /// the screen, so it opens there. Picked by the window's room it went up, past the window and the
+    /// screen's top, and was pushed back down over its own button (680 to 900 over 670 to 694).
+    @Test func withNoRoomInTheWindowTheMenuTakesTheSideThatFitsOnTheScreen() {
+        let window = CGRect(x: 100, y: 500, width: 900, height: 380)
+        let button = CGRect(x: 400, y: 670, width: 24, height: 24)
+        let menu = CGSize(width: 220, height: 220)
+        let origin = Self.origin(button, window: window, menu: menu)
+        #expect(origin == CGPoint(x: 400, y: 668))
+        let frame = CGRect(x: origin.x, y: origin.y - menu.height, width: menu.width, height: menu.height)
+        #expect(!frame.intersects(button), "menu \(frame) over button \(button)")
+        #expect(Self.screen.contains(frame))
+    }
+
     /// A menu that would run past the screen on its side slides back onto it, so AppKit never
     /// shrinks it to a scroll arrow.
     @Test func theMenuStaysWholeOnTheScreen() {
