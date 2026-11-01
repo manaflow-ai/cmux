@@ -126,8 +126,9 @@ struct CmdNThenCreateKeysTests {
                 }
                 try await Task.sleep(for: .seconds(3))
                 let control = (try? await connection.request(ReadScreenRequest(surface: terminal), timeout: .seconds(2)).text) ?? "?"
-                Issue.record("\(action): DIAG terminal \(terminal) (tab terminal id \(selected?.terminalID?.rawValue ?? "-")); replays \(replays); "
-                    + "after the hold: \(after); control line typed then: screen \(control.debugDescription)")
+                let diag: String = "\(action): DIAG terminal \(terminal) (tab terminal id \(selected?.terminalID?.rawValue ?? "-")); replays \(replays); "
+                    + "after the hold: \(after); control line typed then: screen \(control.debugDescription)"
+                Issue.record(Comment(rawValue: diag))
             }
             #expect(ran(screen), "\(action): the new terminal did not get the typed line in order; its screen: \(screen.debugDescription); key paths: \(paths)")
             // No other terminal got the line.
