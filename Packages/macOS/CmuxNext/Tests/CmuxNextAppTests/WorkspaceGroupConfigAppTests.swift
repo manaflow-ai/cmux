@@ -39,6 +39,10 @@ struct WorkspaceGroupConfigAppTests {
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             services.settings = settings
             await settings.reload()
+            // What a parallel run does: another suite binds its own AppServices meanwhile, whose first sidebarLayout
+            // read sets the process-wide SidebarDocStore.current.
+            let other = AppServices(environment: AppEnvironment.current([:]))
+            AppActions.bind(other)
             let group = try await WorkspaceNothingToDoRefusalTests.personalGroup(of: workspace, services)
             try await body(services, workspace, group, url)
         }
