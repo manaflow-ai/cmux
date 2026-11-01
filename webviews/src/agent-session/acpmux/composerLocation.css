@@ -1475,21 +1475,10 @@
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's rows, as Codex's
-   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud, then a hairline and the other
-   machines. No section headers and no second lines; each of the first nine machines ends with its
-   ⌥⌘ digit, then the current one's check. */
+   "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
+   its own (Machines…). No section headers and no second lines; each of the first nine machines ends
+   with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 220px; }
-/* The hairline over the person's other machines: the + menu's untitled-group split. */
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { margin-top: 9px; position: relative; }
-.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: 6px;
-  right: 6px;
-  border-top: .5px solid var(--acpmux-composer-edge, color-mix(in srgb, currentColor 12%, transparent));
-  pointer-events: none;
-}
 /* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
 .acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
   position: absolute;
