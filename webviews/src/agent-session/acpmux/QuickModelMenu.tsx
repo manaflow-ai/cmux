@@ -419,7 +419,9 @@ export function QuickModelMenu({
         const width = popupNode.getBoundingClientRect().width;
         if (width <= widest) return;
         widest = width;
-        popupNode.style.minWidth = `${width}px`;
+        // Never past the room the pane gives (min-width beats max-width): a pane that narrows while
+        // the menu is open, or a first reading before the boundary applies, keeps it inside.
+        popupNode.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
       });
       observer.observe(popupNode);
       railWidth.current = observer;
