@@ -2292,8 +2292,8 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self) -> list[Mapping[str, Any]]:
-        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
+    def runners(self, group: str = RUNNER_GROUP) -> list[Mapping[str, Any]]:
+        """The self-hosted runners this repository can use: its own and the org's `group` (RUNNER_GROUP).
 
         The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
         the repository endpoint does not list. Listing that group needs the
@@ -2307,14 +2307,14 @@ class GitHub:
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
-            group = next((group for group in groups
-                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
-                          and isinstance(group.get("id"), int)), None)
-            if group is None:
-                raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
-            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
+            found_group = next((entry for entry in groups
+                                if isinstance(entry, Mapping) and entry.get("name") == group
+                                and isinstance(entry.get("id"), int)), None)
+            if found_group is None:
+                raise RuntimeError(f"no runner group {group} is visible to {self.repo}")
+            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{found_group.get('id')}/runners")
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
+            raise RuntimeError(f"org runner group {group} unreadable (HTTP {error.code}); the routing "
                                "App needs the organization permission Self-hosted runners: read") from error
         found.update((runner.get("id"), runner) for runner in org)
         return list(found.values())

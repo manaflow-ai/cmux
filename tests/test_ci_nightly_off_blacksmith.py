@@ -34,23 +34,37 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
-                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated)\b"
+                         r"|vars\.CI_CONTROL_RUNNER"
+                         r"|needs\.[\w-]+\.outputs\.(?:owned|early_linux_runner|early_mini_runner|light_mini_runner|mini_runner|runs_on|helper|dedicated"
+                         r"|fleet_linux)\b"
                          r"|matrix\.")
+# The ephemeral GCP runners (HQ build-fleet/swift-linux-builder/gha-runners/README.md). decide's `fleet_linux` output
+# is this label while their group can start a job now, else empty (portable_job_placement.py, FLEET_LINUX_GROUP).
+FLEET_LINUX_LABEL = "cmux-fleet-linux-x64"
+FLEET_LINUX_TERM = "github.run_attempt == 1 && needs.decide.outputs.fleet_linux || "
+BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-")
+# nightly.yml Linux jobs whose runs-on does not offer the fleet before Blacksmith, each with its reason. Nothing else
+# may: a new nightly Linux job reads decide's fleet_linux (or another fleet route) ahead of any Blacksmith label.
+FLEET_LINUX_EXCEPTIONS = {
+    # Release signing: decide's early placement (signer-build), then GitHub-hosted, then Blacksmith 4 vCPU (#29886).
+    "signer-app": "hosted signer route",
+    "signer-app-notary": "hosted signer route",
+    "signer-dmg": "hosted signer route",
+    "pick-nightly-sign-runner": "hosted signer route",
+    # A signing job's runner comes only from the signing pickers (test_ci_signing_owned_mac).
+    "publish-nightly-identity-legacy": "signing job, signing pickers only",
+    # main's promotion dispatch: decide is skipped on that path, so there is no fleet_linux to read.
+    "promote-nightly-next": "promotion dispatch, no decide",
+    # `if: false`: these never run.
+    "await-release-surface-ack": "never runs",
+    "promote-nightly-next-acked": "never runs",
+}
 # nightly.yml jobs whose only route is still Blacksmith Linux, as of 2026-10-31. Debt to move onto the fleet (portable
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
 # gained a fleet route (or no longer exists) must leave this list. decide left it first: run 41234993713 queued it on
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it.
-BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
-    "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "attest-nightly-remote-daemon", "prepare-nightly-variant-primary",
-    "prepare-nightly-variant", "pick-nightly-sign-runner", "signer-app", "signer-app-notary",
-    "signer-dmg", "route-visual-gate-nightly", "visual-gate-nightly-verdict",
-    "report-visual-gate-nightly", "publish-nightly", "publish-nightly-next-github",
-    "publish-nightly-next-github-names", "keep-published-dsyms", "legacy-identity-target",
-    "publish-nightly-identity-legacy", "nightly-identity-legacy-published", "republish-nightly-deltas",
-    "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
-    "report-nightly-failure", "close-nightly-failure-issue",
-})
+# The rest took decide's fleet_linux on 2026-11-01.
+BLACKSMITH_LINUX_ONLY_DEBT = frozenset(FLEET_LINUX_EXCEPTIONS)
 
 SINGLE_HOST = re.compile(r"cmux22|glaeda-runner-[a-z0-9][a-z0-9-]*", re.IGNORECASE)
 OLD_NIGHTLY_RUNNER = re.compile(r"CI_NIGHTLY_(?:NEXT_)?TRUSTED_(?:POOL|RUNNER)")
@@ -166,10 +180,10 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = document["jobs"]
         runner_set = "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || "
         self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + runner_set
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + FLEET_LINUX_TERM + runner_set
                          + "'blacksmith-32vcpu-ubuntu-2404' }}")
         self.assertEqual(jobs["prepare-nightly-variant"]["runs-on"],
-                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + FLEET_LINUX_TERM +
                          "needs.prepare-nightly-variant-primary.result == 'success' && "
                          "(" + runner_set + "'blacksmith-32vcpu-ubuntu-2404') || "
                          "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || "
@@ -258,6 +272,48 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                          "these jobs left Blacksmith-only routing (or are gone): drop them from the debt list")
         self.assertIn("decide", jobs)
         self.assertNotIn("decide", BLACKSMITH_LINUX_ONLY_DEBT)
+
+    def test_nightly_linux_jobs_offer_the_fleet_before_blacksmith(self) -> None:
+        """Every nightly.yml Linux job can resolve to the fleet before any Blacksmith label.
+
+        Leo, 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON
+        BLACKSMITH THAT CUTS OUT". Linux jobs take fleet Linux first, Blacksmith only as the stall-aware
+        overflow. A runs-on whose first Blacksmith label comes before its first fleet route fails, unless
+        FLEET_LINUX_EXCEPTIONS names the job with a reason."""
+        import yaml
+        jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+        late, linux_jobs = [], set()
+        for name, job in jobs.items():
+            runs_on = str((job or {}).get("runs-on") or "")
+            fork, _, owned = runs_on.partition("'ubuntu-24.04' || ")
+            if "repository_owner != 'manaflow-ai'" not in fork or not BLACKSMITH_LABEL.search(owned):
+                continue
+            linux_jobs.add(name)
+            fleet, blacksmith = FLEET_ROUTE.search(owned), BLACKSMITH_LABEL.search(owned)
+            if (not fleet or fleet.start() > blacksmith.start()) and name not in FLEET_LINUX_EXCEPTIONS:
+                late.append(name)
+        self.assertGreater(len(linux_jobs), 20)
+        self.assertEqual(sorted(late), [], "these nightly Linux jobs can take Blacksmith before the fleet")
+        self.assertEqual(sorted(set(FLEET_LINUX_EXCEPTIONS) - set(jobs)), [], "an exception names no job")
+        for name, job in jobs.items():
+            runs_on = str(job.get("runs-on"))
+            if name in linux_jobs and name not in FLEET_LINUX_EXCEPTIONS and "early_linux_jobs" not in runs_on \
+                    and name != "decide":
+                needs = job.get("needs") or []
+                with self.subTest(job=name):
+                    self.assertIn(FLEET_LINUX_TERM, runs_on)
+                    self.assertIn("decide", [needs] if isinstance(needs, str) else needs)
+
+    def test_decide_offers_the_gcp_label_only_from_the_stall_aware_placement(self) -> None:
+        """decide's fleet_linux comes only from place-early's group check (portable_job_placement.py)."""
+        import yaml
+        decide = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]["decide"]
+        self.assertEqual(decide["outputs"]["fleet_linux"], "${{ steps.place-early.outputs.fleet_linux }}")
+        place = next(step for step in decide["steps"] if step.get("id") == "place-early")
+        self.assertTrue(place["continue-on-error"])
+        self.assertEqual(place["run"], "python3 scripts/ci/portable_job_placement.py")
+        self.assertEqual(place["env"]["FLEET_GROUP_LABEL"], FLEET_LINUX_LABEL)
+        self.assertEqual(place["env"]["FLEET_LINUX_GROUP"], "cmux-fleet-linux")
 
     def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
         """The overflow switch never sends a job to a macOS label it would not take otherwise.

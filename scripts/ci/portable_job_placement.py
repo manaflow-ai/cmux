@@ -35,9 +35,22 @@ contains(' <key> ') matches whole keys only:
 - `linux_runner`: FLEET_LINUX, or empty;
 - `linux_jobs`: the jobs that take it;
 - `mini_runner`: the side label the idle minis carry, or empty;
-- `mini_jobs`: the jobs that take it.
+- `mini_jobs`: the jobs that take it;
+- `fleet_linux`: FLEET_GROUP_LABEL while its group can start a job now, or empty.
 For early nightly controls, unread capacity keeps portable jobs on the configured
 owned-mini pool. Other callers write empty values and keep their Blacksmith route.
+
+FLEET_LINUX_GROUP and FLEET_GROUP_LABEL add the ephemeral GCP runners (label
+cmux-fleet-linux-x64, org group cmux-fleet-linux; HQ build-fleet/swift-linux-builder/gha-runners/
+README.md), stall-aware. GitHub never re-routes a queued job and a started nightly is never
+cancelled, so the label is offered only on attempt 1 while its group shows the pool live now: an
+online idle runner carrying it (HQ's warm floor: a job starts at once and the reconciler boots its
+replacement) and fewer than FLEET_LINUX_BUSY_CEILING busy ones. Then it is step 1's runner, ahead
+of a fleet LINUX_RUNNER, and the `fleet_linux` output, which a job outside JOBS reads ahead of its
+Blacksmith route. An unread group, no runner (the pool is not granted yet), no idle runner or a
+full pool offers nothing: no wait for it, and every job keeps its other routes (Leo, 2026-10-31:
+"FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS
+OUT").
 
 LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
@@ -74,6 +87,9 @@ side = _load("side_lane_placement")
 NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-")
 # Keep the step below its own timeout; early nightly controls retain their fleet fallback.
 DEADLINE_SECONDS = 60
+# Busy runners at or above which the GCP group takes no more jobs: HQ gha_runners.py's MAX_VMS (16) less a
+# nightly's Linux burst (about 4 jobs at once), so a job placed there never waits for a VM slot.
+FLEET_LINUX_BUSY_CEILING = 12
 
 
 class Deadline(BaseException):
@@ -87,6 +103,7 @@ class Placement:
     mini_runner: str = ""
     mini_jobs: tuple[str, ...] = ()
     why: str = ""
+    fleet_linux: str = ""
 
 
 def fleet_linux(label: str) -> str:
@@ -95,6 +112,37 @@ def fleet_linux(label: str) -> str:
     if not label or label.startswith(NOT_FLEET_LINUX) or "${{" in label:
         return ""
     return label
+
+
+def labels_of(runner: Mapping[str, Any]) -> set[str]:
+    return {str(item.get("name") if isinstance(item, Mapping) else item) for item in runner.get("labels") or []}
+
+
+def group_live(label: str, runners: Sequence[Mapping[str, Any]] | None, ceiling: int) -> str:
+    """Why the GCP group cannot start a job on `label` now, or "" when it can."""
+    if runners is None:
+        return "its runners could not be read"
+    carrying = [runner for runner in runners if label in labels_of(runner) and runner.get("status") == "online"]
+    idle = sum(1 for runner in carrying if not runner.get("busy"))
+    if not idle:
+        return f"no online idle runner carries it ({len(carrying)} busy)"
+    if len(carrying) - idle >= ceiling:
+        return f"{len(carrying) - idle} busy runners, at its ceiling of {ceiling}"
+    return ""
+
+
+def group_label(env: Mapping[str, str], fleet_runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(FLEET_GROUP_LABEL when its group can start a job now, else "", a note)."""
+    label = fleet_linux(env.get("FLEET_GROUP_LABEL", ""))
+    if not label or not (env.get("FLEET_LINUX_GROUP") or "").strip():
+        return "", ""
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    try:
+        ceiling = int(env.get("FLEET_LINUX_BUSY_CEILING") or FLEET_LINUX_BUSY_CEILING)
+    except ValueError:
+        ceiling = FLEET_LINUX_BUSY_CEILING
+    why = f"attempt {attempt} keeps its other routes" if attempt != "1" else group_live(label, fleet_runners, ceiling)
+    return ("", f"fleet Linux `{label}` takes nothing: {why}") if why else (label, "")
 
 
 def family(label: str) -> str:
@@ -137,14 +185,18 @@ def eligible(env: Mapping[str, str]) -> str:
 
 
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
-           snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Placement:
+           snapshot: Mapping[str, Any] | None, now: dt.datetime,
+           fleet_runners: Sequence[Mapping[str, Any]] | None = None) -> Placement:
     jobs = tuple(dict.fromkeys((env.get("JOBS") or "").split()))
     mac_first = set((env.get("MAC_FIRST") or "").split())
     linux_only = set((env.get("LINUX_ONLY") or "").split())
-    linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    group, group_note = group_label(env, fleet_runners)
+    linux = group or fleet_linux(env.get("FLEET_LINUX", ""))
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
-    notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
+    notes = [f"{', '.join(linux_jobs) or 'jobs outside JOBS'} take fleet Linux `{linux}`"] if linux_jobs or group else []
+    if group_note:
+        notes.append(group_note)
     if not linux:
         notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
 
@@ -153,7 +205,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         tail = [why] if why else []
         if left:
             tail.append(f"{', '.join(left)} take Blacksmith")
-        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail))
+        return Placement(linux if linux_jobs else "", linux_jobs, mini, mini_jobs, "; ".join(notes + tail), group)
 
     if not rest:
         return done("")
@@ -195,6 +247,25 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
+def read_fleet(env: Mapping[str, str]) -> Sequence[Mapping[str, Any]] | None:
+    """The runners of FLEET_LINUX_GROUP on attempt 1 (routing App, then the fallback token); None when unread."""
+    repo, group = env.get("GITHUB_REPOSITORY", ""), (env.get("FLEET_LINUX_GROUP") or "").strip()
+    if not repo or not group or not fleet_linux(env.get("FLEET_GROUP_LABEL", "")):
+        return None
+    if ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1") != "1":
+        return None
+    retries = pool.RetryBudget(1)
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        token = env.get(name, "")
+        if not token:
+            continue
+        try:
+            return pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners(group)
+        except Exception as error:  # noqa: BLE001 - fail open: every job keeps its other routes
+            print(f"::warning title=portable placement::could not list {group} with {name} ({error})")
+    return None
+
+
 def read(env: Mapping[str, str], now: dt.datetime
          ) -> tuple[Sequence[Mapping[str, Any]] | None, Mapping[str, Any] | None]:
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
@@ -226,7 +297,8 @@ def write(placed: Placement, env: Mapping[str, str]) -> None:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"linux_runner={placed.linux_runner}\nlinux_jobs={delimited(placed.linux_jobs)}\n"
-                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n")
+                         f"mini_runner={placed.mini_runner}\nmini_jobs={delimited(placed.mini_jobs)}\n"
+                         f"fleet_linux={placed.fleet_linux}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
@@ -249,8 +321,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         wait_seconds = 180 if env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" else 0
         stop = time.monotonic() + wait_seconds
         signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS + wait_seconds)
+        fleet = read_fleet(env)
         runners, snapshot = read(env, now)
-        placed = decide(env, runners, snapshot, now)
+        placed = decide(env, runners, snapshot, now, fleet)
         wanted = set((env.get("JOBS") or "").split()) - set((env.get("LINUX_ONLY") or "").split())
         while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):
             remaining = stop - time.monotonic()
@@ -258,8 +331,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                 break
             time.sleep(min(30, remaining))
             now = dt.datetime.now(dt.timezone.utc)
+            fleet = read_fleet(env)
             runners, snapshot = read(env, now)
-            placed = decide(env, runners, snapshot, now)
+            placed = decide(env, runners, snapshot, now, fleet)
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
     except Deadline:

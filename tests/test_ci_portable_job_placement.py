@@ -236,7 +236,7 @@ class Decide(unittest.TestCase):
             output = Path(scratch) / "out"
             placement.write(placement.Placement("", (), SIDE, ("checks",), "why"), {"GITHUB_OUTPUT": str(output)})
             self.assertEqual(output.read_text(),
-                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \n")
+                             f"linux_runner=\nlinux_jobs=\nmini_runner={SIDE}\nmini_jobs= checks \nfleet_linux=\n")
 
     def test_main_with_no_tokens_writes_empty_routes(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -244,6 +244,96 @@ class Decide(unittest.TestCase):
             environment = {**env(), "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
             self.assertEqual(placement.main(environment), 0)
             self.assertIn("mini_runner=\nmini_jobs=\n", output.read_text())
+
+
+FLEET = "cmux-fleet-linux-x64"
+EARLY = "resolve-nightly-cmux-tui-client find-nightly-next-recovery signer-build"
+
+
+def gcp(name: str, *, busy: bool = False, status: str = "online") -> dict:
+    return {"name": name, "status": status, "busy": busy,
+            "labels": [{"name": item} for item in ("self-hosted", "Linux", "X64", FLEET)]}
+
+
+def fleet_env(**overrides: str) -> dict:
+    return env(**{"JOBS": EARLY, "LINUX_ONLY": "signer-build", "NIGHTLY": "1", "FLEET_LINUX": "blacksmith-32vcpu-ubuntu-2404",
+                  "FLEET_GROUP_LABEL": FLEET, "FLEET_LINUX_GROUP": "cmux-fleet-linux", **overrides})
+
+
+class StallAwareFleetLinux(unittest.TestCase):
+    """FLEET_LINUX_GROUP: the ephemeral GCP label is offered only when it can start a job now."""
+
+    def test_a_live_group_takes_every_job_before_the_minis_and_names_itself_for_the_rest(self):
+        placed = placement.decide(fleet_env(), idle(3), snapshot(), NOW, [gcp("a"), gcp("b", busy=True)])
+        self.assertEqual(placed.linux_runner, FLEET)
+        self.assertEqual(placed.linux_jobs, tuple(EARLY.split()))
+        self.assertEqual((placed.mini_jobs, placed.fleet_linux), ((), FLEET))
+
+    def test_a_live_group_comes_before_a_fleet_linux_runner(self):
+        placed = placement.decide(fleet_env(FLEET_LINUX="gcp-linux-32"), None, None, NOW, [gcp("a")])
+        self.assertEqual(placed.linux_runner, FLEET)
+
+    def test_anything_short_of_a_live_pool_falls_through_at_once(self):
+        cases = {
+            "unread group": (fleet_env(), None),
+            "no runners at all (the grant is not in place)": (fleet_env(), []),
+            "only busy runners": (fleet_env(), [gcp("a", busy=True)]),
+            "offline idle runner": (fleet_env(), [gcp("a", status="offline")]),
+            "idle runner without the label": (fleet_env(), [runner("cmux1-glaeda")]),
+            "at the busy ceiling": (fleet_env(FLEET_LINUX_BUSY_CEILING="2"),
+                                    [gcp("a"), gcp("b", busy=True), gcp("c", busy=True)]),
+            "a re-run": (fleet_env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="github-actions[bot]"),
+                         [gcp("a")]),
+        }
+        for name, (environment, fleet) in cases.items():
+            with self.subTest(name):
+                placed = placement.decide(environment, idle(1), snapshot(), NOW, fleet)
+                self.assertEqual((placed.linux_runner, placed.linux_jobs, placed.fleet_linux), ("", (), ""))
+                self.assertIn(f"fleet Linux `{FLEET}` takes nothing", placed.why)
+                # The minis and Blacksmith still take the jobs as before.
+                if environment["GITHUB_RUN_ATTEMPT"] == "1":
+                    self.assertEqual(placed.mini_jobs, ("resolve-nightly-cmux-tui-client",))
+
+    def test_without_a_group_nothing_changes(self):
+        placed = placement.decide(env(FLEET_LINUX="gcp-linux-32"), None, None, NOW)
+        self.assertEqual((placed.linux_runner, placed.fleet_linux), ("gcp-linux-32", ""))
+
+    def test_a_re_run_reads_no_group(self):
+        self.assertIsNone(placement.read_fleet({**fleet_env(GITHUB_RUN_ATTEMPT="2"),
+                                                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "ROUTE_TOKEN": "t"}))
+
+    def test_main_reads_the_group_and_writes_fleet_linux(self):
+        class Client:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def runners(self, group=None):
+                return [gcp("a")] if group == "cmux-fleet-linux" else idle(0)
+
+            def snapshot(self, now=None):
+                return snapshot()
+
+        original = placement.pool.GitHub
+        placement.pool.GitHub = Client
+        try:
+            with tempfile.TemporaryDirectory() as scratch:
+                output = Path(scratch) / "out"
+                environment = {**fleet_env(), "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                               "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t", "NIGHTLY_WAIT_FOR_FLEET": "1"}
+                self.assertEqual(placement.main(environment), 0)
+                text = output.read_text()
+        finally:
+            placement.pool.GitHub = original
+        self.assertIn(f"linux_runner={FLEET}\n", text)
+        self.assertIn(f"fleet_linux={FLEET}\n", text)
+
+    def test_main_with_no_token_offers_no_fleet_label(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "out"
+            environment = {**fleet_env(), "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+            self.assertEqual(placement.main(environment), 0)
+            self.assertIn("linux_runner=\nlinux_jobs=\n", output.read_text())
+            self.assertIn("fleet_linux=\n", output.read_text())
 
 
 def jobs(name: str) -> dict:
