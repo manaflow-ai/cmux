@@ -39,7 +39,12 @@ pub(super) fn upload(socket: &Path, root: &str, files: &[String]) -> Result<Valu
 }
 
 /// An app-owned id lets the app clean the exact transfer's directory after a killed CLI exits.
-pub(super) fn upload_with_id(socket: &Path, root: &str, files: &[String], id: Option<&str>) -> Result<Value, Failure> {
+pub(super) fn upload_with_id(
+    socket: &Path,
+    root: &str,
+    files: &[String],
+    id: Option<&str>,
+) -> Result<Value, Failure> {
     use std::io::Write as _;
 
     if id.is_some_and(|id| !valid_id(id) || files.len() != 1) {
@@ -53,7 +58,10 @@ pub(super) fn upload_with_id(socket: &Path, root: &str, files: &[String], id: Op
     let mut uploads = Vec::new();
     let mut sent: Vec<String> = Vec::new();
     for (file, name) in &checked {
-        let at = format!("{root}/local/uploads/{}/{name}", id.map(str::to_string).map(Ok).unwrap_or_else(random_id)?);
+        let at = format!(
+            "{root}/local/uploads/{}/{name}",
+            id.map(str::to_string).map(Ok).unwrap_or_else(random_id)?
+        );
         let mut heartbeat = || {
             println!(r#"{{"progress":"upload"}}"#);
             let _ = std::io::stdout().flush();
@@ -81,8 +89,9 @@ pub(super) fn cancel(socket: &Path, root: &str, id: &str) -> Result<Value, Failu
     if !valid_id(id) {
         return Err(Failure::new("upload_refused", "invalid upload id"));
     }
-    sync_cli::delete_remote(socket, &format!("{root}/local/uploads/{id}"))
-        .map_err(|error| Failure::new(&sync_cli::push_failure_code(&error), format!("{error:#}")))?;
+    sync_cli::delete_remote(socket, &format!("{root}/local/uploads/{id}")).map_err(|error| {
+        Failure::new(&sync_cli::push_failure_code(&error), format!("{error:#}"))
+    })?;
     Ok(json!({}))
 }
 

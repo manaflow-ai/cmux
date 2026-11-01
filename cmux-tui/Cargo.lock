@@ -1914,6 +1914,7 @@ dependencies = [
  "clap",
  "cmux-vm-client",
  "futures",
+ "nix 0.31.3",
  "security-framework",
  "serde",
  "serde_json",

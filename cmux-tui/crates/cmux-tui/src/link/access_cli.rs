@@ -323,9 +323,16 @@ pub(super) fn run(args: &[String]) -> i32 {
             };
             uploads::upload_with_id(socket, &root, positional, args.upload_id.as_deref())
         }
-        ("upload-cancel", Args { socket: Some(socket), remote_root: Some(root), upload_id: Some(id), positional, .. })
-            if positional.is_empty() =>
-        {
+        (
+            "upload-cancel",
+            Args {
+                socket: Some(socket),
+                remote_root: Some(root),
+                upload_id: Some(id),
+                positional,
+                ..
+            },
+        ) if positional.is_empty() => {
             let Some(root) = grants::remote_root(root) else {
                 eprintln!("{USAGE}");
                 return 64;
