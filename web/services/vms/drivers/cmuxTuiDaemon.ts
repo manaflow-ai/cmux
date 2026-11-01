@@ -302,6 +302,50 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   ].join(" && ");
 }
 
+/**
+ * Install and start the canonical per-user acpmux service on a baked Linux
+ * image.  The join path runs this same command after replacing a binary, so a
+ * resumed headless machine keeps its user manager alive and never falls back
+ * to a detached daemon.  The unit text intentionally matches acpmux's
+ * `hosts.rs` generator; keeping it here lets image bakes work with the
+ * artifact before the newer service subcommand is available.
+ */
+export function cmuxTuiServiceInstallCommand(): string {
+  const unit = `[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+`;
+  return [
+    cmuxTuiLayoutSelector(),
+    `if [ "$CMUX_TUI_LAYOUT" = user ] && command -v loginctl >/dev/null 2>&1; then loginctl enable-linger "$CMUX_TUI_USER"; fi`,
+    `if [ "$CMUX_TUI_LAYOUT" = user ]; then`,
+    `mkdir -p "$CMUX_TUI_HOME/.config/systemd/user"`,
+    `cat > "$CMUX_TUI_HOME/.config/systemd/user/acpmux.service" <<'ACPMUX_UNIT'`,
+    unit,
+    `ACPMUX_UNIT`,
+    `chown -R "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.config"`,
+    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user daemon-reload`,
+    `XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" systemctl --user enable --now acpmux.service`,
+    `fi`,
+  ].join("\n");
+}
+
 const HOOK_BIN = '"$CMUX_TUI_HOOK_BIN"';
 const HOOK_TMP = '"$CMUX_TUI_HOOK_TMP"';
 /** Where `cmux-tui agent hook install` copies the helper for the daemon user (agent_hook_install.rs installed_helper). */

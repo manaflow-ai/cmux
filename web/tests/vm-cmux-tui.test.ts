@@ -11,6 +11,7 @@ import {
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -101,6 +102,17 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
+  test("bakes the canonical acpmux user service with linger and enable-now", () => {
+    const command = cmuxTuiServiceInstallCommand();
+    expect(command).toContain("loginctl enable-linger \"$CMUX_TUI_USER\"");
+    expect(command).toContain("acpmux.service");
+    expect(command).toContain("ExecStart=%h/.local/bin/acpmux daemon run");
+    expect(command).toContain("systemctl --user daemon-reload");
+    expect(command).toContain("systemctl --user enable --now acpmux.service");
+    expect(command).toContain("Restart=always");
+    expect(command).toContain("StartLimitIntervalSec=0");
+  });
+
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     // One runtime selection, shared with the daemon launch, so install and

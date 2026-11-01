@@ -93,6 +93,7 @@ import {
   CMUX_TUI_HOOK_PROVIDERS,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
@@ -536,6 +537,10 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  // Keep the guest daemon alive across logout and image resume. This writes
+  // the same canonical user unit as `acpmux host setup`, then enables it once
+  // the binary and its state home are present.
+  await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,

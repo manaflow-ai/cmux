@@ -747,6 +747,24 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
+  test("the image bakes acpmux's durable user service before the daemon", () => {
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    const vmBake = readScript("cmux-vm-image/bake.ts");
+    for (const bake of [freestyleScript, vmBake]) {
+      expect(bake).toContain("cmuxTuiServiceInstallCommand");
+    }
+    const service = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiDaemon.ts"), "utf8");
+    expect(service).toContain('loginctl enable-linger');
+    expect(service).toContain('systemctl --user enable --now acpmux.service');
+    // The image contract stays explicit: the work user has the tools needed
+    // by agent turns and the locale/shims are preserved by the base recipe.
+    const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");
+    expect(dockerfile).toContain("build-essential");
+    expect(dockerfile).toContain("pkg-config");
+    expect(dockerfile).toContain("LANG=C.UTF-8");
+    expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
+  });
+
   test("the cmux-tui units never give up after repeated failed starts", () => {
     // Like acpmux.service: no start limit, retries back off to 60 s.
     for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
