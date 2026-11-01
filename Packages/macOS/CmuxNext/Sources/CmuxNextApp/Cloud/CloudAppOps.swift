@@ -67,19 +67,12 @@ extension CloudMachine {
         default: .unknown
         }
         // The record's `capabilities` are machine capability names
-        // (`agent_session`, …), not provider operations. The operations are
-        // what this app reaches for a Worker machine: app server ops (resize,
-        // snapshot, restore) and the Worker's exec and file routes. Fork,
-        // port links and stats have no Worker route yet, so they are refused
-        // here instead of failing on `/api/vm`, where the machine has no record.
-        let capabilities = Capabilities(snapshot: true, restore: true, exec: true, sizing: true)
-        // The idle auto-pause: `/api/vm` names when the backend sends them, else the
-        // record's own `idle_policy.idle_seconds` (what cloud.machine.idle_policy.set writes).
-        let policySeconds = value["idle_policy"]?["idle_seconds"]?.doubleValue
+        // (`agent_session`, …), not provider operations, so the machine
+        // declares none and every Cloud action stays available.
+        // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
-            ?? policySeconds.flatMap { Int(exactly: $0 / 60) }
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
-        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue, capabilities: capabilities,
+        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
         serverRevision = value["revision"]?.stringValue

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1258,
-    "shortcuts": 186
+    "entries": 1259,
+    "shortcuts": 189
   },
   "sections": [
     {
@@ -4960,6 +4960,12 @@
           "command": null
         },
         {
+          "id": "sidebar.compactList.toggle",
+          "title": "Compact Workspace List",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "checklistCompleteItem",
           "title": "Complete Checklist Item",
           "shortcut": null,
@@ -5634,19 +5640,19 @@
         {
           "id": "agentPaneZoomReset",
           "title": "Agent Chat: Actual Size",
-          "shortcut": null,
+          "shortcut": "⌘0",
           "command": "cmux agent actual-size"
         },
         {
           "id": "agentPaneZoomIn",
           "title": "Agent Chat: Zoom In",
-          "shortcut": null,
+          "shortcut": "⌘=",
           "command": "cmux agent zoom-in"
         },
         {
           "id": "agentPaneZoomOut",
           "title": "Agent Chat: Zoom Out",
-          "shortcut": null,
+          "shortcut": "⌘-",
           "command": "cmux agent zoom-out"
         },
         {

@@ -602,6 +602,7 @@ impl Hub {
             && self.config.read().await.agent_inbox();
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
             .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
@@ -852,6 +853,8 @@ impl Hub {
         Self::hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         self.clear_deferred_unread(session);
+        // The turn before's foreground subagents are over (`work_below.rs`).
+        self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).

@@ -303,7 +303,9 @@ const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
 /// release into the payload cache and checked against the pin. A Cloud
 /// machine's in-place update installs it (cmux link machine update,
 /// cx-rppd.13). A build that ships no manifest (DEV builds) takes the pin
-/// from its own commit's published manifest instead ([`published_pin`]), as
+/// from its own commit's published manifest instead ([`published_pin`]), or,
+/// for a tree-mode bundle whose commit was never published on its own, from
+/// the commit that published its cmux-tui tree ([`published_tree_pin`]), as
 /// the app's SSH installer does for a DEV build (RemoteInstaller.plan).
 /// `Ok(None)` when it has neither (a source build of an unpublished or dirty
 /// tree); a payload that does not match its pin is an error, never an
@@ -312,27 +314,33 @@ const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
 pub async fn pinned_linux_payload(
     arch: &str,
     identity: &str,
-) -> Result<Option<(PathBuf, String)>, BootstrapError> {
+) -> Result<Option<PinnedPayload>, BootstrapError> {
     let executable = std::env::current_exe().map_err(BootstrapError::Io)?;
     let cache = default_payload_cache();
     let source =
         PayloadSource { base_url: PUBLISHED_BASE_URL, cache: cache.as_deref(), proxy_pac: None };
     match payload(&executable, identity, "linux", arch, &source)? {
         None => {
-            // No manifest ships with this build. A DEV build's commit is
-            // published by CI (cmux-tui-artifacts): its manifest pins the
-            // same build, and the download is still checked against that pin.
+            // No manifest ships with this build. CI (cmux-tui-artifacts)
+            // publishes a DEV build's commit, or the cmux-tui tree a
+            // tree-mode bundle was built from: its manifest pins the same
+            // build, and the download is still checked against that pin.
             let Some(cache) = cache else { return Ok(None) };
-            let Some(manifest) = published_manifest(PUBLISHED_BASE_URL, identity).await else {
-                return Ok(None);
+            let published = match published_manifest(PUBLISHED_BASE_URL, identity).await {
+                Some(manifest) => {
+                    published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
+                        .map(|pin| (pin, identity.to_owned()))
+                }
+                None => match bundled_tree_key(&executable) {
+                    Some(key) => {
+                        published_tree_pin(PUBLISHED_BASE_URL, &key, "linux", arch, &cache).await?
+                    }
+                    None => None,
+                },
             };
-            let Some(published) =
-                published_pin(PUBLISHED_BASE_URL, identity, "linux", arch, &manifest, &cache)?
-            else {
-                return Ok(None);
-            };
+            let Some((published, commit)) = published else { return Ok(None) };
             let path = fetch_published(&published).await?;
-            Ok(Some((path, published.sha256.to_ascii_lowercase())))
+            Ok(Some(PinnedPayload { path, sha256: published.sha256.to_ascii_lowercase(), commit }))
         }
         Some(Payload::Bundled(path)) => {
             // The manifest's own pin, which `payload` matched the file against.
@@ -340,11 +348,19 @@ pub async fn pinned_linux_payload(
                 .and_then(|pinned| pinned.platform("linux", arch).transpose())
                 .transpose()?
                 .ok_or_else(|| BootstrapError::Configuration("the Linux pin went away".into()))?;
-            Ok(Some((path, pinned.sha256.to_ascii_lowercase())))
+            Ok(Some(PinnedPayload {
+                path,
+                sha256: pinned.sha256.to_ascii_lowercase(),
+                commit: identity.to_owned(),
+            }))
         }
         Some(Payload::Published(published)) => {
             let path = fetch_published(&published).await?;
-            Ok(Some((path, published.sha256.to_ascii_lowercase())))
+            Ok(Some(PinnedPayload {
+                path,
+                sha256: published.sha256.to_ascii_lowercase(),
+                commit: identity.to_owned(),
+            }))
         }
         Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
             "a Linux payload resolved to this client's own build".into(),
@@ -360,7 +376,11 @@ async fn published_manifest(base_url: &str, identity: &str) -> Option<Vec<u8>> {
     if !is_commit(identity) {
         return None;
     }
-    let url = format!("{}/{identity}/manifest.json", base_url.trim_end_matches('/'));
+    published_file(&format!("{}/{identity}/manifest.json", base_url.trim_end_matches('/'))).await
+}
+
+/// One published file at `url`, or None when it is missing or did not come.
+async fn published_file(url: &str) -> Option<Vec<u8>> {
     let mut command = tokio::process::Command::new("curl");
     command
         .args(["--fail", "--silent", "--show-error", "--location", "--max-time", "30"])
@@ -372,6 +392,93 @@ async fn published_manifest(base_url: &str, identity: &str) -> Option<Vec<u8>> {
     let output =
         tokio::time::timeout(Duration::from_secs(40), command.output()).await.ok()?.ok()?;
     output.status.success().then_some(output.stdout)
+}
+
+/// This client's pinned build for a Linux machine: the file, its SHA-256 and
+/// the commit that published it (a tree-mode bundle's may be an earlier
+/// commit than its own, of the same cmux-tui tree).
+#[derive(Debug)]
+pub struct PinnedPayload {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub commit: String,
+}
+
+/// `cmux-tui/tree/<key>/source.json`: the commit that published a cmux-tui
+/// tree and the digests it built (cmux-tui-artifacts' tree publish).
+#[derive(Deserialize)]
+struct TreeSource {
+    key: String,
+    commit: String,
+    binaries: HashMap<String, String>,
+}
+
+/// The tree key of a tree-mode bundle: `key=` (40 hex) in the
+/// `cmux-tui.version` beside `executable` when it says `mode=tree`
+/// (scripts/cmux-next/bundle-cmux-tui.sh), else None.
+fn bundled_tree_key(executable: &Path) -> Option<String> {
+    tree_key_in(&std::fs::read_to_string(executable.with_file_name("cmux-tui.version")).ok()?)
+}
+
+fn tree_key_in(version: &str) -> Option<String> {
+    if !version.lines().any(|line| line.trim() == "mode=tree") {
+        return None;
+    }
+    let key = version.lines().find_map(|line| line.trim().strip_prefix("key="))?;
+    let key = key.to_ascii_lowercase();
+    is_commit(&key).then_some(key)
+}
+
+/// The pin of tree `key` for `os`/`arch` and the commit that published it:
+/// `tree/<key>/source.json` names the commit, whose manifest pins the build,
+/// and the tree must list the same digest (RemoteInstaller.plan). None while
+/// the tree is not published; a source of another tree, a commit that is not
+/// one, or a digest the tree does not vouch for is an error.
+async fn published_tree_pin(
+    base_url: &str,
+    key: &str,
+    os: &str,
+    arch: &str,
+    cache: &Path,
+) -> Result<Option<(PublishedPayload, String)>, BootstrapError> {
+    let base = base_url.trim_end_matches('/');
+    let Some(source) = published_file(&format!("{base}/tree/{key}/source.json")).await else {
+        return Ok(None);
+    };
+    let commit = tree_commit(key, &source)?;
+    let Some(manifest) = published_manifest(base, &commit).await else { return Ok(None) };
+    let Some(pin) = published_pin(base, &commit, os, arch, &manifest, cache)? else {
+        return Ok(None);
+    };
+    tree_vouches(&source, &pin)?;
+    Ok(Some((pin, commit)))
+}
+
+/// The publishing commit `source` (tree `key`'s source.json) names.
+fn tree_commit(key: &str, source: &[u8]) -> Result<String, BootstrapError> {
+    let source: TreeSource = serde_json::from_slice(source)
+        .map_err(|_| BootstrapError::Configuration("invalid cmux-tui tree source".into()))?;
+    let commit = source.commit.to_ascii_lowercase();
+    if !source.key.eq_ignore_ascii_case(key) || !is_commit(&commit) {
+        return Err(BootstrapError::Configuration(
+            "the cmux-tui tree source names another tree or no commit".into(),
+        ));
+    }
+    Ok(commit)
+}
+
+/// Whether the tree's own source.json lists `pin`'s digest for its file: a
+/// tree that does not list it does not vouch for it.
+fn tree_vouches(source: &[u8], pin: &PublishedPayload) -> Result<(), BootstrapError> {
+    let source: TreeSource = serde_json::from_slice(source)
+        .map_err(|_| BootstrapError::Configuration("invalid cmux-tui tree source".into()))?;
+    let name = pin.url.rsplit('/').next().unwrap_or_default();
+    match source.binaries.get(name) {
+        Some(digest) if digest.eq_ignore_ascii_case(&pin.sha256) => Ok(()),
+        _ => Err(BootstrapError::Configuration(
+            "the cmux-tui tree does not list the published digest".into(),
+        )),
+    }
 }
 
 /// A 40-hex lowercase commit.
@@ -757,6 +864,43 @@ mod published_pin_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    /// A tree-mode DEV bundle's own commit is never published on its own; the
+    /// commit that published its tree pins it (Cloud start proof,
+    /// 2026-11-01: the DEV app's commit manifest was a 404).
+    #[test]
+    fn a_tree_bundle_takes_its_trees_publishing_commit() {
+        let key = "df65220e9948cbe76924483c2a7ae1a98d52efbc";
+        let version = format!("mode=tree\nkey={key}\ncommit={}\n", "6".repeat(40));
+        assert_eq!(tree_key_in(&version).as_deref(), Some(key));
+        assert_eq!(tree_key_in(&format!("mode=pin\nkey={key}\n")), None);
+        assert_eq!(tree_key_in("mode=tree\nkey=\n"), None);
+
+        let digest = "c".repeat(64);
+        let source = |key: &str, commit: &str, digest: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "key": key, "commit": commit, "run": "1",
+                "binaries": {"cmux-tui-x86_64-unknown-linux-musl": digest},
+            }))
+            .unwrap()
+        };
+        assert_eq!(tree_commit(key, &source(key, COMMIT, &digest)).unwrap(), COMMIT);
+        assert!(tree_commit(key, &source(&"e".repeat(40), COMMIT, &digest)).is_err());
+        assert!(tree_commit(key, &source(key, "HEAD", &digest)).is_err());
+
+        let pin = published_pin(
+            BASE,
+            COMMIT,
+            "linux",
+            "x86_64",
+            &manifest(COMMIT, &digest),
+            Path::new("/tmp/cache"),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(tree_vouches(&source(key, COMMIT, &digest), &pin).is_ok());
+        assert!(tree_vouches(&source(key, COMMIT, &"d".repeat(64)), &pin).is_err());
     }
 
     #[test]
