@@ -3,7 +3,7 @@
 // shown twice), one that arrives later joins the same group, and messages with different images
 // are never folded into one.
 import { expect, test } from "bun:test";
-import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
+import { LANE_NOTICE_BATCH, PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
 import {
   bySender,
   dedupeMessages,
@@ -471,4 +471,48 @@ test("a delivered inbox notice expands to clean rows outside the waiting group",
   expect(rendered[0]?.incoming).toMatchObject({ kind: "message", message: { name: "lane-a", text: "merged #30022" } });
   expect(rendered[0]?.text).not.toContain("inbox_read");
   expect(rendered[0]?.text).not.toContain("(thread from:");
+});
+
+test("a delivered many-thread notice has one flat fold, independent of the waiting projection", () => {
+  const text = [
+    "New messages from other agents in 13 threads.",
+    ...Array.from(
+      { length: 13 },
+      (_, i) => `- 1 new in #${31000 + i} from lane-${i}: done #${31000 + i} (thread from:lane-${i}/pr:${31000 + i})`,
+    ),
+  ].join("\n");
+  const notice: AcpmuxRow = {
+    id: "delivered-many",
+    version: 1,
+    at: 1,
+    kind: "user",
+    text,
+    incoming: { kind: "message", message: { name: "inbox", text, raw: text } },
+  };
+  const reply: AcpmuxRow = { id: "reply", version: 1, at: 2, kind: "assistant", text: "Working" };
+  const source = [notice, reply];
+  const flat = flattenInboxRows(source);
+  expect(flat).toHaveLength(14);
+  const delivered = projectInboxRows(source);
+  expect(delivered).toHaveLength(2);
+  expect(delivered[0]?.kind).toBe(LANE_NOTICE_BATCH);
+  expect(delivered[0]?.laneNoticeBatch?.rows).toHaveLength(13);
+  expect(
+    delivered[0]?.laneNoticeBatch?.rows.every((row) => !row.laneNoticeBatch && row.incoming?.kind === "message"),
+  ).toBe(true);
+  expect(delivered[0]?.text).not.toContain("New messages from other agents");
+  expect(delivered[0]?.text).not.toContain("(thread ");
+  expect(delivered[1]).toBe(reply);
+  expect(flattenInboxRows(source)).toBe(flat);
+  expect(projectInboxRows(source)).toBe(delivered);
+  expect(source[0]).toBe(notice);
+
+  // The fold's one output slot must also be used by incremental streaming offsets.
+  const nextReply = { ...reply, version: 2, text: "Working on it" };
+  const nextSource = [notice, nextReply];
+  const streamed = projectInboxRows(nextSource, source, 1);
+  expect(streamed).toEqual([delivered[0]!, nextReply]);
+  expect(streamed[0]).toBe(delivered[0]);
+  // The reverse order must not reuse the folded array for Find or the waiting strip either.
+  expect(flattenInboxRows(nextSource)).toHaveLength(14);
 });

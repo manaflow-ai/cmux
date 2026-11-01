@@ -74,6 +74,9 @@ const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
 type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
+// Waiting rows already have an outer fold; delivered notices need their own. Search and display
+// may use the same source array, so their flat and folded projections cannot share a cache.
+const deliveredInboxCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 const inboxChildrenCache = new WeakMap<AcpmuxRow, readonly AcpmuxRow[]>();
 
 function counts(rows: readonly AcpmuxRow[]): Partial<Record<LaneNoticeVerdict, number>> {
@@ -172,11 +175,13 @@ function projectedBatch(row: AcpmuxRow, children: readonly AcpmuxRow[]): AcpmuxR
   }
   const result: AcpmuxRow = {
     ...row,
+    kind: LANE_NOTICE_BATCH,
+    incoming: undefined,
     version: ++version,
     text: children.map((child) => child.text ?? "").join("\n"),
     joined: children.flatMap((child) => [child.id, ...(child.joined ?? [])]),
     inboxDeliveryBatch: true,
-    laneNoticeBatch: { ...row.laneNoticeBatch!, rows: children, threads: [...threads.values()] },
+    laneNoticeBatch: { kind: "inbox", verdicts: {}, rows: children, threads: [...threads.values()] },
   };
   projectedBatches.set(row, { children, row: result });
   return result;
@@ -187,7 +192,12 @@ function projectedBatch(row: AcpmuxRow, children: readonly AcpmuxRow[]): AcpmuxR
  * its children are flat received rows; no harness wrapper is passed to the message renderer.
  */
 export function flattenInboxRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
-  const cached = inboxFlattenCache.get(rows);
+  return projectAllInboxRows(rows, false);
+}
+
+function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): readonly AcpmuxRow[] {
+  const cache = foldNotices ? deliveredInboxCache : inboxFlattenCache;
+  const cached = cache.get(rows);
   if (cached) return cached.rows;
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
@@ -212,7 +222,7 @@ export function flattenInboxRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow
   };
   collect(rows);
   if (!hasInbox) {
-    inboxFlattenCache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+    cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
     return rows;
   }
   const seenIds = new Set<string>();
@@ -240,7 +250,9 @@ export function flattenInboxRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        out.push(...inboxChildren(row, notice).filter(keepDelivery));
+        const children = inboxChildren(row, notice).filter(keepDelivery);
+        if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
+        else out.push(...children);
       } else if (row.inboxDelivery) {
         if (keepDelivery(row)) out.push(row);
       } else {
@@ -252,7 +264,7 @@ export function flattenInboxRows(rows: readonly AcpmuxRow[]): readonly AcpmuxRow
   const out = project(rows);
   const result = out.length === rows.length && out.every((row, index) => row === rows[index]) ? rows : out;
   offsets.push(out.length);
-  inboxFlattenCache.set(rows, { rows: result, offsets });
+  cache.set(rows, { rows: result, offsets });
   return result;
 }
 
@@ -267,10 +279,10 @@ export function projectInboxRows(
   previous?: readonly AcpmuxRow[],
   reusedRows = 0,
 ): readonly AcpmuxRow[] {
-  const cached = inboxFlattenCache.get(rows);
+  const cached = deliveredInboxCache.get(rows);
   if (cached) return cached.rows;
-  const held = previous && inboxFlattenCache.get(previous);
-  if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return flattenInboxRows(rows);
+  const held = previous && deliveredInboxCache.get(previous);
+  if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return projectAllInboxRows(rows, true);
   const relevant = (row: AcpmuxRow) =>
     row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
   const oldMessages: { row: AcpmuxRow; index: number }[] = [];
@@ -279,9 +291,9 @@ export function projectInboxRows(
   let at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     if (!relevant(rows[i]!)) continue;
-    if (oldMessages[at++]?.row !== rows[i]) return flattenInboxRows(rows);
+    if (oldMessages[at++]?.row !== rows[i]) return projectAllInboxRows(rows, true);
   }
-  if (at !== oldMessages.length) return flattenInboxRows(rows);
+  if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
   const projected = held.rows.slice(0, held.offsets[reusedRows]);
   const offsets = held.offsets.slice(0, reusedRows);
   at = 0;
@@ -294,7 +306,7 @@ export function projectInboxRows(
     } else projected.push(row);
   }
   offsets.push(projected.length);
-  inboxFlattenCache.set(rows, { rows: projected, offsets });
+  deliveredInboxCache.set(rows, { rows: projected, offsets });
   return projected;
 }
 
