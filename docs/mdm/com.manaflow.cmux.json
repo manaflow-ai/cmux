@@ -6,7 +6,8 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
       "type" : "string"
@@ -288,7 +289,7 @@
       "type" : "boolean"
     },
     "agents.subsessions.maxChildren" : {
-      "default" : 50,
+      "default" : 1000,
       "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -304,7 +305,7 @@
       "type" : "number"
     },
     "agents.subsessions.maxRunning" : {
-      "default" : 16,
+      "default" : 1000,
       "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -1823,6 +1824,22 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2546,16 +2563,20 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
@@ -5049,6 +5070,14 @@
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
     },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,

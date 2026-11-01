@@ -40,10 +40,17 @@
   left: 0;
   display: block;
 }
-/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+/* While text leaves no room the rail stays drawn over it, dimmed, and takes no clicks from the text;
+   the pane-edge strip and keyboard focus reveal it at full strength (Leo, 2026-10-24: "for the narrow
+   windows, i think we should just simply be able to show it. don't shove the ui ... just hide it more"). */
 .acpmux-minimap__rail[data-occluded] {
-  opacity: 0;
+  opacity: 0.4;
   pointer-events: none;
+}
+/* The `dimmed` gutter arm (gutter.experiment.ts): the occluded rail stays drawn, faint, and still
+   leaves the text its clicks. */
+.acpmux-minimap__rail[data-occluded][data-dim] {
+  opacity: 0.4;
 }
 @keyframes acpmux-minimap-in {
   from {

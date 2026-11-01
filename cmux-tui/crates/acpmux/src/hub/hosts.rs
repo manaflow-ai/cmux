@@ -33,6 +33,8 @@ pub(super) struct OpenWork {
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
+    /// The person's own prompt started that turn (`turn_started` `persons`, `inbox.rs`).
+    turn_persons: bool,
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
     carry_next: Option<(String, Value)>,
@@ -480,6 +482,9 @@ impl Hub {
             return Ok(());
         }
         let resume_after = self.last_host_seq(session, &record.incarnation);
+        // The subagents the host still runs, before its first replayed line reaches the tap:
+        // a child's line is tagged with its session from the first one (`work_below.rs`).
+        self.seed_subagents_from_log(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
@@ -881,6 +886,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    // The open turn is still the person's own on a new harness (`turn_started`).
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -911,6 +917,7 @@ impl Hub {
                         e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
+                    work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                     work.carry_next = None;
                     work.next_raised = false;
                     work.heard_at = 0;
@@ -949,6 +956,7 @@ impl Hub {
                     work.turn = None;
                     work.turn_line = None;
                     work.turn_carried = false;
+                    work.turn_persons = false;
                     work.next_raised = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
@@ -1203,6 +1211,10 @@ impl Hub {
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         doing: work.doing.clone(),
+                        // A restart keeps no provenance of the turn: its History line stays.
+                        notice: false,
+                        // As logged (`turn_started` `persons`); an older record's takes notices.
+                        persons: work.turn_persons,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
@@ -1959,18 +1971,8 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.
             turn_open
-                // Every subagent the log starts, which a later turn's update may belong to
-                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
-                // a `spawnAgent` call or a `_meta.codex.subagent` object).
-                || matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
-                )
-                || (matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "tool_call" | "tool_call_update"
-                ) && (head.may_contain(b"\"spawnAgent\"")
-                    || head.may_contain(b"\"subagent\":{")))
+                // Every subagent the log starts, which a later turn's update may belong to.
+                || super::work_below::names_subagents(head)
                 // An agent request (an `id` and a `method`), answered or not.
                 || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
         }
