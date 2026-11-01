@@ -383,6 +383,8 @@ fn ensures(request: &PlanRequest, repo: Option<&str>) -> bool {
 pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
     use crate::cli::PlatformCallError as E;
     match error {
+        // An authorization denial wins even if a server reuses a fallback-looking code.
+        E::Status { status: 401 | 403, .. } => false,
         E::Status { status: 404, code: "" | "not_found" } => true,
         E::Status {
             code: "workspace_machine.unconfigured" | "workspace_machine.not_admitted",
