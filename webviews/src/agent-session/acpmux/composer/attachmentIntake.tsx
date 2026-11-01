@@ -290,6 +290,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// strip and in the text, and its node there draws what the read makes.
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
     if (given.length === 0) return;
+    // When the page took the gesture: the host answers its source only from a record made before
+    // it (composer/attachmentSources.ts).
+    const gestureAt = Date.now();
     const files = again === undefined ? given : given.slice(0, 1);
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
@@ -350,6 +353,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       void attachSources(
         kind!,
         asked.map(({ file }) => file),
+        undefined,
+        gestureAt,
       ).then((sources) => {
         const late = new Map<string, AttachmentSource>();
         sources.forEach((source, at) => {

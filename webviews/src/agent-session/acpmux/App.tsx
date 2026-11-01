@@ -286,7 +286,7 @@ import { noteReaderScroll, releaseReaderScroll, useHeldWhileScrolling } from "./
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
-  openSubagentPane,
+  showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
   useAutoOpenSubagents,
@@ -7582,20 +7582,21 @@ function AcpmuxPane() {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
-    if (subagentPane.current) return setSubagentView(id);
-    // Its tab takes the subagent's own name (its task; the Agent tool's description), never the chat's bare name.
-    const title = subagentTitleRef.current(id);
-    // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
-    // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
-    // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
-    directClient.current?.handOverCurrentTail();
-    void openSubagentPane(callNative, id, focus, title).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
-    });
-  }, []);
+  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
+  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  const showSubagent = useCallback(
+    (id: string, focus = true) =>
+      void showSubagentIn(callNative, id, focus, {
+        panes: autoOpenSubagents,
+        inSubagentPane: subagentPane.current,
+        here: setSubagentView,
+        title: subagentTitleRef.current(id),
+        // Seed a new pane from this chat's kept tail before its own attach answers.
+        beforeOpen: () => directClient.current?.handOverCurrentTail(),
+      }),
+    [autoOpenSubagents],
+  );
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -7624,7 +7625,6 @@ function AcpmuxPane() {
     },
     [workflows, showSubagent],
   );
-  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
     snapshot.rows,
@@ -8258,7 +8258,6 @@ function AcpmuxPane() {
         <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
           <SubagentTray
             key={shownSessionId}
-            chat={shownSessionId}
             items={trayList}
             finished={trayFinished}
             working={snapshot.isWorking}
@@ -8432,6 +8431,14 @@ function AcpmuxPane() {
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
+  // The host failed before its handshake: the chat view (its error card and composer) takes the
+  // New Tab page's place until a retry answers, then gives it back (`showNewTab`). What was typed
+  // goes along each way (the page's `onLeaveDraft`, `takeDraft`); before, it was dropped both ways.
+  // `composerStoodIn`: the chat view stands in for a New Tab page now (the host failed before its
+  // handshake while the tab is a New Tab page). Set from that state each render, and cleared once
+  // the handshake is done (below): the page that comes back right then takes the draft, and no
+  // later page (another New Tab adopted into this pane, a chat's own recovery) ever does.
+  const composerStoodIn = useRef(false);
   /// Whether `hostError` is said (one line above the composer, hostRetry.ts `hostErrorShows`): a
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
@@ -11041,6 +11048,39 @@ function AcpmuxPane() {
     (newTabStartPage === newTabGeneration ||
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
+  if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
+  // The handshake is done: the page that came back in that render took the draft (`takeDraft`
+  // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
+  useEffect(() => {
+    if (handshaken) composerStoodIn.current = false;
+  }, [handshaken]);
+  /// The New Tab page (either template) goes with its draft unsent, and the chat view takes its
+  /// place: the tab's run, found by a read, or the chat view standing in before the handshake (a
+  /// host that failed early). The draft goes to the chat view's composer.
+  const leaveNewTabDraft = (text: string, attachments: ComposerAttachment[]) => {
+    // A Sandboxed send from the page already took its prompt (or held it back).
+    const handed = newTabSandboxSent.current;
+    newTabSandboxSent.current = false;
+    if (handed) return;
+    const draft = { text: text.trim() ? text : "", attachments };
+    const view = sandbox.view();
+    if (view && !sandboxRetryable(view)) {
+      heldBack.current = [...(heldBack.current ?? []), draft];
+      setSandboxDraftMoved(true);
+      return;
+    }
+    // After the handshake the page goes for a chat it started (its prompt sent) or one picked; a
+    // submit queued for the handshake still sends its prompt itself.
+    if (handshakenRef.current || pendingSubmits.current.length > 0) return;
+    restoreComposerDraft(composerHandle, heldBack, draft.text, draft.attachments);
+  };
+  /// A page coming back after the chat view stood in for it: what that composer held, as its draft.
+  const takeNewTabDraft = () => {
+    if (!composerStoodIn.current) return undefined;
+    const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
+    if (heldBack.current?.length === 0) heldBack.current = undefined;
+    return waiting;
+  };
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -11832,6 +11872,9 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
+              // The refused prompt is back in the composer; a chat on another machine starts only
+              // with a send, so the share's retry sends it again (as Trust's answer does).
+              onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
                 // A fresh chat on another machine has no summary yet: its connection's origin, or a
                 // folder list its host marked as that machine's, says where it runs.
@@ -12583,16 +12626,8 @@ function AcpmuxPane() {
                   }}
                   key={newTabGeneration}
                   environments
-                  // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
-                  onLeaveDraft={(text, attachments) => {
-                    // A Sandboxed send from the page already took its prompt (or held it back).
-                    const handed = newTabSandboxSent.current;
-                    newTabSandboxSent.current = false;
-                    const view = sandbox.view();
-                    if (handed || !view || sandboxRetryable(view)) return;
-                    heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
-                    setSandboxDraftMoved(true);
-                  }}
+                  onLeaveDraft={leaveNewTabDraft}
+                  takeDraft={takeNewTabDraft}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
@@ -12769,6 +12804,8 @@ function AcpmuxPane() {
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+              onLeaveDraft={leaveNewTabDraft}
+              takeDraft={takeNewTabDraft}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen
