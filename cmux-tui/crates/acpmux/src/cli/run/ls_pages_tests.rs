@@ -393,7 +393,9 @@ async fn an_eight_thousand_row_peer_census_uses_fuller_pages() {
     assert_eq!(before.rows, *list.borrow());
     assert_eq!(got.rows, before.rows);
     assert_eq!(baseline.requests.get(), 8);
-    assert_eq!(seen.requests.get(), 3);
+    // A first page of PAGE_ROWS, then pages learned to fill three quarters of the 31 MiB limit
+    // (`fuller_page`): the rest of the 8,000 rows in one more.
+    assert_eq!(seen.requests.get(), 2);
     assert!(seen.largest.get() < crate::rpc::MAX_MESSAGE_BYTES);
     eprintln!(
         "8000-row census: fixed={} requests, {before_ms:.3} ms; adaptive={} requests, {after_ms:.3} ms; largest={} bytes",
