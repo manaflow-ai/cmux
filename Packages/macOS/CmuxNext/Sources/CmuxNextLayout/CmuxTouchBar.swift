@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextActions
 /// The small, customizable action strip cmux contributes to a Mac Touch Bar.
 /// Actions go through the same registry as keyboard shortcuts and menus, so
