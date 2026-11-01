@@ -14,6 +14,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
+
+import yaml
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,6 +167,14 @@ class WriteFeedTests(FeedWriteCase):
             self.assertEqual(self.run_with([live], [], source_sha=source_a), 0)
         self.assertEqual(self.calls, [])
         self.assertIn("feed_written=false", self.output.read_text())
+        self.assertIn("publication_refused=true", self.output.read_text())
+        # A successful no-op must not authorize the GitHub release, notes or tag.
+        env = {**os.environ, "TAG_MOVE_OUTCOME": "success", "CHANNEL_RELEASE_TAG": "nightly-next",
+               "NEXT_FEED_WRITTEN": "false", "GITHUB_OUTPUT": str(self.output)}
+        subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/publish-tag-outcome.sh")],
+                       env=env, check=True, capture_output=True, text=True)
+        self.assertIn("tag_status=unpublished", self.output.read_text())
+        self.assertNotIn("tag_status=updated", self.output.read_text())
 
     def test_markerless_live_feed_uses_the_exact_verified_notes_build(self) -> None:
         source_a, source_b = "a" * 40, "b" * 40
@@ -201,6 +212,56 @@ class WriteFeedTests(FeedWriteCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(self.run_with([feed((200, "x", 1)).encode()], [0], same_build=True), 0)
         self.assertIn("--replace-sha256", self.calls[0])
+
+    def test_same_build_delta_preserves_live_source_metadata_on_each_cas_read(self) -> None:
+        first, second = "a" * 40, "b" * 40
+        lives = [feed((200, "x", 1), source={200: source}).encode() for source in (first, second)]
+        self.assertEqual(self.run_with(lives, [r2.CONFLICT, 0], same_build=True), 0)
+        self.assertEqual(r2.item_source(self.path.read_bytes(), 200), second)
+        parsed = ET.fromstring(self.path.read_bytes())
+        self.assertEqual(parsed.find(".//{https://cmux.com/xml-namespaces/cmux}sourceCommit").text, second)
+
+
+class PublicationBoundaryTests(unittest.TestCase):
+    def test_source_refusal_reaches_every_followup_and_handoff_uses_written_bytes(self) -> None:
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        publish = jobs["publish-nightly"]
+        self.assertIn("steps.upload_next_appcasts.outputs.publication_refused == 'true'", publish["outputs"]["refused"])
+        for name in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas",
+                     "sign-release-notes", "publish-release-notes"):
+            self.assertIn("needs.publish-nightly.outputs.refused != 'true'", jobs[name]["if"], name)
+        steps = publish["steps"]
+        write = next(i for i, step in enumerate(steps) if step.get("id") == "upload_next_appcasts")
+        for name in ("Hand the published feed to the GitHub release job", "Upload the published feed for the GitHub release job"):
+            i = next(i for i, step in enumerate(steps) if step.get("name") == name)
+            self.assertGreater(i, write)
+            self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", steps[i]["if"])
+        outcome = next(step for step in steps if step.get("id") == "tag-outcome")
+        self.assertEqual(outcome["env"]["NEXT_FEED_WRITTEN"], "${{ steps.upload_next_appcasts.outputs.feed_written }}")
+        readback = next(step for step in steps if step.get("id") == "feedcheck")
+        self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", readback["if"])
+
+    def test_github_writers_require_the_exact_build_on_the_live_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            curl = directory / "curl"
+            curl.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys\npathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text(os.environ['LIVE_FEED'])\n")
+            curl.chmod(0o755)
+            output = directory / "out"
+            env = {**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": temp, "NIGHTLY_BUILD": "300",
+                   "NIGHTLY_NEXT_FEED_BASE": BASE, "GITHUB_RUN_ID": "test"}
+            step_dir = ROOT / "scripts/ci/nightly-steps"
+            subprocess.run(["bash", str(step_dir / "github-names-install-still-newest.sh")], env=env, check=True)
+            for live_build in (200, 300, 400):
+                with self.subTest(live_build=live_build):
+                    env["LIVE_FEED"] = feed((live_build, "x", 1))
+                    output.write_text("")
+                    subprocess.run(["bash", str(step_dir / "github-publish-still-newest.sh")], env=env, check=True,
+                                   capture_output=True, text=True)
+                    self.assertEqual(output.read_text().strip(), "newest=" + str(live_build == 300).lower())
+                    mutable = subprocess.run([str(directory / "still-newest")], env=env, capture_output=True, text=True)
+                    self.assertEqual(mutable.returncode, 0 if live_build == 300 else 1)
 
 
 class KeepEarlierBuildsTests(FeedWriteCase):

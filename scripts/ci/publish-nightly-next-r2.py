@@ -413,7 +413,7 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                       "left as it is")
                 if github_output:
                     with open(github_output, "a", encoding="utf-8") as out:
-                        out.write("feed_written=false\n")
+                        out.write("feed_written=false\npublication_refused=true\n")
                 return 0
             if source_sha and not same_build:
                 live_source = item_source(live, theirs)
@@ -428,10 +428,16 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                     print(f"{feed.name}: live source {live_source} is newer than candidate source {source_sha}; left it as is")
                     if github_output:
                         with open(github_output, "a", encoding="utf-8") as out:
-                            out.write("feed_written=false\n")
+                            out.write("feed_written=false\npublication_refused=true\n")
                     return 0
             mode = ["--replace-sha256", hashlib.sha256(live).hexdigest(), "--conflict-exit-code", str(CONFLICT)]
             merged = keep_earlier_builds(original, live)
+            # Delta artifacts predate the source marker added by the initial CAS.
+            # Keep the live item's provenance when revising that exact build.
+            if same_build and item_source(merged, ours) is None:
+                live_source = item_source(live, ours)
+                if live_source:
+                    merged = add_source(merged, live_source)
             if merged != original:
                 kept = sorted({b for _, b in item_builds(merged)} - {b for _, b in item_builds(original)}, reverse=True)
                 print(f"{feed.name}: keeps the live feed's build {', '.join(map(str, kept))} beside {ours}, "
