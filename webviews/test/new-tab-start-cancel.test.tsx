@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -140,23 +141,37 @@ async function mountNewTab(
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => host.querySelector(".nt-field") !== null, "the New Tab field");
   await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  // The New Tab field is the Markdown field (#29659): it types through its handle, and Return goes
+  // to its editor.
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  await until(() => !!(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")), "the prompt editor");
+  const editor = () => field.querySelector<HTMLElement>("[contenteditable]")!;
+  const enter = () =>
+    act(async () => editor().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const draft = () => field.acpmuxMarkdownField?.plainText() ?? "";
   const ask = async (text: string) => {
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, text);
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
-    await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-    );
+    await act(async () => field.acpmuxMarkdownField!.writeText(text, text.length, text.length));
+    await enter();
   };
-  return { field, ask };
+  return { field, ask, enter, draft };
 }
 
-/// Picks the `devbox` machine in the page's location picker (the mock lists it as a connected peer).
+/// Picks the SSH machine devbox (the mock lists it as a connected peer). The machine chip's main list
+/// is This Mac and Cloud; every machine is in Machines… on its right-click menu (#28999).
 async function pickRemote() {
-  const machine = host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
-  await act(async () => machine.click());
+  const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+  await until(() => machine() !== null, "the machine chip");
+  await act(async () =>
+    machine()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const machinesItem = () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (candidate) => candidate.textContent === t("composer.machinesList"),
+    );
+  await until(() => !!machinesItem(), "Machines… on the machine chip's right-click menu");
+  await act(async () => machinesItem()!.click());
   await until(
     () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
     "devbox pick",
@@ -177,6 +192,8 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
   const folderB = "/tmp/stale-folder-b";
   const useFolder: string[] = [];
   let holdA: ((value: unknown) => void) | undefined;
+  // Picking a folder asks the host too (chooseProject); only the send's own request for A waits.
+  let holdNextA = false;
   const starts: Record<string, any>[] = [];
   const { ask } = await mountNewTab(
     (message) => {
@@ -185,7 +202,10 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
       const cwd = String(message.params?.cwd);
       useFolder.push(cwd);
       // The New Tab send's first request for folder A waits for the test.
-      if (cwd === folderA && !holdA) return new Promise((resolve) => (holdA = resolve));
+      if (cwd === folderA && holdNextA) {
+        holdNextA = false;
+        return new Promise((resolve) => (holdA = resolve));
+      }
       return Promise.resolve({ status: "ok", cwd });
     },
     (method, params) => {
@@ -207,6 +227,7 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
     () => host.querySelector('[aria-label="Folder"]')?.textContent === "stale-folder-a",
     "the page names project A",
   );
+  holdNextA = true;
   await ask("start in the picked folder");
   await until(() => holdA !== undefined, "the New Tab send waits on the host's reply for A");
   // A newer folder request (project B, from the pane's own picker) replaces it before the host answers A.
@@ -237,7 +258,7 @@ test("a stale folder reply ends its New Tab send without using its folder, so th
 test("Not now on a New Tab start's Trust question shows no failure notice and keeps the draft", async () => {
   let trusted = false;
   const starts: Record<string, any>[] = [];
-  const { field, ask } = await mountNewTab(
+  const { field, ask, enter, draft } = await mountNewTab(
     () => undefined,
     (method, params, answer) => {
       if (method === "_acpmux/status")
@@ -274,9 +295,9 @@ test("Not now on a New Tab start's Trust question shows no failure notice and ke
   expect(alerts().filter((text) => text.includes(t("switch.cancelled")))).toEqual([]);
   expect(host.querySelector('.acpmux-switch-notice[role="alert"]')).toBeNull();
   expect(host.querySelector(".nt-field")).toBe(field);
-  expect(field.value).toBe("inspect the cancelled start");
+  expect(draft()).toBe("inspect the cancelled start");
   // The cancelled start settled: Return starts it again.
-  await act(async () => field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await enter();
   await until(() => starts.length === 2, "Return starts the chat again");
 }, 20_000);
 

@@ -12,6 +12,8 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { noChat } from "../../../gallery/fixtures/acpmux";
+import { translate as t } from "../i18n";
+import type { MarkdownFieldElement } from "../MarkdownField";
 
 const DRAFT = "Summarize the failing upload tests";
 const FOLDER_A = "/Users/you/src/atlas-web";
@@ -41,7 +43,11 @@ type PaneWindow = Window & {
 /// replace the send's before its reply lands.
 const FOLDER_DELAY_MS = 1200;
 
-const field = (ctx: PlayContext) => ctx.document.querySelector<HTMLTextAreaElement>(".nt-field");
+/// The New Tab field is the Markdown field (#29659): typing goes to its editor, and its draft is its
+/// handle's plain text.
+const field = (ctx: PlayContext) => ctx.document.querySelector<MarkdownFieldElement>(".nt-field");
+const EDITOR = ".nt-field [contenteditable]";
+const draft = (ctx: PlayContext) => field(ctx)?.acpmuxMarkdownField?.plainText();
 const notice = (ctx: PlayContext) => ctx.document.querySelector('.nt-composer .acpmux-switch-notice[role="alert"]');
 const frames = async (ctx: PlayContext, count = 4) => {
   const view = ctx.document.defaultView!;
@@ -51,7 +57,7 @@ const frames = async (ctx: PlayContext, count = 4) => {
 /// The page's own Return, after the mock's handshake installed the chat's actions.
 async function ready(ctx: PlayContext) {
   const view = ctx.document.defaultView as PaneWindow;
-  await ctx.waitFor(() => field(ctx));
+  await ctx.waitFor(() => field(ctx)?.acpmuxMarkdownField && ctx.document.querySelector(EDITOR));
   await ctx.waitFor(() => !!view.cmuxAcpmuxActions?.["chat.new"], { capMs: 10_000 });
   return view;
 }
@@ -72,7 +78,8 @@ async function patchDaemon(
   socket.answer = (method, params) => wrap(method, params, () => answer(method, params)) ?? answer(method, params);
 }
 
-/// Picks the devbox machine in the page's location picker; opening it reads the machines again.
+/// Picks the devbox machine: the machine chip's main list is This Mac and Cloud, and every machine is
+/// in Machines… on its right-click menu (#28999); opening it reads the machines again.
 async function pickDevbox(ctx: PlayContext) {
   await patchDaemon((method, _params, answer) =>
     method === "_acpmux/status"
@@ -82,7 +89,19 @@ async function pickDevbox(ctx: PlayContext) {
         }))
       : undefined,
   );
-  await ctx.click({ selector: '.acpmux-location-picker[data-kind="computer"] button' });
+  const chip = ctx.document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const box = chip.getBoundingClientRect();
+  chip.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 4, clientY: box.top + 4 }),
+  );
+  await ctx.waitFor(
+    () =>
+      [...ctx.document.querySelectorAll('[role="menu"] [role="menuitem"]')].some(
+        (node) => node.textContent === t("composer.machinesList"),
+      ),
+    { capMs: 10_000 },
+  );
+  await ctx.click({ role: "menuitem", name: t("composer.machinesList") });
   await ctx.waitFor(
     () => [...ctx.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
     { capMs: 10_000 },
@@ -99,7 +118,7 @@ async function notNow(ctx: PlayContext) {
   // A start on another machine keeps the page until it has started (#28965), so its Trust question
   // and any notice show beside the field.
   await pickDevbox(ctx);
-  await ctx.type(DRAFT, { selector: ".nt-field" });
+  await ctx.type(DRAFT, { selector: EDITOR });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask-primary"), {
     capMs: 10_000,
@@ -111,7 +130,7 @@ async function notNow(ctx: PlayContext) {
   );
   await frames(ctx);
   if (notice(ctx)) throw new Error(`a cancelled start shows a failure notice: ${notice(ctx)!.textContent}`);
-  if (field(ctx)?.value !== DRAFT) throw new Error(`the draft is gone after Not now (${field(ctx)?.value})`);
+  if (draft(ctx) !== DRAFT) throw new Error(`the draft is gone after Not now (${draft(ctx)})`);
 }
 
 async function staleFolder(ctx: PlayContext) {
@@ -122,7 +141,7 @@ async function staleFolder(ctx: PlayContext) {
   await ctx.click({ selector: '[aria-label="Folder"]' });
   await ctx.click({ role: "option", name: "Choose folder…" });
   await ctx.waitFor(() => chip().includes("atlas-web"), { capMs: 10_000 });
-  await ctx.type(DRAFT, { selector: ".nt-field" });
+  await ctx.type(DRAFT, { selector: EDITOR });
   // Return asks the host about atlas-web for this send (`workspace.useFolder`, which answers after
   // FOLDER_DELAY_MS); before it answers, a newer folder request (the pane's own pick of relay)
   // replaces it, so the send's late reply is stale.
@@ -135,8 +154,7 @@ async function staleFolder(ctx: PlayContext) {
   await frames(ctx);
   if (notice(ctx)) throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
   if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the stale reply started a chat");
-  if (field(ctx)?.value !== DRAFT)
-    throw new Error(`the draft is gone after a stale folder reply (${field(ctx)?.value})`);
+  if (draft(ctx) !== DRAFT) throw new Error(`the draft is gone after a stale folder reply (${draft(ctx)})`);
   // Not stuck asking: the next Return starts the chat.
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
@@ -152,7 +170,7 @@ const kept = (ctx: PlayContext) =>
 async function refused(ctx: PlayContext) {
   await ready(ctx);
   await patchDaemon((method) => (method === "session/new" ? Promise.reject(new Error(REFUSAL)) : undefined));
-  await ctx.type(DRAFT, { selector: ".nt-field" });
+  await ctx.type(DRAFT, { selector: EDITOR });
   await ctx.press("Enter");
   await ctx.waitFor(() => !field(ctx), { capMs: 10_000 });
   await ctx.waitFor(() => ctx.document.body.textContent?.includes(REFUSAL), { capMs: 10_000 });
