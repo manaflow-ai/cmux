@@ -1335,6 +1335,61 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       await done();
     }
   });
+
+  // #28533's review: a line that can stop sits in its context menu's host; when it can no longer stop
+  // (it ended, or a command's process id arrives) the host stays, so the focused line is the same node.
+  test("a stoppable subagent ending keeps its focused line, the same node", async () => {
+    const now = Date.now();
+    const runs = [agent("Run 0", { startedAt: now - 9000 }), agent("Run 1", { startedAt: now - 8000 })];
+    const tray = (agents: Subagent[]) =>
+      createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        finished: finishedTrayItems(agents, NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        stop: async () => {},
+      });
+    const { root, show, done } = await render(tray(runs));
+    const button = (name: string) =>
+      [...root.querySelectorAll<HTMLButtonElement>(".acpmux-agent-line__button")].find((each) =>
+        each.textContent?.includes(name),
+      )!;
+    try {
+      const line = button("Run 1");
+      line.focus();
+      await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
+      expect(button("Run 1")).toBe(line);
+      expect(dom.window.document.activeElement).toBe(line);
+      // The ended line has nothing to stop: a right-click opens no menu.
+      expect(await openMenu(line.closest<HTMLElement>(".acpmux-agent-line")!)).toEqual([]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("a command whose process id arrives keeps its focused line, the same node", async () => {
+    const tray = (entry: BackgroundCommand) =>
+      createElement(SubagentTray, {
+        items: trayItems([], [entry], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenCommand: () => {},
+        stopProcess: async () => {},
+      });
+    const started = command("s/1", { startedAt: Date.now() });
+    const { root, show, done } = await render(tray(started));
+    try {
+      const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      line.focus();
+      await show(tray({ ...started, processId: "s/1" }));
+      expect(root.querySelector(".acpmux-agent-line__button")).toBe(line);
+      expect(dom.window.document.activeElement).toBe(line);
+    } finally {
+      await done();
+    }
+  });
 });
 
 describe("a failed sub-session's line", () => {
