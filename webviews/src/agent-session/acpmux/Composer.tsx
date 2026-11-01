@@ -28,6 +28,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import {
   ArrowUpIcon,
+  ReturnIcon,
   AtIcon,
   BuildIcon,
   ContextRing,
@@ -37,7 +38,6 @@ import {
   SearchIcon,
   PlanIcon,
   SlashIcon,
-  ReturnIcon,
   StopIcon,
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
@@ -80,13 +80,22 @@ import {
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
+  cachePersistedDraft,
+  draftHistory,
+  draftWasRead,
   flushPendingDraftWrites,
   forgetQueuedDraft,
-  hasPendingDraftWrite,
+  hydratedDraft,
   lastQueuedDraftText,
-  readDurableDraft,
+  markDraftRead,
+  draftFits,
+  mergedDraft,
+  noteDraftEdited,
+  noteDraftHeld,
+  noteDraftKeptApart,
+  noteDraftSent,
+  readDurableDraftState,
   readPersistedDraft,
-  seededText,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -206,6 +215,8 @@ export const COMPOSER_LABELS = {
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
+  /// Reads the current prompt and attachments before the composer is swapped out.
+  draft(): { text: string; attachments: ComposerAttachment[] };
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
@@ -697,7 +708,13 @@ export function Composer({
   pendingRef.current = pending;
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
   /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
+  /// A new chat's kept draft (the handshake's) that did not fit the limit beside text typed before it
+  /// came (`draftFits`): the host keeps it, not the editor's text, until the editor is cleared, which
+  /// brings it back into the editor. Before (cmux#28204 review at b7cddbbf), the merge past the limit
+  /// went to the host, whose store turned it into nil and removed the kept draft.
+  const keptOverLimit = useRef<string | undefined>(undefined);
   const unsentText = (value: string) =>
+    keptOverLimit.current ??
     withoutInlineTokens(
       value,
       (id) =>
@@ -747,9 +764,60 @@ export function Composer({
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  /// The one step every answered read of `sessionId`'s acpmux draft goes through (the load's read and
+  /// a quit's, whichever answers first): it decides the prompt (hydratedDraft), puts it in the editor,
+  /// records it as hydrated, writes it to acpmux if needed, and only then marks the draft read. A read
+  /// that answers after another one did runs the same rule on what the editor now holds, so it never
+  /// writes a pre-merge prompt over the merge. Before (cmux#28204 review at ffdbd9d1), a quit's read
+  /// saved "saved\n\ntyped" and marked the draft read while the editor still held "typed"; the load's
+  /// read then kept "typed" and wrote it over the merged draft.
+  const applyDraftRead = (session: string | undefined, saved: string | undefined): string => {
+    const currentText = field.current?.value() ?? textRef.current;
+    const history = draftHistory(session);
+    const edited = editedBeforeHydration.current || history.edited;
+    editedBeforeHydration.current = false;
+    const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
+    if (next.overflow) {
+      // acpmux's draft and the typed text do not fit the limit together: acpmux keeps its draft,
+      // the editor keeps the typing, and the chat stays unread, so no edit or quit writes the typed
+      // text over the saved draft; the next read tries again (deleting the typing brings it back).
+      editedBeforeHydration.current = true;
+      noteDraftKeptApart(session);
+      if (session) cachePersistedDraft(session, currentText);
+      return currentText;
+    }
+    if (next.shown) {
+      // Its own write (below) or none: the text effect does not write it again.
+      restoringSession.current = next.text !== textRef.current;
+      notTyped();
+      // The editor at once, not on the next render: a quit about to unmount reads it, and a read
+      // that answers before the render must see the merged prompt.
+      if (field.current && field.current.value() !== next.text) field.current.reset(next.text);
+      textRef.current = next.text;
+      setText(next.text);
+      setCaret(next.text.length);
+      pendingCaret.current = next.text.length;
+    }
+    hydratedText.current = next.text;
+    // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
+    if (next.write) writePersistedDraft(session, next.text);
+    else if (session && next.text === (saved ?? "")) noteDraftHeld(session, next.text);
+    // After the write: a chat with nothing on its way to acpmux is settled (edits and sends
+    // forgotten); one with a write out stays the page's until a later read finds it answered.
+    markDraftRead(session);
+    hydratedSession.current = session;
+    flushPendingDraftWrites();
+    return next.text;
+  };
   useImperativeHandle(
     handle,
     () => ({
+      draft() {
+        return {
+          text: field.current?.value() ?? textRef.current,
+          attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
+        };
+      },
       draftText: () =>
         withoutInlineTokens(field.current?.value() ?? textRef.current, (id) =>
           attachmentsRef.current.some((attachment) => attachment.id === id),
@@ -831,13 +899,41 @@ export function Composer({
       }),
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
-        const typed = field.current?.value() ?? textRef.current;
+        let typed = field.current?.value() ?? textRef.current;
         const session = persistedSession.current;
+        // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
+        // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
+        let readAnswered = !session || draftWasRead(session);
+        if (session && hydratedSession.current !== session && editedBeforeHydration.current && !readAnswered) {
+          const saved = await readDurableDraftState(session);
+          if (!saved) {
+            // A failed read is not an empty draft. Keep the latest text in the remount cache and
+            // wait for a successful read before sending anything to acpmux, so reconnect cannot
+            // replace a durable draft with the text typed during the outage.
+            cachePersistedDraft(session, field.current?.value() ?? textRef.current);
+            const unsent = unsentDraft.current;
+            if (unsent) unsent.push(unsentText(field.current?.value() ?? textRef.current));
+            await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+            return;
+          }
+          // The composer moved to another chat while acpmux answered: the typed text stays in the
+          // remount cache (above, the text effect), and that chat's own read merges it.
+          if (persistedSession.current !== session) {
+            await Promise.all([unsentDraft.current?.settle(), settlePendingDraftWrites()]);
+            return;
+          }
+          // Re-read after the async call: the person may have typed while acpmux was answering. The
+          // read on open's own step (applyDraftRead): the merge goes into the editor and is written
+          // before the draft counts as read, so the load's read, answering later, keeps it.
+          typed = applyDraftRead(session, saved.draft);
+          // Unread still when the merge did not fit (applyDraftRead): the typing is not written.
+          readAnswered = draftWasRead(session);
+        }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
-        const ready = hydratedSession.current === session || editedBeforeHydration.current;
+        const ready = hydratedSession.current === session || (editedBeforeHydration.current && readAnswered);
         const known =
           lastQueuedDraftText(session ?? "") ??
           (hydratedSession.current === session ? hydratedText.current : undefined);
@@ -865,13 +961,28 @@ export function Composer({
     [setAttachments, attachLater],
   );
   useEffect(() => {
-    // The prompt's DOM value is the typed text; a draft never replaces it.
-    if (!draft || field.current?.value()) return;
+    if (!draft) return;
+    // The prompt's DOM value is the typed text; a draft never replaces it. A draft that arrives
+    // after the person started typing (the handshake slower than their keys) goes before what
+    // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
+    // then replaced the tab's kept draft on disk.
+    const typed = field.current?.value() ?? textRef.current;
+    // Merged only before the page read this chat's draft; after it, the prompt is the draft.
+    if (draftWasRead(persistedSession.current)) return;
+    const next = mergedDraft(typed, draft);
+    if (next === typed) return;
+    if (!draftFits(next)) {
+      // Both do not fit the limit: the host keeps the kept draft and the editor the typing.
+      keptOverLimit.current = draft;
+      unsentDraft.current?.push(draft);
+      return;
+    }
+    keptOverLimit.current = undefined;
     notTyped();
-    field.current?.reset(draft);
-    setText((current) => seededText(current, draft));
-    setCaret(draft.length);
-    pendingCaret.current = draft.length;
+    field.current?.reset(next);
+    setText(next);
+    setCaret(next.length);
+    pendingCaret.current = next.length;
   }, [draft]);
   useEffect(() => {
     if (switching) carryPrompt.current = true;
@@ -881,6 +992,11 @@ export function Composer({
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
+    // The composer had no chat yet (the page still loading or reconnecting, a new chat whose
+    // session just started): what it holds was typed for this chat. It stays, merged with the
+    // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
+    // typed before the chat loaded was cleared.
+    const typedBefore = previous === undefined && !carryPrompt.current ? (field.current?.value() ?? text) : "";
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
@@ -896,7 +1012,18 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = restored || carried || draft || "";
+    // Merged only before the page ever read this chat's draft; after it, what was typed wins.
+    const initial = typedBefore.trim()
+      ? draftWasRead(sessionId) || !draftFits(mergedDraft(typedBefore, restored || draft))
+        ? typedBefore
+        : mergedDraft(typedBefore, restored || draft)
+      : restored || carried || draft || "";
+    // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
+    if (typedBefore.trim()) {
+      editedBeforeHydration.current = true;
+      noteDraftEdited(sessionId);
+      if (sessionId) cachePersistedDraft(sessionId, initial);
+    }
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
@@ -944,28 +1071,15 @@ export function Composer({
   }, [switching]);
   useEffect(() => {
     let current = true;
-    void readDurableDraft(sessionId).then((restored) => {
+    void readDurableDraftState(sessionId).then((state) => {
       if (!current) return;
-      const hasPendingWrite = hasPendingDraftWrite(sessionId);
-      const currentText = field.current?.value() ?? textRef.current;
-      const edited = editedBeforeHydration.current;
-      editedBeforeHydration.current = false;
-      if (!hasPendingWrite && restored && !currentText && !edited) {
-        restoringSession.current = true;
-        notTyped();
-        setText(restored);
-        setCaret(restored.length);
-        pendingCaret.current = restored.length;
-        hydratedText.current = restored;
-      } else {
-        hydratedText.current = currentText;
-        if (!hasPendingWrite && (currentText.trim() || edited)) {
-          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-          writePersistedDraft(sessionId, currentText);
-        }
-      }
-      hydratedSession.current = sessionId;
-      flushPendingDraftWrites();
+      // acpmux did not answer (its action map not installed yet, a connection that failed or
+      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+      // merged it (the action map's next version runs this again). Before, an unanswered read
+      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+      if (sessionId && !state) return;
+      applyDraftRead(sessionId, state?.draft);
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
@@ -983,7 +1097,12 @@ export function Composer({
       restoringSession.current = false;
       return;
     }
-    if (hydratedSession.current !== sessionId) return;
+    if (hydratedSession.current !== sessionId) {
+      // Typed before the chat's draft was read: kept for a remount (the composer swapped out while
+      // the chat loads or reconnects), and merged by the read before it goes to acpmux.
+      if (editedBeforeHydration.current) cachePersistedDraft(sessionId, text);
+      return;
+    }
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
   // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
@@ -1011,6 +1130,17 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
+    const kept = keptOverLimit.current;
+    if (kept !== undefined && !text.trim()) {
+      // The typing is gone (deleted, or sent): the kept draft comes back into the editor.
+      keptOverLimit.current = undefined;
+      notTyped();
+      field.current?.reset(kept);
+      setText(kept);
+      setCaret(kept.length);
+      pendingCaret.current = kept.length;
+      return;
+    }
     unsentDraft.current?.push(unsentText(text));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
@@ -1145,7 +1275,8 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
-    return send(false, steersAlways);
+    // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
+    return send(false, steersAlways || returnSteers);
   };
   const send = (force: boolean, steer = false): boolean => {
     // A send waiting for its images' originals is this one's to replace: whatever this one does
@@ -1307,6 +1438,8 @@ export function Composer({
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
       else edit(rest, rest.length);
+      // The sent text is no draft any more: a read still on its way never brings it back.
+      noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
       refocusSend.current = fromSend;
     };
@@ -1568,11 +1701,12 @@ export function Composer({
         return;
       }
     }
-    // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
+    // Esc stops a running turn, as Stop does, with or without a draft (the draft stays; with one
+    // typed, Send takes Stop's slot, so Esc is the composer's way to stop): by default the second of two presses
     // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
     // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
-    if (event.key === "Escape" && plain && !open && stop && !stopping && !quick) {
+    if (event.key === "Escape" && plain && !open && running && !stopping && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
       escapeStop.press(event.repeat);
@@ -1654,6 +1788,8 @@ export function Composer({
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
     if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
+    // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
+    noteDraftEdited(sessionId);
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
@@ -1684,7 +1820,7 @@ export function Composer({
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
-    stoppable: stop && !stopping,
+    stoppable: running && !stopping,
     session: sessionId,
     double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
@@ -1704,8 +1840,6 @@ export function Composer({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
-  // The steer control shows once a prompt is typed; with queueing off Send itself steers.
-  const steerable = steers && !steersAlways && Boolean(text.trim());
   // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
@@ -1958,8 +2092,7 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
-  // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
-  // mic keeping the right edge; the other look keeps it at the cluster's end.
+  // Stop, while a turn runs and the prompt is empty, in the one send slot (sendControl, below).
   // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
   // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
   const stopLabel = t(
@@ -1982,6 +2115,56 @@ export function Composer({
       {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
+  // A draft of attachments alone is still a draft: it gets Send, never Stop alone.
+  const sendOrStop =
+    stop && !hasDraft ? (
+      stopButton
+    ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
+      // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
+      // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
+      // into Send, which does what Return does: it steers an agent that steers, else queues.
+      // Claude's box draws no Send at rest until there is a draft, the mic alone on the right;
+      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right
+      // edge through a turn. Codex's look keeps Send's ↑ last, after the mic.
+      <button
+        key="send"
+        ref={sendButton}
+        type="submit"
+        disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
+        className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
+        aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+        title={
+          shell
+            ? t("composer.shellRun")
+            : escapeStop.armed && !stopping
+              ? t(COMPOSER_LABELS.escapeAgainToStop)
+              : authBlock
+                ? authBlock
+                : blocked?.reason
+                  ? t(blocked.reason)
+                  : t(
+                      !snapshot.isWorking
+                        ? "composer.sendTooltip"
+                        : steersAlways || returnSteers
+                          ? "composer.steerTooltip"
+                          : "composer.queueTooltip",
+                    )
+        }
+      >
+        {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
+      </button>
+    ) : null;
+  // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
+  // keeps Stop beside its one Send (one stop and one send, never two sends).
+  const sendControl =
+    onOpenInWindow && running && hasDraft && sendOrStop ? (
+      <>
+        {stopButton}
+        {sendOrStop}
+      </>
+    ) : (
+      sendOrStop
+    );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -2338,66 +2521,9 @@ export function Composer({
             />
           )
         }
-        actionsLead={
-          <>
-            {steerable && (
-              <button
-                key="steer"
-                type="button"
-                className="acpmux-send acpmux-send-ready acpmux-steer-now"
-                aria-label={t("composer.steerLabel")}
-                // tooltip-allow: names the icon-only control, what it does and its key.
-                title={t("composer.steerTooltip")}
-                // Keep focus and the caret in the prompt, as the mic does.
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  send(false, true);
-                  field.current?.focus();
-                }}
-              >
-                <ReturnIcon />
-              </button>
-            )}
-            {quietActions && stopButton}
-          </>
-        }
+        actionsLead={quietActions ? sendControl : undefined}
         accessory={accessory}
-        trailing={
-          !quietActions && stop ? (
-            stopButton
-          ) : remote.canSend && (!quietActions || shell || (hasDraft && !(running && steerable))) ? (
-            // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-            // alone on the right; Send comes in after it with the first letter. Mid-turn it
-            // queues the draft, unless the ↵ control is there to put it into the turn.
-            <button
-              key="send"
-              ref={sendButton}
-              type="submit"
-              disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
-              className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
-              aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-              title={
-                shell
-                  ? t("composer.shellRun")
-                  : authBlock
-                    ? authBlock
-                    : blocked?.reason
-                      ? t(blocked.reason)
-                      : t(
-                          !snapshot.isWorking
-                            ? "composer.sendTooltip"
-                            : steersAlways
-                              ? "composer.steerTooltip"
-                              : returnSteers
-                                ? "composer.queueLaterTooltip"
-                                : "composer.queueTooltip",
-                        )
-              }
-            >
-              <ArrowUpIcon />
-            </button>
-          ) : null
-        }
+        trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
         // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
         {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}

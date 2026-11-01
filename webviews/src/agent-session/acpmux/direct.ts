@@ -1768,6 +1768,9 @@ export class AcpmuxDirectClient {
   private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
+  /// A prompt or steer came while the streaming row's message was still being written: only that
+  /// message's own chunks (the same `messageId`) go on in the row, above the prompt's bubble.
+  private assistantCut = false;
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
@@ -2001,7 +2004,7 @@ export class AcpmuxDirectClient {
     if (this.peerCopy && this.peerCopy.sessionId === this.selectedSessionId) this.peerCopy.attaching = true;
     // Any attach of the copy already out (a select's, a recovery's) leaves it to this one when it
     // fails, copy drawn yet or not.
-    const mine = ++this.copyAttaches;
+    let mine = ++this.copyAttaches;
     // A chat another tab read already is held by the app host: ask for its tail now, while the
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
@@ -2236,33 +2239,42 @@ export class AcpmuxDirectClient {
           }
         }
         let page: EventRecord[] = [];
+        // The attach that goes out last decides the chat: a select's that went out before this one
+        // (while the socket connected or the chats were listed) leaves the chat to it. Only when this
+        // attach goes out: one a select took over while the tail or copy was read sends nothing, and
+        // must not take the chat from the select's attach.
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) mine = ++this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough, 1, adopted);
         } catch (error) {
-          // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
-          // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
-          const kept = await this.keepPeerCopy(sessionId, generation, error);
-          // The chat could not be read: a tail drawn from the host must not stay on screen as if
-          // this page had read the chat, here as in `select` — and the pane has to be told, or it
-          // keeps drawing the snapshot that carried those rows.
-          if (
-            !kept &&
-            keptThrough > 0 &&
-            generation === this.selectionGeneration &&
-            this.selectedSessionId === sessionId
-          ) {
-            forgetTail(sessionId);
-            this.peerCopy = undefined;
-            this.copyLive = undefined;
-            this.events = [];
-            this.queue = [];
-            // Those rows are off screen again, so the frame the host shows is the failure, not a
-            // chat: it fades in as any first draw of a chat does.
-            this.drewKeptTail = false;
-            this.rebuild();
-            this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+          // A newer attach of the chat (a select, a switch) took it over while this one was out:
+          // its outcome decides, so this one's failure neither draws, clears nor fails the open on
+          // the socket that newer attach read the chat over.
+          const superseded =
+            mine !== this.copyAttaches ||
+            generation !== this.selectionGeneration ||
+            this.selectedSessionId !== sessionId;
+          if (!superseded || this.socket?.readyState !== WebSocket.OPEN) {
+            // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
+            // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
+            const kept = await this.keepPeerCopy(sessionId, generation, error);
+            // The chat could not be read: a tail drawn from the host must not stay on screen as if
+            // this page had read the chat, here as in `select` — and the pane has to be told, or it
+            // keeps drawing the snapshot that carried those rows.
+            if (!kept && !superseded && keptThrough > 0) {
+              forgetTail(sessionId);
+              this.peerCopy = undefined;
+              this.copyLive = undefined;
+              this.events = [];
+              this.queue = [];
+              // Those rows are off screen again, so the frame the host shows is the failure, not a
+              // chat: it fades in as any first draw of a chat does.
+              this.drewKeptTail = false;
+              this.rebuild();
+              this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+            }
+            if (!kept) throw error;
           }
-          if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
@@ -2375,6 +2387,7 @@ export class AcpmuxDirectClient {
     this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+    this.assistantCut = false;
     this.streamingActivity = undefined;
     this.planRow = undefined;
     this.optimisticPromptRows.clear();
@@ -4370,6 +4383,7 @@ export class AcpmuxDirectClient {
     this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+    this.assistantCut = false;
     this.streamingActivity = undefined;
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -5086,8 +5100,13 @@ export class AcpmuxDirectClient {
         this.subagents.closeBatch();
         // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
         // reply still streams after the steer's row and stays in its row above it, and the next
-        // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
-        if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
+        // message's text starts below (cx-f51kv). A prompt is the same when it lands while a reply
+        // streams: Claude Code woke on its own (a background task's notice) and acpmux took the
+        // chat for idle, so the prompt is no steer, yet the message goes on after it. Leo
+        // 2026-10-31: "why was i able to cut my prompt in between your messages? that's s***
+        // rendering". Without message ids that end cannot be told.
+        if (!this.streamingAssistantMessageId) this.endAssistantSegment();
+        else this.assistantCut = true;
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
@@ -5354,10 +5373,13 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
       }
+      // After a cut only the cut message's own text goes on in its row; anything else starts below.
+      if (this.assistantCut && messageId !== this.streamingAssistantMessageId) this.endAssistantSegment();
       const sameMessage = Boolean(
         this.streamingAssistant &&
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
+      if (!sameMessage) this.assistantCut = false;
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       this.streamGrew = sameMessage;
       // A message after the reply that was streaming when the steer went: the agent read it.
@@ -5690,6 +5712,7 @@ export class AcpmuxDirectClient {
   }
 
   private endAssistantSegment(): void {
+    this.assistantCut = false;
     if (!this.streamingAssistant) return;
     const row = this.rows.get(this.streamingAssistant);
     if (row) this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
@@ -8150,15 +8173,18 @@ export class AcpmuxDirectClient {
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
   /// older than the held rows (`earlierPrompts`). Each step is `loadOlder`, with its guards; a step
   /// that moves nothing, or another chat, ends it.
-  async loadThrough(seq: number): Promise<void> {
+  /// Resolves true once the prompt is held, false when the read stopped short of it.
+  async loadThrough(seq: number): Promise<boolean> {
     const generation = this.selectionGeneration;
+    const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
     for (let pages = 0; pages < 200; pages++) {
       const from = this.firstSeq;
-      if (generation !== this.selectionGeneration || from === undefined || from <= seq || !this.seqHistoryLeft())
-        return;
+      if (held()) return true;
+      if (generation !== this.selectionGeneration || from === undefined || !this.seqHistoryLeft()) return false;
       await this.loadOlder();
-      if (this.firstSeq === from) return;
+      if (this.firstSeq === from) return held();
     }
+    return held();
   }
 
   /// Pages older transcript events in without reattaching, so the live summary,
@@ -8370,6 +8396,7 @@ export class AcpmuxDirectClient {
       turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
+      assistantCut: this.assistantCut,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
       messageRows: this.messageRows,
@@ -8409,6 +8436,7 @@ export class AcpmuxDirectClient {
     this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+    this.assistantCut = false;
     this.streamingActivity = undefined;
     this.planRow = undefined;
     this.messageRows = new Map();

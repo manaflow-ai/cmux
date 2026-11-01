@@ -289,3 +289,83 @@ fn a_key_without_a_value_never_takes_the_double_dash() {
         args(&["run", "--idempotency-key", "--", "echo", "hi"])
     );
 }
+
+/// cmux-vm takes its global options (`--team`, `--base-url`, `--config`, their
+/// `=` forms, `--json`) between nested verbs, so the key still reaches
+/// `snapshot … create` and `creation … get|reconcile|cancel` (#29709).
+#[test]
+fn a_key_reaches_a_nested_verb_across_cmux_vm_global_options() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "--team", "T", "get", "--idempotency-key", "K"]),
+        args(&["creation", "--team", "T", "get", "--idempotency-key", "K"])
+    );
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--team", "T", "create", "vm_1", "--idempotency-key", "K"]),
+        args(&["snapshot", "--team", "T", "create", "vm_1", "--idempotency-key", "K"])
+    );
+    assert_eq!(
+        forwarded(&[
+            "--idempotency-key",
+            "K",
+            "vm",
+            "creation",
+            "--base-url",
+            "https://vm.example",
+            "--config=/c.toml",
+            "--team=T",
+            "--config",
+            "/c.toml",
+            "reconcile",
+        ]),
+        args(&[
+            "creation",
+            "--base-url",
+            "https://vm.example",
+            "--config=/c.toml",
+            "--team=T",
+            "--config",
+            "/c.toml",
+            "reconcile",
+            "--idempotency-key",
+            "K",
+        ])
+    );
+    assert_eq!(
+        forwarded(&[
+            "vm",
+            "snapshot",
+            "--base-url=https://vm.example",
+            "--json",
+            "create",
+            "vm_1",
+            "--idempotency-key=K"
+        ]),
+        args(&[
+            "--json",
+            "snapshot",
+            "--base-url=https://vm.example",
+            "create",
+            "vm_1",
+            "--idempotency-key",
+            "K"
+        ])
+    );
+}
+
+#[test]
+fn a_key_on_a_nested_verb_that_takes_none_is_dropped_across_global_options() {
+    assert_eq!(
+        forwarded(&["vm", "creation", "--team", "T", "list", "--idempotency-key", "K"]),
+        args(&["creation", "--team", "T", "list"])
+    );
+    // A global option's value is never read as the nested verb.
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--team", "create", "list", "--idempotency-key", "K"]),
+        args(&["snapshot", "--team", "create", "list"])
+    );
+    // Words after `--` are the guest command, never verbs.
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "--", "create", "--idempotency-key", "K"]),
+        args(&["snapshot", "--", "create", "--idempotency-key", "K"])
+    );
+}
