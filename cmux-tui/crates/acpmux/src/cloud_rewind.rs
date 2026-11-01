@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use zeroize::Zeroizing;
 
 const MAX_COMPONENT: usize = 256;
@@ -71,11 +72,20 @@ impl CloudTurnClient {
             origin.path() == "/" && origin.query().is_none() && origin.fragment().is_none(),
             "cloud origin must be an origin"
         );
+        anyhow::ensure!(
+            origin.username().is_empty() && origin.password().is_none(),
+            "cloud origin must not contain credentials"
+        );
         let workspace = workspace.into();
         let machine = machine.into();
         valid_component("workspace", &workspace)?;
         valid_component("machine", &machine)?;
-        Ok(Self { http: reqwest::Client::new(), origin, workspace, machine, auth })
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("build cloud turn HTTP client")?;
+        Ok(Self { http, origin, workspace, machine, auth })
     }
 
     #[cfg(test)]
@@ -95,6 +105,25 @@ impl CloudTurnClient {
     pub fn client_key(session: &str) -> Result<String> {
         valid_component("session", session)?;
         Ok(format!("acpmux-{session}"))
+    }
+
+    /// Returns a client fenced to a replacement machine after a successful rewind.
+    pub fn for_machine(&self, machine: impl Into<String>) -> Result<Self> {
+        let machine = machine.into();
+        valid_component("machine", &machine)?;
+        Ok(Self {
+            http: self.http.clone(),
+            origin: self.origin.clone(),
+            workspace: self.workspace.clone(),
+            machine,
+            auth: self.auth.clone(),
+        })
+    }
+
+    fn check_machine(&self, expected: &str) -> Result<()> {
+        valid_component("machine", expected)?;
+        anyhow::ensure!(expected == self.machine, "cloud machine fence mismatch");
+        Ok(())
     }
 
     fn route(&self, turn: &str, operation: &str) -> Result<reqwest::Url> {
@@ -242,7 +271,7 @@ impl CloudTurnClient {
         expected_generation: u64,
     ) -> Result<SnapshotReply> {
         let client_key = Self::client_key(session)?;
-        valid_component("machine", expected_machine)?;
+        self.check_machine(expected_machine)?;
         self.post(
             turn,
             "snapshot",
@@ -260,7 +289,7 @@ impl CloudTurnClient {
         expected_machine: &str,
         expected_generation: u64,
     ) -> Result<MintedCapability> {
-        valid_component("machine", expected_machine)?;
+        self.check_machine(expected_machine)?;
         Self::client_key(session)?;
         self.post(
             turn,
@@ -277,7 +306,8 @@ impl CloudTurnClient {
         expected_machine: &str,
         expected_generation: u64,
     ) -> Result<SnapshotReply> {
-        valid_component("machine", expected_machine)?;
+        Self::client_key(session)?;
+        self.check_machine(expected_machine)?;
         self.post(
             turn,
             "start",
@@ -293,7 +323,8 @@ impl CloudTurnClient {
         expected_machine: &str,
         expected_generation: u64,
     ) -> Result<SnapshotReply> {
-        valid_component("machine", expected_machine)?;
+        Self::client_key(session)?;
+        self.check_machine(expected_machine)?;
         self.post(
             turn,
             "finish",
@@ -309,7 +340,7 @@ impl CloudTurnClient {
         expected_machine: &str,
         expected_generation: u64,
     ) -> Result<RewindReply> {
-        valid_component("machine", expected_machine)?;
+        self.check_machine(expected_machine)?;
         let client_key = Self::client_key(session)?;
         self.post(
             turn,
@@ -323,6 +354,8 @@ impl CloudTurnClient {
 fn valid_component(name: &str, value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > MAX_COMPONENT
+        || value == "."
+        || value == ".."
         || !value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
     {
         bail!("cloud {name} is malformed")
@@ -497,6 +530,7 @@ struct LedgerState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveTurn {
+    pub session: String,
     pub turn: String,
     pub generation: u64,
 }
@@ -521,12 +555,13 @@ impl TurnCaptureLedger {
     }
 
     /// Claims a turn at the current generation. A second claim is refused until `finish`.
-    pub fn claim(&self, turn: impl Into<String>) -> Result<ActiveTurn> {
+    pub fn claim(&self, session: impl Into<String>, turn: impl Into<String>) -> Result<ActiveTurn> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.active.is_some() {
             bail!("cloud turn admission already active")
         }
-        let active = ActiveTurn { turn: turn.into(), generation: state.generation };
+        let active =
+            ActiveTurn { session: session.into(), turn: turn.into(), generation: state.generation };
         state.active = Some(active.clone());
         Ok(active)
     }
@@ -537,21 +572,30 @@ impl TurnCaptureLedger {
         if capture.machine_generation != state.generation {
             bail!("cloud capture generation mismatch")
         }
-        if let Some(existing) = state.captures.get(&capture.turn) {
+        anyhow::ensure!(
+            Some(capture.machine_id.as_str()) == state.machine.as_deref(),
+            "cloud capture machine mismatch"
+        );
+        let key = capture_key(&capture.session, &capture.turn);
+        if let Some(existing) = state.captures.get(&key) {
             if existing.snapshot_id != capture.snapshot_id {
                 bail!("cloud turn has conflicting captures")
             }
             return Ok(existing.clone());
         }
-        state.captures.insert(capture.turn.clone(), capture.clone());
+        state.captures.insert(key, capture.clone());
         Ok(capture)
     }
 
     /// Finishes only the admitted turn; a stale finish cannot clear a replacement turn.
-    pub fn finish(&self, turn: &str, generation: u64) -> Result<()> {
+    pub fn finish(&self, session: &str, turn: &str, generation: u64) -> Result<()> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match state.active.as_ref() {
-            Some(active) if active.turn == turn && active.generation == generation => {
+            Some(active)
+                if active.session == session
+                    && active.turn == turn
+                    && active.generation == generation =>
+            {
                 state.active = None;
                 Ok(())
             }
@@ -560,10 +604,18 @@ impl TurnCaptureLedger {
     }
 
     /// Applies a successful provider rewind and fences all old turns/captures.
-    pub fn apply_rewind(&self, turn: &str, replacement: &MachineReplacement) -> Result<()> {
+    pub fn apply_rewind(
+        &self,
+        session: &str,
+        turn: &str,
+        replacement: &MachineReplacement,
+    ) -> Result<()> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         anyhow::ensure!(state.active.is_none(), "cannot rewind an active turn");
-        anyhow::ensure!(state.captures.contains_key(turn), "unknown cloud capture");
+        anyhow::ensure!(
+            state.captures.contains_key(&capture_key(session, turn)),
+            "unknown cloud capture"
+        );
         anyhow::ensure!(
             replacement.generation > state.generation,
             "rewind generation did not advance"
@@ -574,9 +626,18 @@ impl TurnCaptureLedger {
         Ok(())
     }
 
-    pub fn capture(&self, turn: &str) -> Option<SnapshotReply> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).captures.get(turn).cloned()
+    pub fn capture(&self, session: &str, turn: &str) -> Option<SnapshotReply> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .captures
+            .get(&capture_key(session, turn))
+            .cloned()
     }
+}
+
+fn capture_key(session: &str, turn: &str) -> String {
+    format!("{session}\u{1f}{turn}")
 }
 
 #[cfg(test)]
@@ -597,7 +658,7 @@ mod tests {
     #[test]
     fn ledger_is_idempotent_and_fenced() {
         let ledger = TurnCaptureLedger::new("machine-a", 3);
-        let active = ledger.claim("turn-a").unwrap();
+        let active = ledger.claim("session", "turn-a").unwrap();
         assert_eq!(active.generation, 3);
         let capture = SnapshotReply {
             id: "capture-a".into(),
@@ -613,20 +674,24 @@ mod tests {
         };
         assert_eq!(ledger.record_capture(capture.clone()).unwrap(), capture);
         assert_eq!(ledger.record_capture(capture.clone()).unwrap(), capture);
-        ledger.finish("turn-a", 3).unwrap();
-        assert!(ledger.finish("turn-a", 3).is_err());
+        ledger.finish("session", "turn-a", 3).unwrap();
+        assert!(ledger.finish("session", "turn-a", 3).is_err());
         ledger
-            .apply_rewind("turn-a", &MachineReplacement { id: "machine-b".into(), generation: 4 })
+            .apply_rewind(
+                "session",
+                "turn-a",
+                &MachineReplacement { id: "machine-b".into(), generation: 4 },
+            )
             .unwrap();
         assert_eq!(ledger.machine().as_deref(), Some("machine-b"));
         assert_eq!(ledger.generation(), 4);
-        assert!(ledger.capture("turn-a").is_none());
+        assert!(ledger.capture("session", "turn-a").is_none());
     }
 
     #[test]
     fn rejects_conflicting_capture_and_stale_rewind() {
         let ledger = TurnCaptureLedger::new("machine-a", 8);
-        ledger.claim("turn-a").unwrap();
+        ledger.claim("session", "turn-a").unwrap();
         let mut capture = SnapshotReply {
             id: "capture-a".into(),
             workspace: "ws".into(),
@@ -645,6 +710,7 @@ mod tests {
         assert!(
             ledger
                 .apply_rewind(
+                    "session",
                     "turn-a",
                     &MachineReplacement { id: "machine-b".into(), generation: 8 }
                 )
