@@ -82,7 +82,7 @@ public final class SidebarDocStore {
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The projection paired with `lastLive`: presentation-only `reshow` must not erase a departed remote's item
-    /// before `show` sends its close and removes any emptied ancestor groups.
+    /// before `show` sends its close. The workspace leaves, but its ancestor groups stay.
     @ObservationIgnored var lastLiveProjection: SidebarDocProjection?
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]

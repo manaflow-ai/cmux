@@ -58,9 +58,12 @@ pub(in crate::cli) struct NewChat {
     pub cwd: Option<String>,
     /// A first prompt, the chat's own (as a person types it into New Agent Chat).
     pub prompt: Option<String>,
+    /// The new workspace goes first in the sidebar (below Home), whatever
+    /// `workspaces.newPlacement` says (`--top`, #29875).
+    pub top: bool,
 }
 
-const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>] [--harness <h>] \
+const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] \
      [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
      [--] [<prompt>]";
 
@@ -90,6 +93,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
             }
             chat.prompt = Some(word.to_owned());
             break;
+        }
+        if word == "--top" {
+            chat.top = true;
+            index += 1;
+            continue;
         }
         let (flag, inline) = match word.split_once('=') {
             Some((flag, value)) => (flag, Some(value)),
@@ -128,6 +136,11 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     }
     if chat.workspace.is_some() && chat.pane.is_some() {
         return Err(UsageError::new("agents chat new: name --workspace or --pane, not both"));
+    }
+    if chat.top && (chat.workspace.is_some() || chat.pane.is_some()) {
+        return Err(UsageError::new(
+            "agents chat new: --top places a new workspace; it does not go with --workspace or --pane",
+        ));
     }
     // A policy that approves edits or everything without asking is a person's choice in
     // cmux; an agent may only start chats that ask, approve reads, or deny.
@@ -193,6 +206,9 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         }
         if let Some(cwd) = &chat.cwd {
             arguments.insert("cwd".into(), json!(cwd));
+        }
+        if chat.top {
+            arguments.insert("placement".into(), json!("top"));
         }
         return Ok(Place { key, pane: None, arguments });
     }

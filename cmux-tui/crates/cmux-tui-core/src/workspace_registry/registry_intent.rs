@@ -220,18 +220,17 @@ impl RegistryConnection {
     /// nor this mutex, so the wait cannot form a cycle.
     ///
     /// A thread that holds the connection lock never waits here: the writer
-    /// needs the connection to commit, so no answer that is not already sent
-    /// can arrive while it is held. It only takes the answers that came.
-    /// [`crate::Mux::lock_state_pinned`] drains before it pins, so a pinned
-    /// flow finds every answer that can arrive already taken.
+    /// needs the connection to commit. It only takes the answers that came.
+    /// [`crate::Mux::lock_state_pinned`] waits before it pins and settles
+    /// what arrived, but an answer can still arrive between that settle and
+    /// this call (the writer drops the connection, then sends its receipts).
+    /// The caller's state does not hold that commit yet, so a pinned caller
+    /// is refused instead of building on it; the next request settles it.
     pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
         let mut unsettled =
             self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let wait = if self.is_held_by_current_thread() {
-            std::time::Duration::ZERO
-        } else {
-            UNSETTLED_DRAIN_WAIT
-        };
+        let held = self.is_held_by_current_thread();
+        let wait = if held { std::time::Duration::ZERO } else { UNSETTLED_DRAIN_WAIT };
         let deadline = std::time::Instant::now() + wait;
         for entry in unsettled.iter_mut().filter(|entry| entry.resolved.is_none()) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
@@ -242,9 +241,15 @@ impl RegistryConnection {
             };
             anyhow::ensure!(
                 entry.resolved.is_some(),
-                "an earlier session journal registry commit is still indeterminate; retry"
+                "an earlier session journal registry commit is still unanswered; this request is retryable: retry now"
             );
         }
+        // A pinned caller's state was settled when it pinned: an answer that
+        // committed since is not in it.
+        anyhow::ensure!(
+            !(held && unsettled.iter().any(|entry| matches!(entry.resolved, Some(Ok(_))))),
+            "an earlier session journal registry commit landed after this request read state; this request is retryable: retry now"
+        );
         Ok(())
     }
 
