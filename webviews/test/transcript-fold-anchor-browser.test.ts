@@ -235,8 +235,12 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(opened.threadDuration).toBeLessThanOrEqual(200);
     expect(opened.moved).toBeGreaterThan(1);
     await settle(page);
-    const aboveAfter = await page.locator("[data-above-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
-    const earlierAfter = await page.locator("[data-earlier-probe]").evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    const aboveAfter = await page
+      .locator("[data-above-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
+    const earlierAfter = await page
+      .locator("[data-earlier-probe]")
+      .evaluate((node) => (node as HTMLElement).getBoundingClientRect().top);
     expect(aboveAfter).toBeLessThan(aboveBefore - 1);
     expect(earlierAfter).toBeLessThan(earlierBefore - 1);
     expect(await atLatest(page)).toBe(true);
@@ -263,13 +267,12 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await scrollHeight(page)).toBe(retainedEnd);
     expect(await atLatest(page)).toBe(true);
 
-    // Reopening at the bottom consumes the retained room while the stack moves upward. It must
-    // not add the old room on top of the expanded body a second time.
+    // Reopening fills the retained room without moving the stack or adding a second gap.
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
     const reopened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(reopened.threadAnimations).toBe(1);
+    expect(reopened.threadAnimations).toBe(0);
     expect(reopened.moved).toBeLessThanOrEqual(1);
     expect(await scrollHeight(page)).toBe(expandedEnd);
     expect(await atLatest(page)).toBe(true);
@@ -287,7 +290,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const above = document.querySelector<HTMLElement>('[data-row-id="t7-answer"]')!;
       above.dataset.aboveProbe = "true";
-      return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, aboveTop: above.getBoundingClientRect().top };
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
     });
     await probe(page, `[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]`);
     const opened = await clickAndWatch(page);
@@ -295,7 +302,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const after = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const above = document.querySelector<HTMLElement>("[data-above-probe]")!;
-      return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, aboveTop: above.getBoundingClientRect().top };
+      return {
+        scrollTop: scroller.scrollTop,
+        scrollHeight: scroller.scrollHeight,
+        aboveTop: above.getBoundingClientRect().top,
+      };
     });
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.threadAnimations).toBe(0);
