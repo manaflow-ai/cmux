@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::thread::{self, JoinHandle};
 #[cfg(test)]
 use std::time::Instant;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -35,6 +36,8 @@ const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
 /// scan and allocation.
 const MAX_INSTALLED_PLUGIN_ENTRIES: usize = 256;
 const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
+const AUTO_UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const AUTO_UPDATE_MARKER: &str = ".last-auto-update-check";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PluginKind {
@@ -63,6 +66,125 @@ impl PluginKind {
             Self::Agent => "agent_plugin_",
         }
     }
+}
+
+/// Start the daemon-owned, best-effort check for updates to installed plugins.
+///
+/// The worker is deliberately detached from daemon startup: a remote Git host
+/// must never delay the session socket or the first terminal. It checks at
+/// most once per day and only replaces clean installs from HTTPS or SSH
+/// origins. Local paths, file URLs, symlinks, and dirty checkouts remain under
+/// the user's control.
+pub(crate) fn start_auto_update() -> Option<JoinHandle<()>> {
+    let root = install_root(PluginKind::Sidebar).ok()?;
+    if !root.is_dir() || !auto_update_due(&root, unix_seconds()) {
+        return None;
+    }
+    thread::Builder::new()
+        .name("cmux-plugin-auto-update".to_string())
+        .spawn(|| {
+            if let Err(error) = auto_update_installed_plugins() {
+                eprintln!("{BIN}: automatic plugin update check failed: {error}");
+            }
+        })
+        .ok()
+}
+
+fn auto_update_installed_plugins() -> anyhow::Result<()> {
+    let root = install_root(PluginKind::Sidebar)?;
+    if !root.is_dir() || !auto_update_due(&root, unix_seconds()) {
+        return Ok(());
+    }
+    // Record the attempt before doing network work. A broken remote must not
+    // turn every daemon launch into another potentially slow check.
+    write_auto_update_marker(&root, unix_seconds())?;
+
+    for kind in [PluginKind::Sidebar, PluginKind::Agent] {
+        let plugins = match installed_plugins(kind) {
+            Ok(plugins) => plugins,
+            Err(error) => {
+                eprintln!(
+                    "{BIN}: cannot inspect {} plugins for updates: {error}",
+                    kind.manifest_kind()
+                );
+                continue;
+            }
+        };
+        for plugin in plugins {
+            if let Err(error) = auto_update_plugin(&plugin, kind) {
+                eprintln!("{BIN}: automatic update for plugin {:?} failed: {error}", plugin.name);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Result<()> {
+    // A symlink is commonly how a developer points cmux at a working tree.
+    // Never replace it, even when its origin is a hosted repository.
+    if fs::symlink_metadata(&plugin.dir)?.file_type().is_symlink() {
+        return Ok(());
+    }
+    let Some(source) = git_text(&plugin.dir, ["remote", "get-url", "origin"])
+        .filter(|source| is_auto_update_source(source))
+    else {
+        return Ok(());
+    };
+    if git_text(&plugin.dir, ["status", "--porcelain"]).is_some_and(|status| !status.is_empty()) {
+        return Ok(());
+    }
+    let Some(current) = git_text(&plugin.dir, ["rev-parse", "HEAD"]) else {
+        return Ok(());
+    };
+    let Some(remote) = git_text(&plugin.dir, ["ls-remote", source.as_str(), "HEAD"])
+        .and_then(|line| line.split_whitespace().next().map(str::to_owned))
+    else {
+        return Ok(());
+    };
+    if remote == current {
+        return Ok(());
+    }
+
+    let positionals = ["update".to_string(), plugin.id.clone()];
+    update_command(&positionals, &CliOptions::default(), kind)
+        .map(|_| ())
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn is_auto_update_source(source: &str) -> bool {
+    let source = source.trim();
+    if source.starts_with("file://") || is_local_git_path(source) {
+        return false;
+    }
+    source.starts_with("https://")
+        || source.starts_with("ssh://")
+        || source.starts_with("git://")
+        || source.starts_with("git@")
+}
+
+fn auto_update_marker_path(root: &Path) -> PathBuf {
+    root.join(AUTO_UPDATE_MARKER)
+}
+
+fn auto_update_due(root: &Path, now: u64) -> bool {
+    let Ok(text) = fs::read_to_string(auto_update_marker_path(root)) else {
+        return true;
+    };
+    let Ok(previous) = text.trim().parse::<u64>() else {
+        return true;
+    };
+    now.saturating_sub(previous) >= AUTO_UPDATE_INTERVAL.as_secs()
+}
+
+fn write_auto_update_marker(root: &Path, now: u64) -> anyhow::Result<()> {
+    let marker = auto_update_marker_path(root);
+    let temporary =
+        root.join(format!(".{AUTO_UPDATE_MARKER}.{}-{}.tmp", std::process::id(), now_nanos()));
+    fs::write(&temporary, format!("{now}\n"))?;
+    fs::rename(&temporary, &marker).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        anyhow::anyhow!("failed to persist {}: {error}", marker.display())
+    })
 }
 
 /// A userland plugin build must not hold the CLI forever.
@@ -1499,6 +1621,43 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_updates_only_use_remote_sources() {
+        for source in [
+            "https://github.com/manaflow-ai/cmux-sidebar-fzf",
+            "ssh://git@github.com/manaflow-ai/cmux-sidebar-fzf.git",
+            "git@github.com:manaflow-ai/cmux-sidebar-fzf.git",
+        ] {
+            assert!(is_auto_update_source(source), "remote source should update: {source}");
+        }
+        for source in [
+            "file:///tmp/cmux-sidebar-fzf",
+            "/Users/me/src/cmux-sidebar-fzf",
+            "../cmux-sidebar-fzf",
+            "http://github.com/manaflow-ai/cmux-sidebar-fzf",
+        ] {
+            assert!(
+                !is_auto_update_source(source),
+                "local or insecure source should stay manual: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_update_marker_waits_a_day() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-auto-update-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        assert!(auto_update_due(&root, 1_000));
+        write_auto_update_marker(&root, 1_000).unwrap();
+        assert!(!auto_update_due(&root, 1_000 + AUTO_UPDATE_INTERVAL.as_secs() - 1));
+        assert!(auto_update_due(&root, 1_000 + AUTO_UPDATE_INTERVAL.as_secs()));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn manifest_text(name: &str) -> String {
         format!(
