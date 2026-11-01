@@ -232,9 +232,12 @@ pub(super) fn owner_cloud_trust(own: bool, mut answer: Value) -> Value {
             .map(|home| home.join(super::agent_session_folders::CHAT_FOLDER))
     });
     let at_chat = answer.get("cwd").and_then(Value::as_str).and_then(canonical);
-    let in_chat = chat_root
-        .as_ref()
-        .is_some_and(|root| at_chat.as_ref().is_some_and(|path| path.starts_with(root)));
+    let in_chat = chat_root.as_ref().is_some_and(|root| {
+        super::agent_session_folders::private_owned_dir(root)
+            && at_chat.as_ref().is_some_and(|path| {
+                path.parent() == Some(root) && super::agent_session_folders::private_owned_dir(path)
+            })
+    });
     if (work.is_none() || at_work != work) && !in_chat {
         return answer;
     }

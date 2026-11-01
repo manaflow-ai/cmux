@@ -396,7 +396,9 @@ async fn check_inner(
                 return Err(outside_roots("cwd"));
             }
             if deferred.is_none() {
-                let scratch = peer_scratch(params).await?;
+                let cloud_peer =
+                    crate::hub::vm_boundary::asked(auth, control_of(origin, auth, params), params);
+                let scratch = peer_scratch(params, cloud_peer).await?;
                 params.set("cwd", Value::String(scratch));
             }
         }
@@ -965,7 +967,7 @@ fn folder_refused(field: &str) -> RpcError {
 /// The folder a proven peer's `session/new` with no `cwd` runs in. Cloud peers
 /// get the same durable per-chat location as the daemon start path,
 /// `~/chats/<id>`; other peers retain the owner-only temporary scratch root.
-async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcError> {
     let name = params
         .pointer("/_meta/acpmux/name")
         .or_else(|| params.get("name"))
@@ -973,14 +975,14 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
         .map(scratch_name)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let cloud = params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true));
-    let dir = if cloud { cloud_chat_folder(&name)? } else { peer_scratch_root()?.join(name) };
+    let dir =
+        if cloud_peer { cloud_chat_folder(&name).await? } else { peer_scratch_root()?.join(name) };
     let failed = |why: String| {
         RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
     };
     // `cloud_chat_folder` creates the stable directory itself and retries
     // must reuse it. The legacy peer scratch path remains fresh per name.
-    if !cloud {
+    if !cloud_peer {
         let dir = dir.clone();
         let made = tokio::task::spawn_blocking(move || {
             let mut builder = std::fs::DirBuilder::new();
@@ -996,10 +998,15 @@ async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
     canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
 }
 
-fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
+async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
     let home = dirs::home_dir()
         .ok_or_else(|| RpcError::invalid_params("the Cloud machine has no home folder"))?;
-    cloud_chat_folder_under(&home, name)
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || cloud_chat_folder_under(&home, &name)).await.map_err(
+        |error| {
+            RpcError::invalid_params(format!("the Cloud chat folder could not be made: {error}"))
+        },
+    )?
 }
 
 fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {

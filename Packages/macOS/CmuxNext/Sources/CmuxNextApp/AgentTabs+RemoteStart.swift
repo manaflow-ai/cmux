@@ -66,12 +66,14 @@ extension AgentTabStore {
         // the no-folder choice in Rust and receives no cwd so it can create a
         // fresh `~/chats/<chat-id>` folder on the machine.
         var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? remoteFolder?(key)
-        if fallback == nil && ownerLink == nil {
+        var supportsNoCwd = false
+        if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            fallback = try? await lister.folders().work
+            supportsNoCwd = ownerLink != nil && (try? await lister.supportsNoCwd()) == true
+            if !supportsNoCwd { fallback = try? await lister.folders().work }
             await lister.close()
         }
-        if fallback == nil && ownerLink == nil {
+        if fallback == nil && !supportsNoCwd {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)

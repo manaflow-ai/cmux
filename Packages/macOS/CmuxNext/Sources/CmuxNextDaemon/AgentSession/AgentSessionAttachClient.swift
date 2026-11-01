@@ -86,6 +86,8 @@ public actor AgentSessionAttachClient {
     private struct Served: Sendable {
         /// `agent-session-start-v1`.
         var start = false
+        /// `agent-session-start-no-cwd-v1`.
+        var startNoCwd = false
         /// `agent-session-trust-v1`.
         var trust = false
         /// `agent-session-start-keyed-reason-v1`.
@@ -338,6 +340,14 @@ public actor AgentSessionAttachClient {
         return (work, (object["folders"] as? [String] ?? []).filter(absolute))
     }
 
+    /// Whether this daemon accepts an omitted cwd on `agent-session-start`.
+    /// Older daemons require a folder and must keep the work-folder fallback.
+    public func supportsNoCwd() async throws -> Bool {
+        guard mode == .attach else { return false }
+        _ = try await liveTransport()
+        return served.startNoCwd
+    }
+
     public func children() async throws -> Data {
         _ = try await liveTransport()
         guard served.children else { return Data(#"{"sessions":[]}"#.utf8) }
@@ -536,6 +546,7 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
             served = Served(start: identity.supports(DaemonCapability.agentSessionStart.rawValue),
+                            startNoCwd: identity.supports(DaemonCapability.agentSessionStartNoCwd.rawValue),
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),

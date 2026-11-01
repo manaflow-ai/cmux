@@ -83,7 +83,8 @@ pub(crate) fn own_work_folder(make: bool) -> Option<PathBuf> {
 
 /// The fresh folder for a Cloud chat with no selected repository. The tab's
 /// surface id is stable before the acp session exists, so retries reuse the
-/// same folder without making Swift choose a path.
+/// same folder without making Swift choose a path. Surface ids come from the
+/// mux's persisted `next_id` snapshot and are never reset during restore.
 pub(crate) fn own_chat_folder(chat_id: u64, make: bool) -> Option<PathBuf> {
     let home = crate::platform::home_dir()?;
     chat_folder(&home, chat_id, make)
@@ -94,7 +95,7 @@ pub(crate) fn own_chat_folder(chat_id: u64, make: bool) -> Option<PathBuf> {
 pub(crate) fn chat_folder(home: &Path, chat_id: u64, make: bool) -> Option<PathBuf> {
     let chats = home.join(CHAT_FOLDER);
     let chat = chats.join(chat_id.to_string());
-    let is_dir = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
+    let is_dir = |path: &Path| private_owned_dir(path);
     if !is_dir(&chats) && make && std::fs::symlink_metadata(&chats).is_err() {
         let _ = make_private_dir(&chats);
     }
@@ -105,6 +106,24 @@ pub(crate) fn chat_folder(home: &Path, chat_id: u64, make: bool) -> Option<PathB
         let _ = make_private_dir(&chat);
     }
     is_dir(&chat).then(|| std::fs::canonicalize(chat).ok()).flatten()
+}
+
+/// Existing Cloud chat folders are trusted automatically, so only reuse a
+/// real directory owned by this user without group/world write access.
+pub(crate) fn private_owned_dir(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else { return false };
+    if !metadata.is_dir() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o022 == 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 /// `home/work` when it is a folder (made first when `make`), canonical.
@@ -248,7 +267,17 @@ mod tests {
         let first = chat_folder(&home, 42, true).expect("chat folder");
         assert_eq!(first, std::fs::canonicalize(home.join("chats/42")).unwrap());
         assert!(home.join("chats").metadata().unwrap().is_dir());
-        assert_eq!(std::fs::metadata(&first).unwrap().permissions().readonly(), false);
+        assert!(private_owned_dir(&home.join("chats")));
+        assert!(private_owned_dir(&first));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(std::fs::metadata(&first).unwrap().permissions().mode() & 0o777, 0o700);
+        }
         assert_eq!(chat_folder(&home, 42, false), Some(first.clone()));
         assert!(chat_folder(&home, 43, false).is_none());
         let _ = std::fs::remove_dir_all(home);

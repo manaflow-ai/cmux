@@ -61,6 +61,8 @@ use crate::mux::Mux;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
 
 pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
+/// A start may omit `cwd`; the daemon creates a fresh Cloud chat folder.
+pub const AGENT_SESSION_START_NO_CWD_CAPABILITY: &str = "agent-session-start-no-cwd-v1";
 /// `require_person_key` and `person_instance` on `agent-session-start`, and
 /// its typed `agent_session.needs_keyed_start` refusal (cx-0w0jj).
 pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-start-keyed-reason-v1";
