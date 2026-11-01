@@ -209,12 +209,25 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
 
 def with_moves(value: Mapping[str, Any], current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]],
                mirrors: Sequence[tuple[str, str]], live: Mapping[str, str | None], *,
-               now: dt.datetime) -> dict[str, Any]:
+               now: dt.datetime, raw: str | None = None) -> dict[str, Any]:
     """`value` with its `_moved` record (route_moves.record_moves()): this pass's pool moves (`current` is the
-    value before it) and MIRRORS writes (`mirrors`, from mirror_writes(); `live` their values before it)."""
+    value before it) and MIRRORS writes (`mirrors`, from mirror_writes(); `live` their values before it).
+
+    `raw` is the variable as it was read: a pool value parse_value() reset because its label left the declared
+    members (32 vCPU, once runners.json dropped it) still had jobs queued on it, so that label is the move's old one."""
+    before = dict(current)
+    try:
+        previous = json.loads(raw) if (raw or "").strip() else {}
+    except ValueError:
+        previous = {}
+    if isinstance(previous, dict):
+        for name in pools:
+            label = previous.get(name)
+            if name not in before and isinstance(label, str) and route_moves.LABEL.match(label):
+                before[name] = label
     changes: list[tuple[str, str | None, str]] = []
     for name in sorted(pools):
-        old, new = current.get(name), value.get(name)
+        old, new = before.get(name), value.get(name)
         if isinstance(old, str) and isinstance(new, str) and old != new:
             changes.append((f"{VARIABLE}.{name}", old, new))
     written = dict(mirrors)
@@ -521,7 +534,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     live, record, readable = _live(switch, env)
     mirrors = mirror_writes(value, live, record=record) if readable else []
     # Every move this pass makes, recorded where the queue janitor reads it (route_moves.py).
-    value = with_moves(value, current, pools, mirrors, live if readable else {}, now=now)
+    value = with_moves(value, current, pools, mirrors, live if readable else {}, now=now, raw=env.get(VARIABLE))
     for entry in value.get(MOVED_KEY) or ():
         print(f"recorded move: {entry['variable']} {entry['from']} -> {entry['to']} at {entry['at']}")
     writes: list[tuple[str, str]] = []

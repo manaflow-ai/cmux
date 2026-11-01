@@ -408,10 +408,11 @@ class Main(unittest.TestCase):
                                               runner_pools.load_pools())
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
                                           dead_now={"blacksmith-32vcpu-ubuntu-2404"}, served_now=(), now=NOW)
-        self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
+        # #30340 took 32 vCPU out of the linux pool, so the pool resets to its first member (4 vCPU).
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
         live = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}
         self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
-                         [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
         # The switch's own change stays the switch's, and an unreadable record still defers everything.
         self.assertEqual(runner_pools.mirror_writes(value, live, record=SWITCHED_LINUX), [])
         self.assertEqual(runner_pools.mirror_writes(value, live, record="not json"), [])
@@ -421,10 +422,23 @@ class Main(unittest.TestCase):
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         [(name, raw), mirrored] = switch.writes
-        self.assertEqual((name, mirrored), ("RUNNER_POOLS", ("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")))
+        self.assertEqual((name, mirrored), ("RUNNER_POOLS", ("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")))
         # The janitor learns that LINUX_RUNNER left 32 vCPU, so the jobs it left there are re-run.
         self.assertEqual([(m["variable"], m["from"], m["to"]) for m in json.loads(raw)["_moved"]],
-                         [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")])
+                         [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")])
+
+    def test_a_pool_value_outside_the_declared_members_is_still_recorded_as_a_move(self) -> None:
+        # The live RUNNER_POOLS still says linux=32 vCPU after #30340 dropped that size from the pool:
+        # parse_value() resets it, and the move off 32 vCPU must still be recorded for the janitor.
+        raw = json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404", "_dead": {}})
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=self.Api(None), switch=switch,
+                                           now=NOW), 0)
+        moved = json.loads(switch.writes[0][1])["_moved"]
+        self.assertIn(("RUNNER_POOLS.linux", "blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"),
+                      [(m["variable"], m["from"], m["to"]) for m in moved])
+        self.assertIn(("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"),
+                      [(m["variable"], m["from"], m["to"]) for m in moved])
 
     def test_the_repo_variable_check_hands_in_what_the_mirror_check_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())

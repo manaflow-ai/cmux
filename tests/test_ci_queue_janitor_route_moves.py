@@ -69,11 +69,12 @@ def janitor_pools_value() -> str:
     """The RUNNER_POOLS runner_pools.main() writes when linux and LINUX_RUNNER both leave OLD in one pass."""
     import runner_pools  # noqa: PLC0415
 
-    current, _ = runner_pools.parse_value(json.dumps({"linux": OLD}), runner_pools.load_pools())
+    raw = json.dumps({"linux": OLD})
+    current, _ = runner_pools.parse_value(raw, runner_pools.load_pools())
     value, _ = runner_pools.reconcile(current, runner_pools.load_pools(), dead_now={OLD}, served_now=(),
                                       now=MOVED_AT)
     value = runner_pools.with_moves(value, current, runner_pools.load_pools(), [("LINUX_RUNNER", value["linux"])],
-                                    {"LINUX_RUNNER": OLD}, now=MOVED_AT)
+                                    {"LINUX_RUNNER": OLD}, now=MOVED_AT, raw=raw)
     return runner_pools.render(value)
 
 
