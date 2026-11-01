@@ -2394,6 +2394,46 @@ pre.cv-math-source {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
+/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
+   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
+   A focused or opened row stays revealed while its menu or body is open. */
+.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+) {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+)
+  > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool:is(
+  :hover,
+  :focus-within,
+  [aria-expanded="true"],
+  [data-popup-open],
+  :has([aria-expanded="true"]),
+  :has([data-popup-open])
+)
+  > .cv-tool__chevron {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
 /* A thought step has no glyph: its words start at the rows' text column. */
 .cv-step-thought:not(.is-open),
 .cv-step-thought__body,
