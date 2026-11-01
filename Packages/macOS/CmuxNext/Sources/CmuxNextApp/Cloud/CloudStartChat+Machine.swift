@@ -75,14 +75,14 @@ extension CloudStartChat {
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
-        let listed = cloud.listedMachineIDs, access = try? await ((account.last ?? nil) == nil ? cloud.auth.tokens().access : nil)
+        let listed = cloud.listedMachineIDs, access = try? await ((account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), access: access != nil)
         let plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
         var invocation = invocation
         if let id = plan.machine {
-            if !listed.contains(id) { await cloud.refresh() } // the platform's (personal sends only): list it for the attach
+            if !listed.contains(id) { await cloud.refresh() } // the platform's (personal, non-production sign-ins, where workspace machines are served): list it for the attach
             invocation.arguments["machine"] = .string(id)
         } else {
             let request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: account.last ?? nil)
