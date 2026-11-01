@@ -346,8 +346,12 @@ public struct ExpressionEvaluator: Sendable {
                 }
                 return acc
             case "first":
-                guard let closure else { return values.first }
-                return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false }
+                guard let closure else { return values.first ?? .null }
+                for value in values {
+                    guard let matches = evalClosure(closure, value, env) else { return nil }
+                    if matches.isTruthy { return value }
+                }
+                return .null
             case "contains":
                 if let closure { return .bool(values.contains { evalClosure(closure, $0, env)?.isTruthy ?? false }) }
                 guard let firstArg, let needle = eval(firstArg, env) else { return nil }

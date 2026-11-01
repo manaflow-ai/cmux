@@ -33,8 +33,9 @@ public enum SwiftValue: Codable, Sendable, Equatable {
         }
     }
 
-    /// Resolves a member (`value.name`): object fields, plus `count`/`isEmpty`
-    /// on arrays and strings. Returns `nil` for unsupported members.
+    /// Resolves a member (`value.name`): object fields and supported array or
+    /// string properties. Empty array `first`/`last` return `.null`; unsupported
+    /// members return host `nil`.
     public func member(_ name: String) -> SwiftValue? {
         switch self {
         case let .object(fields):
@@ -43,8 +44,8 @@ public enum SwiftValue: Codable, Sendable, Equatable {
             if name == "count" { return .int(values.count) }
             if name == "isEmpty" { return .bool(values.isEmpty) }
             if name == "indices" { return .array(values.indices.map { .int($0) }) }
-            if name == "first" { return values.first }
-            if name == "last" { return values.last }
+            if name == "first" { return values.first ?? .null }
+            if name == "last" { return values.last ?? .null }
             return nil
         case let .string(value):
             if name == "count" { return .int(value.count) }
