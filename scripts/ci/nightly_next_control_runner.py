@@ -24,6 +24,10 @@ BLACKSMITH = "blacksmith-4vcpu-ubuntu-2404"
 WAIT_SECONDS = 180
 POLL_SECONDS = 15
 CANDIDATE_VARS = (
+    # Main control workflows set this single candidate explicitly. The other
+    # variables remain a compatibility path for callers that share the helper
+    # with older side-lane admission jobs.
+    "CI_CONTROL_CANDIDATE",
     "CI_SIDE_LANE_RUNNER",
     "CI_LIGHT_LANE_RUNNER", "CI_LINUX_GATE_OWNED_RUNNER",
     "CI_NIGHTLY_ONLY_RUNNER", "CI_CONTROL_RUNNER", "LINUX_RUNNER",
@@ -64,7 +68,11 @@ def _candidate_allowed(name: str, label: str) -> bool:
 
 def candidates(env: Mapping[str, str]) -> tuple[str, ...]:
     found: list[str] = []
-    for name in CANDIDATE_VARS:
+    # A control workflow must not accidentally inherit a populated side-lane
+    # variable and route its request to the wrong label. Once the caller gives
+    # the explicit control candidate, ignore compatibility variables entirely.
+    names = ("CI_CONTROL_CANDIDATE",) if (env.get("CI_CONTROL_CANDIDATE") or "").strip() else CANDIDATE_VARS
+    for name in names:
         for label in (env.get(name) or "").replace(",", " ").split():
             if _candidate_allowed(name, label) and label not in found:
                 found.append(label)

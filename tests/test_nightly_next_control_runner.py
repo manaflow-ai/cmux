@@ -49,6 +49,11 @@ class ControlRunnerPickerTests(unittest.TestCase):
         env = {**self.ENV, "CI_CONTROL_RUNNER": "unregistered-fleet", "CI_SIDE_LANE_RUNNER": ""}
         self.assertEqual(picker.candidates(env), ())
 
+    def test_explicit_control_candidate_precedes_side_lane_variables(self):
+        env = {**self.ENV, "CI_CONTROL_CANDIDATE": "cmux-fleet-linux-x64",
+               "CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}
+        self.assertEqual(picker.candidates(env), ("cmux-fleet-linux-x64",))
+
     def test_missing_and_stale_snapshots_are_not_capacity_proof(self):
         now = dt.datetime(2026, 11, 1, 0, 35, tzinfo=dt.timezone.utc)
         self.assertFalse(picker.fresh_snapshot(None, now))
