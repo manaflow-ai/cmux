@@ -245,15 +245,18 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("the sender's name on the line toggles without becoming a gap selection", async () => {
+  // The name sits before the line's toggle, outside it (Leo, 2026-10-29: "make the left side
+  // identifier like it was before and you can click it to go to that session"); this sender is no
+  // chat, so the name opens nothing, and the line's toggle opens and closes the message.
+  test("the sender's name and the line's toggle never become a gap selection", async () => {
     const page = await open("reduce");
     try {
       await show(page, [...done, received, after]);
       await settle(page);
       await lineAt(page, 100);
       await settle(page);
-      // The name is part of the line's toggle (no chip of its own since the line became a DisclosureRow).
-      const chip = page.locator('[data-row-id="msg"] .cv-disclosure__toggle .cv-received__from');
+      const chip = page.locator('[data-row-id="msg"] .cv-received__sender .cv-received__from');
+      const toggle = page.locator('[data-row-id="msg"] .cv-disclosure__toggle');
       await chip.evaluate((node) => {
         node.addEventListener("pointerdown", (event) => {
           document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
@@ -264,6 +267,10 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
       });
       for (const open of [true, false]) {
         await chip.click({ position: { x: 2, y: 2 } });
+        expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
+          open ? null : "true",
+        );
+        await toggle.click({ position: { x: 2, y: 2 } });
         expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
           open ? "true" : null,
         );

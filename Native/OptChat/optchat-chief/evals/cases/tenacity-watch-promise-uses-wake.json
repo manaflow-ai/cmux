@@ -9,7 +9,7 @@
       "checks": [
         {
           "type": "called",
-          "re": "\"seconds\"|\"tasks\""
+          "re": "\"seconds\"|\"tasks\"|\"command\""
         },
         {
           "type": "no_question"

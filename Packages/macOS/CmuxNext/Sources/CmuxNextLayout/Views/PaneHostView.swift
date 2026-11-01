@@ -121,8 +121,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
         guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
-        let rest = CGSize(width: max(0, clip.width + restSize.width - frame.width),
-                          height: max(0, clip.height + restSize.height - frame.height))
+        // The clip at rest, from the rest cell itself: a frame narrower than twice the padding
+        // (a new pane's first frames) has a zero clip, and the clip's growth then is no measure of
+        // the rest, so the page would shrink and resize on every one of those frames.
+        let rest = clipRect(forCell: CGRect(origin: .zero, size: restSize)).size
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
         // The far edge's distance from its rest against the near edge's (`restOffset`).
         let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
@@ -207,12 +209,17 @@ final class PaneHostView: NSView, RestingPlacement {
     /// moves lays out nothing).
     private(set) var clipLayouts = 0
 
-    private func layoutClip() {
-        clipLayouts += 1
+    /// The clip's frame in a host whose bounds are `cell`: the cell inset by the pane padding.
+    private func clipRect(forCell cell: CGRect) -> CGRect {
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
-        let rect = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
+        return PaneChromeGeometry.contentRect(forCell: cell, style: style)
+    }
+
+    private func layoutClip() {
+        clipLayouts += 1
+        let rect = clipRect(forCell: bounds)
         if clipView.frame != rect { clipView.frame = rect }
         // A restored pane can be populated before its host receives the
         // launch frame. AppKit does not reliably run the child's autoresizing

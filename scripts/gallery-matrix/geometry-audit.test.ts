@@ -4,14 +4,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseConfig, parseArtifact, lintGeometry, type GeometryArtifact } from "./geometry";
-import { collectGeometry } from "./geometry-collector";
+import { collectGeometry, parseSelectorMap } from "./geometry-collector";
 import { parseManifest } from "./runner";
 import { captureEnvironment, configForCapture } from "./geometry-audit";
 
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
 
 test("baseline source is the gallery entry and run SHA is bound to the captured tip", () => {
-  expect(baseline.revision.source).toBe("src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx");
+  expect(baseline.revision.source).toBe("src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx");
   expect(baseline.revision.sha).toMatch(/^[0-9a-f]{40}$/);
   const effective = configForCapture(baseline, "f".repeat(40));
   expect(effective.revision.sha).toBe("f".repeat(40));
@@ -127,16 +127,28 @@ test("collector assigns unique IDs across repeated selections", async () => {
 test("audit baseline pairs both appearances and every required group has a selector", () => {
   const config = parseConfig(baseline);
   const cases = parseManifest(baseline.cases);
-  expect(config.required).toHaveLength(2);
+  expect(config.required).toHaveLength(10);
   expect(new Set(config.required.map((value) => value.theme))).toEqual(new Set(["light", "dark"]));
   for (const tuple of config.required) {
     expect(cases.find((value) => value.id === tuple.caseId)?.params?.colorScheme).toBe(tuple.theme);
-    for (const rule of config.rules) expect(baseline.selectors[tuple.caseId].some((selection: { group: string }) => selection.group === rule.group)).toBe(true);
+    for (const rule of config.rules.filter((rule) => !rule.appliesTo || rule.appliesTo.includes(tuple.caseId))) expect(baseline.selectors[tuple.caseId].some((selection: { group: string }) => selection.group === rule.group)).toBe(true);
   }
+});
+
+test("baseline selectors parse with only known keys and measurements", () => {
+  expect(Object.keys(parseSelectorMap(baseline.selectors))).toEqual(Object.keys(baseline.selectors));
+});
+
+test("every required capture expects the gallery source its case renders", () => {
+  const config = parseConfig(baseline);
+  const cases = parseManifest(baseline.cases);
+  for (const tuple of config.required) expect({ caseId: tuple.caseId, source: tuple.source ?? config.revision.source }).toEqual({ caseId: tuple.caseId, source: cases.find((value) => value.id === tuple.caseId)?.params?.source });
 });
 
 test("measured two-pixel debt is bounded and missing Context/Connectors cannot hide it", async () => {
   const config = parseConfig(baseline);
+  config.required = config.required.filter((tuple) => tuple.caseId.startsWith("session-info-"));
+  config.rules = config.rules.filter((rule) => rule.id === "session-info-top-block-label-column");
   const captures = config.required.map((tuple) => ({ file: "fixture", artifact: {
     schemaVersion: 1, revision: { sha: baseline.revision.sha, source: baseline.revision.source }, capture: { ...tuple, viewport: { width: 420, height: 900 }, deviceScaleFactor: 2, screenshot: "fixture.png", screenshotSha256: "0".repeat(64), coordinateSpace: "css-px" },
     elements: Array.from({ length: 7 }, (_, index) => ({ id: `top-block-label:${index}`, group: "top-block-label", source: "dom-rect", kind: "web", rect: { x: index < 5 ? 128 : 126, y: index * 28, width: 30, height: 18 } })),

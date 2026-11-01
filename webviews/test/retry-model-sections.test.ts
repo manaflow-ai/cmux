@@ -35,6 +35,25 @@ const top = topModelsFor("claude");
 const names = (list: readonly { name: string }[]) => list.map((model) => model.name);
 
 describe("Retry's model list", () => {
+  test("reported provider identities survive name deduplication and unavailable alternatives", () => {
+    const models = [
+      { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol" },
+      { id: "azure/gpt-6.1-sol", name: "GPT-6.1 Sol" },
+    ];
+    for (const current of [undefined, models[1]!.id]) {
+      const result = retryModelSections(models, current, "OpenCode", [models[1]!.id]);
+      expect(result.latest.map((model) => model.id)).toEqual([current ?? models[0]!.id]);
+      expect(result.more).toEqual([]);
+    }
+    const result = retryModelSections(
+      [{ ...models[0]!, unavailable: "not signed in" }, models[1]!],
+      undefined,
+      "OpenCode",
+      [models[1]!.id],
+    );
+    expect(result.latest.map((model) => model.id)).toEqual([models[1]!.id]);
+  });
+
   for (const current of ["claude-opus-5-5", "opus", "claude-opus-4-8", "opusplan", undefined])
     test(`has no duplicate ids or names (running ${current ?? "nothing"})`, () => {
       const { latest, more } = retryModelSections(claude, current, "Claude Code", top);
@@ -44,14 +63,15 @@ describe("Retry's model list", () => {
       expect(new Set(names(rows)).size, "each name once").toBe(rows.length);
       if (current)
         expect(
-          latest.map((model) => model.id),
-          "the running model is shown, never folded",
+          rows.map((model) => model.id),
+          "the running model stays reachable, including under More models",
         ).toContain(current);
     });
 
   test("lists the curated top models first and folds the rest under More models", () => {
     const { latest, more } = retryModelSections(claude, "claude-opus-5-5", "Claude Code", top);
-    expect(names(latest)).toEqual(["Fable 5.1", "Fable 5.1 · 1M context", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+    expect(names(latest)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Fable 5.1"]);
+    expect(names(more)).toContain("Fable 5.1 · 1M context");
     expect(names(more)).toContain("Opus 4.8");
     expect(names(more)).toContain("Opus plan · Sonnet execute");
     expect(latest.find((model) => model.name === "Opus 5.5")?.id, "the running row stays the checked one").toBe(
@@ -59,10 +79,10 @@ describe("Retry's model list", () => {
     );
   });
 
-  test("a folded model the chat runs is listed after the top ones", () => {
+  test("a running older model stays folded like the composer's older models", () => {
     const { latest, more } = retryModelSections(claude, "claude-opus-4-8", "Claude Code", top);
-    expect(names(latest).at(-1)).toBe("Opus 4.8");
-    expect(names(more)).not.toContain("Opus 4.8");
+    expect(names(latest)).not.toContain("Opus 4.8");
+    expect(names(more)).toContain("Opus 4.8");
   });
 
   test("without a curated list each family's newest leads and older releases fold", () => {

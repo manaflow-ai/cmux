@@ -47,6 +47,8 @@ pub async fn deliver(
         from_agent: None,
         supersede: None,
         class: None,
+        pr: None,
+        thread: None,
         cli_host: None,
         attachments: Vec::new(),
     };

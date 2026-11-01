@@ -333,6 +333,7 @@ impl Hub {
                                 Default::default(),
                                 None,
                                 Some(through),
+                                false,
                             ))
                             .await
                         }
@@ -364,6 +365,8 @@ impl Hub {
                     lineage: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
+                    // The person's side chat, as its chat is.
+                    person: session.person.load(Ordering::SeqCst),
                 };
                 let side = match with_inline_creation(
                     self.clone(),

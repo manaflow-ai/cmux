@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextPages
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
@@ -57,6 +58,27 @@ extension AgentPaneView {
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
 
+    /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
+    /// nothing until it does, or until it falls back to WebKit.
+    public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
+
+    /// Whether the document has painted, independently of the loading cover's give-up deadline.
+    public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
+
+    /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
+    /// hidden or under a clear (alpha 0) ancestor, and with a size.
+    public var debugChromiumPageShown: Bool {
+        guard let page, let window = page.window else { return false }
+        return PageRegistry.shownChromiumPages(in: window).contains { $0.page === page }
+    }
+
+    /// The paint and engine state a scene capture must wait for before drawing the agent pane.
+    public var debugCaptureState: AgentPaneCaptureState {
+        AgentPaneCaptureState(attached: webView.window != nil, loading: webView.isLoading,
+                              chromium: debugShowsChromium, chromiumStarting: debugChromiumStarting,
+                              chromiumShown: debugChromiumPageShown, painted: debugPageHasPainted)
+    }
+
     /// The zoom the chat shows at: view points per page CSS pixel.
     public var debugPageZoom: Double {
         guard let page else { return webView.pageZoom * webView.magnification }
@@ -74,6 +96,30 @@ extension AgentPaneView {
     /// otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double) async -> Bool {
         await page?.debugPress(x: x, y: y) ?? false
+    }
+
+    /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
+    /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
+    /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
+    public func debugSetFiles(selector: String, paths: [String]) async -> String? {
+        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
+        let files = paths.map { URL(fileURLWithPath: $0) }
+        fileChooser?.debugAnswer = files
+        page?.debugQueueFiles(files)
+        return nil
+    }
+
+    /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
+    /// page in its own child window over ``chromiumPage``'s container view (which stays in the pane's window):
+    /// `debug.agent_pane click` turns the point into that window's mouse down for ``judge(_:eventWindow:)``,
+    /// the host's half of a person's click there. The DevTools press (``debugPress(x:y:)``) is the page's half
+    /// and is never seen by the gesture monitor, so without it a click on a Chromium chat records no gesture and
+    /// the answer it picks is refused (`transport.gesture_required`).
+    public func debugChromiumScreenPoint(x: Double, y: Double) -> NSPoint? {
+        guard let content = chromiumPage?.contentView, let window = content.window else { return nil }
+        let zoom = max(debugPageZoom, 0.01)
+        let local = NSPoint(x: x * zoom, y: content.isFlipped ? y * zoom : content.bounds.height - y * zoom)
+        return window.convertPoint(toScreen: content.convert(local, to: nil))
     }
 }
 #endif

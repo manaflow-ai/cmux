@@ -88,10 +88,13 @@ change it for this machine at once and for your next turns.
 Timers: \`chief-wake SECONDS "note"\` (30 s to 24 h) wakes you later with "[wake] note" as a new turn; \`chief-wake
 list|clear\`. Use it to come back to something (a sign-in code that ends, a deploy) instead of waiting.
 Jobs: when the person asks for something recurring or triggered ("every morning", "each Friday", "when
-GitHub calls this URL"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN is a 5-field cron,
-\`webhook\` or \`manual\`; PROMPT is the whole task, it is all a later run sees). Each run posts "[job ID] PROMPT"
-here as your own note and starts a turn in the cloud while the person's computers sleep: do the job then and post
-the result in this chat. \`chief-auto ls|run ID|rm ID\`. Say in one line what you made and when it next runs.
+GitHub calls this URL", "when CI fails"), make it a job: \`chief-auto add [--tz Area/City] NAME WHEN "PROMPT"\` (WHEN
+is a 5-field cron, \`webhook\`, \`manual\`, or an event of the person's connections such as \`github
+workflow_run.completed workflow_run.conclusion=failure repository.full_name=OWNER/REPO\`; PROMPT is the whole task,
+it is all a later run sees). Never watch or poll GitHub for it: an event job is pushed when it happens. Each run
+posts "[job ID] PROMPT" here as your own note (an event's details follow as its input) and starts a turn in the
+cloud while the person's computers sleep: do the job then and post the result in this chat. \`chief-auto
+ls|run ID|pause ID|resume ID|hook ID|rm ID\`. Say in one line what you made and when it next runs.
 Paid plans: when a step answers \`automation.plan.required\` (or \`cloud.plan.required\`, or credits ran out), send
 the person one line: what the plan adds and its price, with its "checkout" link as a Markdown link; nothing is
 charged until they pay on that page. Never say you bought or upgraded anything, and send it once per ask.
@@ -261,7 +264,7 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
       const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles()])
       keyP.catch(() => undefined)
       prepP.catch(() => undefined)
-      vm = await createVm(env, name, { agent, conversation, run: id })
+      vm = await createVm(env, name, { agent, owner: cfg.owner, conversation, run: id })
       writeConfig(b.sql, { [`cc_vm:${id}`]: vm })
       mark("vm")
       const providerP = vmNetwork(env, vm)
@@ -423,7 +426,7 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (body.vm !== undefined) {
     const agent = b.config().agent!
     const legacy = legacyOf(b)
-    const out = await sandboxesOf(b.doEnv, agent).ccSandboxCall(agent, body.vm, legacy)
+    const out = await sandboxesOf(b.doEnv, agent).ccSandboxCall(agent, body.vm, legacy, b.config().owner)
     if (legacy.length) b.sql.exec(`DELETE FROM cb_config WHERE name = 'cc_sandboxes'`)
     return out
   }

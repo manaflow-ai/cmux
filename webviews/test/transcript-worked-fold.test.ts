@@ -7,6 +7,8 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
+import { layoutConversation } from "../src/agent-session/acpmux/model";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -39,6 +41,69 @@ test("the answer stays open below the fold of the work before it", () => {
 test("a turn that ended on a tool folds its interim text with the rest", () => {
   const rows = [row("u", "user"), text("interim-1"), tool("read"), text("interim-2"), tool("grep"), summary()];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+});
+
+test("empty and zero-width assistant messages between tool groups add no row or footer space", () => {
+  const first = tool("first");
+  const second = tool("second", "execute");
+  const base = [row("u", "user", { text: "Run both checks." }), first, second, summary()];
+  const withEmpty = [
+    row("u", "user", { text: "Run both checks." }),
+    first,
+    row("empty", "assistant", { text: "" }),
+    row("zero-width", "assistant", { text: "\u200B\u200C\u200D\uFEFF\u2060" }),
+    second,
+    summary(),
+  ];
+  const expanded = new Set(["worked-u"]);
+  const normal = turnView(base, expanded);
+  const shaped = turnView(withEmpty, expanded);
+  expect(shaped.filter((entry) => entry.kind === "assistant")).toHaveLength(0);
+  expect(shaped.filter((entry) => entry.kind === "turnSummary")).toHaveLength(1);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(normal, 760).totalHeight);
+});
+
+test("an empty completed notification turn has no footer, while a failed one keeps recovery UI", () => {
+  const hidden = row("hidden", "user", { incoming: { kind: "hidden" } as never });
+  const empty = [hidden, row("empty", "assistant", { text: "\u200B" }), summary()];
+  expect(turnView(empty, new Set())).toEqual([]);
+  expect(turnView([row("empty-prompt", "user", { text: "" }), summary()], new Set())).toEqual([]);
+  const failed = [hidden, row("failed", "assistant", { text: "" }), summary("failed")];
+  expect(turnView(failed, new Set()).map((entry) => entry.kind)).toEqual(["turnSummary"]);
+});
+
+test("an invisible prompt keeps its logical boundary without adding layout space", () => {
+  const prompt = row("invisible-prompt", "user", { text: "\u200B" });
+  const shaped = turnView([prompt, tool("read"), text("answer"), summary()], new Set());
+  expect(shaped.map((entry) => entry.id)).toContain(prompt.id);
+  const withoutPrompt = shaped.filter((entry) => entry.id !== prompt.id);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(withoutPrompt, 760).totalHeight);
+});
+
+test("an attachment-only prompt is still visible when its text is empty", () => {
+  const attachment = row("attachment", "user", {
+    text: "",
+    inlineParts: [{ kind: "file", name: "notes.txt", blockIndex: 1 }] as never,
+  });
+  expect(turnView([attachment, summary()], new Set()).map((entry) => entry.id)).toContain("attachment");
+  const received = row("received", "user", { text: "", received: {} as never });
+  expect(turnView([received, summary()], new Set()).map((entry) => entry.id)).toContain("received");
+});
+
+test("an invisible failed prompt keeps its delivery recovery row", () => {
+  const failed = row("failed-prompt", "user", {
+    text: "\u200B",
+    failed: true,
+    error: "The prompt was not sent.",
+    delivery: {
+      state: "failed",
+      promptId: "prompt-1",
+      sessionId: "session-1",
+      sentAt: 1,
+    },
+  });
+  expect(isVisiblyEmptyMessage(failed)).toBe(false);
+  expect(turnView([failed, summary("failed")], new Set()).map((entry) => entry.id)).toContain("failed-prompt");
 });
 
 test("a turn stopped mid-tool folds its work under the stop line", () => {

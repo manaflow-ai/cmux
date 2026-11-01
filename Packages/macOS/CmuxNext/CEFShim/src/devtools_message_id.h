@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <string>
 
 namespace cmux_shim {
 
@@ -117,6 +118,64 @@ inline DevToolsIdKind TopLevelDevToolsId(const char* p, size_t n, long long* id)
   if (!found) return DevToolsIdKind::kNone;
   *id = value;
   return DevToolsIdKind::kInt;
+}
+
+// Whether p[0, n) is the text of one JSON object, spaces around it allowed:
+// it starts with '{', its strings close, its brackets nest to depth 0 at its
+// end, and nothing follows it. A byte scan with no values built; Chromium
+// parses the message once. '{' and '[' count as one kind of bracket, so a
+// mismatched closer ({"a":1]) passes the scan: it cannot close the message
+// around it early (the depth stays above 0 until the text's own end), and
+// Chromium's strict parse refuses the whole message, so the call gets no
+// result and times out (CEFRuntime.devToolsTimeout). The host never writes
+// such text: its parameters come from JSONSerialization.
+inline bool IsOneJSONObject(const char* p, size_t n) {
+  using namespace devtools_id_detail;
+  size_t i = SkipSpace(p, n, 0);
+  if (i >= n || p[i] != '{') return false;
+  i = SkipValue(p, n, i);
+  return i <= n && SkipSpace(p, n, i) == n;
+}
+
+// Whether `method` is a protocol method name: "Domain.method", ASCII
+// letters, digits and '_' around one or more dots. It goes into the
+// message unquoted by any writer, so nothing else is allowed.
+inline bool IsDevToolsMethodName(const char* method) {
+  if (!method || !*method) return false;
+  bool dot = false;
+  char last = '.';
+  for (const char* c = method; *c; ++c) {
+    const bool word = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '_';
+    if (*c == '.') {
+      if (last == '.') return false;
+      dot = true;
+    } else if (!word) {
+      return false;
+    }
+    last = *c;
+  }
+  return dot && last != '.';
+}
+
+// The protocol message of a shim-internal DevTools call, in the format
+// CefDevToolsController::ExecuteDevToolsMethod writes
+// ({"id":N,"method":"M","params":P}), with the parameters text P put in as
+// it is: the caller checked `method` (IsDevToolsMethodName) and P
+// (IsOneJSONObject). Empty P: no "params".
+inline std::string DevToolsCallMessage(int id, const char* method, const char* params, size_t params_size) {
+  std::string message;
+  message.reserve(params_size + std::strlen(method) + 48);
+  message += "{\"id\":";
+  message += std::to_string(id);
+  message += ",\"method\":\"";
+  message += method;
+  message += '"';
+  if (params_size > 0) {
+    message += ",\"params\":";
+    message.append(params, params_size);
+  }
+  message += '}';
+  return message;
 }
 
 }  // namespace cmux_shim

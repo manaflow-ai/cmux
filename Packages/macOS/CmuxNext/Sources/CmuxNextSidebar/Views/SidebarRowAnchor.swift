@@ -13,7 +13,7 @@ public struct SidebarRowAnchor {
     public static func workspaceRow(_ id: WorkspaceID, in sidebar: SidebarView) -> CGRect? {
         let list = sidebar.list
         let layout = list.displayed
-        let row = layout.row(for: .workspace(id)) ?? collapsedGroup(of: id, in: list).flatMap { layout.row(for: .group($0)) }
+        let row = layout.row(for: .workspace(id)) ?? collapsedGroup(of: id, in: list).flatMap(layout.groupRow)
         guard let row else { return nil }
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
         let rect = clamped(list.frame(for: row), into: visible)

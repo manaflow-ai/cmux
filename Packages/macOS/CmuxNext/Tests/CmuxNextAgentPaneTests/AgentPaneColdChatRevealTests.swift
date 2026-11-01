@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -7,7 +8,7 @@ import Testing
 /// Leo 2026-10-14, as the Claude app switches chats: a chat the pane has not drawn yet holds its
 /// page background for a beat with no busy mark popping up, then its page fades in (quick but
 /// seen); a New Tab page and a chat already drawn show at once.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneColdChatRevealTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -72,6 +73,16 @@ struct AgentPaneColdChatRevealTests {
             deadline?.cancel()
             continuation.resume(returning: value)
         }
+    }
+
+    @Test func aColdChatLoadingCoverHasNoTranscriptSkeleton() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+
+        // The loading cover is deliberately just the pane background and its delayed busy mark.
+        // Transcript-shaped bars are a skeleton and must never return to the chat-open path.
+        #expect(view.loadingView.subviews.allSatisfy { $0 === view.loadingView.indicator },
+                "a cold chat loading cover drew a transcript skeleton")
     }
 
     @Test func aColdChatHoldsItsBackgroundWithoutAMarkThenFadesIn() async throws {

@@ -70,6 +70,30 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
         #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp failed"}"#) == .failed)
+        // ssh never reached the peer, whichever step reports it: offline, not broken (Leo's toast).
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","error":"ssh: Could not resolve hostname h: nodename nor servname provided"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        // A later step whose connection failed may have changed the peer: it shows (review at 025f476).
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .failed)
+        #expect(outcome(#"{"outcome":"failed","reason":"noAnswer","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .failed)
+        // The peer dropped during the binary's upload: nothing was installed (review of #27288).
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: client_loop: send disconnect: Broken pipe lost connection"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Connection closed by 192.0.2.7 port 22"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Connection closed"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Read from remote host h: Connection reset by 192.0.2.7 port 22"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
+        // A full disk on the peer is a failure, and a dropped later step may have changed it.
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: scp: write remote: No space left on device"}"#) == .failed)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: scp: dest open \"/home/u/.local/bin/.acpmux-new/acpmux\": Permission denied"}"#) == .failed)
+        // An older acpmux's push kept no scp words: no sign the connection dropped, so it shows.
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed"}"#) == .failed)
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Connection closed by 192.0.2.7 port 22"}"#) == .failed)
+        // ssh reached it and something there failed: still a failure.
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Bootstrap failed: 125"}"#) == .failed)
+        // The connection holding the update's lease dropped: the CLI changed nothing more, so the
+        // peer is offline and asked again, not failed (review of #27288 at 1211894).
+        #expect(outcome(#"{"outcome":"failed","reason":"lockLost","error":"h lost its update lock: its connection ended"}"#) == .unreachable)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
         // --keep-newer left a later or own build alone.
@@ -239,7 +263,60 @@ import Testing
 
         #expect(fixture.calls.count == 2)
         #expect(clock.sleeps == [.seconds(120)])
-        #expect(events.withLock { $0 } == [.updating, .retrying, .updating, .updated(build: Self.local)])
+        #expect(events.withLock { $0 } == [.updating, .offline, .updating, .updated(build: Self.local)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// The connection holding the update's lease dropped as the binary's copy finished (`failed`,
+    /// reason `lockLost`, acpmux `an_update_whose_lock_connection_drops_changes_nothing_more`): the
+    /// old daemon runs on, so nothing is recorded or shown as failed, and the retry updates it.
+    @Test func anUpdateWhoseLockDroppedIsAskedAgainNotRecordedFailed() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", 1, #"{"updated":[{"peer":"huge-blue","host":"huge-blue","outcome":"failed","ok":false,"build":null,"reason":"lockLost","error":"huge-blue lost its update lock: its connection ended"}],"peers":[]}"#)
+        try fixture.reply("huge-blue", 2, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let events = Mutex<[DaemonUpdateEvent.State]>([])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event.state) } }, directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 2)
+        #expect(events.withLock { $0 } == [.updating, .offline, .updating, .updated(build: Self.local)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// Leo's toast "Couldn't update <machine>: acpmux exited without a status": the local daemon
+    /// restarted while a `host update` ran, and a signal ended the CLI before it printed a reply.
+    /// That says nothing about the peer: no failure shows or is recorded, the policy asks again
+    /// after its backoff, and the retry updates it.
+    @Test func aRunCutShortByASignalIsAskedAgainQuietly() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.killed("huge-blue", 1)
+        try fixture.killed("huge-blue", 2)
+        try fixture.reply("huge-blue", 3, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let reply = await source.hostUpdate("huge-blue", binaries: fixture.root, whileBusy: true)
+        #expect(reply.outcome == .interrupted)
+
+        let events = Mutex<[DaemonUpdateEvent]>([])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event) } }, directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 3)
+        #expect(clock.sleeps == [.seconds(120)])
+        #expect(events.withLock { $0.map(\.state) } == [.updating, .retrying, .updating, .updated(build: Self.local)])
+        #expect(events.withLock { $0.allSatisfy { !$0.notify } }, "a notice for a run cut short")
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
@@ -440,7 +517,9 @@ import Testing
         #expect(ContinuousClock.now - started < .seconds(20))
         let pid = try #require(Int32(String(decoding: try Data(contentsOf: pidFile), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
         #expect(!Self.runs(pid), "the child that ignored SIGTERM still runs after the run returned")
-        #expect(result.errors.contains("it exited"), "the run confirmed the exit: \(result.errors)")
+        // Leo, 2026-10-29: "...deadline and was stopped; it exited" ended on nothing. A confirmed
+        // exit ends the line at "was stopped"; only a child that outlived SIGKILL says more.
+        #expect(result.errors.hasSuffix("was stopped"), "\(result.errors)")
     }
 
     /// Review of #25388: the exit is confirmed by the kernel's exit event armed at the launch, and a
@@ -498,6 +577,7 @@ nonisolated private final class StandInAcpmux: Sendable {
         staged=$(ls "$6" 2>/dev/null | tr '\\n' ' ')
         printf '%s\\t%s\\n' "$*" "$staged" >> "$dir/calls.log"
         sleep 0.05
+        if [ -f "$dir/replies/$4.$n.killed" ]; then rmdir "$dir/running"; kill -KILL $$; fi
         if [ -f "$dir/replies/$4.$n" ]; then cat "$dir/replies/$4.$n"; else cat "$dir/replies/$4"; fi
         rmdir "$dir/running"
         """
@@ -513,6 +593,11 @@ nonisolated private final class StandInAcpmux: Sendable {
     func reply(_ peer: String, _ run: Int?, _ json: String) throws {
         let name = run.map { "\(peer).\($0)" } ?? peer
         try json.write(to: root.appendingPathComponent("replies/\(name)"), atomically: true, encoding: .utf8)
+    }
+
+    /// The peer's `run`-th run ends by SIGKILL before it prints anything.
+    func killed(_ peer: String, _ run: Int) throws {
+        try Data().write(to: root.appendingPathComponent("replies/\(peer).\(run).killed"))
     }
 
     var calls: [Call] {

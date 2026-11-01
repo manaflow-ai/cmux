@@ -76,4 +76,11 @@ import Testing
         ])]
         #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: Self.lanes, in: sections) == nil)
     }
+
+    @Test func groupNamesRejectObjectIdsAndBlankLabels() {
+        for name in ["", "  ", "grp_012345", "ws_012345", "550e8400-e29b-41d4-a716-446655440000"] {
+            #expect(!AgentSessionWorkspace.validGroupName(name), "\(name)")
+        }
+        #expect(AgentSessionWorkspace.validGroupName("GUI push"))
+    }
 }

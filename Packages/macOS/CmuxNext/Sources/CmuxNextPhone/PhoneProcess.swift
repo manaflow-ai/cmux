@@ -74,8 +74,14 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         }
         try process.run()
         if let inPipe, let stdin {
-            inPipe.fileHandleForWriting.write(stdin)
-            try? inPipe.fileHandleForWriting.close()
+            // A child that exits without reading closes the read end: the write then fails with
+            // EPIPE, which `write(_:)` raises as an uncatchable Objective-C exception, and SIGPIPE
+            // would end a process that does not ignore it. Neither is the caller's problem; the
+            // child's own exit status tells what went wrong.
+            let writer = inPipe.fileHandleForWriting
+            _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+            try? writer.write(contentsOf: stdin)
+            try? writer.close()
         }
     }
 

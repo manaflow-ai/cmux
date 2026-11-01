@@ -3,6 +3,8 @@
 // (direct.ts). As in Claude desktop, the marks carry the state: a filled check is done, a thin
 // spinner runs and a dashed circle waits, with no heading, strike-through or bold. Once the turn
 // ends a step left in progress stops spinning. A screen reader hears the progress and each state.
+// Memoized on its immutable entries: tokens streaming elsewhere in the turn never redraw it.
+import { memo } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check } from "./icons";
@@ -13,7 +15,13 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   pending: "plan.status.pending",
 };
 
-export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxPlanEntry[]; ended?: boolean }) {
+export const PlanList = memo(function PlanList({
+  entries,
+  ended = false,
+}: {
+  entries: readonly AcpmuxPlanEntry[];
+  ended?: boolean;
+}) {
   const t = useT();
   const done = entries.filter((entry) => entry.status === "completed").length;
   return (
@@ -38,4 +46,4 @@ export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxP
       </ul>
     </div>
   );
-}
+});

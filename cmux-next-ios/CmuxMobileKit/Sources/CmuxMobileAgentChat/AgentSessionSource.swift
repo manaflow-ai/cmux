@@ -98,8 +98,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
     /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
-    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
-    case retryWithModel(model: String, text: String, promptID: String)
+    /// the prompt again, with its attachments, under `promptID`. A refused model sends nothing
+    /// (the chat says why).
+    case retryWithModel(model: String, text: String, attachments: [AgentAttachment], promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
@@ -256,8 +257,16 @@ public final class DisconnectedAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// Nothing to send to: say why again.
+    /// Nothing to send to: return prompts to the composer instead of dropping them.
     public func send(_ intent: AgentClientIntent) {
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        let event: AgentSessionEvent
+        switch intent {
+        case .prompt(let text, let attachments, _, let promptID, _):
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                   reason: "Mac offline. Not sent.")
+        default:
+            event = .clientError(message)
+        }
+        for continuation in continuations { continuation.yield(event) }
     }
 }

@@ -28,7 +28,7 @@ enum WorkspaceMerge {
             guard let session else { return }
             guard ok else { return session.finishClosing(source, moved: false) }
             daemon.whenApplied(transaction) { [weak session] in
-                moveRest(Array(tabs.dropFirst()), following: first.id, services: services) { moved in
+                moveRest(Array(tabs.dropFirst()), following: first, services: services) { moved in
                     session?.finishClosing(source, moved: moved)
                 }
             }
@@ -81,10 +81,10 @@ enum WorkspaceMerge {
     }
 
     /// Moves `tabs` one at a time to the end of the pane holding `anchor`.
-    static func moveRest(_ tabs: [TabModel], following anchor: String, services: AppServices,
+    static func moveRest(_ tabs: [TabModel], following anchor: TabModel, services: AppServices,
                          completion: @escaping @MainActor (Bool) -> Void) {
         guard let tab = tabs.first else { return completion(true) }
-        guard let (_, pane) = services.locateTab(anchor) else { return completion(false) }
+        guard let (_, pane) = services.locateTab(model: anchor) else { return completion(false) }
         TabMoves.move(tab, to: pane, index: pane.tabs.count, services: services) { ok in
             guard ok else { return completion(false) }
             moveRest(Array(tabs.dropFirst()), following: anchor, services: services, completion: completion)
