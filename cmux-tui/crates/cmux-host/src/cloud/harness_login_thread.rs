@@ -15,10 +15,13 @@
 //! is root's (0600). No login, and no fingerprint, is ever logged.
 
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
+use std::ffi::{CStr, CString, OsStr};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -91,10 +94,6 @@ impl Setup {
         );
         personal_machine(kind.as_deref(), team)
     }
-
-    fn file(&self, harness: &Harness) -> PathBuf {
-        self.home.join(harness.file)
-    }
 }
 
 /// What one pass came to.
@@ -155,8 +154,7 @@ impl Syncer {
     }
 
     fn local(&self, harness: &Harness) -> (Local, Option<FileKey>) {
-        let path = self.setup.file(harness);
-        self.as_user(|| read_login(harness, &path))
+        self.as_user(|| read_login(harness, &self.setup.home))
     }
 
     fn save_state(&self) {
@@ -178,12 +176,13 @@ impl Syncer {
         let mut changed = false;
         for entry in &saved {
             let Some(harness) = super::harness_login::harness(&entry.harness) else { continue };
-            let (local, _) = self.local(harness);
+            let (local, read_key) = self.local(harness);
             let (write, moved) = self.state.saved(&local, entry);
             changed |= moved;
             let Some(content) = write else { continue };
-            let path = self.setup.file(harness);
-            match self.as_user(|| write_login(&path, &content)) {
+            // Written only while the file is still the one just read: a sign-in or token refresh in
+            // between wins, and the next scan sends it.
+            match self.as_user(|| write_login(&self.setup.home, harness, &content, read_key)) {
                 Ok(()) => {
                     self.state.written(entry);
                     self.seen.remove(harness.id);
@@ -207,8 +206,7 @@ impl Syncer {
     pub fn scan(&mut self, api: &mut dyn Api) -> Pass {
         let mut outcome = Pass::Done;
         for harness in HARNESSES {
-            let path = self.setup.file(harness);
-            let key = self.as_user(|| file_key(&path));
+            let key = self.as_user(|| file_key(&self.setup.home, harness));
             if key.is_ok() && self.seen.get(harness.id) == key.as_ref().ok() {
                 continue;
             }
@@ -255,48 +253,155 @@ impl Syncer {
     }
 }
 
-/// The key of the file at `path` now (`Ok(None)`: not found).
-fn file_key(path: &Path) -> io::Result<Option<FileKey>> {
-    match fs::symlink_metadata(path) {
-        Ok(m) => Ok(Some(FileKey {
-            len: m.len(),
-            ino: m.ino(),
-            mtime: (m.mtime(), m.mtime_nsec()),
-            ctime: (m.ctime(), m.ctime_nsec()),
-        })),
+fn key_of(meta: &fs::Metadata) -> FileKey {
+    FileKey {
+        len: meta.len(),
+        ino: meta.ino(),
+        mtime: (meta.mtime(), meta.mtime_nsec()),
+        ctime: (meta.ctime(), meta.ctime_nsec()),
+    }
+}
+
+fn c_name(name: &OsStr) -> io::Result<CString> {
+    CString::new(name.as_bytes()).map_err(|_| io::Error::other("a NUL in a file name"))
+}
+
+fn fd_or_error(fd: libc::c_int) -> io::Result<OwnedFd> {
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` is a descriptor the call just opened and nothing else owns.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// The folder `name` in `dir`, never through a link.
+fn dir_at(dir: &OwnedFd, name: &CStr) -> io::Result<OwnedFd> {
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `name` is NUL-terminated and `dir` is an open descriptor.
+    fd_or_error(unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) })
+}
+
+/// The folder at `path` (followed: a root-chosen path such as the home).
+fn dir_path(path: &Path) -> io::Result<OwnedFd> {
+    let path = c_name(path.as_os_str())?;
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+    // SAFETY: `path` is NUL-terminated.
+    fd_or_error(unsafe { libc::open(path.as_ptr(), flags) })
+}
+
+/// The folder that holds `rel` under `home`, each folder below the home
+/// opened without following a link, so a `.claude` or `.codex` link cannot
+/// point the read or the write at another folder (a team home, say). With
+/// `create`, a missing folder is made 0700. `Ok(None)`: one is missing.
+fn login_dir(home: &Path, rel: &Path, create: bool) -> io::Result<Option<OwnedFd>> {
+    let mut dir = match dir_path(home) {
+        Ok(dir) => dir,
+        Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+            fs::DirBuilder::new().recursive(true).mode(0o700).create(home)?;
+            dir_path(home)?
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let parent = rel.parent().unwrap_or(Path::new(""));
+    for part in parent.components() {
+        let Component::Normal(part) = part else {
+            return Err(io::Error::other("a login path is plain names under the home"));
+        };
+        let name = c_name(part)?;
+        dir = match dir_at(&dir, &name) {
+            Ok(next) => next,
+            Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+                // SAFETY: `name` is NUL-terminated and `dir` is an open descriptor.
+                if unsafe { libc::mkdirat(dir.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+                    let e = io::Error::last_os_error();
+                    if e.kind() != io::ErrorKind::AlreadyExists {
+                        return Err(e);
+                    }
+                }
+                let next = dir_at(&dir, &name)?;
+                File::from(next.try_clone()?).set_permissions(fs::Permissions::from_mode(0o700))?;
+                next
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+    }
+    Ok(Some(dir))
+}
+
+fn file_name(rel: &Path) -> io::Result<CString> {
+    c_name(rel.file_name().ok_or_else(|| io::Error::other("no file name"))?)
+}
+
+/// The file `name` in `dir` opened to read, never through a link and never
+/// blocking on a FIFO (`Ok(None)`: not found).
+fn open_at(dir: &OwnedFd, name: &CStr) -> io::Result<Option<File>> {
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+    // SAFETY: `name` is NUL-terminated and `dir` is an open descriptor.
+    match fd_or_error(unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) }) {
+        Ok(fd) => Ok(Some(File::from(fd))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
     }
 }
 
-/// The login file at `path`, never through a link, at most 64 KiB + 1 read.
-pub fn read_login(harness: &Harness, path: &Path) -> (Local, Option<FileKey>) {
-    let opened = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path);
+/// The key of the file `name` in `dir` now (`Ok(None)`: not found).
+fn key_at(dir: &OwnedFd, name: &CStr) -> io::Result<Option<FileKey>> {
+    match open_at(dir, name)? {
+        Some(file) => Ok(Some(key_of(&file.metadata()?))),
+        None => Ok(None),
+    }
+}
+
+/// The key of a harness's login file now (`Ok(None)`: not found).
+fn file_key(home: &Path, harness: &Harness) -> io::Result<Option<FileKey>> {
+    let rel = Path::new(harness.file);
+    match login_dir(home, rel, false)? {
+        Some(dir) => key_at(&dir, &file_name(rel)?),
+        None => Ok(None),
+    }
+}
+
+/// A harness's login file under `home`, never through a link (the file or
+/// any folder below the home), at most 64 KiB + 1 read.
+pub fn read_login(harness: &Harness, home: &Path) -> (Local, Option<FileKey>) {
+    let rel = Path::new(harness.file);
+    let opened = login_dir(home, rel, false).and_then(|dir| match dir {
+        Some(dir) => open_at(&dir, &file_name(rel)?),
+        None => Ok(None),
+    });
     let mut file = match opened {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return (Local::Absent, None),
+        Ok(Some(file)) => file,
+        Ok(None) => return (Local::Absent, None),
         Err(_) => return (Local::Unreadable, None),
     };
     let Ok(meta) = file.metadata() else { return (Local::Unreadable, None) };
     if !meta.is_file() {
         return (Local::Unreadable, None);
     }
-    let key = FileKey {
-        len: meta.len(),
-        ino: meta.ino(),
-        mtime: (meta.mtime(), meta.mtime_nsec()),
-        ctime: (meta.ctime(), meta.ctime_nsec()),
-    };
     let mut bytes = Vec::new();
     if (&mut file).take(CONTENT_MAX_BYTES as u64 + 1).read_to_end(&mut bytes).is_err() {
         return (Local::Unreadable, None);
     }
-    (Local::from_bytes(harness, Some(bytes)), Some(key))
+    (Local::from_bytes(harness, Some(bytes)), Some(key_of(&meta)))
 }
 
-/// Writes a login: its folder is made 0700 when missing, the file is 0600.
-pub fn write_login(path: &Path, content: &[u8]) -> io::Result<()> {
-    write_atomic(path, content, 0o600)
+/// The file changed after it was read; the saved login is not written over it.
+pub const CHANGED_SINCE_READ: &str = "changed since it was read";
+
+/// Writes a harness's login under `home` (folders made 0700 when missing,
+/// the file 0600), never through a link, and only while the file is still
+/// the one read (`read`, `None` when it was absent).
+pub fn write_login(
+    home: &Path,
+    harness: &Harness,
+    content: &[u8],
+    read: Option<FileKey>,
+) -> io::Result<()> {
+    let rel = Path::new(harness.file);
+    let dir = login_dir(home, rel, true)?.ok_or_else(|| io::Error::other("no login folder"))?;
+    write_at(&dir, &file_name(rel)?, content, 0o600, Some(read))
 }
 
 /// A temp file in the same folder (exclusive, never through a link), fsync,
@@ -307,25 +412,55 @@ pub fn write_atomic(path: &Path, content: &[u8], mode: u32) -> io::Result<()> {
         fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     }
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.cmux-sync-{}", std::process::id()));
-    let _ = fs::remove_file(&tmp);
+    write_at(&dir_path(dir)?, &file_name(path)?, content, mode, None)
+}
+
+/// [`write_atomic`] in an open folder. With `expect`, the rename happens only
+/// while `name`'s key is still `expect` (checked right before it).
+fn write_at(
+    dir: &OwnedFd,
+    name: &CStr,
+    content: &[u8],
+    mode: u32,
+    expect: Option<Option<FileKey>>,
+) -> io::Result<()> {
+    let tmp = c_name(OsStr::new(&format!(
+        ".{}.cmux-sync-{}",
+        name.to_string_lossy(),
+        std::process::id()
+    )))?;
+    let unlink = || {
+        // SAFETY: `tmp` is NUL-terminated and `dir` is an open descriptor.
+        unsafe { libc::unlinkat(dir.as_raw_fd(), tmp.as_ptr(), 0) };
+    };
+    unlink();
     let result = (|| {
-        let mut out = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(mode)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)?;
+        let flags =
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: `tmp` is NUL-terminated and `dir` is an open descriptor.
+        let fd = fd_or_error(unsafe {
+            libc::openat(dir.as_raw_fd(), tmp.as_ptr(), flags, mode as libc::c_uint)
+        })?;
+        let mut out = File::from(fd);
         out.write_all(content)?;
         out.set_permissions(fs::Permissions::from_mode(mode))?;
         out.sync_all()?;
         drop(out);
-        fs::rename(&tmp, path)?;
-        fs::File::open(dir)?.sync_all()
+        if let Some(expect) = expect
+            && key_at(dir, name)? != expect
+        {
+            return Err(io::Error::other(CHANGED_SINCE_READ));
+        }
+        // SAFETY: both names are NUL-terminated and `dir` is an open descriptor.
+        if unsafe { libc::renameat(dir.as_raw_fd(), tmp.as_ptr(), dir.as_raw_fd(), name.as_ptr()) }
+            != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        File::from(dir.try_clone()?).sync_all()
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+        unlink();
     }
     result
 }

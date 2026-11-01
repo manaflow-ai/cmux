@@ -124,14 +124,17 @@ fn codex_login(v: &Value) -> Result<(), Refusal> {
     }
 }
 
-/// Whether any string in `v` is the CodeRouter placeholder or a route token.
+/// Whether any string in `v` (a value or a key) holds the CodeRouter
+/// placeholder or a route token anywhere in it (`"Bearer crt_..."`,
+/// `"url=crt_..."`). It fails closed: an OAuth token that happens to contain
+/// `crt_` is not sent either, and is sent once it rotates.
 fn holds_coderouter(v: &Value) -> bool {
+    let marked =
+        |s: &str| s.contains(CODEROUTER_PLACEHOLDER) || s.contains(CODEROUTER_TOKEN_PREFIX);
     match v {
-        Value::String(s) => {
-            s.contains(CODEROUTER_PLACEHOLDER) || s.starts_with(CODEROUTER_TOKEN_PREFIX)
-        }
+        Value::String(s) => marked(s),
         Value::Array(items) => items.iter().any(holds_coderouter),
-        Value::Object(map) => map.values().any(holds_coderouter),
+        Value::Object(map) => map.iter().any(|(k, v)| marked(k) || holds_coderouter(v)),
         _ => false,
     }
 }

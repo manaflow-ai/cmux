@@ -10,7 +10,9 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::harness_login::*;
-use super::harness_login_thread::{Api, Pass, Setup, Syncer, read_login, write_atomic};
+use super::harness_login_thread::{
+    Api, CHANGED_SINCE_READ, Pass, Setup, Syncer, read_login, write_atomic, write_login,
+};
 use super::trajectory::encode_base64;
 use super::wire::Env;
 
@@ -110,6 +112,14 @@ fn a_coderouter_login_is_never_sent() {
     let nested =
         json!({ "tokens": { "a": ["x", { "b": format!("Bearer {CODEROUTER_PLACEHOLDER}") }] } });
     assert_eq!(codex_h.check(nested.to_string().as_bytes()), Err(Refusal::CodeRouter));
+    // A route token anywhere in a string, or in a key, is refused too.
+    for embedded in [
+        json!({ "tokens": { "access_token": "Bearer crt_secret" } }),
+        json!({ "tokens": { "access_token": "x", "url": "https://r.example/?k=crt_secret" } }),
+        json!({ "tokens": { "access_token": "x", "crt_secret": true } }),
+    ] {
+        assert_eq!(codex_h.check(embedded.to_string().as_bytes()), Err(Refusal::CodeRouter));
+    }
     // A refused file is never sent and never replaced.
     let mut state = SyncState::default();
     let local = Local::from_bytes(claude_h, Some(placeholder.to_string().into_bytes()));
@@ -595,12 +605,69 @@ fn a_link_is_never_followed() {
     let file = setup.home.join(".claude/.credentials.json");
     fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(&target, &file).unwrap();
-    let (local, _) = read_login(harness("claude").unwrap(), &file);
+    let (local, _) = read_login(harness("claude").unwrap(), &setup.home);
     assert_eq!(local, Local::Unreadable);
     let mut server = FakePlatform::default();
     let mut sync = Syncer::new(setup, no_log);
     sync.scan(&mut server);
     assert!(server.puts.is_empty());
+}
+
+/// A `.claude` folder that is a link (to a team home, say) is never read
+/// through, and a saved login is never written through it.
+#[test]
+fn a_linked_folder_is_never_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup_in(dir.path());
+    fs::create_dir_all(&setup.home).unwrap();
+    fs::create_dir_all(setup.state_file.parent().unwrap()).unwrap();
+    let team = dir.path().join("claude-team");
+    fs::create_dir_all(&team).unwrap();
+    std::os::unix::fs::symlink(&team, setup.home.join(".claude")).unwrap();
+    // A team login behind the link is neither read nor sent.
+    fs::write(team.join(".credentials.json"), claude("team")).unwrap();
+    let (local, _) = read_login(harness("claude").unwrap(), &setup.home);
+    assert_eq!(local, Local::Unreadable);
+    let mut server = FakePlatform::default();
+    let mut sync = Syncer::new(setup, no_log);
+    sync.scan(&mut server);
+    assert!(server.puts.is_empty());
+    // A saved login is not written into the linked folder.
+    fs::remove_file(team.join(".credentials.json")).unwrap();
+    server.saved.insert("claude".to_owned(), (1, Some(claude("mine"))));
+    sync.pull(&mut server);
+    assert!(fs::read_dir(&team).unwrap().next().is_none());
+}
+
+/// A sign-in or token refresh between the pull's read and its write wins:
+/// the saved login is not written over it.
+#[test]
+fn a_login_changed_after_the_read_is_not_overwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let claude_h = harness("claude").unwrap();
+    let file = home.join(".claude/.credentials.json");
+    write_atomic(&file, &claude("old"), 0o600).unwrap();
+    let (_, read) = read_login(claude_h, &home);
+    assert!(read.is_some());
+    write_atomic(&file, &claude("refreshed"), 0o600).unwrap();
+    let err = write_login(&home, claude_h, &claude("saved"), read).unwrap_err();
+    assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+    assert_eq!(fs::read(&file).unwrap(), claude("refreshed"));
+    // Read as absent, then a sign-in lands: not overwritten either.
+    let fresh = dir.path().join("fresh");
+    let (local, read) = read_login(claude_h, &fresh);
+    assert_eq!((local, read), (Local::Absent, None));
+    write_atomic(&fresh.join(".claude/.credentials.json"), &claude("signed-in"), 0o600).unwrap();
+    assert!(write_login(&fresh, claude_h, &claude("saved"), read).is_err());
+    assert_eq!(fs::read(fresh.join(".claude/.credentials.json")).unwrap(), claude("signed-in"));
+    // Unchanged since the read: written, with no temp file left.
+    let (_, read) = read_login(claude_h, &home);
+    write_login(&home, claude_h, &claude("saved"), read).unwrap();
+    assert_eq!(fs::read(&file).unwrap(), claude("saved"));
+    let names: Vec<_> =
+        fs::read_dir(file.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names, [".credentials.json"]);
 }
 
 #[test]
