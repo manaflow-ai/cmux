@@ -306,8 +306,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertEqual([step.get("id") for step in mints], ["route-token"])
         self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
         self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
-                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read",
-                          "permission-actions": "read"})
+                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read"})
         for name, job in self.jobs.items():
             if name != "pick":
                 self.assertNotIn("secrets.", json.dumps(job), name)
@@ -321,6 +320,9 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
             for scope, level in (job.get("permissions") or {}).items():
                 self.assertEqual(allowed.get(scope), level, f"{name}: {scope}: {level}")
         self.assertEqual(self.jobs["smoke"]["permissions"], {"contents": "read"})
+        pick_steps = {step.get("id"): step for step in self.jobs["pick"]["steps"]}
+        self.assertEqual(pick_steps["in-flight"]["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(pick_steps["place"]["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
 
     def test_it_never_cancels_and_its_mac_job_routes_owned_first(self) -> None:
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*true")

@@ -165,7 +165,7 @@ class Workflow(unittest.TestCase):
         # The previous attempt's jobs, to skip the minis that failed one.
         for mint in ("route-token", "route-token-repo"):
             mint_step = next(step for step in spec["steps"] if step.get("id") == mint)
-            self.assertEqual(mint_step["with"]["permission-actions"], "read", mint)
+            self.assertNotIn("permission-actions", mint_step["with"], mint)
         place = next(step for step in spec["steps"] if step.get("id") == "place")
         self.assertEqual(place["run"], "python3 scripts/ci/admission_placement.py")
         self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
