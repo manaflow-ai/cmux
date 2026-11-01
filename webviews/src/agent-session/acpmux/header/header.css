@@ -56,7 +56,7 @@
 .acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
-.acpmux-thread-title{display:block;min-width:0;max-width:min(44vw,360px);padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+.acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
 .acpmux-header[data-tab-row] .acpmux-thread-title{max-width:min(24vw,230px);font-size:var(--text-detail)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
