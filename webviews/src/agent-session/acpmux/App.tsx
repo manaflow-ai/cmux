@@ -3658,8 +3658,9 @@ export function VirtualTranscript({
   const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
   // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
-  // floating stack, which the room keeps however tall the stack grows. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
-  // band here; the pinned-bottom layout below already follows streaming growth before paint.
+  // floating stack, which the room keeps however tall the stack grows. The old permanent
+  // TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank band here; the pinned-bottom
+  // layout below already follows streaming growth before paint.
   // What the reader opens or folds in the running tray moves no row (Leo, 2026-11-01: "there's a
   // layout shift when i expand it"): what it opens lies over the transcript's foot, as a menu over
   // the composer would, and the room under the last row keeps what it was (`trayHold`, the tray's

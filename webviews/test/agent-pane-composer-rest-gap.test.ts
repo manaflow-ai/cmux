@@ -211,9 +211,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
   /// Installed before the page's own scripts. `__restGap()` reads the gap as laid out now: the stack's
   /// top (its first drawn part: the tray, a queue, or the composer card) less the bottom of the newest
   /// row's line (its action row or live line; not the turn gap the row keeps). `__frames` holds it
-  /// for every painted frame from the first that draws both: read in a ResizeObserver made after the
-  /// pane's own observers (which place the rows and the room under them before paint), on a probe
-  /// resized in each frame's callbacks, so each read is of the layout that frame paints.
+  /// for every painted frame from the first that draws both, read after the frame has painted
+  /// (`cmuxAfterPaint`, test/support/paintedFrames.ts).
   const sampler = () => {
     const w = window as unknown as {
       __restGap: () => number | undefined;
@@ -250,24 +249,14 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     w.__frames = [];
     const start = () => {
       if (!document.querySelector(".acpmux-scroll .acpmux-row") || !document.querySelector(".acpmux-dock")) return false;
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
-      document.body.append(probe);
-      new ResizeObserver(() => {
+      // Each painted frame's gap, read after the frame (test/support/paintedFrames.ts).
+      window.cmuxAfterPaint(() => {
         const gap = w.__restGap();
         if (gap !== undefined) w.__frames.push({ t: Math.round(performance.now()), gap: Math.round(gap * 10) / 10 });
-      }).observe(probe);
-      let wide = false;
-      const frame = () => {
-        wide = !wide;
-        probe.style.width = wide ? "2px" : "1px";
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+      });
       return true;
     };
-    // The first rows mount in a React commit whose layout effects make the pane's observers; this
-    // observer's callback runs after that commit, so the probe's observer comes after the pane's.
+    // Sampling starts once the first rows and the stack are in the page.
     const mutations = new MutationObserver(() => {
       if (start()) mutations.disconnect();
     });
