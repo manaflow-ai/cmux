@@ -1878,14 +1878,15 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params("generation must be a number"));
             }
             let generation = params.get("generation").and_then(Value::as_u64);
-            let (turn_id, queued, accepted) = s
-                .prepare_turn(prompt_id, generation)
+            let attempt_id = params.get("attempt_id").and_then(Value::as_str).unwrap_or(prompt_id);
+            let (turn_id, queued, accepted, generation, attempt_id) = s
+                .prepare_turn(prompt_id, generation, attempt_id)
                 .await
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             if accepted {
-                Ok(json!({"accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}))
+                Ok(json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}))
             } else {
-                Ok(json!({"session": s.id, "turn": turn_id, "queued": queued}))
+                Ok(json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "queued": queued}))
             }
         }
         method::AGENT_SESSION_TURN_ABANDON => {

@@ -80,24 +80,24 @@ fn receive(hub: &Hub, session: &Session, id: &str) -> bool {
 async fn cloud_turn_prepare_replays_and_serializes_fifo_ids() {
     let (hub, _) = hub();
     let session = session(&hub);
-    let (first, queued, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
+    let (first, queued, replay, _, _) = session.prepare_turn("p1", Some(1), "a1").await.unwrap();
     assert!(!queued && !replay);
-    let (again, _, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
+    let (again, _, replay, _, _) = session.prepare_turn("p1", Some(1), "a1").await.unwrap();
     assert_eq!(again, first);
     assert!(!replay, "pending reservation is not accepted yet");
     session.accept_prepared("p1", &first);
-    let (accepted, accepted_queued, replay) = session.prepare_turn("p1", Some(1)).await.unwrap();
+    let (accepted, accepted_queued, replay, _, _) = session.prepare_turn("p1", Some(1), "a1").await.unwrap();
     assert!(replay);
     assert_eq!((accepted, accepted_queued), (first, false));
-    let (abandoned, _, _) = session.prepare_turn("p2", Some(1)).await.unwrap();
+    let (abandoned, _, _, _, _) = session.prepare_turn("p2", Some(1), "a2").await.unwrap();
     assert!(session.abandon_prepared("p2"));
-    let (retry, _, replay) = session.prepare_turn("p2", Some(1)).await.unwrap();
+    let (retry, _, replay, _, _) = session.prepare_turn("p2", Some(1), "a2").await.unwrap();
     assert_eq!(retry, abandoned);
     assert!(!replay);
-    let (next, _, _) = session.prepare_turn("p3", Some(1)).await.unwrap();
+    let (next, _, _, _, _) = session.prepare_turn("p3", Some(1), "a3").await.unwrap();
     assert_ne!(next, abandoned);
-    assert!(session.prepare_turn("stale", Some(0)).await.is_err());
-    let (fresh, _, _) = session.prepare_turn("fresh", Some(2)).await.unwrap();
+    assert!(session.prepare_turn("stale", Some(0), "a0").await.is_err());
+    let (fresh, _, _, _, _) = session.prepare_turn("fresh", Some(2), "a4").await.unwrap();
     assert_ne!(fresh, next, "new generation clears old reservations");
 }
 

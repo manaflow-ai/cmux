@@ -18,6 +18,8 @@ pub(super) struct PreparedTurn {
     pub(super) turn_id: String,
     pub(super) queued: bool,
     pub(super) abandoned: bool,
+    pub(super) attempt_id: String,
+    pub(super) generation: u64,
 }
 
 pub struct Session {
@@ -301,7 +303,7 @@ impl Session {
         self.queue_moved.notified().await;
     }
 
-    pub(crate) async fn prepare_turn(&self, prompt_id: &str, generation: Option<u64>) -> anyhow::Result<(String, bool, bool)> {
+    pub(crate) async fn prepare_turn(&self, prompt_id: &str, generation: Option<u64>, attempt_id: &str) -> anyhow::Result<(String, bool, bool, u64, String)> {
         let requested_generation = generation;
         if let Some(generation) = generation {
             let current = self.cloud_generation.load(Ordering::SeqCst);
@@ -329,7 +331,7 @@ impl Session {
                     .find(|p| p.prompt_id == prompt_id)
                     .cloned()
                 {
-                    return Ok((done.turn_id, done.queued, true));
+                    return Ok((done.turn_id, done.queued, true, done.generation, done.attempt_id));
                 }
                 if let Some(existing) = pending.iter().find(|p| p.prompt_id == prompt_id) {
                     if existing.abandoned
@@ -337,14 +339,14 @@ impl Session {
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return Ok((existing.turn_id.clone(), existing.queued, false));
+                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, existing.attempt_id.clone()));
                     }
                     if pending.iter().find(|p| !p.abandoned).is_some_and(|p| p.prompt_id == prompt_id)
                         && self.turn().is_none()
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return Ok((existing.turn_id.clone(), existing.queued, false));
+                        return Ok((existing.turn_id.clone(), existing.queued, false, existing.generation, existing.attempt_id.clone()));
                     }
                 } else {
                     let queued = self.turn().is_some()
@@ -356,6 +358,8 @@ impl Session {
                         turn_id: uuid::Uuid::now_v7().to_string(),
                         queued,
                         abandoned: false,
+                        attempt_id: attempt_id.to_owned(),
+                        generation: generation.unwrap_or_else(|| self.cloud_generation.load(Ordering::SeqCst)),
                     });
                     let first = pending
                         .iter()
@@ -367,7 +371,7 @@ impl Session {
                         && self.queue().iter().all(|q| q.held)
                         && self.queued() == 0
                     {
-                        return Ok((first.turn_id, first.queued, false));
+                        return Ok((first.turn_id, first.queued, false, first.generation, first.attempt_id));
                     }
                 }
             }
