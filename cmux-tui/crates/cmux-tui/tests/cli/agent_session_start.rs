@@ -8,7 +8,6 @@
 //! environment (`CMUX_AGENT_START_HOST`), which can only make the daemon
 //! stricter than what it detects.
 
-use std::os::unix::fs::DirBuilderExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc;
 
@@ -475,10 +474,10 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 /// automatically". On the caller's own Cloud VM (the owner word; on a team VM
 /// the creator's) a new chat with no folder of the person's own, which the
 /// app sends as the workspace's first terminal folder (`$HOME` on a new
-/// machine), starts in its own folder `~/chats/<chat id>` (#30363), made for
-/// it, with no trust question; the machine's work folder still reads trusted.
-/// A person's "Don't trust" still wins, and a machine that is not a Cloud VM
-/// keeps the home folder rule.
+/// machine), starts in a private folder of its own, `~/chats/<chat id>`
+/// (#30363), which reads trusted with no question (`cloud_chat`); the work
+/// folder still reads trusted too. A person's "Don't trust" still wins, and a
+/// machine that is not a Cloud VM keeps the home folder rule.
 #[test]
 fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folder() {
     let start_at_home = |daemon: &Daemon, surface: u64| {
@@ -501,9 +500,9 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folde
                                  "cwd": work.to_str().unwrap()}));
         assert_eq!(read["ok"], false, "{kind}: {read}");
         fs::remove_dir(&work).unwrap();
-        // The start at the home folder runs in the chat's own folder (made for it), with no
-        // question.
-        let chat = vm.dir.join("home/chats").join(surface.to_string());
+        // The start at the home folder runs in a fresh folder of its own, `~/chats/<chat id>`
+        // (made for it, #30363), with no question; the work folder is not made.
+        let chat = vm.dir.join(format!("home/chats/{surface}"));
         let started = start_at_home(&vm, surface);
         if kind == "owner" {
             assert_eq!(started["ok"], true, "{kind}: {started}");
@@ -513,6 +512,18 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folde
             assert_eq!(started["error_code"], "agent_session.not_asking", "{kind}: {started}");
         }
         assert!(chat.is_dir(), "{kind}: the chat folder was not made");
+        assert!(!work.exists(), "{kind}: a chat with a folder of its own made the work folder");
+        let mode = fs::metadata(&chat).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{kind}: the chat folder is not private");
+        let read = vm.rpc(json!({"id": 44, "cmd": "agent-session-trust", "surface": surface,
+                                 "cwd": chat.to_str().unwrap(), "vm_kind": "owner"}));
+        assert_eq!(read["data"]["level"], "trusted", "{kind}: {read}");
+        assert_eq!(read["data"]["auto"], "cloud_chat", "{kind}: {read}");
+        // Another chat gets another folder.
+        let other = vm.own_agent_tab();
+        assert_ne!(other, surface);
+        start_at_home(&vm, other);
+        assert!(vm.dir.join(format!("home/chats/{other}")).is_dir(), "{kind}: one folder per chat");
         // Another folder of that machine still asks.
         let surface = vm.own_agent_tab();
         let reply = vm.start_chat_as(surface, "owner");
@@ -522,8 +533,11 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folde
     // The person's "Don't trust" for the chat's folder wins over the rule.
     let vm = Daemon::start_cloud("ownworknot", "owner");
     let surface = vm.own_agent_tab();
-    let chat = vm.dir.join("home/chats").join(surface.to_string());
-    fs::DirBuilder::new().recursive(true).mode(0o700).create(&chat).unwrap();
+    let chat = vm.dir.join(format!("home/chats/{surface}"));
+    fs::create_dir_all(&chat).unwrap();
+    for folder in [chat.parent().unwrap(), chat.as_path()] {
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let set = vm.rpc(json!({"id": 43, "cmd": "agent-session-trust", "surface": surface,
                             "cwd": chat.to_str().unwrap(), "level": "untrusted", "vm_kind": "owner"}));
     assert_eq!(set["ok"], true, "{set}");

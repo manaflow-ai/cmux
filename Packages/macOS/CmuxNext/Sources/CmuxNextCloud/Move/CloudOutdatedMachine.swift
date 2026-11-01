@@ -5,7 +5,8 @@
 /// first handshake queued may not have run yet. A chat start's copy (`cmux link start-chat copy`)
 /// refused that way updates the machine to the app's own build and copies once more (``copy(_:answer:update:)``),
 /// instead of failing the person's first send with "Update the machine".
-public enum CloudOutdatedMachine {
+public struct CloudOutdatedMachine {
+    public init() {}
     /// The CLIs' error code for a daemon too old for the verb.
     public static let code = "machine_outdated"
 

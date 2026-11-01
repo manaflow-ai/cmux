@@ -401,6 +401,7 @@ impl TurnInfo {
         control: Control,
     ) -> Self {
         TurnInfo {
+            trigger: false,
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
