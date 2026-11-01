@@ -47,7 +47,7 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
                                "closeWorkspace"])

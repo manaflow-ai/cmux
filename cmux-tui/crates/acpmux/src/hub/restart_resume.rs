@@ -713,19 +713,20 @@ mod tests {
             "{msg}"
         );
 
-        // A loop longer than the default's four runs all of its attempts.
+        // A configured six-attempt loop runs all of its attempts.
         let (id, gave_up) = chain(Some(vec![10_000; 6]), 5).await;
         assert_eq!(id, Some(format!("p1{SUFFIX}6")));
         assert!(gave_up.is_empty(), "{gave_up:?}");
     }
 
-    /// The key unset keeps the default waits' four attempts, and `[]` still turns it off.
+    /// The key unset keeps the default waits' attempts, and `[]` still turns it off.
     #[tokio::test]
     async fn an_unset_key_keeps_the_default_attempts_and_an_empty_list_turns_it_off() {
-        let (id, _) = chain(None, 3).await;
-        assert_eq!(id, Some(format!("p1{SUFFIX}4")));
+        let attempts = DEFAULT_DELAYS_MS.len();
+        let (id, _) = chain(None, attempts - 1).await;
+        assert_eq!(id, Some(format!("p1{SUFFIX}{attempts}")));
 
-        let (id, gave_up) = chain(None, 4).await;
+        let (id, gave_up) = chain(None, attempts).await;
         assert_eq!(id, None);
         assert_eq!(gave_up.len(), 1, "{gave_up:?}");
 

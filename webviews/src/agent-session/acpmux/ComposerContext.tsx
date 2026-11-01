@@ -178,7 +178,7 @@ export function ComposerContext({
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
-  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  /// alone names where the chat starts: the folder control steps aside.
   saved?: SavedEnvironmentRows;
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
@@ -460,12 +460,6 @@ export function ComposerContext({
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
-  // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
-  // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
-  const worktree =
-    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
-      ? () => onNewWorktree(currentFolder)
-      : undefined;
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
@@ -503,9 +497,7 @@ export function ComposerContext({
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
-              onNewWorktree={
-                !worktree && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
-              }
+              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
@@ -544,13 +536,6 @@ export function ComposerContext({
                   onProject?.(cwd, selectedComputer === "local" || ownMachine ? undefined : selectedComputer);
               }}
             />
-          )}
-          {worktree && (
-            <span className="acpmux-location-picker">
-              <button type="button" className="acpmux-location-button ui-ghost ui-ghost-sm" onClick={worktree}>
-                <LocationFace icon={<BranchIcon />} value={t("worktree.new")} chevron={false} />
-              </button>
-            </span>
           )}
           {environmentsShown ? (
             <EnvironmentPicker
