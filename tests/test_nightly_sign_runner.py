@@ -455,7 +455,8 @@ class OwnedVerify(unittest.TestCase):
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              "|| github.ref_name == 'nightly-next' && github.run_attempt > 1 "
+                              "|| github.ref_name == 'nightly-next' && github.run_attempt == 2 "
+                              "&& needs.pick-nightly-sign-runner.outputs.attempt == 1 "
                               "&& vars.CI_PR_POOL_OWNED == '1' && "
                               "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
                               "|| github.run_attempt > 1 && "
@@ -488,12 +489,15 @@ class OwnedVerify(unittest.TestCase):
         cases = (
             ({}, "glaeda-nightly-std-xcode-26.6", "fleet"),
             ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "fleet"),
+            ({"github.run_attempt": "3"}, LARGE, "overflow"),
+            ({"github.run_attempt": "4"}, LARGE, "overflow"),
             ({"vars.CI_PR_POOL_OWNED": "0"}, LARGE, "overflow"),
             ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, LARGE, "overflow"),
             ({"github.ref_name": "main"}, LARGE, "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
             ({"github.run_attempt": "1", self.OWNED: ""}, SMALL, "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, LARGE, "overflow"),
             ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
              "glaeda-side-light-xcode-26.6", "fleet"),
         )
