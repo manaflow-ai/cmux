@@ -435,9 +435,12 @@ impl Hub {
         // with `interrupt` stops nothing (`inbox.rs`; Leo, 2026-11-01: "why do the x messages
         // from y sessions seem to always piggyback on my messages instead of going on their
         // own"). Checked again as the steer is written (`steer_end.rs`).
+        // A sub-session family message still goes in: the chat's own sub-session reporting to
+        // the turn that started it, not another session's message.
         let persons_held = from_agent
             && running.as_ref().is_some_and(|t| t.persons)
-            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
