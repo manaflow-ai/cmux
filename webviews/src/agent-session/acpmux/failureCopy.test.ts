@@ -69,7 +69,8 @@ test("a Claude sign-in failure on a team Cloud machine says it takes no personal
   const t = ((key: string) => key) as Translate;
   const team = { hostKind: "cloud" as const, harness: "claude", teamMachine: true };
   const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
-  for (const message of [rejected, "Not logged in · Please run /login", "Claude Code provider credentials are missing"]) {
+  const signIns = [rejected, "Not logged in · Please run /login", "Claude Code provider credentials are missing"];
+  for (const message of signIns) {
     const kind = failureKind(message, team);
     expect(isTeamMachineSignIn(kind, team), message).toBe(true);
     expect(failureCopy(t, message, team)).toBe("turn.failure.cloudTeamMachineNoLogin");

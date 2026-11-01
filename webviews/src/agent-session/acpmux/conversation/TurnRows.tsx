@@ -306,7 +306,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const [retryNote, setRetryNote] = useState<RetryNote>();
   const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
   const automaticRecoveryRow =
-    failed && !teamMachine && row.retryable === true && row.retryRowId && prompt && isCloudRejectedCredential(row.error, route)
+    failed &&
+    !teamMachine &&
+    row.retryable === true &&
+    row.retryRowId &&
+    prompt &&
+    isCloudRejectedCredential(row.error, route)
       ? row.retryRowId
       : undefined;
   useEffect(() => {
