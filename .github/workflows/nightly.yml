@@ -824,7 +824,10 @@ jobs:
           SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           ROUTE_TOKEN: ${{ steps.early-route-token.outputs.token }}
           SNAPSHOT_TOKEN: ${{ github.token }}
+        # Receipt mode reads the controller's published receipt once after a fixed wait; started
+        # early it would usually miss and sleep, so it keeps running inline in place-early.
         run: |
+          [ "$CHECK_RECEIPTS" = 1 ] && exit 0
           state="$RUNNER_TEMP/early-linux-admission"
           ( set +e
             GITHUB_OUTPUT="$state.out" GITHUB_STEP_SUMMARY="$state.summary" \
