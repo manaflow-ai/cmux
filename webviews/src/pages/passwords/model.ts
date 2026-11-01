@@ -14,7 +14,10 @@ export interface SiteGroup {
  * to `i`.
  */
 function fold(text: string): string {
-  return text.replace(/\u0130/g, "i").toLowerCase().replace(/i\u0307/g, "i");
+  return text
+    .replace(/\u0130/g, "i")
+    .toLowerCase()
+    .replace(/i\u0307/g, "i");
 }
 
 /** Folded tokens of a query; every token must match. */
