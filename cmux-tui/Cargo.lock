@@ -20,6 +20,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server",

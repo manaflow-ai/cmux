@@ -1249,7 +1249,6 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--agent-text);
   background: transparent;
   text-align: left;
-  cursor: pointer;
 }
 .acpmux-cloud-repository-option:hover,
 .acpmux-cloud-repository-option:focus-visible {
