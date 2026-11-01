@@ -118,8 +118,15 @@ impl Backend for Runtime<'_> {
         let mut cursor: Option<String> = None;
         let mut seen = HashSet::new();
         let mut catalog = Catalog::default();
+        let deadline = Instant::now() + Duration::from_secs(45);
         // A repeated cursor is an upstream error, never an infinite scan.
         for _ in 0..100 {
+            if Instant::now() >= deadline {
+                return Err(Failure::new(
+                    "seed.clone_failed",
+                    "Repository discovery timed out. Narrow the repository search and retry.",
+                ));
+            }
             let mut ask = json!({});
             if let Some(q) = query {
                 ask["query"] = json!(q);
@@ -197,13 +204,12 @@ impl Backend for Runtime<'_> {
         let name = repo.rsplit('/').next().ok_or_else(transport_error)?;
         let folder = self.home.join("chats").join(session).join(name);
         let key = format!("{session}/{}", name.to_ascii_lowercase());
-        let lock = ADDS
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(key)
-            .or_default()
-            .clone();
+        let lock = {
+            let mut locks =
+                ADDS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+            locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+            locks.entry(key).or_default().clone()
+        };
         let _guard = lock.try_lock().map_err(|_| {
             Failure::new(
                 "seed.clone_failed",

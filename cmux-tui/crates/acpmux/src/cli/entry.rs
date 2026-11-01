@@ -395,9 +395,15 @@ mod tests {
 
     #[test]
     fn a_stdio_mcp_server_runs_on_a_small_runtime() {
-        for name in
-            ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"]
-        {
+        for name in [
+            "acpmux-mcp",
+            "subsession-mcp",
+            "forum-mcp",
+            "offer-mcp",
+            "secret-mcp",
+            "cua-mcp",
+            "repo-mcp",
+        ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }

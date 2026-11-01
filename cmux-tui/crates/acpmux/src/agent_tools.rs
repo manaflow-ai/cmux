@@ -728,7 +728,7 @@ impl AgentTools {
                 crate::cloud_repo_mcp::SERVER_NAME => Some(crate::cloud_repo_mcp::SESSION_ENV),
                 _ => None,
             };
-            if let Some(key) = session_env {
+            if session_env.is_some() {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
                     (

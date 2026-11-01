@@ -5,7 +5,6 @@
 //! supplied by tool arguments.
 
 use crate::client::Client;
-use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -20,11 +19,9 @@ pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
 
-/// Cloud machines are marked by the image, with an env override useful for
-/// tests and for hosted Cloud images before `/etc/cmux/vm-kind` is mounted.
+/// Cloud machines are marked by the image, with an trusted image marker; tests can inject a marker in a fixture image.
 pub fn is_cloud_machine() -> bool {
-    std::env::var("ACPMUX_CLOUD_VM").ok().as_deref() == Some("1")
-        || std::path::Path::new("/etc/cmux/vm-kind").exists()
+    std::path::Path::new("/etc/cmux/vm-kind").exists()
 }
 
 fn tools() -> Value {
@@ -112,7 +109,7 @@ async fn run_cli(action: &str, request: Value) -> Result<Value, String> {
     let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
     let mut command = tokio::process::Command::new(binary);
     command.kill_on_drop(true).arg("--json");
-    if let Some(socket) = std::env::var_os("CMUX_SOCKET") {
+    if let Some(socket) = std::env::var_os("CMUX_SOCKET_PATH") {
         command.args(["--socket", &socket.to_string_lossy()]);
     }
     command.args([
@@ -154,6 +151,14 @@ async fn run_cli(action: &str, request: Value) -> Result<Value, String> {
             if let Some(data) = value.get("data") {
                 return Ok(data.clone());
             }
+            // `cmux --json` wraps a rejected machine reply as error_code/error;
+            // restore the shared flat typed action result for the agent.
+            if value.get("error_code").is_some() {
+                return Ok(json!({
+                    "code": value["error_code"].as_str().unwrap_or("repo.unavailable"),
+                    "message": value["error"].as_str().unwrap_or("Reconnect to the Cloud machine and retry.")
+                }));
+            }
         }
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -173,8 +178,8 @@ fn args_object(params: &Value) -> Result<Value, Value> {
     }
 }
 
-pub async fn call(daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
-    let mut args = match args_object(params) {
+pub async fn call(_daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
+    let args = match args_object(params) {
         Ok(v) => v,
         Err(v) => return v,
     };
