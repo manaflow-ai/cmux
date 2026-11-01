@@ -78,27 +78,46 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
     var capturedImages: [(time: Double, image: Image)] { lock.withLock { images } }
 
     /// Starts capturing `window` at its backing scale, one frame per display refresh or faster.
-    /// Every ScreenCaptureKit call is bounded: after its connection to replayd was interrupted
-    /// (red6 8ed4c684, cmux14: SCStreamErrorDomain -3805), the next call's continuation never
-    /// resumed and the test hung for 180 s. A call that does not answer in time throws instead.
+    /// The capture is unavailable (its server disconnected, -3805, or a call did not answer): the
+    /// case ends NOT RUN, never a pass and never a hang (lead 06:45Z). Its description says so.
+    struct Unavailable: Error, CustomStringConvertible {
+        let reason: String
+        var description: String { "NOT RUN: capture unavailable: \(reason)" }
+    }
+
+    /// Seconds any one ScreenCaptureKit call may take. Red6 8ed4c684 (cmux14) hung 180 s: replayd
+    /// disconnected (-3805) and the async bridge of the next call leaked its continuation.
     static let callLimit: Double = 10
 
     /// Starts capturing `window` at its backing scale, one frame per display refresh or faster.
-    /// A connection interrupted (-3805) is retried once after a second; a second failure throws.
+    /// A disconnect (-3805) is retried once with a fresh stream after a second; a second failure,
+    /// or a call past ``callLimit``, throws ``Unavailable``.
     @MainActor
     func start(window: NSWindow) async throws {
         do {
-            try await bounded("start the capture") { try await self.open(window) }
+            try await open(window)
         } catch let error as NSError where error.code == -3805 {
             try await Task.sleep(for: .seconds(1))
             lock.withLock { stopped = nil }
-            try await bounded("start the capture again after -3805") { try await self.open(window) }
+            do {
+                try await open(window)
+            } catch {
+                throw Unavailable(reason: "start failed twice: \(error)")
+            }
+        } catch let error as Unavailable {
+            throw error
         }
     }
 
+    /// One fresh stream on `window`. Every call goes through ScreenCaptureKit's completion handler
+    /// (not its async bridge, whose continuation leaked on a disconnect) behind ``deadline``.
     @MainActor
     private func open(_ window: NSWindow) async throws {
-        let content = try await SCShareableContent.currentProcess
+        let content = try await deadline("list this process's windows") { (done: @escaping @Sendable (Result<Handed<SCShareableContent>, any Error>) -> Void) in
+            SCShareableContent.getCurrentProcessShareableContent { content, error in
+                done(content.map { .success(Handed($0)) } ?? .failure(error ?? Failure(description: "no shareable content")))
+            }
+        }.value
         guard let target = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else {
             throw Failure(description: "ScreenCaptureKit lists no window \(window.windowNumber) of this process (\(content.windows.count) listed)")
         }
@@ -120,48 +139,59 @@ nonisolated final class WindowFrameStream: NSObject, SCStreamOutput, SCStreamDel
         configuration.ignoreShadowsSingleWindow = true
         let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: target), configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
-        try await stream.startCapture()
+        let _: Bool = try await deadline("start the capture") { done in
+            stream.startCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
+        }
         self.stream = stream
     }
 
+    /// Stops the stream (bounded; a stop that does not answer is left behind).
     @MainActor
     func stop() async {
         guard let stream else { return }
         self.stream = nil
-        try? await bounded("stop the capture") { try await stream.stopCapture() }
+        let _: Bool? = try? await deadline("stop the capture") { done in
+            stream.stopCapture { error in done(error.map { .failure($0) } ?? .success(true)) }
+        }
     }
 
-    /// `work` on the main actor, or a throw after ``callLimit`` seconds, whichever comes first;
-    /// the caller never waits on a call that does not answer.
+    /// Throws ``Unavailable`` when the stream stopped by itself during the case (a disconnect):
+    /// what it captured is not the whole animation.
+    func requireUninterrupted() throws {
+        if let error = stopError { throw Unavailable(reason: "the stream stopped during the case: \(error)") }
+    }
+
+    /// Runs `call` with a completion `done`, and returns its result, or throws ``Unavailable``
+    /// after ``callLimit`` seconds. The continuation resumes exactly once: on the result, the
+    /// error or the deadline, whichever comes first; a late callback is dropped.
     @MainActor
-    private func bounded(_ what: String, _ work: @escaping @MainActor () async throws -> Void) async throws {
-        let once = Once()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+    private func deadline<T: Sendable>(_ what: String, _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
+        let once = Once<T>()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             once.set(continuation)
-            Task { @MainActor in
-                do {
-                    try await work()
-                    once.resume(.success(()))
-                } catch {
-                    once.resume(.failure(error))
-                }
-            }
+            call { once.resume($0) }
             Task {
                 try? await Task.sleep(for: .seconds(Self.callLimit))
-                once.resume(.failure(Failure(description: "ScreenCaptureKit did not \(what) within \(Int(Self.callLimit)) s "
-                    + "(stop error: \(self.stopError ?? "none"))")))
+                once.resume(.failure(Unavailable(reason: "ScreenCaptureKit did not \(what) within \(Int(Self.callLimit)) s")))
             }
         }
     }
 
+    /// A ScreenCaptureKit result handed from its callback queue to the main actor once.
+    // crash-allow: ScreenCaptureKit makes the value and never touches it again; only the main actor reads it, after the hand-over.
+    struct Handed<T>: @unchecked Sendable {
+        let value: T
+        init(_ value: T) { self.value = value }
+    }
+
     /// Resumes a continuation once; later results are dropped.
     // crash-allow: the continuation is read and cleared under `lock` only.
-    private final class Once: @unchecked Sendable {
+    private final class Once<T: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<Void, any Error>?
-        func set(_ continuation: CheckedContinuation<Void, any Error>) { lock.withLock { self.continuation = continuation } }
-        func resume(_ result: Result<Void, any Error>) {
-            let pending = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+        private var continuation: CheckedContinuation<T, any Error>?
+        func set(_ continuation: CheckedContinuation<T, any Error>) { lock.withLock { self.continuation = continuation } }
+        func resume(_ result: Result<T, any Error>) {
+            let pending = lock.withLock { () -> CheckedContinuation<T, any Error>? in
                 defer { continuation = nil }
                 return continuation
             }

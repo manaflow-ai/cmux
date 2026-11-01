@@ -58,6 +58,7 @@ struct AnimationPixelRun {
         try await Task.sleep(for: .milliseconds(300))
         guard let rest = stream.lastImage else {
             await stream.stop()
+            try stream.requireUninterrupted()
             throw Failure(description: "\(name): ScreenCaptureKit gave no frame of the window at rest "
                 + "(\(stream.idleFrames) idle frames, stop error: \(stream.stopError ?? "none"))")
         }
@@ -85,6 +86,7 @@ struct AnimationPixelRun {
         try await Task.sleep(for: .milliseconds(300))
         sampler.stop()
         await stream.stop()
+        try stream.requireUninterrupted()
 
         var failures: [String] = []
         let shapes = stream.frameShapes

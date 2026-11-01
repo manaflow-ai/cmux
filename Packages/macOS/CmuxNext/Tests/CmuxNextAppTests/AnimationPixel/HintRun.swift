@@ -41,8 +41,10 @@ struct HintRun {
         release()
         try await Task.sleep(for: .milliseconds(Int(fadeOut.duration * 1000) + 300))
         await stream.stop()
+        try stream.requireUninterrupted()
         let frames = stream.capturedImages
         guard let first = frames.first?.image, let shown = shownImage else {
+            try stream.requireUninterrupted()
             throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame (\(stream.idleFrames) idle, stop error \(stream.stopError ?? "none"))")
         }
         var failures: [String] = []
@@ -82,8 +84,10 @@ struct HintRun {
         release()
         try await Task.sleep(for: .milliseconds(300))
         await stream.stop()
+        try stream.requireUninterrupted()
         let frames = stream.capturedImages
-        guard let first = frames.first?.image else { throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame") }
+        guard let first = frames.first?.image else { try stream.requireUninterrupted()
+            throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame") }
         var failures: [String] = []
         guard let off = try golden("off", captured: Self.image(first), failures: &failures) else { return failures }
         for frame in frames {
