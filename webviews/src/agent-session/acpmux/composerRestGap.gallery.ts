@@ -44,12 +44,15 @@ const gapIs =
     if (Math.abs(gap - want) > 1) throw new Error(`The rest gap is ${gap.toFixed(1)}px, not ${want}px`);
   };
 
-const variant = (gap: number, note: string) => ({
-  note,
-  snapshot: chat(rows),
-  documentAttributes: gap === REST_GAP ? {} : { "rest-gap": String(gap) },
-  play: gapIs(gap),
-});
+const variant = (gap: number, note: string) => {
+  const documentAttributes: Record<string, string> = gap === REST_GAP ? {} : { "rest-gap": String(gap) };
+  return {
+    note,
+    snapshot: chat(rows),
+    documentAttributes,
+    play: gapIs(gap),
+  };
+};
 
 export default agentPaneEntry({
   id: "agent-pane.composer-rest-gap",
