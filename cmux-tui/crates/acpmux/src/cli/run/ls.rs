@@ -166,6 +166,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // `--cursor` reads one page (of `--limit` rows); `--limit` alone, the newest rows up to it;
     // neither, every page.
     let paged = cursor.is_some() || limit.is_some();
+    let paged_by_cursor = cursor.is_some(); // SCRATCH
     let plan = Plan {
         size: cursor.is_some().then_some(limit).flatten().unwrap_or(PAGE_ROWS),
         want: None, // SCRATCH: every page is read, then cut to --limit below
@@ -184,7 +185,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     };
     let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
     let mut sessions = read.rows;
-    if let Some(n) = limit.filter(|_| cursor.is_none()) {
+    if let Some(n) = limit.filter(|_| !paged_by_cursor) {
         sessions.sort_by_key(|s| {
             std::cmp::Reverse(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
         });
