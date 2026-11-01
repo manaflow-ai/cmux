@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4134131101101",
+  "notes": "notes/4134131101101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31218,
+      "title": "base red: arch app_lines, move ServerReachPlan out of CmuxNextApp into CmuxNextHostedChief",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30256,
+      "title": "gallery health: check the design specs' geometry rules from the DOM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31231,
+      "title": "cmux NEXT incognito: a Run's incognito state is read as its send is issued (#31109)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30997,
+      "title": "test(cmux-next): title-case guards keep acpmux lowercase, as they keep cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30991,
+      "title": "Remote chats: model, mode and option picks reach the daemon in the order they were made",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31002,
+      "title": "test(sidebar): a lone space keeps its dot in the bottom strip (#30232)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31238,
+      "title": "base red: Sidebar Layout card keeps Appearance > Sidebar Workspaces under 16 rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31169,
+      "title": "fix(acpmux): message group head keys its sender by session, not name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31243,
+      "title": "ci(nightly sign picker): a spent routing-App read retries with GITHUB_TOKEN",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31241,
+      "title": "localization: DEV is an invariant build name (argument.value.dev)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31221,
+      "title": "refactor(find): one shared İ fold for every find; the Changes view and markdown finds use it; a test fails a find that lowercases on its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26529,
+      "title": "fix(accounts): open provider login from remote-only windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28566,
+      "title": "Add text and URL support to native tab-row tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30655,
+      "title": "Cloud start: the clone row shows the seed's live progress",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30980,
+      "title": "test(sidebar): stray switch tests no longer wait on a Core Animation fade the CI host never finishes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30984,
+      "title": "fix(sidebar): a hovered row with no tree control or chip keeps its title's width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30986,
+      "title": "test(sidebar): a cloud workspace's hover card keeps the Cloud mark over the machine's icon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30988,
+      "title": "test(sidebar): hover card suites close their card panel in teardown (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30989,
+      "title": "cmux-next tests: pin Reduce Motion and Reduce Transparency where Blacksmith VMs turn them on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30996,
+      "title": "fix(cmux-next): Compact Workspace List draws its own icon beside Compact density",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31225,
+      "title": "cmux NEXT: switch between NIGHTLY and the DEV app, both ways",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
