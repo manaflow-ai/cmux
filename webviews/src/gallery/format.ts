@@ -230,6 +230,8 @@ export type MarkdownPageVariant = VariantBase & {
   themeCSS?: string;
   /** Other files links may name (and the empty state's recents). */
   files?: Record<string, string>;
+  /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
+  find?: string;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -244,6 +246,8 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** A machine error while the loaded diff remains visible. */
+  fingerprintError?: { code: string; message: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

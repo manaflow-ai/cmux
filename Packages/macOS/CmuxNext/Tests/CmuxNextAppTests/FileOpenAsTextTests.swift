@@ -4,6 +4,7 @@ import CmuxNextBrowser
 @testable import CmuxNextApp
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextTestSupport
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -16,7 +17,7 @@ import UniformTypeIdentifiers
 /// gets Open as Text wherever its Open is: the shared file menu (Home attachments and file
 /// links), the Files pane and the Files sidebar. Every row runs one path: ``LinkOpener`` with
 /// `asText`, which ``FilePageOpener`` routes to the code editor page.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FileOpenAsTextTests {
     struct NoApps: FileAppsProviding {
         func openWithList(forFileNamed name: String, isDirectory: Bool) async -> OpenWithList { OpenWithList(defaultApp: nil, apps: []) }
@@ -31,6 +32,9 @@ struct FileOpenAsTextTests {
         ("index.html", FilePageOpener.Route.renderedPage, FilePageOpener.Route.editor),
         ("logo.svg", .renderedPage, .editor),
         ("README.md", .markdown, .editor),
+        ("notes.mdown", .editor, .editor),
+        ("notes.mkd", .editor, .editor),
+        ("notes.mkdn", .editor, .editor),
         ("main.swift", .editor, .editor),
         ("shot.png", .preview, .preview),
     ])

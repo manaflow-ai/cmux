@@ -5,7 +5,9 @@ import CmuxNextControl
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
+import CmuxNextLayout
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -25,7 +27,7 @@ nonisolated struct PlacementGalleryCaptured: Decodable, Sendable {
 /// are mirrored back and the real AppKit sidebar is saved without image edits.
 /// Both refs pass: expected order is metadata, while behavioral red/green is
 /// covered independently. Artifact: Packages/macOS/CmuxNext/placement-stale-rows-gallery.tar.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct PlacementStaleRowsGalleryTests {
     private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse

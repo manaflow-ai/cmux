@@ -1,4 +1,3 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -306,21 +305,21 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the
-/// same group, never a second one beside it. No read receipt: the message is the agent's to read.
-export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
+/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
+/// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
+/// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
+/// stuff from messages from other sessions... weird to be able to pin them etc").
+export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNode }) {
   return (
     <>
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={text} />
           <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-          <PinButton rowId={row.id} />
           {more}
         </MessageFooterRow>
       </span>
-      <PullRequestDock />
     </>
   );
 }
@@ -332,7 +331,10 @@ export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: str
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    <div className="cv-turn-actions cv-reply-actions">
+    // Over a status row this line is the reply's whole bottom room (conversation.css
+    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
+    // can start from (gutterSelect.ts).
+    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
       <span className="cv-turn-action-group">
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
@@ -340,7 +342,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
-      <PullRequestDock />
     </div>
   );
 }
