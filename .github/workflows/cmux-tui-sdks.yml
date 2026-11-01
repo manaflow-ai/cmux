@@ -33,6 +33,7 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_musl_build.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   pull_request:
@@ -65,6 +66,7 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_musl_build.py"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   workflow_dispatch:
@@ -168,6 +170,9 @@ jobs:
       - name: Test TUI package artifact contract
         run: python3 tests/test_tui_package_contract.py
 
+      - name: Test TUI Linux musl linker selection
+        run: python3 tests/test_tui_musl_build.py
+
       - name: Test TUI npm artifact transfer contract
         run: python3 tests/test_tui_npm_package_artifact.py
 
@@ -180,6 +185,60 @@ jobs:
             -s cmux-tui/bindings/conformance \
             -p 'test_*.py' \
             -v
+
+  # Exercise the release linker on PRs without building the full application
+  # or coupling this regression to npm/PyPI packaging and artifact transfers.
+  linux-musl:
+    name: Linux musl allocator (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          - target: aarch64-unknown-linux-musl
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
+    env:
+      MUSL_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: bash scripts/ci/init-submodule.sh ghostty
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install musl build tools
+        working-directory: cmux-tui
+        run: |
+          rustup target add "$MUSL_TARGET"
+          cargo install --locked cargo-zigbuild@0.20.0
+
+      - name: Test Linux release allocator retention
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          retention_dir="$RUNNER_TEMP/cmux-allocator-retention"
+          ./scripts/build-tui-musl.sh "$MUSL_TARGET" \
+            --manifest-path test-fixtures/allocator-retention/Cargo.toml \
+            --release --locked --target-dir "$retention_dir"
+          "$retention_dir/$MUSL_TARGET/release/allocator-retention"
 
   packages:
     name: ${{ matrix.language }} package

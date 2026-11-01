@@ -268,9 +268,9 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-relay --bin cmux-relay --release --locked
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p chatmux-relay --bin chatmux-relay --release --locked
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -310,9 +310,9 @@ jobs:
           # plugin can reuse SDK dependencies from the TUI build.
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
           if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
-            cargo zigbuild \
+            ./scripts/build-tui-musl.sh "$AGENT_PLUGIN_TARGET" \
               --manifest-path "$plugin_manifest" \
-              --release --locked --target "$AGENT_PLUGIN_TARGET"
+              --release --locked
           else
             cargo build \
               --manifest-path "$plugin_manifest" \

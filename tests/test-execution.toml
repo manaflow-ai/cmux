@@ -1117,6 +1117,10 @@ path = "tests/test_tui_package_contract.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tui_musl_build.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_lab.py"
 lane = "linux-guard"
 
