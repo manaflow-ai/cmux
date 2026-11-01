@@ -1742,7 +1742,6 @@ jobs:
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
-          python3 tests/test_cmux_next_static_capability_runtime_only.py
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py

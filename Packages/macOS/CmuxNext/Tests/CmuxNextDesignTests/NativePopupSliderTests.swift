@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct NativePopupSliderTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NativePopupSliderTests {
     private func descriptor(style: NativePopupSliderStyle = .accent) -> NativePopupSlider {
         NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
                                  NativePopupSliderStop(value: "high", label: "High", description: "More careful", accessibilityLabel: "High, recommended")],
@@ -28,7 +29,7 @@ import Testing
         #expect(values.isEmpty)
         #expect(view.slider.doubleValue == 1)
         #expect(view.currentLabel.stringValue == "High")
-        #expect(view.currentLabel.toolTip == "More careful")
+        #expect(view.currentLabel.themedToolTip == "More careful")
         #expect(view.slider.accessibilityLabel() == "Effort")
         #expect(view.slider.accessibilityValueDescription() == "High, recommended")
         view.slider.keyDown(with: key(36))
@@ -61,7 +62,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let model = NativePopupModel(schemaVersion: 1, id: "numeric", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
                                      side: .bottom, align: .start, width: 320,
@@ -95,7 +96,7 @@ import Testing
         let content = NativePopupContent()
         window.contentView = content
         window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let spec = descriptor()
         var model = NativePopupModel(schemaVersion: 1, id: "effort", revision: 1,
                                      anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),

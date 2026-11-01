@@ -51,7 +51,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
+import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -649,7 +649,13 @@ function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): Queu
 /// preview) never sets it, whatever its preview looks like. `listedRevision` is the newest revision
 /// acpmux named anywhere; `updating` (not approvable) holds while the record the pane has is older
 /// than it, or there is none.
-type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number; turnId?: string };
+type Hold = {
+  awaitingOwner?: boolean;
+  revision?: number;
+  updating?: boolean;
+  listedRevision?: number;
+  turnId?: string;
+};
 const heldHold = (
   awaitingOwner: boolean | undefined,
   revision: number | undefined,
@@ -675,7 +681,12 @@ function listedHold(entry: any, had: QueuedPrompt | undefined): Hold {
   const awaitingOwner = typeof entry?.awaitingOwner === "boolean" ? entry.awaitingOwner : had?.awaitingOwner;
   const listed = typeof entry?.revision === "number" ? entry.revision : -1;
   const turnId = typeof entry?.turnId === "string" && entry.turnId ? entry.turnId : had?.turnId;
-  return heldHold(awaitingOwner, had?.revision, Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1), turnId);
+  return heldHold(
+    awaitingOwner,
+    had?.revision,
+    Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1),
+    turnId,
+  );
 }
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
@@ -6497,12 +6508,13 @@ export class AcpmuxDirectClient {
     }
     const blocks = promptBlocks(input, carried, options);
     const inline = inlinePrompt(input, carried);
+    const isFrame = frameTextOf(imageNames(blocks));
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
             // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFramesNote(block.text)) return shown;
+            if (block.type !== "text" || isFrame(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
