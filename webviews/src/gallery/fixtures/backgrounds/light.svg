@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9ec9f0"/>
+      <stop offset=".45" stop-color="#d9e6f4"/>
+      <stop offset=".72" stop-color="#f8dcc4"/>
+      <stop offset="1" stop-color="#f3c7a6"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".72" cy=".62" r=".42">
+      <stop offset="0" stop-color="#fff6df" stop-opacity=".95"/>
+      <stop offset=".4" stop-color="#ffe2b8" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#ffe2b8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="haze" cx=".18" cy=".3" r=".5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b8c9a4"/>
+      <stop offset="1" stop-color="#8fa889"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  <rect width="1600" height="1000" fill="url(#sun)"/>
+  <rect width="1600" height="1000" fill="url(#haze)"/>
+  <path d="M0 780 C260 700 470 730 700 770 S1180 690 1600 740 V1000 H0 Z" fill="#c9d3c0" opacity=".8"/>
+  <path d="M0 860 C320 800 620 840 900 880 S1350 820 1600 850 V1000 H0 Z" fill="url(#hill)"/>
+</svg>

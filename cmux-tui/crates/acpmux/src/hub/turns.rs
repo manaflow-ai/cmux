@@ -431,19 +431,33 @@ impl Hub {
             && running.is_some()
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && super::inbox::persons_prompt_waits(session);
+        // Nor into the person's own turn: it goes in after it, as a turn of its own, and one sent
+        // with `interrupt` stops nothing (`inbox.rs`; Leo, 2026-11-01: "why do the x messages
+        // from y sessions seem to always piggyback on my messages instead of going on their
+        // own"). Checked again as the steer is written (`steer_end.rs`).
+        // A sub-session family message still goes in: the chat's own sub-session reporting to
+        // the turn that started it, not another session's message.
+        let persons_held = from_agent
+            && running.as_ref().is_some_and(|t| t.persons)
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
             && !notice_held
             && !review_held
-            && !prompt_held;
+            && !prompt_held
+            && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
             }
             if prompt_held && !capped {
                 return Err(super::inbox::prompt_waits_steer_refused());
+            }
+            if persons_held && !capped {
+                return Err(super::inbox::persons_turn_steer_refused());
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -481,7 +495,7 @@ impl Hub {
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
             // agent's message stop a review box's review, or go ahead of the person's prompt that
             // waits (`inbox.rs`).
-            interrupt: opts.interrupt && !capped && !review_held && !prompt_held,
+            interrupt: opts.interrupt && !capped && !review_held && !prompt_held && !persons_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -490,6 +504,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            admitted: opts.admitted,
             after_turn: after_turn.is_some(),
         };
         let (turn_id, waiting, mut guard, run) =
@@ -581,8 +596,14 @@ impl Hub {
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
+        // The person's own prompt's turn takes no notice and no other agent's steer (`inbox.rs`),
+        // while the inbox is on: the queue path before it still steers agents' sends in.
+        let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
+            && self.config.read().await.agent_inbox();
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
-            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()));
+            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
+            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
+            .by_person(persons);
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -773,7 +794,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -832,6 +853,8 @@ impl Hub {
         Self::hold_stalled_count(session);
         // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
         self.clear_deferred_unread(session);
+        // The turn before's foreground subagents are over (`work_below.rs`).
+        self.end_foreground_subagents(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
@@ -846,7 +869,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": wire}),
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
             &turn_id,
             false,
             false,
@@ -1514,6 +1537,8 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
+            // What the inbox held for this turn goes now (`inbox.rs`), as after a failed start.
+            self.inbox_turn_ended(session);
             return;
         }
         let mut e = e.clone();

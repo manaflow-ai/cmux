@@ -394,133 +394,264 @@
         }
       }
     },
+    "chiefScreenShare.refusal.helperNotRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ مشاركة الشاشة مع Chief عندما يعمل مساعد cmux Computer Use. شغّل Computer Use في الإعدادات إذا كان متوقفًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenje ekrana s Chiefom počinje kada radi pomoćnik cmux Computer Use. Uključite Computer Use u Postavkama ako je isključen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmdeling med Chief starter, når hjælperen cmux Computer Use kører. Slå Computer Use til i Indstillinger, hvis den er slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Bildschirmfreigabe mit Chief startet, sobald der Helfer cmux Computer Use läuft. Schalte Computer Use in den Einstellungen ein, falls es aus ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen sharing with Chief starts when the cmux Computer Use helper runs. Turn on Computer Use in Settings if it is off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartir la pantalla con Chief empieza cuando se ejecuta el asistente cmux Computer Use. Activa Computer Use en Ajustes si está desactivado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le partage d’écran avec Chief démarre quand l’assistant cmux Computer Use tourne. Activez Computer Use dans les Réglages s’il est désactivé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La condivisione dello schermo con Chief parte quando l’helper cmux Computer Use è in esecuzione. Attiva Computer Use nelle Impostazioni se è spento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief との画面共有は cmux Computer Use ヘルパーが動作すると始まります。オフの場合は設定で Computer Use をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកអេក្រង់ជាមួយ Chief ចាប់ផ្តើមនៅពេលកម្មវិធីជំនួយ cmux Computer Use ដំណើរការ។ បើក Computer Use នៅក្នុងការកំណត់ ប្រសិនបើវាបិទ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief와의 화면 공유는 cmux Computer Use 도우미가 실행되면 시작됩니다. 꺼져 있다면 설정에서 Computer Use를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermdeling med Chief starter når hjelperen cmux Computer Use kjører. Slå på Computer Use i Innstillinger hvis den er av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępnianie ekranu Chiefowi zacznie się, gdy działa pomocnik cmux Computer Use. Włącz Computer Use w Ustawieniach, jeśli jest wyłączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O compartilhamento de tela com o Chief começa quando o assistente cmux Computer Use está em execução. Ative o Computer Use nos Ajustes se estiver desligado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показ экрана Chief начнётся, когда запустится помощник cmux Computer Use. Включите Computer Use в настройках, если он выключен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์หน้าจอกับ Chief จะเริ่มเมื่อตัวช่วย cmux Computer Use ทำงาน เปิด Computer Use ในการตั้งค่าหากปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ile ekran paylaşımı, cmux Computer Use yardımcısı çalıştığında başlar. Kapalıysa Ayarlar'da Computer Use'u açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показ екрана Chief почнеться, коли запуститься помічник cmux Computer Use. Увімкніть Computer Use у Параметрах, якщо його вимкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ màn hình với Chief bắt đầu khi trình trợ giúp cmux Computer Use chạy. Bật Computer Use trong Cài đặt nếu đang tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Computer Use 助手运行后，与 Chief 的屏幕共享就会开始。如果 Computer Use 已关闭，请在设置中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Computer Use 輔助程式執行後，與 Chief 的螢幕分享就會開始。如果 Computer Use 已關閉，請在設定中開啟。"
+          }
+        }
+      }
+    },
     "chiefScreenShare.refusal.permission": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسمح لـ cmux في إعدادات النظام > الخصوصية والأمن > تسجيل الشاشة وصوت النظام، ثم شارك مرة أخرى."
+            "value": "اسمح لـ cmux Computer Use في إعدادات النظام > الخصوصية والأمن > تسجيل الشاشة وصوت النظام. تبدأ المشاركة تلقائيًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvolite cmux u Postavke sistema > Privatnost i sigurnost > Snimanje ekrana i sistemskog zvuka, pa ponovo podijelite."
+            "value": "Dozvolite cmux Computer Use u Postavke sistema > Privatnost i sigurnost > Snimanje ekrana i sistemskog zvuka. Dijeljenje počinje samo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillad cmux i Systemindstillinger > Anonymitet og sikkerhed > Skærm- og systemlydoptagelse, og del igen."
+            "value": "Tillad cmux Computer Use i Systemindstillinger > Anonymitet og sikkerhed > Skærm- og systemlydoptagelse. Delingen starter af sig selv."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaube cmux unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- & Systemaudioaufnahme und teile dann erneut."
+            "value": "Erlaube cmux Computer Use unter Systemeinstellungen > Datenschutz & Sicherheit > Bildschirm- & Systemaudioaufnahme. Die Freigabe startet dann von selbst."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow cmux in System Settings > Privacy & Security > Screen & System Audio Recording, then share again."
+            "value": "Allow cmux Computer Use in System Settings > Privacy & Security > Screen & System Audio Recording. Sharing starts by itself."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permite cmux en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema y vuelve a compartir."
+            "value": "Permite cmux Computer Use en Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla y audio del sistema. Se empezará a compartir solo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autorisez cmux dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio du système, puis partagez à nouveau."
+            "value": "Autorisez cmux Computer Use dans Réglages Système > Confidentialité et sécurité > Enregistrement de l’écran et de l’audio du système. Le partage démarre tout seul."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consenti cmux in Impostazioni di Sistema > Privacy e sicurezza > Registrazione schermo e audio di sistema, poi condividi di nuovo."
+            "value": "Consenti cmux Computer Use in Impostazioni di Sistema > Privacy e sicurezza > Registrazione schermo e audio di sistema. La condivisione parte da sola."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ録音 で cmux を許可してから、もう一度共有してください。"
+            "value": "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ録音 で cmux Computer Use を許可してください。共有は自動で始まります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាត cmux ក្នុង System Settings > Privacy & Security > Screen & System Audio Recording បន្ទាប់មកចែករំលែកម្តងទៀត។"
+            "value": "អនុញ្ញាត cmux Computer Use នៅក្នុង ការកំណត់ប្រព័ន្ធ > ឯកជនភាព និងសុវត្ថិភាព > ការថតអេក្រង់ និងសំឡេងប្រព័ន្ធ។ ការចែករំលែកនឹងចាប់ផ្តើមដោយខ្លួនឯង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 cmux를 허용한 다음 다시 공유하세요."
+            "value": "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 cmux Computer Use를 허용하세요. 공유는 자동으로 시작됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillat cmux i Systeminnstillinger > Personvern og sikkerhet > Skjerm- og systemlydopptak, og del igjen."
+            "value": "Tillat cmux Computer Use i Systeminnstillinger > Personvern og sikkerhet > Skjerm- og systemlydopptak. Delingen starter av seg selv."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwól na cmux w Ustawieniach systemowych > Prywatność i ochrona > Nagrywanie ekranu i dźwięku systemowego, a potem udostępnij ponownie."
+            "value": "Zezwól cmux Computer Use w Ustawieniach systemowych > Prywatność i ochrona > Nagrywanie ekranu i dźwięku systemowego. Udostępnianie zacznie się samo."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permita o cmux em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela e Áudio do Sistema e compartilhe de novo."
+            "value": "Permita o cmux Computer Use em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela e Áudio do Sistema. O compartilhamento começa sozinho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешите cmux в Системных настройках > Конфиденциальность и безопасность > Запись экрана и системного звука, затем покажите экран снова."
+            "value": "Разрешите cmux Computer Use в Системных настройках > Конфиденциальность и безопасность > Запись экрана и системного звука. Показ начнётся сам."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาต cmux ในการตั้งค่าระบบ > ความเป็นส่วนตัวและความปลอดภัย > การบันทึกหน้าจอและเสียงระบบ แล้วแชร์อีกครั้ง"
+            "value": "อนุญาต cmux Computer Use ใน การตั้งค่าระบบ > ความเป็นส่วนตัวและความปลอดภัย > การบันทึกหน้าจอและเสียงระบบ การแชร์จะเริ่มเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux’a Sistem Ayarları > Gizlilik ve Güvenlik > Ekran ve Sistem Sesi Kaydı’nda izin verin, sonra yeniden paylaşın."
+            "value": "Sistem Ayarları > Gizlilik ve Güvenlik > Ekran ve Sistem Sesi Kaydı'nda cmux Computer Use'a izin verin. Paylaşım kendiliğinden başlar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозвольте cmux у Системних параметрах > Приватність і безпека > Запис екрана й системного звуку, потім покажіть екран знову."
+            "value": "Дозвольте cmux Computer Use у Системних параметрах > Приватність і безпека > Запис екрана й системного звуку. Показ почнеться сам."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép cmux trong Cài đặt hệ thống > Quyền riêng tư & Bảo mật > Ghi màn hình & âm thanh hệ thống, rồi chia sẻ lại."
+            "value": "Cho phép cmux Computer Use trong Cài đặt hệ thống > Quyền riêng tư & Bảo mật > Ghi màn hình & âm thanh hệ thống. Việc chia sẻ sẽ tự bắt đầu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请在“系统设置 > 隐私与安全性 > 录屏与系统录音”中允许 cmux，然后重新共享。"
+            "value": "在“系统设置 > 隐私与安全性 > 录屏与系统录音”中允许 cmux Computer Use。共享会自动开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」中允許 cmux，然後重新分享。"
+            "value": "在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」中允許 cmux Computer Use。分享會自動開始。"
           }
         }
       }
@@ -2355,6 +2486,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@（正在重新啟動…）"
+          }
+        }
+      }
+    },
+    "agentPane.stateLoss.pairedPhones": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A change to your paired iPhones was cut off when cmux quit. Pair your iPhones again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقّف تغيير على أجهزة iPhone المقترنة عند إغلاق cmux. أعد إقران أجهزة iPhone."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promjena uparenih iPhone uređaja prekinuta je kada se cmux zatvorio. Ponovo uparite svoje iPhone uređaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ændring af dine parrede iPhones blev afbrudt, da cmux lukkede. Par dine iPhones igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Änderung an deinen gekoppelten iPhones wurde beim Beenden von cmux abgebrochen. Kopple deine iPhones erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un cambio en tus iPhone vinculados se interrumpió al cerrarse cmux. Vuelve a vincular tus iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une modification de vos iPhone jumelés a été interrompue à la fermeture de cmux. Jumelez à nouveau vos iPhone."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una modifica agli iPhone abbinati è stata interrotta alla chiusura di cmux. Abbina di nuovo i tuoi iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了時に、ペアリング済み iPhone への変更が中断されました。iPhone をもう一度ペアリングしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្ដូរ iPhone ដែលបានផ្គូផ្គងរបស់អ្នកត្រូវបានកាត់ផ្ដាច់នៅពេល cmux បិទ។ សូមផ្គូផ្គង iPhone របស់អ្នកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 종료될 때 페어링된 iPhone에 대한 변경이 중단되었습니다. iPhone을 다시 페어링하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En endring av de parede iPhone-ene dine ble avbrutt da cmux ble avsluttet. Par iPhone-ene på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmiana sparowanych iPhone’ów została przerwana przy zamknięciu cmux. Sparuj iPhone’y ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma alteração nos seus iPhones pareados foi interrompida quando o cmux fechou. Pareie seus iPhones novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменение сопряжённых iPhone было прервано при закрытии cmux. Сопрягите iPhone заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนแปลง iPhone ที่จับคู่ไว้ถูกขัดจังหวะเมื่อ cmux ปิด โปรดจับคู่ iPhone อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanırken eşlenmiş iPhone’larınızdaki bir değişiklik yarıda kaldı. iPhone’larınızı yeniden eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміну спарених iPhone було перервано під час закриття cmux. Спарте iPhone знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thay đổi đối với các iPhone đã ghép đôi bị gián đoạn khi cmux thoát. Hãy ghép đôi lại các iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 退出时，对已配对 iPhone 的更改被中断。请重新配对你的 iPhone。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 結束時，對已配對 iPhone 的變更被中斷。請重新配對你的 iPhone。"
+          }
+        }
+      }
+    },
+    "agentPane.stateLoss.unsentDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text typed in a new chat just before cmux quit was not saved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُحفظ النص الذي كُتب في محادثة جديدة قبل إغلاق cmux مباشرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst upisan u novi razgovor neposredno prije zatvaranja cmuxa nije sačuvan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat lige før cmux lukkede, blev ikke gemt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text, der kurz vor dem Beenden von cmux in einen neuen Chat eingegeben wurde, wurde nicht gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se guardó el texto escrito en un chat nuevo justo antes de que se cerrara cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte saisi dans une nouvelle discussion juste avant la fermeture de cmux n’a pas été enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo digitato in una nuova chat poco prima della chiusura di cmux non è stato salvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了直前に新しいチャットに入力したテキストは保存されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទដែលបានវាយក្នុងការជជែកថ្មីមុនពេល cmux បិទបន្តិច មិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 종료되기 직전에 새 채팅에 입력한 텍스트가 저장되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat rett før cmux ble avsluttet, ble ikke lagret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst wpisany w nowym czacie tuż przed zamknięciem cmux nie został zapisany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto digitado em um novo chat logo antes de o cmux fechar não foi salvo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введённый в новом чате незадолго до закрытия cmux, не был сохранён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความที่พิมพ์ในแชตใหม่ก่อน cmux ปิดไม่นานไม่ได้รับการบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanmadan hemen önce yeni bir sohbete yazılan metin kaydedilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введений у новому чаті незадовго до закриття cmux, не збережено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Văn bản đã nhập trong một cuộc trò chuyện mới ngay trước khi cmux thoát chưa được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 退出前刚在新聊天中输入的文字未能保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 結束前剛在新聊天中輸入的文字未能儲存。"
           }
         }
       }
@@ -7874,7 +8267,8 @@
           }
         }
       }
-    },    "agentPane.pageCommand.unavailable": {
+    },
+    "agentPane.pageCommand.unavailable": {
       "extractionState": "manual",
       "localizations": {
         "ar": {

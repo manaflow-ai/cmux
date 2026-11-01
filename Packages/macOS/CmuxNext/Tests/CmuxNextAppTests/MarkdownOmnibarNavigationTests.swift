@@ -1,3 +1,4 @@
+import CmuxNextFiles
 @testable import CmuxNextApp
 import AppKit
 @testable import CmuxNextBrowser

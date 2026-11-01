@@ -67,6 +67,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
                                      passesThroughClicks: false)
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
         handle.onDismiss = windowGone
+        // The window's host observes its geometry once; the toast re-caps its shown detail from it.
+        handle.onWindowGeometryChange = { [weak toast] in toast?.windowGeometryDidChange() }
         handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
         // This window's avoided views now move this host's toasts there (and no other window's).
         CmuxToastAvoidance.register(self, in: window)

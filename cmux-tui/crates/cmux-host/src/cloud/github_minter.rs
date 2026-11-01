@@ -47,6 +47,7 @@ const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// checked (`Err` names what was wrong with it).
 pub enum Ask {
     Github(Result<TokenAsk, String>),
+    GithubRepos(Result<super::github_repos::ReposAsk, String>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -59,6 +60,12 @@ impl From<Result<TokenAsk, String>> for Ask {
 impl From<Result<HandoffReport, String>> for Ask {
     fn from(report: Result<HandoffReport, String>) -> Ask {
         Ask::Handoff(report)
+    }
+}
+
+impl From<Result<super::github_repos::ReposAsk, String>> for Ask {
+    fn from(ask: Result<super::github_repos::ReposAsk, String>) -> Ask {
+        Ask::GithubRepos(ask)
     }
 }
 
@@ -169,6 +176,7 @@ fn run<H: Http>(
                 } else {
                     match ask {
                         Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
+                        Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
                         }
@@ -208,6 +216,22 @@ pub fn answer<H: Http>(
     let reply = github::reply_for(&ask, &client.github_token(&ask, now_wall_ms));
     log(&github::note_for(&ask, &reply));
     reply
+}
+
+/// Catalog discovery shares the bounded worker, never the agent poll loop.
+pub fn answer_repos<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::github_repos::ReposAsk, String>,
+    now_wall_ms: u64,
+) -> Value {
+    let ask = match ask {
+        Ok(ask) => ask,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+    };
+    client.github_repos(&ask, now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

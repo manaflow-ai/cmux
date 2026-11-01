@@ -18,6 +18,14 @@ if [ "$(tail -n 1 <<< "$result")" = superseded=true ]; then
   echo "::notice title=Superseded::build $NIGHTLY_BUILD is older than what the feed already serves; a newer build published first, so nothing to do"
   { echo "already_published=true"; echo "superseded=true"; } >> "$GITHUB_OUTPUT"
 elif grep -qx already_published=true <<< "$result"; then
-  echo "::notice title=Nothing to publish::build $NIGHTLY_BUILD is already published; nothing to do"
-  echo "already_published=true" >> "$GITHUB_OUTPUT"
+  if [[ "${TRACK:-}" = nightly-next && "${GITHUB_RUN_ATTEMPT:-1}" =~ ^[0-9]+$ ]] && (( 10#${GITHUB_RUN_ATTEMPT:-1} > 1 )); then
+    # A previous attempt may have committed the feed CAS, then failed to upload
+    # its GitHub handoff artifact. Continue through the normal final gate and
+    # CAS: only the exact live build AND source can reuse the accepted bytes.
+    # A newer feed above still takes the superseded branch, including on retry.
+    echo "::notice title=Repair publication handoff::build $NIGHTLY_BUILD is already published; retrying its checked handoff"
+  else
+    echo "::notice title=Nothing to publish::build $NIGHTLY_BUILD is already published; nothing to do"
+    echo "already_published=true" >> "$GITHUB_OUTPUT"
+  fi
 fi

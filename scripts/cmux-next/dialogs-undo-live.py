@@ -203,13 +203,19 @@ try:
         check("quit-setup-program", loop_pid, loop_pid)
     reply = rpc("debug.quit", {"open": True})
     print("quit open:", json.dumps(reply)[:200])
+    # QUIT P0: with a local terminal, Cmd-Q asks how to quit; its default (Keep Sessions) keeps the program running.
     asked = False
     deadline = time.time() + 20
     while app.poll() is None and time.time() < deadline:
         q = rpc("debug.quit", timeout=2) or {}
-        asked = asked or q.get("asking") is True or any(d.get("identifier") == "cmux.dialog.quit" for d in dialogs())
+        if q.get("asking") is True:
+            asked = True
+            rpc("debug.quit", {"press": "keep"}, timeout=5)
+            break
         time.sleep(0.25)
-    check("quit-no-prompt", not asked)
+    while app.poll() is None and time.time() < deadline:
+        time.sleep(0.25)
+    check("quit-asks", asked)
     check("quit-app-exits", app.poll() is not None, app.poll())
     time.sleep(5)  # test harness: past the quit, before the survival read
     check("quit-program-survives", loop_pid and alive(loop_pid), loop_pid)

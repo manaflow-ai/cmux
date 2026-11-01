@@ -42,7 +42,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
     public var leadingPin = false
     /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
+    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
+    /// Lawrence msg 19392). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
