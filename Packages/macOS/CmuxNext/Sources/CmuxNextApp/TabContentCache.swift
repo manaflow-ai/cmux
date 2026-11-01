@@ -207,7 +207,7 @@ final class TabContentCache {
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
-                                  burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
+                                  burstTrace: pageRequests.services?.burstTrace, launchTerminals: pageRequests.services?.launchTerminals, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),

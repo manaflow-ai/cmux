@@ -75,8 +75,7 @@ enum DebugTimings {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
-            let ms = milliseconds(duration)
-            if surfaces.count < capacity { surfaces.append(ms) }
+            if surfaces.count < capacity { surfaces.append(milliseconds(duration)) }
             markLaunch("first_terminal_surface_created")
         }
     }
@@ -113,8 +112,8 @@ enum DebugTimings {
         if omnibarClicks.count < capacity { omnibarClicks.append((engine, input, keyToFrame)) }
     }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        let report = self.report
+    static func handle(_ params: [String: JSONValue], launchTerminals: TerminalLaunchTimeline? = nil) -> JSONValue {
+        let report = self.report(launchTerminals)
         if params["clear"]?.boolValue == true {
             paletteOpens.removeAll()
             iconPickerOpens.removeAll()
@@ -127,7 +126,7 @@ enum DebugTimings {
         return report
     }
 
-    private static var report: JSONValue {
+    private static func report(_ launchTerminals: TerminalLaunchTimeline?) -> JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
         for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
@@ -147,7 +146,7 @@ enum DebugTimings {
             "omnibar_clicks": .array(omnibarClicks.map {
                 ["engine": .string($0.engine), "input_ms": round($0.input), "key_to_frame_ms": round($0.keyToFrame)]
             }),
-            "terminal_surfaces_ms": .array(surfaces.map(round)),
+            "terminal_surfaces_ms": .array(surfaces.map(round)), "launch_terminals": .array((launchTerminals?.report { millisecondsSinceProcessStart(at: $0) } ?? []).map { .object($0.ms.mapValues(round).merging(["key": .string($0.key)]) { old, _ in old }) }),
             "chats_feed_applies": .array(chatsFeedApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "turn_state_applies": .array(turnStateApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "control_publishes": .array(controlPublishes.map { ["tabs": .number(Double($0.tabs)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),

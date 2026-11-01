@@ -443,7 +443,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
+        if case .terminal(let terminal) = content, let key { services.launchTerminals.shown(key: key, surface: terminal.io.probeSurface, session: terminal.session); if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
             LaunchReveal.shared.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
             // alpha transition does not reach Chromium's separate child window.
