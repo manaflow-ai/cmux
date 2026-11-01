@@ -66,6 +66,8 @@
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
   --cv-continuation-gap: var(--cv-message-gap); /* the same assistant's next turn */
+  /* Under a reply that something follows (model.ts keepsReplyRoom): the 2026-10-30 action row's room. */
+  --cv-reply-room: calc(var(--cv-meta-gap) + var(--cv-meta-row) + var(--cv-message-gap));
   /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
@@ -3850,6 +3852,53 @@ a.cv-sha:focus-visible {
   cursor: default;
   opacity: 0.6;
 }
+/* A Cloud chat's sign-in on its machine (CloudSignIn.tsx): a step takes its own line in the card's
+   actions, with no animation on open; only its controls highlight. */
+.cv-turn-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex-basis: 100%;
+}
+.cv-turn-signin.cv-turn-signin__row,
+.cv-turn-signin__row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cv-turn-signin__text {
+  color: var(--cv-text-dim);
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
+.cv-turn-signin__error {
+  color: var(--cv-text);
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
+.cv-turn-signin__input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+}
+.cv-turn-signin__input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--agent-accent) 55%, var(--agent-border));
+}
+.cv-turn-signin__code {
+  font-family: var(--cv-mono);
+  font-size: calc(var(--cv-font-size) * 18 / 14);
+  letter-spacing: 0.08em;
+  user-select: text;
+}
 .cv-turn-error__details[open] {
   flex-basis: 100%;
 }
@@ -5075,6 +5124,16 @@ article.acpmux-row.acpmux-row--before-reply-plain {
 }
 :is(.acpmux-row--before-reply, .acpmux-row--before-reply-plain) .cv-disclosure.cv-received {
   margin-bottom: 0;
+}
+/* A reply that something follows keeps the room its own action row took on 2026-10-30, though it draws
+   no row there now (one footer per turn): its meta gap and line, then the message gap (model.ts
+   `keepsReplyRoom`, which estimates it as that row's chrome). Leo, 2026-11-01, on a capture of that
+   build: "i like this spacing kinda i prefer it to what we have now tho it's just minor differences".
+   It follows the status rules so it wins over a reply's status edge; a row that draws nothing still
+   takes no room (the rule after this one). */
+article.acpmux-row.acpmux-row--reply-room {
+  min-height: 0;
+  padding-bottom: var(--cv-reply-room);
 }
 /* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,

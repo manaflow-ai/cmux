@@ -1,3 +1,4 @@
+import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
@@ -489,6 +490,8 @@ const SUBSESSION_KIND = "subsession";
 const BACKGROUND_TURN_KIND = "background_turn";
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
+/// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
+const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -6026,11 +6029,17 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
+    const publishedRows = this.rows.sorted();
+    const progressSource = this.subagents.progressSource;
+    markAgentProgressSource(publishedRows, progressSource);
+    const changedProgress = progressSource.takeChangedProgress();
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
-      rows: this.rows.sorted(),
+      rows: publishedRows,
       subagentViews: this.subagents.views(),
+      ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
+      subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
       peers: this.peers,
       peerKinds: this.peerKinds,
@@ -7312,6 +7321,32 @@ export class AcpmuxDirectClient {
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  /// Whether this acpmux runs an agent's own login on its machine (`agent_login` in `initialize`'s
+  /// `_meta.acpmux.features`, or `agent-login-v1` in its capabilities): a Cloud chat's sign-in card.
+  get supportsAgentLogin(): boolean {
+    return AGENT_LOGIN_CAPABILITIES.some((id) => this.capabilities?.has(id) || this.features.has(id));
+  }
+  /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
+  /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
+  /// device code, and whether the page gives a code to paste back (Claude).
+  agentLoginStart(agent: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/start", { agent, sessionId });
+  }
+  /// Finishes login `loginId` (`_acpmux/agent_login/finish`) with Claude's pasted `code`, or waits
+  /// for Codex's approval; acpmux restarts chat `sessionId`'s agent signed in. The wire log keeps
+  /// no code (wire.ts).
+  agentLoginFinish(loginId: string, sessionId: string, code?: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/finish", { loginId, sessionId, ...(code ? { code } : {}) });
+  }
+  /// Saves an API key for `agent` on the machine (`_acpmux/agent_login/api_key`) and restarts chat
+  /// `sessionId`'s agent on it. The wire log keeps no key (wire.ts).
+  agentLoginApiKey(agent: string, sessionId: string, key: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/api_key", { agent, key, sessionId });
+  }
+  /// Stops login `loginId` on chat `sessionId`'s machine (`_acpmux/agent_login/cancel`).
+  agentLoginCancel(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/agent_login/cancel", { loginId, sessionId });
+  }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
     try {
@@ -8908,6 +8943,11 @@ export class AcpmuxDirectClient {
     // from before this page keeps finding its row (links.ts). The held events' entries win, since
     // they are the live turn's.
     const messageRows = new Map([...this.messageRows, ...live.messageRows]);
+    // History brings ended agents absent from the live fold; preserve their progress without
+    // replacing newer live values. This reconciliation runs only when loading an older page.
+    for (const agent of this.subagents.all()) {
+      if (!live.subagents.progressSource.has(agent.id)) live.subagents.progressSource.updateAgent(agent);
+    }
     Object.assign(this, live, { forkedAtSeq, messageRows });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);

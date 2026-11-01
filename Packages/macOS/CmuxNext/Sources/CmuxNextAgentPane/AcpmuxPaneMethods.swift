@@ -149,6 +149,13 @@ nonisolated enum AcpmuxPaneMethods {
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
         "_acpmux/set_tools",
+        // A Cloud chat's sign-in on its own machine (cloudAgentLogin.ts, CloudSignIn.tsx): acpmux runs
+        // the agent's own login there (start, then finish with Claude's pasted code or after Codex's
+        // approval; cancel stops it), or saves an API key there. Never this Mac's login. Each names
+        // its chat (`sessionId`): acpmux forwards it to the machine the chat lives on and restarts
+        // that chat's agent signed in.
+        "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+        "_acpmux/agent_login/cancel",
     ]
 
     /// Notifications (no `id`).
@@ -263,7 +270,12 @@ nonisolated enum AcpmuxPaneMethods {
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
     /// The sign-in check names a chat (`sessionId`) or only a new chat's `target`: a named one must
     /// be in the pane's scope too.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set", "_acpmux/session/auth"]
+    /// A Cloud sign-in's steps name their chat too (the page always does), which must be in scope.
+    public static let optionallySessionScoped: Set<String> = [
+        "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
+        "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+        "_acpmux/agent_login/cancel",
+    ]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
@@ -330,6 +342,12 @@ nonisolated enum AcpmuxPaneMethods {
         // Hand back delivers held messages, which runs turns.
         "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,
+        // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
+        // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
+        // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture
+        // for the failed prompt's resend. Cancel stops work: none.
+        "_acpmux/agent_login/start": .always,
+        "_acpmux/agent_login/api_key": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
