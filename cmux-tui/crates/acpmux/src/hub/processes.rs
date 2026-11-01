@@ -238,9 +238,11 @@ impl ProcessTable {
     /// replacement with a changed tool ID keeps the *first* matching row in the index.
     fn upsert(&mut self, mut process: Process) {
         process.logged = true;
-        if let Some(&at) = self.by_id.get(&process.id) {
-            let old_tool = std::mem::replace(&mut self.processes[at], process).tool_call_id;
-            let new_tool = self.processes[at].tool_call_id.clone();
+        if let Some(at) = self.by_id.get(&process.id).copied()
+            && let Some(slot) = self.processes.get_mut(at)
+        {
+            let new_tool = process.tool_call_id.clone();
+            let old_tool = std::mem::replace(slot, process).tool_call_id;
             if old_tool == new_tool {
                 return;
             }
