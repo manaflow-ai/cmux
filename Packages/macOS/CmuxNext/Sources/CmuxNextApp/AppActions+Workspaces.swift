@@ -213,6 +213,8 @@ extension AppActions {
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
+        // Read at the press, before the row leaves: a pinned workspace always asks, as cmux classic does.
+        let pinned = PinCommands(context: AppActionContext(services: services)).isWorkspacePinned(workspace)
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -223,11 +225,14 @@ extension AppActions {
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
-            // A terminal that may run a program (and the warning on): the row stays until the person answers.
-            mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
-            // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
+            // A pinned workspace, or a terminal that may run a program (and the warning on): the row stays until
+            // the person answers.
+            mayAsk: { pinned || WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
+            // The question, when a terminal runs a program or the workspace is pinned: on the window that
+            // lists the workspace, above its pages.
             question: {
-                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
+                let running = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
+                guard var prompt = pinned ? WorkspaceBulkClose.pinnedPrompt(running: running) : running else { return nil }
                 prompt.returnConfirms = false
                 return {
                     await withCheckedContinuation { answer in

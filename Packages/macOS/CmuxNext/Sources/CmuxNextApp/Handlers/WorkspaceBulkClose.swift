@@ -209,6 +209,17 @@ enum WorkspaceBulkClose {
             button: ConfirmationStrings.close, suppresses: programs.isEmpty ? nil : CmuxConfigSnapshot.warnBeforeClosingTabPath)
     }
 
+    /// A person's close of a pinned workspace (cmux classic's "Close pinned workspace?"): it always
+    /// asks, whatever `app.warnBeforeClosingTab` says, and has no "Don't ask again", since no setting
+    /// may silence what pinning asked for. A running program's line (`running`) follows the body.
+    static func pinnedPrompt(running: DestructiveConfirmation.Prompt?) -> DestructiveConfirmation.Prompt {
+        let body = ConfirmationStrings.closePinnedWorkspaceBody
+        return DestructiveConfirmation.Prompt(
+            title: ConfirmationStrings.closePinnedWorkspaceTitle,
+            body: running.map { "\(body) \($0.body)" } ?? body,
+            button: ConfirmationStrings.close)
+    }
+
     static func closedToast(_ count: Int) -> String {
         String(localized: "workspaces.closedToast", defaultValue: "Closed \(count) workspaces", table: "Handlers", bundle: .module)
     }
