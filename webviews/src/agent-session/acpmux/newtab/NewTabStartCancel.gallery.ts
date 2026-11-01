@@ -98,10 +98,18 @@ async function pickDevbox(ctx: PlayContext) {
         }))
       : undefined,
   );
-  const chip = ctx.document.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const chipSelector = '.acpmux-location-picker[data-kind="computer"] button';
+  // Opening the chip's list reads the machines again, so the page knows devbox; Machines… on the
+  // right-click menu is offered only once it knows a machine besides this Mac.
+  await ctx.click({ selector: chipSelector });
+  await frames(ctx, 8);
+  await ctx.press("Escape");
+  await frames(ctx);
+  const chip = ctx.document.querySelector<HTMLElement>(chipSelector)!;
   const box = chip.getBoundingClientRect();
+  const View = ctx.document.defaultView!;
   chip.dispatchEvent(
-    new MouseEvent("contextmenu", {
+    new View.MouseEvent("contextmenu", {
       bubbles: true,
       cancelable: true,
       clientX: box.left + 4,
