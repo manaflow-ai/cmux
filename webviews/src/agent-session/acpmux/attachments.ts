@@ -10,6 +10,7 @@ import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
 import { videoFrameBlocks } from "./composer/videoPrompt";
+import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
   id: string;
@@ -37,6 +38,8 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
+  transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
   source?: AttachmentSource;
 };
