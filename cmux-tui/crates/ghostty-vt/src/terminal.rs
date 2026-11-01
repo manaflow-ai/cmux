@@ -2007,15 +2007,16 @@ impl Terminal {
         self.vt_replay_bounded_with_palette(max_bytes, true)
     }
 
-    /// Tests: [`Self::vt_replay_bounded`] with the second text layout always
-    /// run, as before the one-pass reuse, as the reference.
+    /// Tests: [`Self::vt_replay_bounded_with_palette`] with the second text
+    /// layout always run, as before the one-pass reuse, as the reference.
     #[cfg(test)]
     pub(crate) fn vt_replay_bounded_two_pass_for_test(
         &mut self,
         max_bytes: usize,
+        include_palette: bool,
     ) -> Result<VtReplay> {
         FORCE_TWO_PASS.with(|force| force.set(true));
-        let replay = self.vt_replay_bounded_with_palette(max_bytes, true);
+        let replay = self.vt_replay_bounded_with_palette(max_bytes, include_palette);
         FORCE_TWO_PASS.with(|force| force.set(false));
         replay
     }

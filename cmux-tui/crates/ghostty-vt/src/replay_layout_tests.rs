@@ -31,6 +31,10 @@ fn a_replay_without_a_visible_image_lays_its_text_out_once() {
     let before = layouts();
     let _ = term.vt_replay_bounded(15 * 1024 * 1024).unwrap();
     assert_eq!(layouts() - before, 1, "the text was laid out more than once");
+    // The theme-portable replay a byte mirror gets on attach and resize.
+    let before = layouts();
+    let _ = term.vt_replay_bounded_theme_portable_with_aliases(15 * 1024 * 1024).unwrap();
+    assert_eq!(layouts() - before, 1, "the theme-portable text was laid out more than once");
 }
 
 /// The replay corpus (schemas/terminal-corpus) plus long history: the
@@ -57,23 +61,30 @@ fn one_pass_replays_equal_the_two_pass_bytes_on_the_corpus() {
     cases.push(("history-10k".into(), 120, 40, history_text(10_000)));
     for (name, cols, rows, bytes) in cases {
         for budget in [15 * 1024 * 1024, 256 * 1024, 4 * 1024] {
-            let mut one = terminal_with(cols, rows, &bytes);
-            let got = one.vt_replay_bounded(budget).map(|replay| replay.bytes);
-            let mut two = terminal_with(cols, rows, &bytes);
-            let expected =
-                two.vt_replay_bounded_two_pass_for_test(budget).map(|replay| replay.bytes);
-            assert_eq!(
-                got.as_ref().ok(),
-                expected.as_ref().ok(),
-                "{name} at a {budget}-byte budget: the replay bytes changed"
-            );
-            assert_eq!(got.is_err(), expected.is_err(), "{name} at {budget}: errors differ");
+            for palette in [true, false] {
+                let mut one = terminal_with(cols, rows, &bytes);
+                let got = one.vt_replay_bounded_with_palette(budget, palette);
+                let mut two = terminal_with(cols, rows, &bytes);
+                let expected = two.vt_replay_bounded_two_pass_for_test(budget, palette);
+                let (got, expected) = (got.map(|r| r.bytes), expected.map(|r| r.bytes));
+                assert_eq!(
+                    got.as_ref().ok(),
+                    expected.as_ref().ok(),
+                    "{name} at a {budget}-byte budget, palette {palette}: the replay bytes changed"
+                );
+                assert_eq!(
+                    got.is_err(),
+                    expected.is_err(),
+                    "{name} at {budget}, palette {palette}: errors differ"
+                );
+            }
         }
     }
 }
 
-/// Bench: one replay build of a 120x40 terminal with 10,000 lines of history,
-/// one pass against two (the reference path). The arms are interleaved, their
+/// Bench: one theme-portable replay build (what a byte mirror gets on attach
+/// and resize) of a 120x40 terminal with 10,000 lines of history, one pass
+/// against two (the reference path). The arms are interleaved, their
 /// order alternated each round, so neither always runs warm. Off unless
 /// CMUX_REPLAY_BUILD_BENCH=<runs> is set: each run prints one
 /// REPLAY-BUILD-BENCH line to stderr and appends it to
@@ -96,9 +107,9 @@ fn replay_build_bench_one_pass_against_two() {
     let build = |term: &mut Terminal, two_pass: bool| {
         let started = std::time::Instant::now();
         let replay = if two_pass {
-            term.vt_replay_bounded_two_pass_for_test(BUDGET)
+            term.vt_replay_bounded_two_pass_for_test(BUDGET, false)
         } else {
-            term.vt_replay_bounded(BUDGET)
+            term.vt_replay_bounded_with_palette(BUDGET, false)
         }
         .unwrap();
         (started.elapsed().as_secs_f64() * 1000.0, replay.bytes)
@@ -138,8 +149,8 @@ fn replay_build_bench_one_pass_against_two() {
             }
         }
         let line = format!(
-            "REPLAY-BUILD-BENCH run {run}/{runs} {profile} 120x40 10k lines, {BUILDS} interleaved \
-             builds per arm, {} replay bytes: two-pass {}; one-pass {}",
+            "REPLAY-BUILD-BENCH run {run}/{runs} {profile} theme-portable 120x40 10k lines, \
+             {BUILDS} interleaved builds per arm, {} replay bytes: two-pass {}; one-pass {}",
             one_bytes.len(),
             percentiles(&mut two_ms),
             percentiles(&mut one_ms)
