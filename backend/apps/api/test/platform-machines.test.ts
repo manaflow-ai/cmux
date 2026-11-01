@@ -439,6 +439,13 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await stub.fakeControl({ resize_refuse: 1 } as never)
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "cloud.provider.refused", retryable: false })
     expect(await rpc.shape(c, machine)).toEqual({ ok: true, value: target })
+    // A provider call that did not answer stays pending: retries answer indeterminate, never a second intent.
+    await stub.fakeControl({ fail_next: 1 } as never)
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: false, code: "mutation.indeterminate", retryable: true })
+    await stub.fakeControl({ advance_ms: 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
     expect(await rpc.resize(c, machine, next)).toMatchObject({ ok: true, value: { state: "running", shape: next } })
     expect(await stub.fakeControl({})).toMatchObject({ resizes: 2 })
   })

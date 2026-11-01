@@ -58,6 +58,8 @@ export interface PlatformHost {
   mayUse(user: string): Promise<boolean>
   submit(principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<SubmitResult>
   machine(id: string): MachineRow | undefined
+  /** A provider call for this machine (any op) is still pending in the team's ledger. */
+  changing(id: string): boolean
   /** Authoritative provider resources; null/error never confirms a requested reservation. */
   resources(row: MachineRow): Promise<PlatformShape | null>
   ledger(key: string): LedgerRow | undefined
@@ -74,7 +76,7 @@ export interface PlatformHost {
 
 export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
 const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
-const machineKey = (kind: "pause" | "resume" | "resize", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
+const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
 const sameShape = (a: PlatformShape, b: PlatformShape) => a.vcpu === b.vcpu && a.memGiB === b.memGiB && a.diskGiB === b.diskGiB
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
@@ -181,11 +183,15 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       // resize is accepted, so it cannot tell a finished grow from one still running.
       const actual = await host.resources(m).catch(() => null)
       if (actual && sameShape(actual, call.shape)) return host.operations.metadata(host, m.id)
-      // One intent per machine revision: an accepted or failed resize changes the revision, so the next
-      // call after a final failure starts a new one instead of replaying the old answer.
-      const k = machineKey("resize", m.id, m.revision)
-      const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } }, k)
+      // A change still running answers here, before any intent: CloudDO runs one change per machine.
       const indeterminate = refused("mutation.indeterminate", "the machine change is still running; retry", true)
+      if (host.changing(m.id)) return indeterminate
+      // A fresh key per call, never one per revision: a refusal (grow_only, size.locked, not_running) is
+      // recorded under its key, and a later call for another size or after a plan change must be decided
+      // again. A duplicate grow cannot follow: the provider's shape and the one-change-per-machine rule
+      // above answer every retry of an accepted resize.
+      const k = `platform-env:resize:${m.id}:${crypto.randomUUID()}`
+      const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } }, k)
       if (r?.t === "reject") return r.code === "cloud.machine.busy" ? indeterminate : fromReject(r)
       const l = host.ledger(ledgerKey(p.identity, k))
       if (!l || l.state === "pending") return r?.t === "result" ? indeterminate : fromReject(r)
