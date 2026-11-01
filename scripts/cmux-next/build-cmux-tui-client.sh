@@ -4,7 +4,8 @@
 # (cmux-tui-host, cmux-app-host, cmux-cloud, cmux-browser-host,
 # cmux-agent-screen-detection).
 # reload.sh uses it for an
-# nx-remote build (NX_JOB_ID) when pin-cmux-tui.sh probe does not report the
+# nx-remote build (NX_JOB_ID) or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: the
+# scripts/measure/ benches) when pin-cmux-tui.sh probe does not report the
 # tree ready, and hands the result to the bundle as CMUX_TUI_CLIENT_LOCAL, so
 # the build neither stops nor waits for a cmux-tui-artifacts run (a newer push
 # to the branch replaces a pending run, so a busy branch's older trees are
@@ -22,7 +23,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 pin="$repo_root/scripts/cmux-next/pin-cmux-tui.sh"
 
-build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
+# CMUX_CI_PHASE_FILE: a cmux-ci fleet job or step (the worker sets it for both), such as a
+# scripts/measure/ bench that runs reload.sh.
+build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}${CMUX_CI_PHASE_FILE:-}" ]]; }
 
 print_path=0
 while [[ $# -gt 0 ]]; do
@@ -57,7 +60,11 @@ commit="$(git -C "$repo_root" rev-parse HEAD)"
 vt_source=ghostty
 git -C "$repo_root" rev-parse --verify -q HEAD:ghostty-next >/dev/null && vt_source=ghostty-next
 ghostty_commit="$(git -C "$repo_root/$vt_source" rev-parse HEAD 2>/dev/null || true)"
-target_dir="${CMUX_TUI_CLIENT_TARGET_DIR:-$repo_root/cmux-tui/target/client-app}"
+# A fleet step's checkout is fresh: Cargo's target goes in the host's shared cache, so the
+# next step on this host compiles incrementally.
+default_target="$repo_root/cmux-tui/target/client-app"
+[[ -z "${CI_SHARED_CACHE_DIR:-}" ]] || default_target="$CI_SHARED_CACHE_DIR/cmux-tui-client-target"
+target_dir="${CMUX_TUI_CLIENT_TARGET_DIR:-$default_target}"
 mkdir -p "$target_dir"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
