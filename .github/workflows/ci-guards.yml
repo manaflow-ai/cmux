@@ -904,7 +904,9 @@ jobs:
 
       - name: Validate the CLA guard reads each revision by git at its own sha
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_cla_guard_git_reads.py
+        run: |
+          python3 tests/test_cla_guard_git_reads.py
+          python3 tests/test_cla_guard_api_reads.py
 
       - name: Validate who may approve a CLA guard change
         if: ${{ matrix.group == 'ci' }}
