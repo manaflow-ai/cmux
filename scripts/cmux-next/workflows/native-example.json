@@ -27,6 +27,6 @@
   "untested": [
     "This is a template, not an existing product fixture: the fleet launcher must provide a synthetic toggle app built with the pinned source and immutable artifact metadata.",
     "The upstream v2 CUA driver has no compatible activity store.",
-    "Native frame references expire under the existing helper retention policy."
+    "Original native frame references expire under the helper retention policy; explicitly exported run bundles remain inspectable."
   ]
 }

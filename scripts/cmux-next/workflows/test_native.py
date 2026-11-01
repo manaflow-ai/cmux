@@ -1,5 +1,6 @@
 """Behavioral native adapter checks; no desktop or live helper is used."""
 import copy
+import base64
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ STEP = {"id": "check", "action": "native.click", "target": {
     "args": {}, "expect": {"checked": True}}
 CONFIG = {"targets": {"toggle": {"pid": 42, "window_id": 7}}}
 SESSION = {"id": "session-1", "agent": {"proxy_pid": 123, "actor": "agent:10"}}
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=")
 
 
 def event(seq, tool):
@@ -58,7 +60,7 @@ class FakeActivity:
         if method == "activity_sessions_list":
             return {"sessions": [SESSION]}
         if method == "activity_frame":
-            return {"mime": "image/png", "data_base64": "iVBORw0KGgo="}
+            return {"mime": "image/png", "data_base64": base64.b64encode(PNG).decode()}
         rows = [event(1, "get_window_state")]
         if "after_seq" in args and not self.stale:
             rows = [event(2, "click"), event(3, "get_window_state")]
@@ -129,6 +131,64 @@ class NativeTests(unittest.TestCase):
         result = native.perform(step, CONFIG, FakeMCP(), FakeActivity())
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["assertions"][0], {"name": "checked", "ok": False})
+
+    def test_failed_assertion_exports_existing_frames_and_exact_engine_events(self):
+        step = copy.deepcopy(STEP)
+        step["expect"]["checked"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            result = native.perform(step, CONFIG, FakeMCP(), FakeActivity(), out=out)
+            self.assertEqual(result["status"], "failed")
+            for phase in ("before", "after"):
+                screenshot = result["evidence"][phase]["screenshot"]
+                path = out / screenshot["path"]
+                self.assertEqual(path.read_bytes(), PNG)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(screenshot["blob"], "blob")
+                self.assertIs(screenshot["expired"], False)
+                self.assertEqual(result["evidence"][phase]["state"]["checked"], phase == "after")
+            path = out / result["evidence"]["events"]["path"]
+            self.assertEqual(json.loads(path.read_text()), [event(1, "get_window_state"), event(2, "click"), event(3, "get_window_state")])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual([row["path"] for row in result["event_refs"]], ["cua-events.json"] * 3)
+            # An exported bundle remains readable without the helper or its original store.
+            self.assertNotIn("Synthetic toggle", path.read_text())
+            self.assertNotIn("structuredContent", path.read_text())
+
+    def test_refusal_preserves_before_export_without_further_capture(self):
+        mcp, activity, progress = FakeMCP(), FakeActivity(), {}
+        call = mcp.call
+
+        def refuse(name, args):
+            if name == "click":
+                mcp.calls.append(name)
+                raise native.Unavailable("consent required")
+            return call(name, args)
+
+        mcp.call = refuse
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            with self.assertRaises(native.Unavailable):
+                native.perform(STEP, CONFIG, mcp, activity, out=out, progress=progress)
+            self.assertEqual(sorted(path.name for path in out.iterdir()), ["before-events.json", "before.png"])
+            self.assertEqual(progress["evidence"]["before"]["screenshot"]["path"], "before.png")
+            self.assertEqual(progress["event_refs"][0]["path"], "before-events.json")
+        self.assertEqual(mcp.calls, ["check_permissions", "get_window_state", "click"])
+        self.assertEqual(activity.calls.count("activity_frame"), 1)
+
+    def test_event_export_refuses_raw_payload_fields(self):
+        for field in ("raw_reply", "raw_ax"):
+            row = event(1, "get_window_state")
+            row[field] = "private"
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaises(native.Unavailable):
+                    native.export_events(Path(directory), "events.json", [row])
+                self.assertEqual(list(Path(directory).iterdir()), [])
+        row = event(1, "get_window_state")
+        row["target"]["label"] = "not a redacted title"
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(native.Unavailable):
+                native.export_events(Path(directory), "events.json", [row])
 
     def test_activity_client_authenticates_and_never_accepts_mutations(self):
         with tempfile.TemporaryDirectory() as directory:

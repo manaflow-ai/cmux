@@ -82,8 +82,9 @@ credentials and action payloads are not copied into receipts. Native frames reta
 the CUA store's redaction and retention from
 [`computer-use.md`](../../../../plans/cmux-next/computer-use.md#5-retention-redaction-remote-frames-d19).
 These explicitly requested run bundles are exports: the existing export rule
-applies, so they are not automatically deleted or published. Native references can
-expire; expiry means unavailable evidence, not a successful observation.
+applies, so they are not automatically deleted or published. Native original-store
+references can expire; frames already exported into the requested bundle remain
+inspectable. An absent or expired frame at export time makes evidence unavailable.
 
 ## Focused verification
 
@@ -166,8 +167,22 @@ reads existing activity. Session ownership comes from the helper's recorded
 `agent.proxy_pid`, not a session name asserted by the workflow. Every linked event
 must have the same session, actor, tool, target PID/window and a fresh sequence.
 Both before and after observations require non-expired, readable helper frames.
-No raw AX or screenshot bytes are copied into a second store. A permission denial,
-MCP error or approval request ends the step with no subsequent app/status reads.
+The explicitly requested run bundle exports those existing redacted thumbnail bytes
+as `before.png`/`after.png` (or `.jpg`), mode 0600, with their SHA-256 and original
+session/blob/size/expiration references. It does not ask for an additional capture
+or start a recorder. The bundle also contains `cua-events.json`: the exact linked
+redacted `cmux-cua-core::activity::model::Event` records as a JSON array in the
+helper's existing schema. The receipt index carries format and export-retention
+provenance; event records are not rewritten into another event model. Only the
+authenticated activity response is exported, never a raw MCP reply. Unexpected
+raw payload fields, raw target labels and serialized result replies are refused.
+
+The receipt contains before/after semantic state and roles-only AX digests next to
+these exports, so a failed assertion is inspectable without the original helper
+store. `before-events.json` preserves the initial observation if the later action
+is refused or its outcome becomes unknown. A permission denial, MCP error or
+approval request ends the step with no subsequent app/status reads; only evidence
+already retrieved is retained, and no after-state is invented.
 
 The contract was checked against the pinned engine
 [`e8a8dbfd45a5d050058e7340f97ffe6f157c3128`](https://github.com/manaflow-ai/cmux-cua/tree/e8a8dbfd45a5d050058e7340f97ffe6f157c3128):

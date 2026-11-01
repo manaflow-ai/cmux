@@ -1,8 +1,8 @@
 """Synthetic native steps through legacy CUA MCP and its authenticated activity reads.
 
-The helper owns recording, redaction and expiry. This adapter never stores tool replies,
-AX text, credentials or pixels. It indexes the helper's existing session/sequence/blob
-identities. The upstream v2 driver has no activity store and is explicitly unsupported.
+The helper owns recording, redaction and expiry. Explicit run bundles export its existing
+redacted thumbnail bytes and exact linked activity records, never raw tool replies,
+AX text or credentials. The upstream v2 driver has no activity store and is unsupported.
 
 ``native_config`` names a private JSON file with ``driver: legacy``, ``mcp`` (the
 command/args/env entry supplied by the tagged app), ``activity`` (socket, token_env),
@@ -242,7 +242,35 @@ def correlated(page, session, after_seq, tool, target):
     return rows[0]
 
 
-def frame_ref(activity, page, session, observation):
+def export_file(out, name, data):
+    """A requested private export, never an overwrite of a previous run's evidence."""
+    with os.fdopen(os.open(Path(out) / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
+        stream.write(data)
+    return {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def export_events(out, name, rows):
+    # These are ActivityHost's already-redacted Event records, not MCP results. Refuse
+    # unexpected raw payload fields instead of exporting a forward-incompatible schema.
+    event_keys = {"session", "seq", "ts_ms", "tx", "kind", "tool", "actor", "origin", "target",
+                  "args_redacted", "result", "reject", "duration_ms", "click_point", "before_frame",
+                  "after_frame", "ax_digest"}
+    target_keys = {"app_bundle_id", "app_name", "pid", "pid_start", "window_id", "title_redacted"}
+    result_keys = {"ok", "effect", "verified", "error_code"}
+    for row in rows:
+        if set(row) - event_keys or set(row.get("target") or {}) - target_keys or set(row.get("result") or {}) - result_keys:
+            raise Unavailable("CUA event export contains unsupported fields")
+    data = (json.dumps(rows, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
+    return {**export_file(out, name, data), "schema": "cmux-cua-core::activity::model::Event[]",
+            "retention": "explicit-export; not automatically deleted by the helper"}
+
+
+def event_refs(session, rows, path=None):
+    return [{"format": "cua_event", "session": session["id"], "seq": row["seq"], "tx": row["tx"],
+             **({"path": path, "index": index} if path else {})} for index, row in enumerate(rows)]
+
+
+def frame_ref(activity, page, session, observation, out=None, phase=None):
     if (observation.get("result") or {}).get("ok") is not True or observation.get("reject"):
         raise Unavailable("CUA observation did not succeed")
     blob = observation.get("after_frame")
@@ -254,11 +282,15 @@ def frame_ref(activity, page, session, observation):
     if not ((frame.get("mime") == "image/png" and data.startswith(b"\x89PNG\r\n\x1a\n"))
             or (frame.get("mime") == "image/jpeg" and data.startswith(b"\xff\xd8\xff"))):
         raise Unavailable("CUA screenshot is unavailable under the helper retention policy")
+    exported = {}
+    if out is not None:
+        extension = "png" if frame["mime"] == "image/png" else "jpg"
+        exported = export_file(out, f"{phase}.{extension}", data)
     return {"format": "cua_frame", "session": session["id"], "blob": blob,
-            "size": "thumb", "expired": False}
+            "size": "thumb", "expired": False, **exported}
 
 
-def perform(step, config, mcp, activity):
+def perform(step, config, mcp, activity, out=None, progress=None):
     target = step["target"]
     if set(target) != {"fixture", "role", "name"}:
         raise Unavailable("native target requires fixture, role and name")
@@ -289,8 +321,14 @@ def perform(step, config, mcp, activity):
         raise Unavailable("CUA activity timeline exceeds the bounded step reader")
     after_seq = max((row["seq"] for row in page.get("events", [])), default=0)
     before_event = correlated(page, session, 0, "get_window_state", window)
-    before_frame = frame_ref(activity, page, session, before_event)
-    _, before_ax = semantic(before, target)
+    before_frame = frame_ref(activity, page, session, before_event, out, "before")
+    before_state, before_ax = semantic(before, target)
+    before_evidence = {"screenshot": before_frame, "ax_digest": before_ax, "state": before_state}
+    if out is not None:
+        before_evidence["events"] = export_events(out, "before-events.json", [before_event])
+    if progress is not None:
+        progress.update(evidence={"before": before_evidence},
+                        event_refs=event_refs(session, [before_event], "before-events.json" if out is not None else None))
     if action:
         args = dict(step["args"])
         if set(args) & {"pid", "window_id", "element_index", "element_token", "session_id"}:
@@ -312,21 +350,23 @@ def perform(step, config, mcp, activity):
     page = activity.read("activity_timeline", {"id": session["id"], "after_seq": after_seq, "limit": 100})
     observation = correlated(page, session, after_seq, "get_window_state", window)
     event = correlated(page, session, after_seq, action, window) if action else observation
-    after_frame = frame_ref(activity, page, session, observation)
+    after_frame = frame_ref(activity, page, session, observation, out, "after")
     assertions = [{"name": key, "ok": state.get(key) is value} for key, value in expected.items()]
     assertions.append({"name": "CUA action recorded", "ok": (event.get("result") or {}).get("ok") is True})
-    refs = [{"format": "cua_event", "session": session["id"], "seq": row["seq"], "tx": row["tx"]}
-            for row in ([before_event, event, observation] if action else [before_event, observation])]
+    rows = [before_event, event, observation] if action else [before_event, observation]
+    evidence = {"before": before_evidence, "after": {"screenshot": after_frame, "ax_digest": ax, "state": state}}
+    if out is not None:
+        evidence["events"] = export_events(out, "cua-events.json", rows)
+    refs = event_refs(session, rows, "cua-events.json" if out is not None else None)
     return {"status": "passed" if all(a["ok"] for a in assertions) else "failed",
             "state": state, "assertions": assertions, "event_refs": refs,
-            "evidence": {"before": {"screenshot": before_frame, "ax_digest": before_ax},
-                         "after": {"screenshot": after_frame, "ax_digest": ax}},
+            "evidence": evidence,
             "metrics": {"action_ms": event.get("duration_ms")}}
 
 
 def run_step(step: dict, context: dict, out: Path) -> dict:
-    del out  # The activity store owns native artifacts; never duplicate captured pixels here.
     mcp = None
+    progress = {}
     try:
         config = private_config(context["native_config"])
         if config.get("driver") != "legacy":
@@ -338,11 +378,11 @@ def run_step(step: dict, context: dict, out: Path) -> dict:
             raise Unavailable("unsupported native action")
         activity = Activity(config["activity"])
         mcp = MCP(config["mcp"])
-        return perform(step, config, mcp, activity)
+        return perform(step, config, mcp, activity, out=out, progress=progress)
     except Unavailable as error:
-        return unavailable(str(error))
+        return {**unavailable(str(error)), **progress}
     except (OSError, ValueError, KeyError, TypeError):
-        return unavailable("native transport or configuration is unavailable")
+        return {**unavailable("native transport or configuration is unavailable"), **progress}
     finally:
         if mcp is not None:
             try:
