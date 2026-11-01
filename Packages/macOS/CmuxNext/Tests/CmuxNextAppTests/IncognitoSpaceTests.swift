@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextMobile
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -37,6 +38,17 @@ struct IncognitoSpaceTests {
         services.windows.pendingEphemeralWindows.removeAll { $0 == window }
         services.windows.endIncognitoSpacesIfUnused()
         #expect(services.windows.incognitoSpaces[window] == nil)
+    }
+
+    /// Phones never see an incognito window's workspace (spaces-incognito-audit leak 3): the app hands the phone
+    /// gate every incognito workspace it knows, a claimed one still being created included.
+    @Test func phonesAreToldToHideIncognitoWorkspaces() throws {
+        let services = Self.services()
+        let window = services.windows.newIncognitoWindow(space: ProfileID(rawValue: "prof_incognito"))
+        let key = try #require(services.windows.pendingClaims.first { $0.value == window }?.key)
+        services.windows.recordIncognitoWorkspaces()
+        #expect(services.mobile.access.hidesWorkspace(key), "a phone could list the incognito window's workspace")
+        #expect(!services.mobile.access.hidesWorkspace(UUID().uuidString.lowercased()))
     }
 
     /// The ledger keeps the incognito spaces, so a crashed run's are deleted at the next launch.
