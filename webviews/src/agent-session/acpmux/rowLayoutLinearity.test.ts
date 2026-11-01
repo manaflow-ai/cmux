@@ -46,7 +46,7 @@ test("appending a footer past bookkeeping updates the retained reply edge", () =
   const updated = layoutConversation(next, 720, undefined, undefined, known, { rows, layout });
   const fresh = layoutConversation(next, 720);
   expect(updated).toEqual(fresh);
-  expect(updated.heights[0]).toBe(layout.heights[0]!);
+  expect(updated.heights[0]).toBeLessThan(layout.heights[0]!);
   // Removing it must restore the retained reply's original gap as well.
   expect(layoutConversation(rows, 720, undefined, undefined, known, { rows: next, layout: updated })).toEqual(layout);
 });

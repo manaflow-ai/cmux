@@ -3,12 +3,9 @@
    take the Ghostty theme's colours: waiting on the person the warning yellow, failed the red. */
 .cv-agent-card {
   box-sizing: border-box;
-  margin: 0;
-  padding: var(--grid-cards-padding);
-  border-radius: var(--grid-cards-radius);
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-inner);
+  margin: 4px 0 6px;
+  padding: 4px 12px 8px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px)
@@ -20,7 +17,7 @@
 .cv-agent-card__head {
   display: flex;
   align-items: center;
-  gap: var(--grid-gap);
+  gap: 8px;
   min-width: 0;
   height: 24px;
 }
@@ -33,9 +30,7 @@
 .cv-agent-card__icon {
   display: inline-flex;
   flex: none;
-  width: var(--grid-icon-box);
-  height: var(--grid-icon-box);
-  align-items: center;
+  width: 16px;
   justify-content: center;
   color: var(--cv-text-muted);
 }
@@ -83,8 +78,7 @@
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-agent-card__doing {
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
+  margin-inline-start: 24px;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -96,8 +90,7 @@
 
 /* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
 .cv-agent-run__command {
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
+  margin: 4px 0 0 24px;
   max-height: 160px;
   overflow: auto;
   font-family: var(--cv-font-mono, ui-monospace, monospace);

@@ -4,21 +4,16 @@
    16px plus the 8px gap), in the transcript's Markdown at the detail size. */
 .cv-subsession__cut,
 .cv-subsession__raw {
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
+  margin-inline-start: 24px;
   min-width: 0;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__under {
-  margin: 0;
-  padding-inline-start: var(--grid-transcript-text-gap);
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gap-inner);
+  margin: -3px 0 4px 22.5px;
   min-width: 0;
 }
 .cv-subsession__markdown {
-  margin-top: 0;
+  margin-top: 2px;
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
@@ -53,7 +48,7 @@
   all: unset;
   display: inline-flex;
   align-items: center;
-  gap: var(--grid-gap);
+  gap: 4px;
   cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);

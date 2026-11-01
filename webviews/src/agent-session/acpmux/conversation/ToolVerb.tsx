@@ -88,20 +88,10 @@ export function ToolVerbColumn({ className, children }: { className: string; chi
 }
 
 /// A row's verb in the column. Registered before paint, so a row never draws out of line first.
-function ToolVerb({
-  column,
-  skip,
-  tight,
-  children,
-}: {
-  column: VerbColumn;
-  skip?: boolean;
-  tight?: boolean;
-  children: string;
-}) {
-  useLayoutEffect(() => (tight ? undefined : column.add(children)), [column, children, tight]);
+function ToolVerb({ column, skip, children }: { column: VerbColumn; skip?: boolean; children: string }) {
+  useLayoutEffect(() => column.add(children), [column, children]);
   return (
-    <span className={tight ? "cv-tool__verb is-tight" : "cv-tool__verb"} data-find-skip={skip || undefined}>
+    <span className="cv-tool__verb" data-find-skip={skip || undefined}>
       {children}
     </span>
   );
@@ -112,15 +102,13 @@ function ToolVerb({
 /// with no verb to split off draws as `children` (or `text`) do, as does any label outside a column
 /// or in a language whose verb does not lead, and a `whole` one (an MCP call's plain name, "Hub ·
 /// read chat", starts with its server, not a verb). `skip`: Find in Chat skips the verb and the space
-/// after it, as it skipped "Ran " before the column. `tight`: a count summary ("Ran 2 commands")
-/// keeps its verb out of the column's width, so one plain space parts the verb and the count.
+/// after it, as it skipped "Ran " before the column.
 export function ToolLabel({
   text,
   verb,
   subject,
   skip,
   whole,
-  tight,
   children,
 }: {
   text?: string;
@@ -128,7 +116,6 @@ export function ToolLabel({
   subject?: ReactNode;
   skip?: boolean;
   whole?: boolean;
-  tight?: boolean;
   children?: ReactNode;
 }) {
   const column = useContext(VerbColumnContext);
@@ -137,14 +124,12 @@ export function ToolLabel({
   if (!column || !head) return <>{children ?? text}</>;
   // One run for Find's highlights (chatFind.ts findRuns): a match may span the verb and the subject.
   return (
-    <span className="cv-tool-label" data-find-join="">
-      <ToolVerb column={column} skip={skip} tight={tight}>
+    <span data-find-join="">
+      <ToolVerb column={column} skip={skip}>
         {head}
       </ToolVerb>
-      <span className="cv-tool-label__space" data-find-skip={skip || undefined}>
-        {" "}
-      </span>
-      <span className="cv-tool-label__subject">{subject ?? split?.subject}</span>
+      {skip ? <span data-find-skip> </span> : " "}
+      {subject ?? split?.subject}
     </span>
   );
 }
