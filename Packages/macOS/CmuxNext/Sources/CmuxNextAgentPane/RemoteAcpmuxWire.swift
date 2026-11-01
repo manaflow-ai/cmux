@@ -46,9 +46,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// Native forwarding for this pane's trusted workspace and machine. The returned capability
     /// goes directly to the guest prompt, never through the page or its replay log.
     public struct CloudTurn: Sendable {
-        public let state: @Sendable () async throws -> Data
+        public let state: @Sendable (_ session: String, _ prompt: String) async throws -> Data
         public let capture: @Sendable (_ session: String, _ prompt: String, _ prepared: Data, _ state: Data) async throws -> Data
-        public init(state: @escaping @Sendable () async throws -> Data,
+        public init(state: @escaping @Sendable (String, String) async throws -> Data,
                     capture: @escaping @Sendable (String, String, Data, Data) async throws -> Data) {
             self.state = state
             self.capture = capture
@@ -208,7 +208,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { [weak self, cloudTurn] client in
                 let accepted: Data
                 if let cloudTurn, try await client.supportsCloudTurns() {
-                    let ownerState = try await cloudTurn.state()
+                    let ownerState = try await cloudTurn.state(session, prompt)
                     var submitting = false
                     do {
                         let prepared = try await client.prepareCloudTurn(id: prompt, scope: ownerState)
@@ -223,7 +223,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                     } catch {
                         // A pre-submission failure releases only this local queue slot; the daemon
                         // retains its immutable identity for a pending-snapshot retry.
-                        if !submitting { try? await client.abandonCloudTurn(id: prompt) }
+                        if !submitting { try? await client.abandonCloudTurn(id: prompt, scope: ownerState) }
                         throw error
                     }
                 } else {

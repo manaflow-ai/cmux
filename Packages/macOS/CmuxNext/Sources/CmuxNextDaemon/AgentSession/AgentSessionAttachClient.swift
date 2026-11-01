@@ -315,14 +315,24 @@ public actor AgentSessionAttachClient {
     /// Reserves the prompt's immutable turn identity without dispatching the harness. The owning
     /// daemon answers when the queued turn can capture; closing this attachment ends the wait.
     public func prepareCloudTurn(id: String, scope: Data) async throws -> Data {
-        struct Scope: Decodable { let workspace: String; let machine: String; let generation: Int }
-        let scope = try JSONDecoder().decode(Scope.self, from: scope)
-        return try await call("agent-session-turn-prepare", ["prompt_id": id, "workspace": scope.workspace,
-                              "machine": scope.machine, "generation": scope.generation], waitForTurn: true)
+        try await turnRequest("agent-session-turn-prepare", id: id, scope: scope, wait: true)
     }
 
-    public func abandonCloudTurn(id: String) async throws {
-        _ = try await call("agent-session-turn-abandon", ["prompt_id": id])
+    public func abandonCloudTurn(id: String, scope: Data) async throws {
+        _ = try await turnRequest("agent-session-turn-abandon", id: id, scope: scope, wait: false)
+    }
+
+    private func turnRequest(_ command: String, id: String, scope data: Data, wait: Bool) async throws -> Data {
+        struct Scope: Decodable { let workspace: String; let machine: String; let generation: Int; let attemptId: String }
+        let scope = try JSONDecoder().decode(Scope.self, from: data)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let authorization = object["authorization"] else {
+            throw AgentSessionAttachError(code: "agent_session.bad_request", message: "A scoped preparation capability is required.")
+        }
+        let proof = try JSONSerialization.data(withJSONObject: authorization)
+        return try await call(command, ["prompt_id": id, "workspace": scope.workspace,
+            "machine": scope.machine, "generation": scope.generation, "attempt_id": scope.attemptId],
+            json: ["authorization": proof], waitForTurn: wait)
     }
 
     /// A capability is ephemeral request data only: no reconnect or retry after submission.

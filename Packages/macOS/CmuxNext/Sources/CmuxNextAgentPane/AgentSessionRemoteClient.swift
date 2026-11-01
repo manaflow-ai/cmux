@@ -18,7 +18,7 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func supportsCloudTurns() async throws -> Bool
     /// Allocates the immutable turn id before the native owner captures this machine.
     func prepareCloudTurn(id: String, scope: Data) async throws -> Data
-    func abandonCloudTurn(id: String) async throws
+    func abandonCloudTurn(id: String, scope: Data) async throws
     /// Sends a prepared turn with its short-lived capability, never an owner token.
     func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data
     func cancel() async throws
@@ -50,7 +50,7 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
 extension AgentSessionRemoteClient {
     public func supportsCloudTurns() async throws -> Bool { false }
     public func prepareCloudTurn(id: String, scope: Data) async throws -> Data { throw Self.turnUnsupported }
-    public func abandonCloudTurn(id: String) async throws { throw Self.turnUnsupported }
+    public func abandonCloudTurn(id: String, scope: Data) async throws { throw Self.turnUnsupported }
     public func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data { throw Self.turnUnsupported }
     private static var turnUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.turn_unsupported", message: "Update cmux on this machine to capture Cloud turns.")

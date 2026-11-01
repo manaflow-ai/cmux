@@ -26,7 +26,7 @@ import Testing
             if replay { return Data(#"{"accepted":{"prompt_id":"prompt_1","turn_id":"turn_1","queued":false}}"#.utf8) }
             return Data(#"{"session":"session_1","turn":"turn_1"}"#.utf8)
         }
-        func abandonCloudTurn(id: String) async throws { calls.withLock { $0.append("abandon") } }
+        func abandonCloudTurn(id: String, scope: Data) async throws { calls.withLock { $0.append("abandon") } }
         func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data {
             #expect(String(decoding: cloudTurn, as: UTF8.self) == "scoped-capability")
             calls.withLock { $0.append("fenced") }
@@ -41,7 +41,7 @@ import Testing
 
     @Test func olderAcpmuxKeepsOrdinaryPromptWithoutOwnerCapture() async throws {
         let client = Client(turnsSupported: false), frames = RemoteAcpmuxObserverTests.Frames()
-        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: {
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in
             Issue.record("An older acpmux must not start the capture handshake")
             throw CancellationError()
         }, capture: { _, _, _, _ in throw CancellationError() }))
@@ -55,7 +55,7 @@ import Testing
 
     @Test func cloudPromptUsesPreparedCapabilityWithoutPublishingIt() async throws {
         let client = Client(), frames = RemoteAcpmuxObserverTests.Frames()
-        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { session, _, prepared, state in
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { session, _, prepared, state in
             #expect(String(decoding: state, as: UTF8.self) == "verified-state")
             #expect(session == "session_1")
             #expect(String(decoding: prepared, as: UTF8.self).contains("turn_1"))
@@ -73,7 +73,7 @@ import Testing
 
     @Test func ownerCaptureFailureNeverFallsBackToAnUnfencedPrompt() async throws {
         let client = Client(), frames = RemoteAcpmuxObserverTests.Frames()
-        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { _, _, _, _ in
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { _, _, _, _ in
             throw AgentSessionRemoteError(code: "capture.failed", message: "Capture failed")
         }))
         try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
@@ -86,7 +86,7 @@ import Testing
 
     @Test func acceptedRetryDoesNotCaptureOrDispatchTwice() async throws {
         let client = Client(replay: true), frames = RemoteAcpmuxObserverTests.Frames()
-        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { _, _, _, _ in
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in client.calls.withLock { $0.append("state") }; return Data("verified-state".utf8) }, capture: { _, _, _, _ in
             Issue.record("An accepted prompt must not mint a second capability")
             throw CancellationError()
         }))
@@ -100,7 +100,7 @@ import Testing
 
     @Test func uncertainSubmissionNeverAbandonsItsReservation() async throws {
         let client = Client(submissionFails: true), frames = RemoteAcpmuxObserverTests.Frames()
-        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: {
+        let wire = RemoteAcpmuxWire(client: client, session: "session_1", cloudTurn: .init(state: { _, _ in
             client.calls.withLock { $0.append("state") }
             return Data("verified-state".utf8)
         }, capture: { _, _, _, _ in Data("scoped-capability".utf8) }))

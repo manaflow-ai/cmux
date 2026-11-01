@@ -70,6 +70,8 @@ pub(super) struct Prepare {
     workspace: String,
     machine: String,
     generation: u64,
+    attempt_id: String,
+    authorization: Capability,
     #[serde(default)]
     deadline_ms: Option<u64>,
 }
@@ -79,6 +81,11 @@ pub(super) struct Prepare {
 pub(super) struct Abandon {
     pub surface: SurfaceId,
     prompt_id: String,
+    workspace: String,
+    machine: String,
+    generation: u64,
+    attempt_id: String,
+    authorization: Capability,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -94,6 +101,32 @@ pub(super) struct Capability {
     turn: String,
     #[serde(rename = "expiresAt")]
     expires_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
+    #[serde(rename = "attemptId", skip_serializing_if = "Option::is_none")]
+    attempt_id: Option<String>,
+}
+
+fn authorized(
+    attachment: &Attachment,
+    config: &CloudTurnConfig,
+    proof: &Capability,
+    prompt: &str,
+    generation: u64,
+    attempt: &str,
+) -> bool {
+    proof.workspace == config.workspace
+        && proof.machine == config.machine
+        && proof.session == attachment.session
+        && proof.turn == prompt
+        && proof.generation == generation
+        && proof.purpose.as_deref() == Some("prepare")
+        && proof.attempt_id.as_deref() == Some(attempt)
+        && valid_id(attempt)
+        && valid_id(&proof.team)
+        && valid_id(&proof.user)
+        && proof.capability.starts_with("trc_")
+        && proof.capability.len() == 47
 }
 
 /// An explicit null or malformed envelope is an error, never an unfenced prompt.
@@ -127,6 +160,14 @@ pub(super) fn prepare(attachment: &Attachment, request: Prepare) -> Result<Value
     if !valid_prompt_id(&request.prompt_id)
         || request.workspace != config.workspace
         || request.machine != config.machine
+        || !authorized(
+            attachment,
+            &config,
+            &request.authorization,
+            &request.prompt_id,
+            request.generation,
+            &request.attempt_id,
+        )
     {
         return Err(Refusal::BadRequest);
     }
@@ -144,13 +185,25 @@ pub(super) fn prepare(attachment: &Attachment, request: Prepare) -> Result<Value
     attachment.link.call("agent-session-turn-prepare", json!({
         "sessionId": attachment.session, "prompt_id": request.prompt_id,
         "workspace": request.workspace, "machine": request.machine, "generation": request.generation,
+        "attempt_id": request.attempt_id, "authorization": request.authorization,
         "deadline_ms": deadline,
     }), Duration::from_millis(remaining)).map_err(Refusal::of)
 }
 
 pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value, Refusal> {
-    configured(attachment)?;
-    if !valid_prompt_id(&request.prompt_id) {
+    let config = configured(attachment)?;
+    if !valid_prompt_id(&request.prompt_id)
+        || request.workspace != config.workspace
+        || request.machine != config.machine
+        || !authorized(
+            attachment,
+            &config,
+            &request.authorization,
+            &request.prompt_id,
+            request.generation,
+            &request.attempt_id,
+        )
+    {
         return Err(Refusal::BadRequest);
     }
     attachment
@@ -159,6 +212,8 @@ pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value
             "agent-session-turn-abandon",
             json!({
                 "sessionId": attachment.session, "prompt_id": request.prompt_id,
+                "workspace": request.workspace, "machine": request.machine, "generation": request.generation,
+                "attempt_id": request.attempt_id, "authorization": request.authorization,
             }),
             CALL_TIMEOUT,
         )
@@ -190,6 +245,8 @@ pub(super) fn prompt_envelope(
                 && valid_id(&value.turn)
                 && valid_id(&value.team)
                 && valid_id(&value.user)
+                && value.purpose.as_deref().is_none_or(|purpose| purpose == "execute")
+                && value.attempt_id.as_deref().is_none_or(valid_id)
                 && value.capability.starts_with("trc_")
                 && value.capability.len() == 47 =>
         {

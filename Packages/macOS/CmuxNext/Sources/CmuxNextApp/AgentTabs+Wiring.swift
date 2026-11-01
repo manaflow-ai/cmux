@@ -542,7 +542,7 @@ extension AgentTabStore {
         let owner = CloudTurnOwnerClient(baseURL: CloudConfiguration.turnAPIBaseURL) {
             try await identity.accessToken(team: nil).accessToken
         }
-        return .init(state: { [weak services] in
+        return .init(state: { [weak services] session, prompt in
             let scope = await MainActor.run { () -> (String, String, AgentSessionAttachClient.OwnerLink)? in
                 guard let services, services.cloud.isSignedIn,
                       let (tab, pane) = services.locateTabOnAnyMachine(key),
@@ -555,7 +555,7 @@ extension AgentTabStore {
                 throw CloudTurnOwnerClient.Failure.scope
             }
             guard let account = await services?.cloud.workspaceBindingScope else { throw CloudTurnOwnerClient.Failure.scope }
-            let state = try await owner.state(workspace: workspace, machine: machine)
+            let state = try await owner.authorizePreparation(workspace: workspace, machine: machine, session: session, prompt: prompt)
             try await MainActor.run {
                 guard let services else { throw CancellationError() }
                 try services.cloud.rememberTurnWorkspace(workspace: workspace, machine: machine, scope: account)

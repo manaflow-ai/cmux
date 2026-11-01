@@ -193,7 +193,8 @@ fn serve(
             "initialize" => Some(json!({"_meta":{"acpmux":{"capabilities":
                 if fixture.turn_unsupported { vec![] } else { vec!["agent-session-turn-rewind-v1"] }}}})),
             "agent-session-turn-prepare" => {
-                let answer = json!({"session":SESSION,"turn":"turn_1"});
+                let answer = json!({"session":SESSION,"turn":params["authorization"]["turn"],
+                    "generation":params["generation"],"attempt_id":params["attempt_id"]});
                 if let Some(gate) = fixture.turn_prepare_gate.clone() {
                     let mut delayed = writer.try_clone().unwrap();
                     let id = id.clone();

@@ -47,7 +47,19 @@ fn cloud_turn_partial_or_invalid_configuration_cannot_become_unconfigured() {
 fn turn_capability() -> Value {
     json!({"capability":format!("trc_{}", "a".repeat(43)),"team":"team_one","user":"user_one",
         "workspace":"ws_one","machine":"vm_logical","generation":3,"session":SESSION,
-        "turn":"turn_1","expiresAt":9999999999999u64})
+        "turn":"p1","expiresAt":9999999999999u64,"purpose":"execute","attemptId":"attempt_1"})
+}
+
+fn preparation_capability() -> Value {
+    let mut cap = turn_capability();
+    cap["purpose"] = json!("prepare");
+    cap
+}
+
+fn turn_command(command: &str, surface: SurfaceId) -> Value {
+    json!({"cmd":command,"surface":surface,"prompt_id":"p1","workspace":"ws_one",
+        "machine":"vm_logical","generation":3,"attempt_id":"attempt_1",
+        "authorization":preparation_capability()})
 }
 
 #[test]
@@ -63,9 +75,11 @@ fn cloud_turn_transport_is_conditional_and_preserves_scope_and_capability() {
     assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
     assert!(capabilities::identify_capabilities(&mux).contains(&"agent-session-turn-rewind-v1"));
-    let reply = client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
-        "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3}));
-    assert_eq!(reply["data"], json!({"session":SESSION,"turn":"turn_1"}));
+    let reply = client.request(turn_command("agent-session-turn-prepare", surface));
+    assert_eq!(
+        reply["data"],
+        json!({"session":SESSION,"turn":"p1","generation":3,"attempt_id":"attempt_1"})
+    );
     let frame = fake.frame();
     assert_eq!(frame["method"], "agent-session-turn-prepare");
     assert!(frame["params"]["deadline_ms"].as_u64().is_some());
@@ -74,15 +88,15 @@ fn cloud_turn_transport_is_conditional_and_preserves_scope_and_capability() {
     assert_eq!(
         sent,
         json!({"sessionId":SESSION,"prompt_id":"p1",
-        "workspace":"ws_one","machine":"vm_logical","generation":3})
+        "workspace":"ws_one","machine":"vm_logical","generation":3,
+        "attempt_id":"attempt_1","authorization":preparation_capability()})
     );
-    assert_eq!(
-        client.request(
-            json!({"cmd":"agent-session-turn-abandon","surface":surface,"prompt_id":"p1"})
-        )["ok"],
-        true
-    );
-    assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"prompt_id":"p1"}));
+    assert_eq!(client.request(turn_command("agent-session-turn-abandon", surface))["ok"], true);
+    let mut expected = turn_command("agent-session-turn-abandon", surface);
+    expected.as_object_mut().unwrap().remove("cmd");
+    expected.as_object_mut().unwrap().remove("surface");
+    expected["sessionId"] = json!(SESSION);
+    assert_eq!(fake.frame()["params"], expected);
     let envelope = turn_capability();
     assert_eq!(
         client.request(json!({"cmd":"agent-session-prompt","surface":surface,
@@ -110,7 +124,9 @@ fn cloud_turn_transport_keeps_legacy_prompts_and_refuses_malformed_or_wrong_scop
         true
     );
     assert!(fake.frame()["params"].get("cloud_turn").is_none());
-    for envelope in [Some(Value::Null), Some(json!({})), Some(wrong)] {
+    for envelope in
+        [Some(Value::Null), Some(json!({})), Some(wrong), Some(preparation_capability())]
+    {
         let mut frame =
             json!({"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"});
         if let Some(envelope) = envelope {
@@ -118,15 +134,27 @@ fn cloud_turn_transport_keeps_legacy_prompts_and_refuses_malformed_or_wrong_scop
         }
         assert_code(&client.request(frame), "agent_session.bad_request");
     }
+    for (field, value) in [
+        ("purpose", json!("execute")),
+        ("generation", json!(4)),
+        ("attemptId", json!("another")),
+        ("turn", json!("another")),
+    ] {
+        for command in ["agent-session-turn-prepare", "agent-session-turn-abandon"] {
+            let mut frame = turn_command(command, surface);
+            frame["authorization"][field] = value.clone();
+            assert_code(&client.request(frame), "agent_session.bad_request");
+        }
+    }
     assert_code(
         &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
-        "prompt_id":"p1","workspace":"ws_other","machine":"vm_logical","generation":3})),
+        "prompt_id":"p1","workspace":"ws_other","machine":"vm_logical","generation":3,
+        "attempt_id":"attempt_1","authorization":preparation_capability()})),
         "agent_session.bad_request",
     );
     mux.set_cloud_turn_config(None);
     assert_code(
-        &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
-        "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3})),
+        &client.request(turn_command("agent-session-turn-prepare", surface)),
         "agent_session.unavailable",
     );
     fake.no_frame();
@@ -146,13 +174,12 @@ fn cloud_turn_wait_does_not_block_cancel_on_the_same_native_connection() {
     assert_eq!(attach(&mut client, surface)["ok"], true);
     assert_eq!(fake.frame()["method"], "initialize");
     let _ = fake.frame();
-    let prepared = client.send(json!({"cmd":"agent-session-turn-prepare","surface":surface,
-        "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3}));
+    let prepared = client.send(turn_command("agent-session-turn-prepare", surface));
     assert_eq!(fake.frame()["method"], "agent-session-turn-prepare");
     assert_eq!(client.request(json!({"cmd":"agent-session-cancel","surface":surface}))["ok"], true);
     assert_eq!(fake.frame()["method"], "session/cancel");
     release.send(()).unwrap();
-    assert_eq!(client.answer(prepared)["data"]["turn"], "turn_1");
+    assert_eq!(client.answer(prepared)["data"]["turn"], "p1");
 }
 
 #[test]
@@ -169,7 +196,7 @@ fn cloud_turn_prepare_refuses_expired_or_unbounded_deadlines() {
         assert_code(
             &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
             "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3,
-            "deadline_ms":deadline})),
+            "deadline_ms":deadline,"attempt_id":"attempt_1","authorization":preparation_capability()})),
             "agent_session.bad_request",
         );
     }
@@ -198,8 +225,7 @@ fn configured_machine_with_old_acpmux_keeps_plain_prompts_without_advertising_re
     );
     assert_eq!(fake.frame()["method"], "session/prompt");
     assert_code(
-        &client.request(json!({"cmd":"agent-session-turn-prepare","surface":surface,
-        "prompt_id":"p1","workspace":"ws_one","machine":"vm_logical","generation":3})),
+        &client.request(turn_command("agent-session-turn-prepare", surface)),
         "agent_session.unavailable",
     );
     fake.no_frame();
