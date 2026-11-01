@@ -175,8 +175,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
   };
 
   /// Installed before the page's own scripts. `__restGap()` reads the gap as laid out now: the stack's
-  /// top (its first drawn box: the tray, a queue, or the composer card) less the bottom of the newest
-  /// row's drawn content (text, its action row; not the row's own trailing gap). `__frames` holds it
+  /// top (its first drawn part: the tray, a queue, or the composer card) less the bottom of the newest
+  /// row's ink (its text and icons, its action row's included; not the row's own trailing gap). `__frames` holds it
   /// for every painted frame from the first that draws both: read in a ResizeObserver made after the
   /// pane's own observers (which place the rows and the room under them before paint), on a probe
   /// resized in each frame's callbacks, so each read is of the layout that frame paints.
@@ -185,12 +185,33 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       __restGap: () => number | undefined;
       __frames: { t: number; gap: number }[];
     };
-    const drawnBottom = (node: Node, edge: "top" | "bottom") => {
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
-      if (!rects.length) return undefined;
-      return edge === "top" ? Math.min(...rects.map((rect) => rect.top)) : Math.max(...rects.map((rect) => rect.bottom));
+    /// The bottom of what a row paints: its text's line boxes and its icons, not the boxes around
+    /// them (a row's box runs on through its own trailing gap).
+    const inkBottom = (row: Element) => {
+      let bottom: number | undefined;
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        let rects: DOMRect[] = [];
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (!node.textContent?.trim()) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          rects = [...range.getClientRects()];
+        } else if (["svg", "img", "canvas"].includes((node as Element).localName)) {
+          rects = [(node as Element).getBoundingClientRect()];
+        } else continue;
+        for (const rect of rects)
+          if (rect.width > 0 && rect.height > 0) bottom = Math.max(bottom ?? -Infinity, rect.bottom);
+      }
+      return bottom;
+    };
+    /// The top of the bottom stack's first drawn part: the tray, a question, the queue or the card.
+    const stackTop = (dock: Element) => {
+      const parts = [...dock.children].flatMap((part) =>
+        part.classList.contains("acpmux-composer") ? [...part.children] : [part],
+      );
+      const tops = parts.map((part) => part.getBoundingClientRect()).filter((rect) => rect.height > 0);
+      return tops.length ? Math.min(...tops.map((rect) => rect.top)) : undefined;
     };
     w.__restGap = () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
@@ -203,8 +224,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
       );
-      const bottom = drawnBottom(last, "bottom");
-      const top = drawnBottom(dock, "top");
+      const bottom = inkBottom(last);
+      const top = stackTop(dock);
       return bottom === undefined || top === undefined ? undefined : top - bottom;
     };
     w.__frames = [];
@@ -284,6 +305,22 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     const page = await open(name);
     const settled = await gap(page);
     const taken = await frames(page);
+    console.log(
+      `${name} last row: ` +
+        (await page.evaluate(() => {
+          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")];
+          const last = rows.reduce((a, b) =>
+            Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+          );
+          const dock = document.querySelector(".acpmux-dock")!.getBoundingClientRect();
+          const describe = (node: Element, depth: number): string =>
+            depth > 3
+              ? ""
+              : `${"  ".repeat(depth)}${node.localName}.${[...node.classList].join(".")} ${node.getBoundingClientRect().top.toFixed(1)}-${node.getBoundingClientRect().bottom.toFixed(1)}\n` +
+                [...node.children].map((child) => describe(child, depth + 1)).join("");
+          return `dock ${dock.top.toFixed(1)}\n${describe(last, 0)}`;
+        })),
+    );
     console.log(`${name} load: settled ${settled}px over ${taken.length} frames; first ${taken.slice(0, 6).map((f) => f.gap).join(", ")}`);
     expect(taken.length).toBeGreaterThan(0);
     expect(settled).toBeCloseTo(REST_GAP, 0);
