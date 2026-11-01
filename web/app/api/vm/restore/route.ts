@@ -114,6 +114,7 @@ export async function POST(request: Request): Promise<Response> {
         billingTeamId: entitlements.billingTeamId,
         billingPlanId: entitlements.planId,
         maxActiveVms: entitlements.maxActiveVms,
+        entitlementOverride: entitlements.override,
         provider,
         snapshotId,
         idempotencyKey,

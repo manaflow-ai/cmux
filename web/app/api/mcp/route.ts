@@ -82,6 +82,7 @@ export async function POST(request: Request): Promise<Response> {
             return {
               billingTeamId: account.entitlements.billingTeamId,
               maxActiveVms: account.entitlements.maxActiveVms,
+              override: account.entitlements.override,
               planId: account.entitlements.planId,
             };
           },

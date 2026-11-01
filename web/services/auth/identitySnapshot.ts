@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { stackIdentitySnapshots } from "../../db/schema";
 import type { AuthedTeam, AuthedUser } from "../vms/auth";
+import { vmEntitlementOverrideFromUnknown } from "../vms/entitlementOverride";
 
 /**
  * How long a stored identity snapshot may answer for Stack.
@@ -74,6 +75,7 @@ function authedUserFromSnapshotRow(
     displayName: team.displayName ?? null,
     billingPlanId: team.billingPlanId ?? null,
     billingSeats: team.billingSeats ?? null,
+    ...withVmEntitlementOverride(vmEntitlementOverrideFromUnknown(team.vmEntitlementOverride)),
   }));
   return {
     id: row.userId,
@@ -88,6 +90,13 @@ function authedUserFromSnapshotRow(
     billingPlanId: row.billingPlanId,
     billingSeats: row.billingSeats,
   };
+}
+
+/** Teams without a custom deal keep the snapshot shape they had before deals existed. */
+function withVmEntitlementOverride(
+  override: AuthedTeam["vmEntitlementOverride"],
+): Pick<AuthedTeam, "vmEntitlementOverride"> {
+  return override ? { vmEntitlementOverride: override } : {};
 }
 
 /**
@@ -109,6 +118,7 @@ export async function writeIdentitySnapshot(
     displayName: team.displayName,
     billingPlanId: team.billingPlanId,
     billingSeats: team.billingSeats,
+    ...withVmEntitlementOverride(team.vmEntitlementOverride),
   }));
   try {
     await (db ?? cloudDb())
