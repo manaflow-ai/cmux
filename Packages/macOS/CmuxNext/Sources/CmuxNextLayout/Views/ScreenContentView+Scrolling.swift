@@ -160,7 +160,10 @@ extension ScreenContentView {
             lastFocused = pane
             context.model.focus(pane, source: .scroll)
         }
-        if !effects.needsFrames && reportScrollOnSettle {
+        // A close whose frame spring carries the camera's shift (``scrollRidesFrames``) still moves what
+        // the camera showed: the report waits for it, at the render-server landing (``RenderClose``) or
+        // the CPU frame that rests the camera (`step`), not in the close's turn.
+        if !effects.needsFrames && reportScrollOnSettle && !(scrollRidesFrames && hasMotion) {
             reportScrollOnSettle = false
             reportLeadingColumn()
         }
