@@ -60,17 +60,8 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
           {failure && <div className="row-error">{failure}</div>}
         </div>
         <div className="row-control">
-          {build.installed && (
-            <span className="badge" data-channel-here="">
-              {labels.you_are_here}
-            </span>
-          )}
-          {build.kept && <span className="badge">{labels.kept}</span>}
-          {build.health_title && (
-            <span className={build.health === "held" || build.health === "pulled" ? "badge badge-warning" : "badge"}>
-              {build.health_title}
-            </span>
-          )}
+          {/* First, so the badges keep the card's control edge while it is hidden (it keeps its
+              place, transparent) and nothing moves when it shows. */}
           {build.switch && labels.switch && (
             <button
               type="button"
@@ -82,6 +73,17 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
             >
               {labels.switch}
             </button>
+          )}
+          {build.installed && (
+            <span className="badge" data-channel-here="">
+              {labels.you_are_here}
+            </span>
+          )}
+          {build.kept && <span className="badge">{labels.kept}</span>}
+          {build.health_title && (
+            <span className={build.health === "held" || build.health === "pulled" ? "badge badge-warning" : "badge"}>
+              {build.health_title}
+            </span>
           )}
         </div>
       </div>
