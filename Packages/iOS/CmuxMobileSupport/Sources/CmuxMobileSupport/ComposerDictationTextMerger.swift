@@ -77,6 +77,7 @@ public struct ComposerDictationTextMerger: Sendable {
     private struct Phrase: Sendable {
         var text: String
         var endTime: Double?
+        var isFinal: Bool
     }
 
     private var phrases: [Phrase] = []
@@ -89,7 +90,8 @@ public struct ComposerDictationTextMerger: Sendable {
     /// Merge a Speech result whose timestamps are relative to the recording.
     /// Non-overlapping phrases must survive a recognizer transcript reset.
     public mutating func merged(
-        base: String, transcript: String, startTime: Double?, endTime: Double?
+        base: String, transcript: String, startTime: Double?, endTime: Double?,
+        isUtteranceFinal: Bool = false
     ) -> String {
         guard !transcript.allSatisfy(\.isWhitespace) else {
             return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
@@ -102,14 +104,18 @@ public struct ComposerDictationTextMerger: Sendable {
             while let last = phrases.last, last.endTime.map({ $0 > startTime }) ?? true {
                 phrases.removeLast()
             }
-        } else if !phrases.isEmpty {
-            // Without usable timing this is a correction of the current phrase,
-            // not evidence that a new phrase began. Keep its known boundary.
-            let previousEnd = phrases.removeLast().endTime
-            phrases.append(Phrase(text: String(transcript.drop(while: \.isWhitespace)), endTime: previousEnd))
-            return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+        } else if phrases.last?.isFinal == false {
+            // Untimed partials revise only the provisional phrase. A finished
+            // utterance stays committed when the next partial has zero timing.
+            // Drop the old boundary too: the next timed result must replace
+            // this provisional text rather than append a duplicate of it.
+            phrases.removeLast()
         }
-        phrases.append(Phrase(text: String(transcript.drop(while: \.isWhitespace)), endTime: validTiming ? endTime : nil))
+        phrases.append(Phrase(
+            text: String(transcript.drop(while: \.isWhitespace)),
+            endTime: validTiming ? endTime : nil,
+            isFinal: isUtteranceFinal
+        ))
         return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
     }
 

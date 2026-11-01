@@ -454,6 +454,9 @@ public final class ComposerDictationController {
             let startTime = transcription?.segments.first?.timestamp
             let endTime = transcription?.segments.last.map { $0.timestamp + $0.duration }
             let isFinal = result?.isFinal ?? false
+            // Speech can finish an utterance (with metadata) while keeping the
+            // recognition task live. Its next partial may have zero timestamps.
+            let isUtteranceFinal = isFinal || result?.speechRecognitionMetadata != nil
             let failed = error != nil
             Task { @MainActor in
                 guard let self, self.startToken == token,
@@ -472,7 +475,8 @@ public final class ComposerDictationController {
                         base: self.baseText,
                         transcript: transcript,
                         startTime: startTime,
-                        endTime: endTime
+                        endTime: endTime,
+                        isUtteranceFinal: isUtteranceFinal
                     ))
                 }
                 // A final result or an error (end-of-stream, recognition failure)

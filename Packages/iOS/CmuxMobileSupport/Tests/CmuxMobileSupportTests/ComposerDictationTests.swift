@@ -106,6 +106,32 @@ import Testing
             == "First. Next.")
     }
 
+    @Test func untimedPartialAfterFinishedPhraseKeepsBothPhrases() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5, isUtteranceFinal: true)
+        #expect(merger.merged(base: "", transcript: "B", startTime: 0, endTime: 0) == "A B")
+        #expect(merger.merged(base: "", transcript: "B.", startTime: 3, endTime: 4,
+                              isUtteranceFinal: true) == "A B.")
+        #expect(merger.merged(base: "", transcript: "C", startTime: nil, endTime: nil) == "A B. C")
+        #expect(merger.merged(base: "", transcript: "C.", startTime: 5, endTime: 6,
+                              isUtteranceFinal: true) == "A B. C.")
+    }
+
+    @Test func untimedCorrectionCannotKeepStaleTimingAndDuplicateItself() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "A", startTime: 0, endTime: 1.5)
+        _ = merger.merged(base: "", transcript: "B", startTime: nil, endTime: nil)
+        #expect(merger.merged(base: "", transcript: "B.", startTime: 3, endTime: 4) == "B.")
+    }
+
+    @Test func cumulativeFinalCanCorrectFinishedPhrasesAfterUntimedPartial() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "Hello", startTime: 0, endTime: 1, isUtteranceFinal: true)
+        _ = merger.merged(base: "", transcript: "world", startTime: nil, endTime: nil)
+        #expect(merger.merged(base: "", transcript: "Hello, world!", startTime: 0, endTime: 3,
+                              isUtteranceFinal: true) == "Hello, world!")
+    }
+
     @Test func newRecordingDoesNotReuseSpeechHistory() {
         var merger = ComposerDictationTextMerger()
         _ = merger.merged(base: "", transcript: "First.", startTime: 0, endTime: 1)
