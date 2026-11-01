@@ -2950,6 +2950,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 21
           compression-level: 6
+          # A failed-jobs re-run recompiles under the same build number; the newest symbols win.
+          overwrite: true
 
       - name: Finish the dSYM upload to Sentry
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')

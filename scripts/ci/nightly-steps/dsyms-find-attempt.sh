@@ -13,6 +13,6 @@ run="${BASH_REMATCH[1]}" attempt="$((10#${BASH_REMATCH[2]}))"
 started="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/attempts/$attempt" --jq '.run_started_at')"
 id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100&name=nightly-next-dsyms-$BUILD_SHA" \
   --jq "[.artifacts[] | select(.expired | not) | select(.created_at >= \"$started\")] | sort_by(.created_at) | last | .id // empty")"
-[ -n "$id" ] || { echo "::warning title=No dSYMs to keep::run $run attempt $attempt has no single live nightly-next-dsyms-$BUILD_SHA; Sentry has this build's symbols"; exit 1; }
+[ -n "$id" ] || { echo "::warning title=No dSYMs to keep::run $run attempt $attempt has no live nightly-next-dsyms-$BUILD_SHA since then; Sentry has this build's symbols"; exit 1; }
 echo "run=$run" >> "$GITHUB_OUTPUT"
 echo "artifact=$id" >> "$GITHUB_OUTPUT"
