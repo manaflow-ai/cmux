@@ -48,7 +48,7 @@ import {
 } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
-import { isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
+import { outsideSourceSlash64, parseDeviceIpv6, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { actorOf, ownerStillValid } from "../mesh/owner.ts";
