@@ -80,4 +80,29 @@ import Testing
             }
         }
     }
+
+    @Test(arguments: [false, true], [false, true])
+    func anIdleTreeParentsFoldNeverSharesACloseOrMenuTarget(_ counted: Bool, _ closable: Bool) throws {
+        try SidebarRowCloseSpotTests.withCloseSpot(.end) {
+            let h = T.KindHarness(width: Metrics.sidebarMinWidth)
+            defer { h.window.close() }
+            let row = try #require(h.list.rowViews[.workspace(T.idle)] as? WorkspaceRowView)
+            row.treeFold = .collapsed
+            row.onMore = {}
+            row.onClose = {}
+            row.isClosable = closable
+            row.count = counted ? 12 : nil
+            row.tabCount.setString(counted ? "12" : "")
+            row.isHovered = true
+            row.needsLayout = true
+            row.layoutSubtreeIfNeeded()
+            #expect(!row.treeFoldButton.isHidden)
+            #expect(!row.moreButton.frame.intersects(row.treeFoldButton.frame))
+            if closable { #expect(!row.closeButton.frame.intersects(row.treeFoldButton.frame)) }
+            let end = closable ? row.closeButton : row.moreButton
+            #expect(abs(h.sidebar.convert(end.bounds, from: end).midX -
+                        h.sidebar.convert(h.sidebar.searchButton.bounds, from: h.sidebar.searchButton).midX) <= SidebarTrailingSlotTests.tolerance(h))
+        }
+    }
+
 }

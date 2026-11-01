@@ -159,6 +159,14 @@ extension WorkspaceRowView {
             prBadge.frame = prBadge.frame(forAlignmentRect: NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h))
             trailing -= w + Metrics.space2
         }
+        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
+        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
+        // An end action owns the column. Tree controls and chips remain visible and clickable
+        // to its left, even when an idle row has no status mark reserving that slot.
+        if SidebarTunables.rowCloseSpot.value.atEnd, showClose || showMore {
+            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width) - Metrics.space1)
+        }
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
         trailing = layoutRollUp(trailing: trailing, cy: cy)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
@@ -171,9 +179,6 @@ extension WorkspaceRowView {
         // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
         // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
         // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
-        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
-        let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
-        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         setHoverShown(closeButton, showClose, fades: controlFades)
         setHoverShown(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.

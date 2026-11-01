@@ -378,7 +378,9 @@ public final class SidebarView: NSView {
         // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
         // `sidebar.noFade` (Lawrence 2026-10-26) hides the bottom profile and search bar and every edge fade.
         let noFade = design.sidebarSections.noFade
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces && !noFade
+        let spaceCount = model.profiles.count
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: spaceCount) && (spacesPosition == .bottom || spaceCount > 1)
+            && design.sidebarSections.showSpaces && !noFade
         profileBar.isHidden = !showsProfiles
         footerRegion.isHidden = noFade
         searchButton.isHidden = noFade

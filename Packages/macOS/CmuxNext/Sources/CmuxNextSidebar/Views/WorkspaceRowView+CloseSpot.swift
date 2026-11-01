@@ -22,7 +22,13 @@ extension WorkspaceRowView {
         if showClose {
             // The end action stays on the column even on idle rows with counts or keycaps.
             closeButton.frame = column
-            moreButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control, slot: 1)
+            // Keep the menu left of live tree controls/chips: hiding them would lose actions,
+            // and painting over them can make a visible chevron receive a close click.
+            let contentStart = ([treeFoldButton, rollUp, pullRequests] as [NSView]).filter { !$0.isHidden }.map { $0.frame.minX }.min()
+            let menuSlot = contentStart.map {
+                max(1, Int(ceil((column.midX + control / 2 + Metrics.space1 - $0) / SidebarStyle.trailingSlotPitch)))
+            } ?? 1
+            moreButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control, slot: menuSlot)
         } else if showMore {
             // A row that cannot close: the menu on the column (the pin, when shown, left of it).
             moreButton.frame = column

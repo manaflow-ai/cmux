@@ -10,6 +10,9 @@
   idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
   hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
   navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
+  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
+  visible and clickable left of the end action, with overflow on the next free shared slot.
   Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
   and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
 

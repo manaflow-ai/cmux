@@ -8,6 +8,19 @@ import Testing
 /// Four native-sidebar comparisons for Leo's 2026-11-01 dot/+ visibility choice.
 /// The artifact includes light/dark rest/hover captures and a contact-sheet HTML page.
 @MainActor @Suite(.serialized) struct ProfileBarVariantGalleryTests {
+    private static func render(_ h: SidebarTrailingColumnTests.KindHarness) throws -> CGImage {
+        let root = try #require(h.window.contentView)
+        for view in AANestedGroupsGalleryTests.all(root) { view.layoutSubtreeIfNeeded(); view.needsDisplay = true; view.displayIfNeeded() }
+        CATransaction.flush()
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(data: nil, width: Int(root.bounds.width * 2), height: Int(root.bounds.height * 2),
+                                            bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.scaleBy(x: 2, y: 2)
+        try #require(root.layer).render(in: context)
+        return try #require(context.makeImage())
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderDotAndPlusChoices() throws {
         let design = DesignSettings.shared
@@ -59,12 +72,12 @@ import Testing
                     bar.setPointerInside(hovered)
                     bar.setHovered(hovered ? ProfileBarView.plusIndex : nil)
                     bar.refresh()
-                    let row = try #require(h.list.rowViews[.workspace(SidebarTrailingColumnTests.unread)] as? WorkspaceRowView)
+                    let row = try #require(h.list.rowViews[.workspace(SidebarTrailingColumnTests.member)] as? WorkspaceRowView)
                     row.onMore = {}
                     row.isHovered = hovered
                     let state = hovered ? "hover" : "rest"
                     let file = "\(mode)-\(name)-\(state).png"
-                    let image = try SidebarTrailingColumnGalleryTests.render(h)
+                    let image = try Self.render(h)
                     try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: file))
                     html += "<figure><img src='\(file)' alt='\(name) \(state)'><figcaption>\(state)</figcaption></figure>"
                 }
