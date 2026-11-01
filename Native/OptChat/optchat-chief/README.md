@@ -100,7 +100,8 @@ a `[no reply]` note that names the messages, says why, and forbids
 failure note in the message's thread ("I could not answer your message ...
 Please send it again.") and logs a note so the next turn does not answer it
 again. Only the owner's stop (chief.stop) and a retraction close a message
-with no post.
+with no post. Explicit `chief.continue` reopens the last stopped batch, and
+`chief.retry` reopens a named owner message; neither resubmits that message.
 
 Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
 conversation when the person's last message has had no reply for 2 minutes,
@@ -278,6 +279,22 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   turn and the other subagents go on. A stopped or cancelled subagent is not
   at work any more, even when its session never ends the turn: its slot frees
   at once.
+- `chief.continue` reopens the person messages the last owner Stop closed and
+  starts one turn with a `[continue]` note. It returns `{"continued": true}`;
+  with no stopped turn it returns `{"continued": false}` and starts nothing.
+  A stopped turn can continue even when it already answered its person messages.
+  The stopped batch expires on the next person message or turn. A running turn
+  returns `{"continued": false, "reason": "busy"}`. Home offers Continue in the
+  Stop button's place after an accepted Stop.
+- `chief.retry {message: "ID"}` reopens and re-answers that owner's message in
+  this Chief conversation, with a `[retry]` note naming it. Existing replies
+  stay in the conversation. It returns `{"retried": true}`, or
+  `{"retried": false, "reason": "busy"}` while a turn runs or waits to start.
+  Unknown, retracted, other-person and other-conversation messages are refused
+  with `reason: "invalid_message"`; a disconnected conversation owner returns
+  `reason: "unavailable"`. Home's Retry Reply menu action on delivered own
+  messages uses this method; Not Delivered's Try Again still retries sending.
+  Both methods use the same owner-only daemon control boundary as `chief.stop`.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 

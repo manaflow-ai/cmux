@@ -118,9 +118,7 @@ const chat = (key: string) => ({ key, harness: "claude", title: key, updatedAt: 
 test("a live refresh removes deleted chats when acpmux reports its complete list", async () => {
   const requests: Request[] = [];
   await render(queuedLoad(requests));
-  await act(async () =>
-    requests[0]!.resolve({ chats: [chat("claude:removed"), chat("claude:kept")], ready: true }),
-  );
+  await act(async () => requests[0]!.resolve({ chats: [chat("claude:removed"), chat("claude:kept")], ready: true }));
   expect(container.querySelector("output")?.dataset.keys).toBe("claude:removed,claude:kept");
 
   // The index changed in another window while All chats stayed open.
@@ -151,9 +149,7 @@ test("a live refresh keeps older rows when the new first page still has a cursor
   );
   await act(async () => setDeviceChats([chat("claude:newer")]));
   expect(requests).toHaveLength(2);
-  await act(async () =>
-    requests[1]!.resolve({ chats: [chat("claude:newer")], nextCursor: "next", ready: true }),
-  );
+  await act(async () => requests[1]!.resolve({ chats: [chat("claude:newer")], nextCursor: "next", ready: true }));
 
   // The missing row may simply have moved onto a later page.
   expect(container.querySelector("output")?.dataset.keys).toBe("claude:newer,claude:older");

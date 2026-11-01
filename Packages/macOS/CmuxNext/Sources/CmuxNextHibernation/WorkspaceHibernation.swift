@@ -170,6 +170,14 @@ public final class WorkspaceHibernation {
         if hid { replanSoon() }
     }
 
+    /// A window opened or closed (`WindowManager.controllers`' didSet). The window list is not observable, so the
+    /// shown-set follow can miss a close; this re-reads both shown sets, and closing the last window of a space
+    /// plans a pass within a minute like a space switch (#30854). Re-reading an unchanged set does nothing.
+    public func windowsDidChange() {
+        noteShown(host.hibernationShownWorkspaces())
+        noteShownSpaces(host.hibernationShownSpaces())
+    }
+
     /// Arms a pass a minute out unless one is already due sooner. The pending deadline was planned on the old
     /// shown set and can be later than a newly hidden space's clock; an earlier one is never postponed, so
     /// switching back and forth cannot starve a pass.
