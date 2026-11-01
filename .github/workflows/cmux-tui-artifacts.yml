@@ -163,6 +163,9 @@ jobs:
       pull-requests: read
     outputs:
       darwin_builder: ${{ steps.darwin-builder.outputs.builder }}
+      # An owned mini idle now for both macOS targets, with no nightly job waiting on its pool, else empty
+      # (the Linux cross build on Blacksmith): the build's darwin_mac_runner.
+      darwin_mac_runner: ${{ steps.darwin-mac.outputs.mini_jobs != '' && steps.darwin-mac.outputs.mini_runner || '' }}
       key: ${{ steps.inspect.outputs.key }}
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
@@ -268,6 +271,35 @@ jobs:
           [[ "$builder" == mac || "$builder" == linux ]] || { echo "::error::scripts/ci/cmux-tui-darwin-builder must be mac or linux, not '$builder'"; exit 1; }
           echo "builder=$builder" >> "$GITHUB_OUTPUT"
           echo "macOS targets build on: $builder"
+
+      # The macOS targets are Mac builds: a free owned mini comes first, natively, and the Linux cross build
+      # on Blacksmith 32 vCPU is the overflow (Leo, 2026-10-31: "y'know, we'll have to be more self-reliant
+      # and size the stuff better"). Both targets or neither, since the build takes one label for both.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: steps.darwin-builder.outputs.builder == 'linux' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Look for a free mini for the macOS targets
+        id: darwin-mac
+        if: steps.darwin-builder.outputs.builder == 'linux'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          JOBS: darwin-aarch64 darwin-x86_64
+          MAC_FIRST: darwin-aarch64 darwin-x86_64
+          MINI_ALL_OR_NONE: "1"
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
 
       - name: Check the branch head and tree publication
         id: inspect
@@ -1094,6 +1126,7 @@ jobs:
       # the published tree always says which builder made it. Fallback: commit
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
+      darwin_mac_runner: ${{ needs.tree-preflight.outputs.darwin_mac_runner }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the

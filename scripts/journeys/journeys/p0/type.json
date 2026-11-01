@@ -1,0 +1,28 @@
+{
+  "id": "type",
+  "priority": "P0",
+  "title": "Type a command in a new terminal; its output shows",
+  "why": "The first thing a user does. Every key goes through the app's real key path (debug.key: the key router, then the terminal view), not a daemon write.",
+  "source": "everyday terminal use (holistic-quality.md 1)",
+  "budget_seconds": 45,
+  "steps": [
+    {"do": "new_terminal", "via": "key"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo ok-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {
+      "do": "expect",
+      "title": "the command and its output show",
+      "since": "typed",
+      "within": 3,
+      "timeout": 10,
+      "all": [
+        {"daemon_line": "${prompt}echo ok-${nonce}-$((6*7))"},
+        {"daemon_line": "ok-${nonce}-42"},
+        {"daemon_prompt": true},
+        {"app_text_line": "ok-${nonce}-42"},
+        {"app_pane": {"focused": true}},
+        {"frame_text": "ok-${nonce}-42"}
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import CmuxNextAgentActivity
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 @testable import CmuxNextPalette
 import Foundation
 import Testing
