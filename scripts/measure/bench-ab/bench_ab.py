@@ -189,8 +189,7 @@ def samples_launch(doc):
             for marks in runs if isinstance(runs, list) else []:
                 verdict = ((marks or {}).get("daemons") or {}).get("verdict")
                 if verdict not in (None, "run"):
-                    _add(out, mode, "not_run", 1)  # its daemons or hosts were not the build under test: no sample
-                    continue
+                    continue  # its daemons or hosts were not the build under test: no sample (bench-startup prints it)
                 for mark, v in (marks or {}).items():
                     _add(out, mode, mark, v)
     return out

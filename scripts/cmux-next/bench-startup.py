@@ -230,7 +230,8 @@ def end_tag_hosts(tag):
 def is_host_command(command):
     """A terminal host, holder or agent host command line."""
     padded = f" {command} "
-    return any(word in padded for word in (" __terminal-host", " __holder ", " __agent-host")) or "cmux-holder" in command
+    first = os.path.basename(command.split()[0]) if command.split() else ""
+    return any(word in padded for word in (" __terminal-host", " __holder ", " __agent-host")) or first == "cmux-holder"
 
 
 def app_pids(tag):
@@ -308,16 +309,17 @@ def wait_exit(pids, timeout):
 
 
 def stop(pids, timeout=10):
+    """TERM, then KILL, each pid; a pid that exited or belongs to another user is skipped, never fatal."""
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
     if not wait_exit(pids, timeout):
         for pid in pids:
             try:
                 os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         wait_exit(pids, 5)
 
@@ -386,6 +388,7 @@ class Launch:
 
 
 RUN_TAGS = []
+NOT_RUN_EXIT = 3  # every run of some tag and mode was served by processes of another build
 # tag -> wall time of the step's first measured launch of the tag (the warm and restart modes' daemon floor).
 STEP_STARTED_WALL = {}
 # --focus: the realistic profile's focused pane at quit ("agent" or "terminal").
@@ -423,8 +426,8 @@ def daemon_verdict(app_bundle, daemons, spawned_wall, bundle_builds=None):
     2026-11-01: the cmux-tui and acpmux daemons outlive the app, so a launch can attach to the daemon of an earlier
     step, another copy or another commit). `daemons`: [{"name", "pid", "exe", "build_id", "started_wall"}] as read by
     read_daemons(). A round is "run" only when each daemon it found runs a binary inside `app_bundle` and started at or
-    after this launch's spawn, and (bundle_builds: {"cmux-tui": id} of the bundle's own binary) reports that build;
-    else "not_run" with the reasons. A launch that found no daemon is "not_run" too: the
+    after this launch's spawn, and (bundle_builds: {"cmux-tui": id, "acpmux": id} of the bundle's own binaries) reports
+    that build; else "not_run" with the reasons. A launch that found no daemon is "not_run" too: the
     build of the daemon that served it is unknown. Returns {"verdict", "reasons", "daemons"}."""
     bundle = os.path.realpath(app_bundle).rstrip("/") + "/"
     hashes = bundle_binary_hashes(app_bundle)
@@ -521,17 +524,28 @@ def process_exe(pid):
 
 
 def bundle_daemon_builds(app_bundle):
-    """The build id the bundle's own cmux-tui reports (`--version --json` "build_identity", the same
-    cmux_build_identity::BUILD_IDENTITY its daemon gives as identify "build_id"), as {"cmux-tui": id}, or {}. acpmux has
-    no command that prints its own build without a daemon, so acpmux is judged by its binary path only (its daemon's
-    reported build is still recorded)."""
+    """The build ids the bundle's own binaries report, with no daemon: cmux-tui `--version --json` "build_identity" (its
+    daemon's identify "build_id") and acpmux `--version` "acpmux <ver> (<build>)" (its daemon's status "build",
+    hub::BUILD). {} entries are missing when a binary cannot be asked."""
+    out = {}
+    bin_dir = os.path.join(app_bundle, "Contents/Resources/bin")
     try:
-        text = subprocess.run([os.path.join(app_bundle, "Contents/Resources/bin/cmux-tui"), "--version", "--json"],
-                              capture_output=True, text=True, timeout=10).stdout
+        text = subprocess.run([os.path.join(bin_dir, "cmux-tui"), "--version", "--json"], capture_output=True,
+                              text=True, timeout=10).stdout
         found = (json.loads(text) or {}).get("build_identity")
-        return {"cmux-tui": found} if found else {}
+        if found:
+            out["cmux-tui"] = found
     except (OSError, ValueError, subprocess.TimeoutExpired):
-        return {}
+        pass
+    try:
+        text = subprocess.run([os.path.join(bin_dir, "acpmux"), "--version"], capture_output=True, text=True,
+                              timeout=10).stdout
+        found = re.search(r"\(([^()]+)\)\s*$", text.strip())
+        if found:
+            out["acpmux"] = found.group(1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return out
 
 
 def app_build(app_bundle):
@@ -1036,21 +1050,31 @@ def main():
                 print(f"\n{tag} {mode}: {not_run} of {len(results[tag][mode])} runs NOT RUN (their daemons or hosts are "
                       "not the build under test); they are left out below", flush=True)
             runs = counted[tag][mode]
+            if not runs:
+                # Every run of this tag and mode was served by processes of another build: no number, no pass, no fail.
+                print(f"\n{tag} {mode}: NOT RUN (no run counts)", flush=True)
+                continue
             print(f"\n{tag} {mode} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
             for label, mark, median, worst, gap, count in table(runs):
                 print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
             if args.hangs:
                 print_stalls(runs)
+    not_run_sets = [f"{tag} {mode}" for tag, modes_ in counted.items() for mode, runs in modes_.items()
+                    if results[tag][mode] and not runs]
     if args.json:
         with open(args.json, "w") as out:
-            json.dump(results, out, indent=1)
+            json.dump({**results, "not_run": not_run_sets} if not_run_sets else results, out, indent=1)
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(counted, args.budget) + check_orders(counted, orders)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
         sys.exit(1)
+    if not_run_sets:
+        # A not-run set is never a pass (exit 0) or a fail (exit 1): its own status.
+        print(f"NOT RUN: {', '.join(not_run_sets)}", file=sys.stderr)
+        sys.exit(NOT_RUN_EXIT)
 
 
 def counts(run):
