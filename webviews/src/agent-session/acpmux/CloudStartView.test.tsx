@@ -116,9 +116,11 @@ test("a missing setup script is plain text without an environment callback", () 
 });
 
 test("initialized sessions collapse to one quiet line", () => {
-  const html = renderToStaticMarkup(<CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />);
+  const html = renderToStaticMarkup(
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
+  );
   expect(html).toContain("Initialized session");
-  expect(html).not.toContain("data-step-id=\"machine\"");
+  expect(html).not.toContain('data-step-id="machine"');
 });
 
 test("startup durations use the supplied clock", () => {
@@ -127,6 +129,11 @@ test("startup durations use the supplied clock", () => {
 });
 
 test("setup hint becomes a link when an environment callback is provided", () => {
-  const html = renderToStaticMarkup(<CloudStartView start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }} onOpenEnvironment={() => undefined} />);
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      onOpenEnvironment={() => undefined}
+    />,
+  );
   expect(html).toContain('class="acpmux-cloud-start__link"');
 });

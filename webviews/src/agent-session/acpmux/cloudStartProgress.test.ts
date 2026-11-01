@@ -71,9 +71,15 @@ test("a start with no project carries home, and the agent's name for the opening
 // The Swift bridge nests seed_* timestamps under clone; they must not start
 // the machine or harness clocks, including on failed and cached copies.
 test("forwarded copy timestamps stay on the clone row", () => {
-  for (const [state, phase] of [["done", "complete"], ["done", "cached"], ["failed", "copy"]] as const) {
+  for (const [state, phase] of [
+    ["done", "complete"],
+    ["done", "cached"],
+    ["failed", "copy"],
+  ] as const) {
     const pushed = cloudStartPushed(begun(), {
-      key: "k-1", step: "folder", clone: { state, phase, startedAt: 1000, finishedAt: 3500 },
+      key: "k-1",
+      step: "folder",
+      clone: { state, phase, startedAt: 1000, finishedAt: 3500 },
     });
     expect(pushed?.clone).toEqual({ state, phase, startedAt: 1000, finishedAt: 3500 });
     expect(pushed?.machineStartedAt).toBeUndefined();
