@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::plan::{plan, plan_since, plan_with_base, FallbackCode, Planned, PreviousSeed};
+use super::plan::{FallbackCode, Planned, PreviousSeed, plan, plan_since, plan_with_base};
 
 const URL: &str = "https://github.com/acme/widget.git";
 
