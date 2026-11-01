@@ -392,3 +392,66 @@ pub(crate) fn ephemeral_workspaces(connection: &Connection) -> anyhow::Result<Ve
     )?;
     Ok(statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
 }
+
+/// Whether workspace `workspace_key` is ephemeral (incognito). False before
+/// the state tables exist.
+pub(crate) fn workspace_key_is_ephemeral(
+    connection: &Connection,
+    workspace_key: &str,
+) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM resource_workspaces AS rw
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE rw.workspace_key = ?1 AND ws.ephemeral != 0",
+            [workspace_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Whether terminal `terminal_id` (internal id) was created in an ephemeral
+/// workspace that still carries the flag. Its flag row goes when that
+/// workspace closes, so callers that need the answer after the close keep
+/// it (`OutputStore::mark_private`).
+fn terminal_is_ephemeral(
+    connection: &Connection,
+    terminal_id: &str,
+) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM terminal_hosts AS th
+             JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE th.terminal_id = ?1 AND ws.ephemeral != 0",
+            [terminal_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// [`terminal_is_ephemeral`] by public terminal id.
+pub(crate) fn public_terminal_is_ephemeral(
+    connection: &Connection,
+    public_id: &str,
+) -> anyhow::Result<bool> {
+    let terminal = connection
+        .query_row(
+            "SELECT terminal_id FROM resource_terminals WHERE public_id = ?1",
+            [public_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    match terminal {
+        Some(terminal) => terminal_is_ephemeral(connection, &terminal),
+        None => Ok(false),
+    }
+}

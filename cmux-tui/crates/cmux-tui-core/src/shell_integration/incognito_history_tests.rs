@@ -34,15 +34,22 @@ fn temp_base(name: &str) -> PathBuf {
     fs::canonicalize(&base).unwrap()
 }
 
-fn read_until(pty: &mut TestPty, needle: &[u8], deadline: Instant) {
-    let mut output = Vec::new();
-    while !output.windows(needle.len()).any(|window| window == needle) {
+/// Reads into `output` until `needle` appears after its first `from` bytes;
+/// the offset just past it.
+fn read_until(pty: &mut TestPty, output: &mut Vec<u8>, from: usize, needle: &[u8], deadline: Instant) -> usize {
+    loop {
+        if let Some(at) = output
+            .get(from..)
+            .and_then(|rest| rest.windows(needle.len()).position(|window| window == needle))
+        {
+            return from + at + needle.len();
+        }
         match pty.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(chunk) => output.extend_from_slice(&chunk),
             Err(_) => panic!(
                 "no {:?} from the shell: {:?}",
                 String::from_utf8_lossy(needle),
-                String::from_utf8_lossy(&output)
+                String::from_utf8_lossy(output)
             ),
         }
     }
@@ -86,10 +93,11 @@ fn run_one_command(
     let deadline = Instant::now() + Duration::from_secs(30);
     // Type at the prompt, as a user does: input typed before the line editor
     // starts can lose characters.
-    read_until(&mut pty, b"> ", deadline);
+    let mut output = Vec::new();
+    let at = read_until(&mut pty, &mut output, 0, b"> ", deadline);
     pty.write(format!("{typed}\n").as_bytes());
-    read_until(&mut pty, RAN, deadline);
-    read_until(&mut pty, b"> ", deadline);
+    let at = read_until(&mut pty, &mut output, at, RAN, deadline);
+    read_until(&mut pty, &mut output, at, b"> ", deadline);
     pty.write(b"exit\n");
     // The exit-time save runs before the shell exits.
     while pty.spawned.child.try_wait().unwrap().is_none() {

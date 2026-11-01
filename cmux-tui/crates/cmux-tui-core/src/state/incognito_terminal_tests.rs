@@ -105,15 +105,18 @@ fn an_incognito_terminal_starts_its_shell_with_history_off() {
 fn an_incognito_terminal_screen_never_reaches_the_disk() {
     const NORMAL: &str = "00000000000040008000000000000a01";
     const PRIVATE: &str = "00000000000040008000000000000a02";
-    const INCARNATION: &str = "10000000000040008000000000000a00";
+    const INCARNATIONS: [&str; 2] =
+        ["10000000000040008000000000000a01", "10000000000040008000000000000a02"];
     let session = Session::new("incognito-scrollback");
     let mux = session.open();
     let directory = mux.output_store.directory().expect("a persistent session").to_path_buf();
     let (_, normal_key) = workspace(&mux, "normal", "empty", false);
     let (_, private_key) = workspace(&mux, "private", "empty", true);
     let mut ids = Vec::new();
-    for (terminal, key) in [(NORMAL, &normal_key), (PRIVATE, &private_key)] {
-        let surface = mux.seed_running_terminal_for_test(terminal, INCARNATION, key).unwrap();
+    for ((terminal, key), incarnation) in
+        [(NORMAL, &normal_key), (PRIVATE, &private_key)].into_iter().zip(INCARNATIONS)
+    {
+        let surface = mux.seed_running_terminal_for_test(terminal, incarnation, key).unwrap();
         let public = mux
             .workspace_registry
             .lock()
@@ -123,7 +126,7 @@ fn an_incognito_terminal_screen_never_reaches_the_disk() {
             .expect("a public terminal id");
         let bytes = format!("secret output of {terminal}\r\n").into_bytes();
         mux.surface(surface).unwrap().apply_stream_output_for_test(&bytes).unwrap();
-        mux.output_store.append(&public, &Arc::from(INCARNATION), &bytes, None);
+        mux.output_store.append(&public, &Arc::from(incarnation), &bytes, None);
         ids.push((surface, public));
     }
     mux.output_store.write_now(&mux);

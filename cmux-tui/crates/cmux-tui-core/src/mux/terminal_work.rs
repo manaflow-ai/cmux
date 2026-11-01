@@ -199,11 +199,17 @@ impl Mux {
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
             let cwd = self.new_terminal_cwd(cwd, Some(target), None);
-            let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
+            let workspace_key = self.workspace_key_for_pane(target);
+            let (launch_opts, cell_pixels) = self.terminal_spawn_options_in(
+                cwd,
+                command,
+                size,
+                &env,
+                workspace_key.as_deref(),
+            );
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
-            let workspace_key = self.workspace_key_for_pane(target);
             let terminal_id = match terminal_id {
                 // A retry of a keyed create names a terminal that exists: the
                 // create replays its first result, so nothing may launch a

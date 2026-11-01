@@ -43,6 +43,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
+            include_str!("shell_integration/incognito-history.zsh"),
         ),
     },
     Script {
@@ -50,6 +51,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
             include_str!("shell_integration/agent-shims.bash"),
+            include_str!("shell_integration/incognito-history.bash"),
         ),
     },
     Script {
@@ -70,6 +72,10 @@ const SCRIPTS: &[Script] = &[
         path: "fish/vendor_conf.d/cmux-tui-agent-shims.fish",
         contents: include_str!("shell_integration/cmux-tui-agent-shims.fish"),
     },
+    Script {
+        path: "fish/vendor_conf.d/cmux-tui-incognito-history.fish",
+        contents: include_str!("shell_integration/cmux-tui-incognito-history.fish"),
+    },
 ];
 
 /// The directory holding cmux-tui's `codex` and `claude` shims. Integrated
@@ -78,6 +84,24 @@ const SCRIPTS: &[Script] = &[
 /// of the real agent cannot bypass the shim and its per-terminal hooks. The
 /// app's own integration (`Resources/cmux-cli-path`) does the same.
 pub const AGENT_SHIMS_ENV: &str = "CMUX_TUI_AGENT_SHIMS";
+
+/// Set (to `1`) in the shells of an incognito workspace's terminals: the
+/// integration scripts keep history off after the user's startup files
+/// ([`keep_no_history`]).
+pub const INCOGNITO_ENV: &str = "CMUX_TUI_INCOGNITO";
+
+/// History off for a terminal of an incognito workspace (design/spaces.md
+/// "Incognito": nothing kept): `HISTFILE=/dev/null` for bash and zsh,
+/// `fish_private_mode` for fish, and [`INCOGNITO_ENV`] so the integration
+/// scripts turn it off again after startup files that set `HISTFILE`
+/// (macOS `/etc/zshrc` does). Appended last, so it wins over an inherited
+/// or caller value.
+pub(crate) fn keep_no_history(env: &mut Vec<(String, String)>) {
+    env.retain(|(key, _)| key != "HISTFILE" && key != "fish_private_mode" && key != INCOGNITO_ENV);
+    env.push(("HISTFILE".into(), "/dev/null".into()));
+    env.push(("fish_private_mode".into(), "1".into()));
+    env.push((INCOGNITO_ENV.into(), "1".into()));
+}
 
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
