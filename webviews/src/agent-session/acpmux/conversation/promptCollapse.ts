@@ -1,4 +1,4 @@
-// A long prompt collapses as Claude's does (Leo 2026-10-21): its first ten lines, the last ones
+// A long prompt collapses as Claude's does (Leo 2026-10-21): its first ten lines, the last one
 // fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
 // a paste is a chip, "<first words> · N lines", that opens in place. model.ts estimates the row
 // from the same numbers, so a prompt that mounts moves nothing below it.

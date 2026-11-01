@@ -351,6 +351,9 @@ export default agentPaneEntry({
     },
     "workflow-progress": {
       note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is Session Info's).",
+      // Workflows are on by default, which shows this as the workflow card instead; a host that
+      // turns them off (`workflowLabs` false) still gets the tray line this state covers.
+      workflowLabs: false,
       play: trayLines(1),
       snapshot: chat(
         [
