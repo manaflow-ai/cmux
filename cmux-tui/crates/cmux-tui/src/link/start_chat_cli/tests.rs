@@ -340,7 +340,11 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     let (seen, results) = pushes(vec![Err("fs.permission_denied"), Ok(())]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results.borrow_mut().remove(0).map_err(|code| (code.to_string(), "refused".to_string()))
+        results
+            .borrow_mut()
+            .remove(0)
+            .map(|()| json!({}))
+            .map_err(|code| (code.to_string(), "refused".to_string()))
     };
     let answer = copy.run(&path, &push);
     assert_eq!(answer["ok"], json!(true));
@@ -358,7 +362,11 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     let (seen, results) = pushes(vec![Err("machine_outdated")]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results.borrow_mut().remove(0).map_err(|code| (code.to_string(), "old".to_string()))
+        results
+            .borrow_mut()
+            .remove(0)
+            .map(|()| json!({}))
+            .map_err(|code| (code.to_string(), "old".to_string()))
     };
     let answer = other.run(&path, &push);
     assert_eq!(answer["ok"], json!(false));
@@ -375,7 +383,7 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let count = RefCell::new(0);
     let push = |_: &Path, _: &Path, _: &str| {
         *count.borrow_mut() += 1;
-        Ok(())
+        Ok(json!({}))
     };
     let first = copy.run(&path, &push);
     let retry = StartCopy { key: copy.key.to_lowercase(), ..copy.clone() }.run(&path, &push);
@@ -533,7 +541,7 @@ fn an_unreadable_ledger_refuses_the_send_and_keeps_its_bytes() {
     let pushed = RefCell::new(Vec::<String>::new());
     let push = |_: &Path, _: &Path, remote: &str| {
         pushed.borrow_mut().push(remote.to_string());
-        Ok(())
+        Ok(json!({}))
     };
     assert_eq!(pin(&path, &copy.key, ACCOUNT, "vm-a", None)["ok"], json!(true));
     assert_eq!(copy.run(&path, &push)["copied"], json!(true));
@@ -584,7 +592,11 @@ fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
     let (seen, results) = pushes(vec![Err("timeout"), Ok(())]);
     let push = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        results.borrow_mut().remove(0).map_err(|code| (code.to_string(), "lost".to_string()))
+        results
+            .borrow_mut()
+            .remove(0)
+            .map(|()| json!({}))
+            .map_err(|code| (code.to_string(), "lost".to_string()))
     };
     assert_eq!(copy.run(&path, &push)["error_code"], json!("timeout"));
     let retry = StartCopy { key: copy.key.to_uppercase(), ..copy.clone() }.run(&path, &push);
@@ -597,7 +609,7 @@ fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
     let count = RefCell::new(0);
     let never = |_: &Path, _: &Path, _: &str| {
         *count.borrow_mut() += 1;
-        Ok(())
+        Ok(json!({}))
     };
     assert_eq!(copy.run(&path, &never)["chat"], retry["chat"]);
     assert_eq!(*count.borrow(), 0);
@@ -613,13 +625,13 @@ fn two_copies_of_one_send_at_once_never_share_a_folder() {
     let seen = RefCell::new(Vec::<String>::new());
     let inner = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        Ok(())
+        Ok(json!({}))
     };
     let outer = |_: &Path, _: &Path, remote: &str| {
         // The second copy starts while the first one's push runs.
         assert_eq!(copy.run(&path, &inner)["copied"], json!(true));
         seen.borrow_mut().push(remote.to_string());
-        Ok(())
+        Ok(json!({}))
     };
     assert_eq!(copy.run(&path, &outer)["copied"], json!(true));
     let seen = seen.borrow();
@@ -650,7 +662,7 @@ fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
     drop(held);
     let ok = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        Ok(())
+        Ok(json!({}))
     };
     let done = copy.run(&path, &ok);
     assert_eq!(done["copied"], json!(true), "{done}");
@@ -691,7 +703,8 @@ fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
     }
     let dir = scratch();
     let path = ledger_in(dir.path());
-    let never = |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied") };
+    let never =
+        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied") };
     let answer = copy_of("/System", "").run(&path, &never);
     assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
@@ -736,7 +749,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         ..copy_of("/a", "")
     };
     let never =
-        |_: &Path, _: &Path, _: &str| -> Result<(), (String, String)> { panic!("copied again") };
+        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
     assert_eq!(copy.run(&path, &never)["copied"], json!(false));
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
@@ -1333,4 +1346,27 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
+}
+/// The copy's answer carries how the push went: a seed, or the copy with why
+/// and the GitHub App's install link, and the files left on this Mac.
+#[test]
+fn a_copy_answers_how_the_push_went() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "");
+    let push = |_: &Path, _: &Path, _: &str| {
+        Ok(super::pushed_fields(&json!({
+            "ok": true, "mode": "copy", "unchanged": false, "bundle_bytes": 0,
+            "head": null, "fallback_code": "seed.needs_github", "fallback_why": "private",
+            "install_url": "https://github.com/apps/cmux/installations/new",
+            "skipped_files": [{"path": ".env", "kind": "secret", "why": "secret"}],
+        })))
+    };
+    let answer = copy.run(&path, &push);
+    assert_eq!(answer["copied"], json!(true), "{answer}");
+    assert_eq!(answer["mode"], json!("copy"));
+    assert_eq!(answer["fallback_code"], json!("seed.needs_github"));
+    assert_eq!(answer["install_url"], json!("https://github.com/apps/cmux/installations/new"));
+    assert_eq!(answer["skipped_files"][0]["path"], json!(".env"));
+    assert!(answer.get("head").is_none() && answer.get("bundle_bytes").is_none(), "{answer}");
 }

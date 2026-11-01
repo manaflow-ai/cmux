@@ -93,32 +93,37 @@ export function CloudRepositoryPicker({
   const [attaching, setAttaching] = useState<string>();
   const [error, setError] = useState<string>();
   const generation = useRef(0);
+  /// The search field takes focus when the popover opens (the Popover moves it, not autoFocus).
+  const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      setError(undefined);
-      void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-        .then((syncedInstallUrl) =>
-          request<ListReply>("cloud.repo.list", query.trim() ? { query: query.trim() } : {}).then((reply) => ({
-            reply,
-            syncedInstallUrl,
-          })),
-        )
-        .then(({ reply, syncedInstallUrl }) => {
-          if (id !== generation.current) return;
-          setRepos(reposOf(reply));
-          setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
-        })
-        .catch(() => {
-          if (id === generation.current) setError("Couldn’t load repositories");
-        })
-        .finally(() => {
-          if (id === generation.current) setLoading(false);
-        });
-    }, query.trim() ? 120 : 0);
+    const timer = window.setTimeout(
+      () => {
+        setLoading(true);
+        setError(undefined);
+        void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
+          .then((syncedInstallUrl) =>
+            request<ListReply>("cloud.repo.list", query.trim() ? { query: query.trim() } : {}).then((reply) => ({
+              reply,
+              syncedInstallUrl,
+            })),
+          )
+          .then(({ reply, syncedInstallUrl }) => {
+            if (id !== generation.current) return;
+            setRepos(reposOf(reply));
+            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+          })
+          .catch(() => {
+            if (id === generation.current) setError("Couldn’t load repositories");
+          })
+          .finally(() => {
+            if (id === generation.current) setLoading(false);
+          });
+      },
+      query.trim() ? 120 : 0,
+    );
     return () => window.clearTimeout(timer);
   }, [open, query, request, session]);
 
@@ -129,7 +134,7 @@ export function CloudRepositoryPicker({
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
       .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
       .then((reply) => {
-        if (reply?.state === "done" && !((reply as { code?: unknown }).code) && reply.repo) {
+        if (reply?.state === "done" && !(reply as { code?: unknown }).code && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
           onOpenChange(false);
           setQuery("");
@@ -141,7 +146,11 @@ export function CloudRepositoryPicker({
       })
       .catch((reason: unknown) => {
         const code = errorCode(reason);
-        setError(code === "repo.needs_github" ? "Connect GitHub to attach this repository" : "Repository could not be attached");
+        setError(
+          code === "repo.needs_github"
+            ? "Connect GitHub to attach this repository"
+            : "Repository could not be attached",
+        );
       })
       .finally(() => setAttaching(undefined));
   };
@@ -153,11 +162,11 @@ export function CloudRepositoryPicker({
       anchor={anchor.current as UiAnchor}
       label="Add repository"
       className="acpmux-cloud-repository-popover"
-      initialFocus={false}
+      initialFocus={search}
     >
       <div className="acpmux-cloud-repository-picker">
         <input
-          autoFocus
+          ref={search}
           className="acpmux-cloud-repository-search"
           value={query}
           placeholder="Search repositories"
@@ -176,7 +185,7 @@ export function CloudRepositoryPicker({
         />
         {loading && <div className="acpmux-cloud-repository-progress">Searching…</div>}
         {!loading && repos.length > 0 && (
-          <ul className="acpmux-cloud-repository-list" role="listbox">
+          <ul className="acpmux-cloud-repository-list">
             {repos.map((repo) => (
               <li key={repo.fullName}>
                 <button
@@ -194,8 +203,14 @@ export function CloudRepositoryPicker({
             ))}
           </ul>
         )}
-        {!loading && repos.length === 0 && !error && <div className="acpmux-cloud-repository-empty">No repositories found</div>}
-        {error && <div className="acpmux-cloud-repository-error" role="alert">{error}</div>}
+        {!loading && repos.length === 0 && !error && (
+          <div className="acpmux-cloud-repository-empty">No repositories found</div>
+        )}
+        {error && (
+          <div className="acpmux-cloud-repository-error" role="alert">
+            {error}
+          </div>
+        )}
         {connectUrl && (
           <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
             Connect GitHub
@@ -206,13 +221,17 @@ export function CloudRepositoryPicker({
   );
 }
 
-export function loadAttachedCloudRepos(_session: string): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then((reply) => ({
-    repos: Array.isArray(reply?.repos)
-      ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-      : [],
-    pending: Array.isArray(reply?.pending)
-      ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-      : [],
-  }));
+export function loadAttachedCloudRepos(
+  _session: string,
+): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
+  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then(
+    (reply) => ({
+      repos: Array.isArray(reply?.repos)
+        ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
+        : [],
+      pending: Array.isArray(reply?.pending)
+        ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
+        : [],
+    }),
+  );
 }

@@ -447,7 +447,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: 4px;
+  gap: var(--acpmux-composer-action-gap);
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -1333,7 +1333,9 @@
    whole pane (pane-has-restyle.browser.test.ts). */
 /* The control tokens live on the composer's root, so the rows outside the box (the strip over it,
    the quiet row under it) stand on the same column. New Tab derives its inset (newtab/screen.css). */
+.acpmux-dock,
 :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-action-gap: 4px;
   --acpmux-composer-control: 28px;
   --acpmux-composer-inset: calc(8px * var(--cmux-interface-scale, 1));
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text

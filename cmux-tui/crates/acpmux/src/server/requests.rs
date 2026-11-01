@@ -680,6 +680,18 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    if conn.is_trigger() && !m.starts_with("trigger/chat.") {
+        return Err(RpcError::new(
+            -32001,
+            "trigger connection accepts trigger/chat operations only",
+        ));
+    }
+    if matches!(
+        m,
+        method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
+    ) {
+        return super::trigger_chat::handle(hub, conn, m, params).await;
+    }
     // Before forwarding: only the local connection's authenticated caller may attest itself.
     if m == method::MUX_TURN_ATTESTATION {
         let ask =
@@ -1315,7 +1327,8 @@ async fn dispatch_request(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
+            let provenance =
+                crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
             let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
