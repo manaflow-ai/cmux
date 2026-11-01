@@ -24,8 +24,7 @@ fn shown(mux: &Arc<Mux>, ids: &[&str]) -> Vec<String> {
 }
 
 fn home(mux: &Arc<Mux>) -> String {
-    send(mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
-        ["workspace_id"]
+    send(mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]["workspace_id"]
         .as_str()
         .unwrap()
         .to_string()
@@ -65,8 +64,8 @@ fn a_move_to_index_zero_shows_the_workspace_first_below_home() {
     assert_eq!(shown(&mux, &ids), [home.as_str(), c.as_str(), b.as_str(), a.as_str()]);
 
     // A retried request replays; a later move is not undone by it.
-    let again = send(&mux, "workspace.move", json!({"workspace": c, "index": 0}), Some("c-top"))
-        .unwrap();
+    let again =
+        send(&mux, "workspace.move", json!({"workspace": c, "index": 0}), Some("c-top")).unwrap();
     assert_eq!(again["replayed"], true);
     assert_eq!(shown(&mux, &ids), [home.as_str(), c.as_str(), b.as_str(), a.as_str()]);
 

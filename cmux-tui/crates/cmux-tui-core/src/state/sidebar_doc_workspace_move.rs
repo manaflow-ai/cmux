@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use super::sidebar_doc_order::order_in;
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
+use crate::WorkspaceMutation;
 use crate::mux::*;
 use crate::state::store::StateCommit;
 
