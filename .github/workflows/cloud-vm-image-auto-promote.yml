@@ -15,6 +15,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cloud-vm-image-bake.yml
+
 concurrency:
   group: cloud-vm-image-auto-promote-${{ github.event.workflow_run.id }}
   cancel-in-progress: false
@@ -32,10 +35,11 @@ jobs:
       contents: read
       actions: write
     steps:
-      - name: Download the completed bake artifact
+      - name: Download completed bake artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-vm-image-bake-${{ github.event.workflow_run.id }}
+          # The producer includes its mode in the artifact name; download all artifacts and
+          # select the auto-promote marker below so repro/prod-copy runs stay no-op and green.
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/bake
@@ -47,16 +51,16 @@ jobs:
           ARTIFACT_DIR: ${{ runner.temp }}/bake
         run: |
           set -euo pipefail
-          marker="$ARTIFACT_DIR/auto-promote.json"
-          if [ ! -f "$marker" ]; then
-            echo "The completed bake did not request auto-promotion; nothing to dispatch."
+          marker="$(find "$ARTIFACT_DIR" -type f -name auto-promote.json -print -quit)"
+          if [ -z "$marker" ]; then
+            echo "The completed workflow did not request auto-promotion; nothing to dispatch."
             exit 0
           fi
+          candidate="$(dirname "$marker")/channel-dev.json"
           snapshot="$(jq -r '.snapshot // empty' "$marker")"
           var="$(jq -r '.var // empty' "$marker")"
           [[ "$snapshot" =~ ^sh-[0-9a-f]{32}$ ]] || { echo "::error title=Auto-promotion::invalid snapshot in marker"; exit 1; }
           [[ "$var" =~ ^(CLOUD_FREESTYLE_SNAPSHOT|TEAM_VM_SNAPSHOT)$ ]] || { echo "::error title=Auto-promotion::invalid image variable in marker"; exit 1; }
-          candidate="$ARTIFACT_DIR/channel-dev.json"
           jq -e --arg snapshot "$snapshot" --arg var "$var" '.snapshot_id == $snapshot and .var == $var and .smoke.result == "PASSED"' "$candidate" > /dev/null
           gh workflow run cloud-vm-image-promote.yml \
             --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
