@@ -665,6 +665,13 @@ def _ps_rows():
     return rows
 
 
+def _start_s(lstart):
+    try:
+        return time.mktime(time.strptime(" ".join(lstart.split()), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, TypeError):
+        return None
+
+
 def _flag(command, name):
     words = command.split()
     return words[words.index(name) + 1] if name in words and words.index(name) + 1 < len(words) else None
@@ -739,21 +746,38 @@ def daemon_check(app):
         return {"ok": False, "why": "not a cmux-next app"}
     bundle_bin = os.path.join(app.app, "Contents/Resources/bin") + "/"
     expect = bundle_build(app.app)
-    daemons = []
-    for pid, start, command in _ps_rows():
-        words = command.split()
-        if not words or os.path.basename(words[0]) != "cmux-tui" or "--headless" not in words:
+    daemons, seen = [], []
+    rows = _ps_rows()
+    app_pid = getattr(app, "pid", None)
+    app_start = next((_start_s(start) for pid, start, _ in rows if pid == app_pid), None)
+    for pid, start, command in rows:
+        # The owner daemon is `<bundle>/Contents/Resources/bin/cmux-tui --headless --session S --socket P ...`
+        # (cmux-tui local_owner.rs spawn_detached_owner). The bundle path has spaces ("cmux DEV <tag>.app"), so the
+        # executable is everything before " --headless", never the first space-separated word.
+        m = re.match(r"^(.*/cmux-tui) --headless(?: (.*))?$", command)
+        if not m:
+            if "cmux-tui" in command:
+                seen.append(f"{pid}: {command[:160]}")
             continue
-        session = _flag(command, "--session") or ""
-        if not session.startswith("cmux-app-split"):
+        exe, rest = m.group(1), m.group(2) or ""
+        session = _flag(rest, "--session") or ""
+        if session != "cmux-app-split-spring":
+            seen.append(f"{pid} session {session or '-'}: {exe}")
             continue
-        sock = _flag(command, "--socket")
+        sock = _flag(rest, "--socket")
         ident = _identify(sock) if sock else {"error": "no --socket"}
-        daemons.append({"pid": pid, "start": start, "exe": words[0], "session": session, "in_bundle": words[0].startswith(bundle_bin),
-                        "identify": ident})
+        exit_with = (_flag(rest, "--exit-with-pid") or "").split(":")[0]
+        # This launch's daemon, not one an earlier arm left at the same cached bundle path: it names this app as the
+        # process it exits with, or (no such flag) it started after this app.
+        this_launch = exit_with == str(app_pid) if exit_with else (app_start is not None and _start_s(start) >= app_start - 2)
+        daemons.append({"pid": pid, "start": start, "exe": exe, "session": session, "in_bundle": exe.startswith(bundle_bin),
+                        "exit_with": exit_with or None, "this_launch": this_launch, "identify": ident})
     why = None
     if not daemons:
-        why = "no daemon of the session runs"
+        why = "no daemon of the session runs" + (f" (other cmux-tui processes: {'; '.join(seen[:4])})" if seen else " (no cmux-tui process at all)")
+    elif not all(d["this_launch"] for d in daemons):
+        why = "a daemon of the session is not this launch's (another app pid, or older than the app): " + ", ".join(
+            f"{d['pid']} exit-with {d['exit_with']} start {d['start']}" for d in daemons if not d["this_launch"])
     elif not all(d["in_bundle"] for d in daemons):
         why = "a daemon of the session runs from another bundle: " + ", ".join(d["exe"] for d in daemons if not d["in_bundle"])
     else:
@@ -763,7 +787,7 @@ def daemon_check(app):
             why = f"daemon build {sorted(map(str, got))} is not the bundle's {want}"
         elif not want and None in got:
             why = "no build id from the daemon or the bundle"
-    return {"ok": why is None, "why": why, "daemons": daemons, "bundle": expect}
+    return {"ok": why is None, "why": why, "daemons": daemons, "bundle": expect, "other_cmux_tui": seen[:8]}
 
 
 def run_round(app, scenario, index, sampled):
