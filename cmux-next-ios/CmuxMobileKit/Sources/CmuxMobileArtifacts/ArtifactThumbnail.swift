@@ -249,7 +249,10 @@ extension ArtifactMemo where Value == ArtifactThumbnail {
     /// `scale`: the display's (an HTML snapshot is rendered off screen, where no window tells it).
     func thumbnail(for artifact: TerminalArtifact, source: any ArtifactSource, scale: CGFloat) async -> ArtifactThumbnail? {
         await value(for: artifact) { artifact in
-            guard let content = try? await source.load(artifact) else { return nil }
+            // A Mac temporarily offline, a cancelled tile or a failed link
+            // throws. Keep those failures out of the shared thumbnail cache.
+            // A loaded artifact with no visual representation still caches nil.
+            let content = try await source.load(artifact)
             return await ArtifactThumbnail.make(for: artifact, content: content, scale: scale)
         }
     }
