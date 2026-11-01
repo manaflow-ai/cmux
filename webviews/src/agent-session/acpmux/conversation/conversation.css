@@ -2890,10 +2890,15 @@ pre.cv-math-source {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
-  height: var(--cv-message-line);
   box-sizing: border-box;
   padding-block: 0;
   padding-inline: 0;
+}
+/* The line's buttons are the line's height: DisclosureRow.css gives them a sub-session row's 26px
+   floor, which would stand out of the 22px line. */
+.cv-received :is(.cv-disclosure__toggle, .cv-disclosure__open) {
+  height: var(--cv-message-line);
+  min-height: 0;
 }
 .cv-received .cv-disclosure__toggle:is(:hover, :focus-visible) {
   background: none;
