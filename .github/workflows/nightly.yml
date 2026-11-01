@@ -6257,10 +6257,6 @@ jobs:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
 
-      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
-      - name: Claim the whole Mac for signing
-        run: ./scripts/ci/signing-runner-claim.sh
-
       # The steps below pass this workflow's arguments, so the publication
       # tooling must come from the workflow's own commit, not from the
       # published build's checkout. A recovered build can be days older: run
@@ -6270,6 +6266,10 @@ jobs:
       # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
       # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
       - *checkout-publication-tooling-a
+
+      # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
+      - name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
       # its own actor, so a limit that every workflow's github.token shares does not refuse it.
@@ -6717,11 +6717,11 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.publish-nightly.outputs.build_sha }}
 
+      - *checkout-publication-tooling-a
+
       # Before any release App secret: repeat the claim and clear a keychain left by a killed job.
       - name: Claim the whole Mac for signing
-        run: ./scripts/ci/signing-runner-claim.sh
-
-      - *checkout-publication-tooling-a
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       - *gh-app-token-write
 
