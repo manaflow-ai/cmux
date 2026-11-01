@@ -21,6 +21,9 @@ use crate::rpc::method;
 /// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
 /// message its journal kept (`hub/message_events.rs` `name_message`).
 pub const SESSION_MESSAGES: &str = "session-messages-v1";
+/// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
+/// submit idempotent ensure/send/status operations over fd0.
+pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -84,6 +87,14 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability {
+        id: TRIGGER_CHAT,
+        wire: &[
+            method::TRIGGER_CHAT_ENSURE,
+            method::TRIGGER_CHAT_SEND,
+            method::TRIGGER_CHAT_STATUS,
+        ],
+    },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
@@ -170,6 +181,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
+    // past the newest page its log was seeded with (`hub/native_history.rs`).
+    Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
     Capability {
         id: "durable-watches-v1",
         wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
@@ -194,11 +208,41 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
+    // its one-use execution capability. The app exposes the rewind action only for configured
+    // new Cloud workspace sessions; local and legacy sessions never send this envelope.
+    Capability {
+        id: "agent-session-turn-rewind-v1",
+        wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
+    },
+    // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
+    Capability {
+        id: "agent-login-v1",
+        wire: &[
+            method::MUX_AGENT_LOGIN_START,
+            method::MUX_AGENT_LOGIN_FINISH,
+            method::MUX_AGENT_LOGIN_CANCEL,
+            method::MUX_AGENT_LOGIN_API_KEY,
+        ],
+    },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
 pub fn ids() -> Vec<&'static str> {
-    CAPABILITIES.iter().map(|capability| capability.id).collect()
+    CAPABILITIES
+        .iter()
+        .filter(|capability| {
+            capability.id != "agent-session-turn-rewind-v1"
+                || [
+                    "CMUX_PLATFORM_ORIGIN",
+                    "CMUX_PLATFORM_WORKSPACE_ID",
+                    "CMUX_PLATFORM_MACHINE_ID",
+                ]
+                .iter()
+                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        })
+        .map(|capability| capability.id)
+        .collect()
 }
 
 /// `acpmux capabilities`: one id per line, or with `--json`

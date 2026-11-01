@@ -62,6 +62,16 @@ import Testing
         return pane.stripModel.tabs.compactMap { item in pane.pane.tabs.first { $0.id == item.id.rawValue }?.surface }
     }
 
+    /// A pane not in a window yet has its placeholder frame, not a width: it sets no chat floor, so its link
+    /// still splits to the right (fleet runs of #28044 at 8e520360 and caf8e69e: it opened in place).
+    @Test func aPaneNotInAWindowIsUnmeasured() throws {
+        let (_, pane, state) = try Self.pane()
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        #expect(pane.view.window == nil)
+        #expect(pane.view.bounds.width > 0, "fixture: the placeholder frame has a width")
+        #expect(LinkOpener.width(of: pane) == nil, "a windowless pane's placeholder width was taken for a measure")
+    }
+
     @Test func aLinkOpenedToTheRightNeverShowsInTheLeftPanesStrip() throws {
         let (services, pane, state) = try Self.pane()
         defer { withExtendedLifetime(state) { pane.teardown() } }

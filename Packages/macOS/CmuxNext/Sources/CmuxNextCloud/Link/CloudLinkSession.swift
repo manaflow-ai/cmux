@@ -97,6 +97,15 @@ public actor CloudLinkSession {
         }
     }
 
+    /// One atomic snapshot of the live endpoint and its ownership answer. Reading these
+    /// separately could combine a replacement socket with a superseded owner answer.
+    public var currentLinkSocket: CloudLinkSocket? {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket
+        case .idle, .connecting, .ended: nil
+        }
+    }
+
     /// The current connect's id while its link is up and its answer said the signed-in caller owns
     /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
     /// it before it connects and again as it sends: a different answer means the link ended or a
@@ -106,6 +115,16 @@ public actor CloudLinkSession {
         switch state {
         case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
         case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// True while the link is up and its connect's answer said the machine is a teammate's
+    /// (``CloudLinkSocket/callerIsTeammate``): a chat start is refused as a teammate's machine
+    /// (`agent_session.team_vm_blocked`). It never grants a start; only ``ownerLink`` does.
+    public var callerIsTeammate: Bool {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerIsTeammate
+        case .idle, .connecting, .ended: false
         }
     }
 

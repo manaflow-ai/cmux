@@ -232,6 +232,13 @@ to those lanes (the agent composer needs a page message to focus and insert).
 
 ## 5. Ctrl-Tab after the fix
 
+Superseded 2026-10-20 (Lawrence): one priority with no forced tier, cmux.json > the user's
+Ghostty config > cmux defaults > Ghostty defaults. Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [
+step the focused pane's tabs (`nextSurface` / `prevSurface`) in every surface, as do Ghostty's
+`next_tab` / `previous_tab` / `goto_tab`; Cmd-Opt arrows focus panes; Ctrl-Cmd-] / [ and
+Cmd-1…9 select sidebar items; Ctrl-PageDown / Up have no cmux default. The table below is the
+2026-10-03 state.
+
 Default entries that replace `BrowserChordTable.tabNavigation` (same keys, same actions):
 
 | Key | Command | when |

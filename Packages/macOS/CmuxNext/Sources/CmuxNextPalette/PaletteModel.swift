@@ -24,6 +24,7 @@ public final class PaletteModel {
             selectsQuery = false
             // A tree page reads `~` or `/` as a jump, not a filter.
             if jump(for: query) { return }
+            queryFrames.edited(scope: nav.top?.scope.rawValue ?? "")
             send(.setQuery(query))
         }
     }
@@ -63,6 +64,8 @@ public final class PaletteModel {
     public internal(set) var fieldHint: String?
     /// The footer title's clickable segments (`PalettePageSpec.crumbs`).
     public internal(set) var pageCrumbs: [String] = []
+    /// The current page's chosen values, drawn as chips before the query (`PalettePageSpec.tokens`).
+    public internal(set) var pageTokens: [PaletteToken] = []
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
@@ -136,6 +139,8 @@ public final class PaletteModel {
     /// The usage history's owner; `frecency` mirrors its `history`.
     @ObservationIgnored let usage: any PaletteUsageStore
     @ObservationIgnored public internal(set) var nav = PaletteNavState()
+    /// The typed query's frame signposts (key.palette_query_rows, key.palette_query_answer).
+    @ObservationIgnored var queryFrames = PaletteQueryFrameMarks()
     /// One page per level, by level id.
     @ObservationIgnored var pages: [Int: PageState] = [:]
     /// Pages a caller supplied for the next level of that scope.

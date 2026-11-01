@@ -71,7 +71,7 @@ extension SidebarViewComponents {
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
             metrics = .standard
-            fontSize = Typography.body.pointSize
+            fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn

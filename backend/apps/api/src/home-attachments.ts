@@ -7,7 +7,7 @@ import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import { derivedReady, PART_RENEW_MS, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
-import { completionFailure, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
+import { completionFailure, hashInto, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
 
@@ -72,6 +72,8 @@ interface ConversationAttachments {
   renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
   recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
+  leaseDirect(entity: string, id: string): Promise<UploadSlot | null>
+  advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean>
   reopenMultipart(entity: string, id: string): Promise<boolean>
   commitAttachment(entity: string, slotId: string, etag?: string, objectId?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
@@ -193,16 +195,24 @@ const SINGLE_PUT_BYTES = 5_000_000_000
 /**
  * How an original of `byteCount` bytes is uploaded, or the refusal. Small files stream through the
  * Worker. A client that sends parts (`multipart: true`, CmuxHomeCore) gets multipart at every size.
- * An older client gets one request: a presigned PUT with the S3 settings, otherwise the Worker
+ * Parts larger than the zone's request body limit (past about 931 GiB on Free and Pro) go straight
+ * to R2 with presigned UploadPart URLs (`direct`). An older client gets one request: a presigned PUT with the S3 settings, otherwise the Worker
  * stream up to the zone's body limit; past what one request can carry it is told to send parts.
  */
 export const uploadModeFor = (byteCount: number, multipart: boolean, s3: boolean, workerBody: number): UploadSlot["mode"] | Fail => {
   if (byteCount <= L.streamMaxBytes) return "stream"
-  if (multipart) return "multipart"
+  if (multipart) {
+    // A part the zone cannot carry goes straight to R2 (presigned UploadPart), which needs the S3 settings.
+    if (homeConversation.multipartPlan(byteCount).partBytes <= workerBody) return "multipart"
+    return s3 ? "direct" : { status: 503, code: "attachment.large_unavailable", message: "parts of a file this large exceed this deployment's request limit; it needs the S3 settings" }
+  }
   if (s3 && byteCount <= SINGLE_PUT_BYTES) return "presigned"
   if (!s3 && byteCount <= workerBody) return "stream"
   return { status: 400, code: "attachment.multipart_required", message: "a file this large uploads in parts: send the intent with multipart: true" }
 }
+
+/** The S3 API URL of an object key (each path segment encoded). */
+const objectUrl = (s3: NonNullable<ReturnType<typeof s3Config>>, key: string) => `${s3.endpoint}/${s3.bucket}/${key.split("/").map(encodeURIComponent).join("/")}`
 
 const readJson = async <T>(request: Request): Promise<T | null> => (await request.json().catch(() => null)) as T | null
 
@@ -305,7 +315,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
       ...derivedUpload
     })
   }
-  if (mode === "multipart") {
+  if (mode === "multipart" || mode === "direct") {
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
     // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
     const owner = conversationOf(env, conversation)
@@ -341,9 +351,11 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     const plan = homeConversation.multipartPlan(meta.byte_count)
     return success({
       state: "upload",
-      mode,
+      mode: "multipart",
       method: "PUT",
       upload_url: `${origin}/v1/home/attachments/multipart/${conversation}/${uploadToken(env, conversation, slot.id)}`,
+      // worker: PUT each part to upload_url. direct: POST upload_url for each part's presigned URL, PUT the part there.
+      transport: mode === "direct" ? "direct" : "worker",
       headers: { "x-cmux-part-size": String(plan.partBytes) },
       part_size: plan.partBytes,
       part_count: plan.parts,
@@ -359,7 +371,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   const headers = { "content-length": String(meta.byte_count), "if-none-match": "*", "x-amz-checksum-sha256": Buffer.from(meta.sha256, "hex").toString("base64") }
   const url = presign({
     method: "PUT",
-    url: `${s3!.endpoint}/${s3!.bucket}/${slot.object_key.split("/").map(encodeURIComponent).join("/")}`,
+    url: objectUrl(s3, slot.object_key),
     region: "auto",
     accessKeyId: s3!.accessKeyId,
     secretAccessKey: s3!.secretAccessKey,
@@ -487,7 +499,7 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
  * stored and the hash matched, R2 joins the recorded parts in one call and the owner commits the
  * object. `parts` (the client's own list, optional) must name the same parts and etags.
  */
-export const handleAttachmentMultipartComplete = async (request: Request, env: Env, admitted?: Principal): Promise<Response> => {
+export const handleAttachmentMultipartComplete = async (request: Request, env: Env, admitted?: Principal, verifyStep = VERIFY_STEP_BYTES): Promise<Response> => {
   const caller = await callerOf(request, env, "mutate-shared", admitted)
   if (isFail(caller)) return failure(caller)
   const off = configured(env)
@@ -497,17 +509,18 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const conversation = body.conversation
   const conv = conversationOf(env, conversation)
   const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
-  const open = await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)
+  const open = (await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)) ?? (await conv.uploadSlot(conversation, body.slot, "direct", false, caller.actor))
   // A completion of this caller's slot that already started (R2 may have joined the parts while the owner commit
   // failed) is completed again: the join below finds the object by its size and sha256 and the commit is idempotent.
-  const resumed = open ? null : await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)
+  const resumed = open ? null : ((await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)) ?? (await conv.completingSlot(conversation, body.slot, "direct", caller.actor)))
   const peek = open ?? resumed
   if (!peek?.multipart_upload_id) return invalid
   const missing = derivedMissing(peek)
   if (missing) return missing
   const { parts } = homeConversation.multipartPlan(peek.byte_count)
   const listed = body.parts
-  if (listed !== undefined && (!Array.isArray(listed) || listed.length !== parts || listed.some((p, i) => !partNumberIn(p?.part_number, parts) || p.part_number !== i + 1 || typeof p.etag !== "string"))) return failure({ status: 400, code: "attachment.parts_invalid", message: `parts must be numbered 1 to ${parts}, in order, each with its etag` })
+  if (listed !== undefined && !partsListed(listed, parts)) return partsInvalid(parts)
+  if (peek.mode === "direct") return completeDirect(env, conversation, peek, listed, verifyStep)
   const etags = await conv.multipartEtags(conversation, peek.id)
   if (etags.length !== parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
   if (listed?.some((p: { etag: string }, i: number) => p.etag !== etags[i])) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
@@ -543,6 +556,117 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
     }
   }
   return finish(env, conversation, slot, etag)
+}
+
+/** The client's parts list: numbered 1 to `parts`, in order, each with its etag. */
+const partsListed = (listed: unknown, parts: number): listed is Array<{ part_number: number; etag: string }> =>
+  Array.isArray(listed) && listed.length === parts && listed.every((p, i) => partNumberIn(p?.part_number, parts) && p.part_number === i + 1 && typeof p.etag === "string")
+const partsInvalid = (parts: number) => failure({ status: 400, code: "attachment.parts_invalid", message: `parts must be numbered 1 to ${parts}, in order, each with its etag` })
+
+/**
+ * Bytes one verification step of a direct slot reads back and hashes (a whole number of SHA-256
+ * blocks): one R2 range read and about 3 s of CPU, whatever the file's size.
+ */
+export const VERIFY_STEP_BYTES = 256 * 1024 * 1024
+
+/**
+ * POST /v1/home/attachments/multipart/<conversation>/<slot token> with `x-cmux-part-number`, on a
+ * direct slot (parts larger than the zone's request limit): a presigned R2 UploadPart URL for that
+ * part that signs its exact length. The client PUTs the part there, with no auth header, and keeps
+ * the ETag R2 answers for the completion. Parts may go in any order; each URL renews the idle lease.
+ */
+export const handleAttachmentDirectPart = async (request: Request, env: Env, conversation: string, token: string, presign: Presigner = presignUrl): Promise<Response> => {
+  const off = configured(env)
+  if (off) return failure(off)
+  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+  const [id, kid, sig, extra] = token.split(".")
+  if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, UPLOAD, [conversation, id], sig)) return invalid
+  const partText = request.headers.get("x-cmux-part-number") ?? ""
+  if (!/^[1-9]\d{0,4}$/.test(partText)) return partInvalid(homeConversation.MULTIPART_PART_COUNT)
+  const part = Number(partText)
+  const s3 = s3Config(env)
+  const slot = await conversationOf(env, conversation).leaseDirect(conversation, id)
+  if (!s3 || !slot?.multipart_upload_id) return invalid
+  const missing = derivedMissing(slot)
+  if (missing) return missing
+  const plan = homeConversation.multipartPlan(slot.byte_count)
+  if (!partNumberIn(part, plan.parts)) return partInvalid(plan.parts)
+  const headers = { "content-length": String(Math.min(plan.partBytes, slot.byte_count - (part - 1) * plan.partBytes)) }
+  const url = presign({
+    method: "PUT",
+    url: `${objectUrl(s3, slot.object_key)}?partNumber=${part}&uploadId=${encodeURIComponent(slot.multipart_upload_id)}`,
+    region: "auto",
+    accessKeyId: s3.accessKeyId,
+    secretAccessKey: s3.secretAccessKey,
+    headers,
+    expiresSec: L.uploadTtlMs / 1000,
+    now: slot.expires_at - L.uploadTtlMs
+  })
+  return success({ part_number: part, method: "PUT", url, headers, expires_at: slot.expires_at })
+}
+
+/**
+ * The completion of a direct slot, called again until it answers the record. The bytes never
+ * passed the Worker, so the declared sha256 is checked by reading the joined object back: the
+ * first call joins the client's parts (one R2 call), then each call hashes the next
+ * VERIFY_STEP_BYTES onto the SHA-256 state the owner keeps and answers {state: "verifying",
+ * verified_bytes, byte_count}. The last step stores the record or, on another hash, deletes the
+ * object. Each call makes the same bounded R2 calls whatever the file's size.
+ */
+const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, listed: unknown, step: number): Promise<Response> => {
+  const conv = conversationOf(env, conversation)
+  const bucket = env.HOME_ATTACHMENTS!
+  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+  const verifying = (bytes: number) => success({ state: "verifying", verified_bytes: bytes, byte_count: slot.byte_count })
+  let state = slot.multipart_hash ?? null
+  if (state === null) {
+    const { parts } = homeConversation.multipartPlan(slot.byte_count)
+    if (!partsListed(listed, parts)) return partsInvalid(parts)
+    let size: number
+    // The S3 API's ETag header is quoted; the binding names parts by the bare etag.
+    try {
+      size = (await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id!).complete(listed.map((p) => ({ partNumber: p.part_number, etag: p.etag.replace(/^"(.*)"$/, "$1") })))).size
+    } catch (error) {
+      // A join whose answer was lost left the object (only this upload writes its key).
+      const joined = await bucket.head(slot.object_key).catch(() => undefined)
+      if (joined) size = joined.size
+      // Parts R2 refused (wrong etags, order or size): the upload stays, and the client completes with the right parts.
+      else if (joined === null && completionFailure(error) === "integrity") return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
+      // Not known to have happened (a transient error, or the object could not be read): the client completes again.
+      else return failure({ status: 503, code: "attachment.complete_unavailable", message: "the upload could not be completed right now; complete it again", extra: { retryable: true } })
+    }
+    if (size !== slot.byte_count) {
+      const used = await conv.uploadSlot(conversation, slot.id, "direct", true, slot.actor)
+      await bucket.delete(slotKeys(slot))
+      if (used) await conv.settleSlot(conversation, slot.id)
+      return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
+    }
+    state = new ResumableSha256(null).state()
+    if (!(await conv.advanceDirect(conversation, slot.id, null, state))) return verifying(0)
+  }
+  const sha = new ResumableSha256(state)
+  const offset = sha.bytes
+  const length = Math.min(step, slot.byte_count - offset)
+  const readBack = failure({ status: 503, code: "attachment.verify_retry", message: "the object could not be read back; complete again", extra: { retryable: true } })
+  // A read that fails (an R2 error, a body stream that breaks) leaves the hash state where it was: the client completes again.
+  const object = await bucket.get(slot.object_key, { range: { offset, length } }).catch(() => undefined)
+  if (object === undefined) return readBack
+  if (!object || !("body" in object)) return invalid
+  if ((await hashInto(object.body, sha).catch(() => -1)) !== length) return readBack
+  if (offset + length < slot.byte_count) {
+    // Another call that stored this step first wins; this one answers the progress before it.
+    return verifying((await conv.advanceDirect(conversation, slot.id, state, sha.state())) ? sha.bytes : offset)
+  }
+  const matched = sha.digest() === slot.hash
+  // A completion whose owner commit failed or lost its answer comes back with the slot already uploading (completingSlot).
+  const used = slot.state === "uploading" ? slot : await conv.uploadSlot(conversation, slot.id, "direct", true, slot.actor)
+  if (!used) return invalid
+  if (!matched) {
+    await bucket.delete(slotKeys(used))
+    await conv.settleSlot(conversation, used.id)
+    return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+  }
+  return finish(env, conversation, used, object.etag)
 }
 
 /**

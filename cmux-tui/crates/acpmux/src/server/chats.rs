@@ -16,7 +16,18 @@
 //!   person (`chats/activity.rs`). Every chat value carries `attention`
 //!   (`needsInput`, `failed`, `unread` or null) and `preview` (its live
 //!   session's latest reply, or null).
-//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//! - `_acpmux/chats_window {window, ...filter, limit?, topLevel?, exclude?, keys?}` and
+//!   `_acpmux/chats_window_close {window}`: a client's visible window, kept current with row
+//!   diffs (`_acpmux/chats_window_changed`, `chat_windows.rs`). A client that shows a list asks
+//!   for its window instead of mirroring the whole index.
+//! - `_acpmux/chat_projects`: `{ready, enabled, projects: [{harness, path, lastUsedMs}]}`, each
+//!   harness's project folders grouped by acpmux (the app relays them to the cmux daemon).
+//! - `_acpmux/chats_search {query, ...filter, budgetMs?}`: the chats whose
+//!   prompts or answers hold every word of `query`, each with its newest such
+//!   message and a snippet, read now from the harnesses' stores within a time
+//!   budget (`chats/search.rs`).
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`), with the chat's
+//!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
@@ -45,6 +56,7 @@
 //! the `chats.read` scope, which is never granted by default.
 
 mod offers;
+mod search;
 mod stats;
 
 use crate::no_panic::JsonExt;
@@ -173,6 +185,8 @@ pub(super) async fn route(
             }
             page(hub, service, query).await
         }
+        // The chats whose prompts or answers hold the words (`chats/search.rs`).
+        "_acpmux/chats_search" => search::handle(hub, service, &params).await,
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
@@ -195,8 +209,12 @@ pub(super) async fn route(
                     RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
                 })?;
                 let home = dirs::home_dir().unwrap_or_default();
-                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
-                    .map_err(RpcError::invalid_params)
+                let mut plan = crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)?;
+                // The chat itself (title, folder, harness), so a client that opens it holds no
+                // copy of the index to name it.
+                plan.set("chat", crate::chats::chat_value(&chat));
+                Ok(plan)
             })
             .await
         }
@@ -333,6 +351,21 @@ pub(super) async fn route(
             })
             .await
         }
+        "_acpmux/chat_projects" => {
+            let Some(service) = service else {
+                return Ok(json!({"ready": false, "enabled": true, "projects": []}));
+            };
+            let activity = hub.chat_activity();
+            blocking(move || {
+                Ok(match service.projects(&activity) {
+                    Some(projects) => json!({"ready": true, "enabled": true, "projects": projects}),
+                    None => json!({"ready": true, "enabled": false, "projects": []}),
+                })
+            })
+            .await
+        }
+        "_acpmux/chats_window" => super::chat_windows::open(hub, conn, service, &params).await,
+        "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -454,6 +487,8 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     if rec.dir != "mux" || !changes_activity(&rec.kind) {
         return;
     }
+    // A window shows the chat's activity too: its rows are recomputed.
+    super::chat_windows::activity_changed(conn);
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-18: "the card needs proper fade in and translation animation (when hover to
@@ -7,7 +8,7 @@ import Testing
 /// out while it fades in; a retarget puts the window at the new place at once (R131: a
 /// window-frame slide trailed the pointer) and slides the card there inside the window, at most
 /// `HoverCardPanel.travel` points; Reduce Motion keeps only the fades.
-@MainActor @Suite(.serialized) struct HoverCardPanelMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HoverCardPanelMotionTests {
     private static let rowHeight: CGFloat = 40
 
     private struct Fixture {
@@ -42,7 +43,7 @@ import Testing
         }
 
         func tearDown() {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
     }

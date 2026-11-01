@@ -178,7 +178,8 @@ nonisolated enum UpdaterStrings {
     static func channel(_ track: UpdateTrack) -> String {
         switch track {
         case .stable: text("updater.channel.stable", "stable")
-        case .nightly: text("updater.channel.nightly", "nightly")
+        // cmux NEXT's own app name says NEXT; its ring reads as nightly.
+        case .nightly, .nightlyNext: text("updater.channel.nightly", "nightly")
         case .rc: text("updater.channel.rc", "release candidate")
         case .development: text("updater.channel.development", "development")
         }

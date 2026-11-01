@@ -285,7 +285,9 @@ impl Hub {
             if dropped + refused > 0 {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
+            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
             q.run = Arc::new(PromptRun {
+                size: size.into(),
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
@@ -307,7 +309,7 @@ impl Hub {
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
-        let images = super::prompt_images::keep(&run.blocks);
+        let images = super::prompt_images::keep_sourced(&run.blocks, run.display_parts.as_ref());
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
@@ -385,6 +387,7 @@ impl Hub {
                 };
                 crate::author::may_change(editor, q.sender())?;
                 let run = PromptRun {
+                    size: q.run.size.clone(),
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,

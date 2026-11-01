@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "agent-session-turn-prepare": { params: unknown; result: unknown };
+  "agent-session-turn-abandon": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -52,6 +54,7 @@ export interface AcpmuxRequests {
   "_acpmux/mcp/reconnect": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/subagent_transcript": { params: unknown; result: unknown };
+  "_acpmux/native_history": { params: unknown; result: unknown };
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: unknown; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
@@ -167,7 +170,11 @@ export interface AcpmuxRequests {
   "_acpmux/chat_settings": { params: unknown; result: unknown };
   "_acpmux/chat_settled": { params: unknown; result: unknown };
   "_acpmux/chat_transcript": { params: unknown; result: unknown };
+  "_acpmux/chats_search": { params: unknown; result: unknown };
   "_acpmux/chat_fork": { params: unknown; result: unknown };
+  "_acpmux/chat_projects": { params: unknown; result: unknown };
+  "_acpmux/chats_window": { params: unknown; result: unknown };
+  "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
@@ -190,6 +197,10 @@ export interface AcpmuxRequests {
   "_acpmux/harness/secret/set": { params: unknown; result: unknown };
   "_acpmux/harness/icon": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
+  "_acpmux/agent_login/start": { params: unknown; result: unknown };
+  "_acpmux/agent_login/finish": { params: unknown; result: unknown };
+  "_acpmux/agent_login/cancel": { params: unknown; result: unknown };
+  "_acpmux/agent_login/api_key": { params: unknown; result: unknown };
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
   "_acpmux/harness/update/plan": { params: HarnessUpdatePlanParams; result: unknown };
@@ -220,6 +231,7 @@ export interface AcpmuxRequests {
   "_acpmux/peer_status": { params: unknown; result: unknown };
   "_acpmux/host_health": { params: unknown; result: unknown };
   "_acpmux/vm_host": { params: unknown; result: unknown };
+  "_acpmux/host_notice": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
@@ -235,6 +247,7 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
+  "_acpmux/turn_attestation": { params: unknown; result: unknown };
 }
 
 /** Client to daemon notifications (no response). */
@@ -250,6 +263,7 @@ export interface AcpmuxNotifications {
   "_acpmux/process_update": unknown;
   "_acpmux/chat_changed": unknown;
   "_acpmux/chats_lagged": unknown;
+  "_acpmux/chats_window_changed": unknown;
   "_acpmux/event": SessionEvent;
   "_acpmux/message": MessageEvent;
   "_acpmux/session_changed": SessionChanged;
@@ -306,6 +320,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
+  { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
@@ -331,6 +347,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/native_history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
@@ -447,9 +464,14 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat_settings", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_settled", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_fork", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_projects", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_lagged", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/chats_window", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },
@@ -472,6 +494,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/secret/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/icon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/finish", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/agent_login/api_key", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/update/plan", kind: "request", acp: false, typed: true },
@@ -502,6 +528,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/host_health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vm_host", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/host_notice", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
@@ -517,6 +544,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/turn_attestation", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },

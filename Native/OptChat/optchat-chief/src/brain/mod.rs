@@ -41,9 +41,11 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+mod screen;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
+mod session_tell;
 mod side;
 mod spawns;
 mod steer;
@@ -176,6 +178,27 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
+    /// Where a subagent's workspace opens (`control show`), sent at its
+    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    SubagentWorkspaceSlot {
+        id: String,
+        name: String,
+        slot: crate::state::WorkspaceSlot,
+    },
+    /// `control show` opened workspace `key`.
+    SubagentWorkspaceShown {
+        id: String,
+        key: String,
+        name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
+    },
+    /// Workspace `key` is gone (it could not open, or a short task's idle
+    /// close closed it): the subagent stays hidden until `control show`.
+    SubagentWorkspaceFailed {
+        id: String,
+        key: String,
+    },
     /// A subagent could not start.
     SubagentFailed {
         id: String,
@@ -194,6 +217,13 @@ pub enum Input {
     /// Revoking subagent `id`'s sandbox key failed; the next tick retries.
     AgentKeyRevokeFailed {
         id: String,
+    },
+    /// The answer of acpmux session `name` to the Chief's `tell(id:
+    /// "session:NAME")` (session_tell.rs): another agent's words, queued as
+    /// its report under the ask floor.
+    SessionReply {
+        name: String,
+        text: String,
     },
     /// The answer of a prompt the host sent a subagent (token use, cost).
     SubagentAnswer {
@@ -389,8 +419,14 @@ pub enum Input {
     FleetPolled {
         id: String,
     },
-    /// The pool tool refused to pause `peer` (busy there): it is tried again.
+    /// The pool tool refused or failed to pause `peer` with `error`: it is
+    /// tried again after a growing wait (`cloud_pause_backoff`).
     CloudPauseFailed {
+        peer: String,
+        error: String,
+    },
+    /// The pool tool paused `peer`.
+    CloudPaused {
         peer: String,
     },
     /// A finished subagent's own VM `peer` is deleted (its work was pushed).
@@ -573,6 +609,9 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
+    /// its inbox becomes a note at each turn start. None: not read.
+    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -632,8 +671,18 @@ impl Queued {
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            })
+            }) | Source::Agent { .. }
         )
+    }
+
+    /// The acpmux session that wrote it: a message another agent sent
+    /// through the CLI, or a session's answer to the Chief's tell.
+    fn agent(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message { agent, .. } => agent.as_deref(),
+            Source::Agent { from } => Some(from),
+            _ => None,
+        }
     }
 }
 
@@ -649,7 +698,13 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
+        /// The acpmux session that sent it through the CLI
+        /// (`cmux_conversation::agent_sender`), None for a person's.
+        agent: Option<String>,
     },
+    /// The answer of acpmux session `from` to the Chief's tell
+    /// (session_tell.rs): another agent's words, so its turn asks.
+    Agent { from: String },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
@@ -773,6 +828,10 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Peers whose last pause failed: when the next try may run and the
+    /// error last logged. The waits come from `cloud_pause_backoff`.
+    cloud_pause_retry: std::collections::BTreeMap<String, spawns::PauseRetry>,
+    cloud_pause_backoff: Vec<std::time::Duration>,
     /// One VM per subagent: how long a finished subagent's own VM stays
     /// (paused) before it is deleted, since when each is done, and the
     /// deletes in flight.
@@ -828,6 +887,9 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The acpmux sessions whose messages the running turn carries
+    /// (`Queued::agent`): an ask turn may `tell` them back, no other session.
+    turn_agents: std::collections::BTreeSet<String>,
     /// The last turn was an ask turn: a tool call of it that reaches the
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
@@ -976,6 +1038,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            turn_agents: std::collections::BTreeSet::new(),
             last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
@@ -989,6 +1052,8 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            cloud_pause_retry: Default::default(),
+            cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
             cloud_reap: std::time::Duration::from_secs(
                 chief.cloud_delete_after_paused_days * 86_400,
             ),
@@ -1167,6 +1232,14 @@ impl Brain {
     ) {
         self.fleet = fleet;
         self.fleet_every = every;
+    }
+
+    /// The waits before each new try of a failed VM pause, the last one
+    /// repeated (5 s, 30 s, 2 min, 10 min on a host).
+    pub fn set_cloud_pause_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        if !waits.is_empty() {
+            self.cloud_pause_backoff = waits;
+        }
     }
 
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
@@ -1367,11 +1440,19 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name, ws } => {
                 self.sub_workspace(&id, key, name, ws)
             }
+            Input::SubagentWorkspaceSlot { id, name, slot } => {
+                self.sub_workspace_slot(&id, name, slot)
+            }
+            Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
+            Input::SubagentWorkspaceShown { id, key, name, ws } => {
+                self.sub_workspace_opened(&id, key, name, ws, false)
+            }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
             Input::AgentKeyRevoked { id } => self.agent_key_revoked(&id),
             Input::AgentKeyRevokeFailed { id } => self.agent_key_revoke_failed(&id),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::SessionReply { name, text } => self.session_reply(&name, &text),
             Input::AutoResume {
                 id,
                 attempt,
@@ -1457,8 +1538,13 @@ impl Brain {
                 self.tell_undelivered(&id, message, &error);
             }
             Input::Control { request, reply } => {
-                let answer = self.control(&request);
-                let _ = reply.send(answer);
+                if matches!(request.action.as_str(), "show" | "hide") {
+                    // Opening or closing a workspace is the daemon's I/O: off the run loop.
+                    self.control_workspace(&request, reply);
+                } else {
+                    let answer = self.control(&request);
+                    let _ = reply.send(answer);
+                }
             }
             Input::CloudTick => {
                 self.cloud_tick();
@@ -1472,7 +1558,8 @@ impl Brain {
             Input::FleetPolled { id } => {
                 self.fleet_polling.remove(&id);
             }
-            Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
+            Input::CloudPauseFailed { peer, error } => self.cloud_pause_failed(&peer, &error),
+            Input::CloudPaused { peer } => self.cloud_pause_ok(&peer),
             Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
             Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
@@ -1681,8 +1768,8 @@ impl Brain {
     /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
-            parse_reply_threads, parse_ttl,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT,
+            SHOW_SUBAGENT_WORKSPACES, parse_bool, parse_reply_threads, parse_ttl,
         };
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
@@ -1740,6 +1827,18 @@ impl Brain {
             (self.log)(&format!("setting {key} = {on}"));
             return Ok(format!("{key} = {on}"));
         }
+        if key == SHOW_SUBAGENT_WORKSPACES {
+            // From the next spawn on; a subagent already running keeps its
+            // workspace or stays hidden (`control show|hide ID` changes one).
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.show_subagent_workspaces = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
             let mut next = self.chief;
@@ -1765,7 +1864,7 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
         ))
     }
 

@@ -50,6 +50,10 @@ export class FilesStore {
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
+  /** Changes whenever navigation changes the context for an in-flight open. */
+  private selectionEpoch = 0;
+  /** Every open gets a unique token, including retries of the same path. */
+  private openAttempt = 0;
   private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -89,8 +93,7 @@ export class FilesStore {
 
   select(path: string | undefined): void {
     if (this.selected === path) return;
-    this.selected = path;
-    this.notice = undefined;
+    this.setSelection(path);
     this.emit();
   }
 
@@ -109,14 +112,19 @@ export class FilesStore {
   collapse(path: string): void {
     if (!this.expanded.delete(path)) return;
     // The selection never hides inside a collapsed folder.
-    if (this.selected?.startsWith(`${path}/`)) this.selected = path;
+    if (this.selected?.startsWith(`${path}/`)) this.setSelection(path);
     this.emit();
   }
 
   async open(path: string): Promise<void> {
+    const epoch = this.selectionEpoch;
+    const attempt = ++this.openAttempt;
+    this.notice = undefined;
+    this.emit();
     try {
       await this.client?.call(FilesOps.open, { path });
     } catch (error) {
+      if (this.selectionEpoch !== epoch || this.openAttempt !== attempt) return;
       this.notice = isPageError(error) ? error.message : String(error);
       this.emit();
     }
@@ -127,7 +135,14 @@ export class FilesStore {
       if (!this.writeClipboard) throw new Error("no page clipboard");
       await this.writeClipboard(text);
     } catch {
-      await this.client?.call(CLIPBOARD_WRITE, { text }).catch(() => {});
+      // The page's clipboard refused (or is not there): the host writes it. When it cannot either,
+      // the person is told, not left to paste what was never copied.
+      try {
+        await this.client?.call(CLIPBOARD_WRITE, { text });
+      } catch (error) {
+        this.notice = isPageError(error) ? error.message : String(error);
+        this.emit();
+      }
     }
   }
 
@@ -173,7 +188,14 @@ export class FilesStore {
       this.requests.delete(path);
     }
     if (this.selected !== undefined && (selectedGone || gone.some((top) => this.selected!.startsWith(`${top}/`))))
-      this.selected = folder || undefined;
+      this.setSelection(folder || undefined);
+  }
+
+  private setSelection(path: string | undefined): void {
+    if (this.selected === path) return;
+    this.selected = path;
+    this.selectionEpoch++;
+    this.notice = undefined;
   }
 
   private setFolder(path: string, patch: Partial<FolderState>): void {

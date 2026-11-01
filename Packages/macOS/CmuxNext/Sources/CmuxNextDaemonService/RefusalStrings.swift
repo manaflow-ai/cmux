@@ -36,8 +36,20 @@ public nonisolated enum RefusalStrings {
     public static var incognitoMismatch: String {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
+    /// Move Space to This Window or Merge All Windows would close a window still creating a workspace.
+    public static var gatherWhileCreating: String {
+        text("handlers.refusal.gatherWhileCreating", "A new workspace is still opening in a window this would close. Try again in a moment.")
+    }
+    /// Move Space to This Window or Merge All Windows would take a workspace out of a window that keeps its own browser tabs.
+    public static var gatherLocalTabs: String {
+        text("handlers.refusal.gatherLocalTabs", "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first.")
+    }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    /// A window action before the window has registered (the launch window, still restoring).
+    public static var windowNotReady: String { text("handlers.refusal.windowNotReady", "This window isn't ready yet. Try again in a moment.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// Close New Message (`home.closeNewMessage`) while no New Message draft is open.
+    public static var noNewMessage: String { text("handlers.refusal.noNewMessage", "There is no new message to close.") }
     /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
@@ -108,6 +120,9 @@ public nonisolated enum RefusalStrings {
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
+    /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
+    /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
+    public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {

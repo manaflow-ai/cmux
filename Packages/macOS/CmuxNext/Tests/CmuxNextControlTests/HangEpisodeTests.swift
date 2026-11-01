@@ -98,6 +98,45 @@ struct HangEpisodeTrackerTests {
         #expect(abs(parsed.started.timeIntervalSince(entry.started)) < 0.001)
     }
 
+    /// A single stack cannot tell a main thread doing its own work from one waiting on page-ins
+    /// or WindowServer (the CEF pump hangs of 2026-10-29 sampled at function entries). The file
+    /// says which: main-thread CPU against the hang's length, and the process's page-ins.
+    @Test func saysWhetherTheMainThreadWasBusyOrBlocked() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 2, elapsed: .seconds(2), main: [], others: [],
+                       load: HangLoad(mainThreadCPU: .milliseconds(100), pageIns: 812, faults: 30_500))
+        recorder.drain()
+        let url = try #require(recorder.entries.first?.url)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: 0.100 s of 2.000 s (5%): blocked"))
+        #expect(text.contains("page-ins: 812, faults: 30500"))
+
+        recorder.update(beat: 2, duration: .milliseconds(2_500), ongoing: false,
+                        load: HangLoad(mainThreadCPU: .milliseconds(2_400), pageIns: 900, faults: 31_000))
+        recorder.drain()
+        text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: 2.400 s of 2.500 s (96%): busy"))
+        #expect(text.contains("page-ins: 900, faults: 31000"))
+        #expect(!text.contains("): blocked"))
+        // Still parsed by the next launch.
+        let reloaded = HangEpisodeRecorder(directory: directory)
+        reloaded.drain()
+        #expect(reloaded.entries.first?.duration == .milliseconds(2_500))
+    }
+
+    @Test func anUnknownLoadSaysSo() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 1, elapsed: .seconds(2), main: [], others: [], load: HangLoad())
+        recorder.drain()
+        let text = try String(contentsOf: try #require(recorder.entries.first?.url), encoding: .utf8)
+        #expect(text.contains("main thread cpu: unknown"))
+        #expect(text.contains("page-ins: unknown"))
+    }
+
     @Test func keepsOnlyTheNewestFiles() {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -367,6 +406,10 @@ struct HangEpisodeCompletionTests {
         let entry = try #require(recorder.entries.first)
         #expect(!entry.ongoing, "a busy recovery left the file marked blocked")
         #expect(entry.duration == .seconds(3))
+        // The live loop measures the load: the stall's own CPU reading and the process's page-ins.
+        let text = try String(contentsOf: entry.url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: ") && !text.contains("main thread cpu: unknown"), "no CPU reading in the hang file")
+        #expect(text.contains("page-ins: ") && !text.contains("page-ins: unknown"), "no page-in reading in the hang file")
     }
 }
 

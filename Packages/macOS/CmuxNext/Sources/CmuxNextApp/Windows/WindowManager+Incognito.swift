@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // Incognito windows (user decision 2026-09-30): a whole window whose
 // browser pages use one off-the-record browser profile (Chromium in-memory
@@ -53,7 +54,7 @@ extension WindowManager {
             do {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
                     if let space { try await pinToIncognitoSpace(key, space, on: daemon) }
-                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory(), on: connection)
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }

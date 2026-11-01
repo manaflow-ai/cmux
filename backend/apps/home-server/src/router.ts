@@ -1,7 +1,7 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { cloudOpByName } from "@cmux/protocol"
 import { conversationMutate, conversationRead } from "../../api/src/home-routes.ts"
-import { handleAttachmentCommit, handleAttachmentDerived, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "../../api/src/home-attachments.ts"
+import { handleAttachmentCommit, handleAttachmentDerived, handleAttachmentDirectPart, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "../../api/src/home-attachments.ts"
 import { linkVerifiedAddress } from "../../api/src/home-requests.ts"
 import { presignUrl } from "../../api/src/r2-presign.ts"
 import type { SubmitResult } from "../../api/src/owner-do.ts"
@@ -137,6 +137,7 @@ export class Router {
       if (up && request.method === "PUT") return handleAttachmentUpload(request, env, up[1]!, up[2]!)
       const multipart = MULTIPART.exec(url.pathname)
       if (multipart && request.method === "PUT") return handleAttachmentMultipartPart(request, env, multipart[1]!, multipart[2]!)
+      if (multipart && request.method === "POST") return handleAttachmentDirectPart(request, env, multipart[1]!, multipart[2]!)
       const d = DERIVED.exec(url.pathname)
       if (d && request.method === "PUT") return handleAttachmentDerived(request, env, d[1] as "poster" | "preview", d[2]!, d[3]!)
       const file = DOWNLOAD.exec(url.pathname)

@@ -30,8 +30,8 @@ use cmux_layout_reducer::{
 };
 use serde_json::json;
 
-use crate::State;
-use crate::resource::ResourceError;
+use crate::resource::{ContentPublicId, ResourceError};
+use crate::{State, SurfaceId};
 
 /// `reason_code` in the `operation.failed` details of a rejected operation.
 pub(crate) const LAYOUT_CONSERVATION_VIOLATION: &str = "layout-conservation-violation";
@@ -103,8 +103,27 @@ pub(crate) fn project(state: &State) -> LayoutState {
                     },
                 )
             })
+            .chain(unmaterialized_tabs(state))
             .collect(),
     }
+}
+
+/// Placed tabs with durable content but no runtime surface, such as a
+/// terminal still adopting after a daemon restart or one whose host was lost
+/// (R41). Their content is their durable identity with no runtime (0, never a
+/// surface address), so the reducer moves them like any other tab
+/// (https://github.com/manaflow-ai/cmux/issues/25999).
+fn unmaterialized_tabs(state: &State) -> impl Iterator<Item = (SurfaceId, TabContent)> + '_ {
+    state.panes.values().flat_map(|pane| &pane.tabs).filter_map(|tab| {
+        if state.surfaces.contains_key(tab) {
+            return None;
+        }
+        let terminal = match state.resource_indexes.content_ids.get(tab)? {
+            ContentPublicId::Terminal(terminal) => Some(terminal.to_string()),
+            ContentPublicId::Browser(_) => None,
+        };
+        Some((*tab, TabContent { runtime: 0, terminal, dead: false }))
+    })
 }
 
 /// One viewport column of the model: its panes in order and, with

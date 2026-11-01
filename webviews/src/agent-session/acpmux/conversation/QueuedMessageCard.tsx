@@ -3,7 +3,7 @@
 // (PendingMessagesCard.tsx), with no "Read after this turn" (Leo, 2026-10-29: "why the fuck do you
 // guys keep doing this fucking bullshit with the red after this turn?"). Its actions are a message's,
 // never the person's queue row's (Leo, 2026-10-29: "WHY AM I SEEING TURN OFF QUEUING ON AGENT
-// MESSAGES????"): Copy as the line's icon, then ⋯ with Send now (into the running turn, `send_now`,
+// MESSAGES????"): ⋯ with Send now (into the running turn, `send_now`,
 // once) and Dismiss (the agent never gets it), in one group as on a delivered message's line. No
 // Edit message, Move up or down, or queueing switch: those are the person's own prompts'
 // (ComposerQueue.tsx). The sender's chat opens from its name (IncomingMessageCard.tsx).
@@ -14,7 +14,7 @@ import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
-import { MessageCopy, MessageFooterRow } from "./MessageActions";
+import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
@@ -31,8 +31,8 @@ export type QueuedMessageActionsValue = {
 };
 
 /// A waiting message's ⋯: Send now when it can go into the running turn, and Dismiss when it can
-/// be taken back; nothing when neither. Never the person's queue actions. Copy is the line's icon
-/// beside it (MessageCopy), as on every other message's line.
+/// be taken back; nothing when neither. Never the person's queue actions. Copy is the opened card's
+/// corner Copy (CardCopy), as on every other message from another session.
 export function WaitingMessageMenu({ sendNow, dismiss }: { sendNow?: () => void; dismiss?: () => void }) {
   const t = useT();
   if (!sendNow && !dismiss) return null;
@@ -89,11 +89,11 @@ export function QueuedMessageCard({
   const { promptId } = queued;
   const message = row.incoming.message;
   const fail = () => undefined;
-  // The same group as a delivered message's (MessageActions.tsx ReceivedActions): Copy, then ⋯.
+  // The same group as a delivered message's (MessageActions.tsx ReceivedActions): its ⋯. No hover
+  // Copy: the opened card's corner Copy copies it (Leo, 2026-10-30).
   const actions = (
     <span className="cv-received-actions">
       <MessageFooterRow>
-        <MessageCopy text={message.text} />
         <WaitingMessageMenu
           sendNow={
             act && !queued.next && sentAt !== row.version

@@ -61,6 +61,7 @@ impl Mux {
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
@@ -123,6 +124,7 @@ impl Mux {
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
+        self.startup_adoption_gate.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -187,6 +189,8 @@ impl Mux {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
         if self.journal_ingress.is_current_writer_thread() {
+            // The readers stopped: the store's last write is safe here too.
+            self.output_store.shutdown(self);
             if !terminal_gaps.is_empty() {
                 eprintln!(
                     "cmux-tui: {context} on the session journal writer could not durably record \
@@ -296,6 +300,7 @@ impl Mux {
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
+        self.startup_adoption_gate.wake_all();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

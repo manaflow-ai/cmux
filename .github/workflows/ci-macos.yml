@@ -130,14 +130,9 @@ on:
       # the jobs keep their run-start placement.
       GLAEDA_ROUTE_APP_KEY:
         required: false
-      # Read-only R2 key for the private cmux-cef bucket (Object Read on that
-      # bucket only). Only the Chromium engine fetch step below reads them.
-      CMUX_CEF_R2_ACCOUNT_ID:
-        required: false
-      CMUX_CEF_R2_ACCESS_KEY_ID:
-        required: false
-      CMUX_CEF_R2_SECRET_ACCESS_KEY:
-        required: false
+      # No CMUX_CEF_R2_* key: compile admission runs on owned Macs and reads
+      # the Chromium engine without one (its "Decide whether admission embeds
+      # the Chromium engine" step; tests/test_ci_fork_runner_routing.py).
 
 permissions:
   contents: read
@@ -796,11 +791,14 @@ jobs:
           python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       # The cmux-next app embeds the Chromium engine
-      # (scripts/cmux-next/cef-manifest.json). This step fetches it into the
-      # ensure-cef cache from the private R2 bucket with the read-only key,
-      # which only this step receives and only in same-repository runs (fork
-      # pull requests get no secrets; they embed the engine only when this
-      # Mac already caches it). Without the engine the app builds with
+      # (scripts/cmux-next/cef-manifest.json). This step reads it into the
+      # ensure-cef cache from this Mac's verified cache or the tailnet
+      # controller's artifact store (no credential), never from R2: this job
+      # runs on owned Macs (the picker's route, or MACOS_RUNNER_15 in an
+      # overflow), so it holds no CEF R2 key, and neither the runner's
+      # environment nor its ~/.secrets file is a key source. ci.yml has passed
+      # ci-macos.yml no CEF key since 118e52e14907, so the R2 source was
+      # already unused here. Without the engine the app builds with
       # CMUX_NEXT_SKIP_CEF=1 instead of retrying the download in the Embed CEF
       # phase; with it the phase reads the cache and needs no key. The value
       # is always set, so the build settings the phase sees stay stable
@@ -809,10 +807,8 @@ jobs:
       - name: Decide whether admission embeds the Chromium engine
         if: steps.reuse-products.outputs.hit != 'true'
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCOUNT_ID || '' }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCESS_KEY_ID || '' }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY || '' }}
-          # A runner's own ~/.secrets file is never a source here.
+          CMUX_CEF_NO_R2: "1"
+          CMUX_RB_HOST_NO_R2: "1"
           CMUX_CEF_R2_ENV_FILE: /dev/null
         run: |
           set -euo pipefail
@@ -820,7 +816,7 @@ jobs:
             echo "Chromium engine readable at $cef_dir; admission embeds it"
             echo "CMUX_NEXT_SKIP_CEF=0" >> "$GITHUB_ENV"
             # The Embed remote browser host phase fails a DEV build whose pinned
-            # host is unavailable. Fetch it here with the same key; without it the
+            # host is unavailable. Fetch it here from the same keyless sources; without it the
             # admission build opts out explicitly (logged, and recorded in About).
             if [[ ! -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
               :
@@ -2523,6 +2519,10 @@ jobs:
           started="$(date +%s)"
           # Bundle cmux-tui bundles none (deferred); "Install Release helpers"
           # installs this tree's client (install-cmux-tui-client.sh).
+          fleet_cache_settings=()
+          while IFS= read -r setting; do
+            fleet_cache_settings+=("$setting")
+          done < <(bash scripts/ci/fleet-compilation-cache.sh)
           CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
@@ -2531,6 +2531,7 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+            "${fleet_cache_settings[@]}" \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
           ended="$(date +%s)"

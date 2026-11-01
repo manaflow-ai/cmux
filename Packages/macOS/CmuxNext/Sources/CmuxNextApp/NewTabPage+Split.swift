@@ -17,11 +17,9 @@ private final class SplitPageKey {
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal, and so does every
-    /// split with `tabs.terminalFirst` on (#23021).
+    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey,
-              !NewTabKind.terminalFirst(pane.services) else { return false }
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 

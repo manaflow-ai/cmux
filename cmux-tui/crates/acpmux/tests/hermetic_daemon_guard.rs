@@ -59,6 +59,8 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         // The background-task runner the in-process hub starts; it inherits this process's
         // hermetic environment.
         ("hub_integration/bg_tasks.rs", "crate::daemon_env::bin().into()"),
+        // Linked into a fake app bundle; that copy starts only after `apply`.
+        ("app_orphan_exit.rs", "let source = daemon_env::bin();"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

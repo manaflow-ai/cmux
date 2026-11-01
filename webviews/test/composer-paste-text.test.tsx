@@ -9,7 +9,12 @@ import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerEditCommand, ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import {
+  inlineTokenIds,
+  promptBlocks,
+  withoutInlineTokens,
+  type ComposerAttachment,
+} from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import {
   PASTE_CHIP_CHARS,
@@ -20,6 +25,11 @@ import {
   shownPrompt,
 } from "../src/agent-session/acpmux/pastedText";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
+import {
+  DEFAULT_COMPOSER,
+  setComposerSettings,
+  type AttachmentView,
+} from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -81,6 +91,7 @@ afterEach(() => {
   // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
   // remount cache) would come back in the next test's prompt.
   dom.window.localStorage.clear();
+  setComposerSettings({ attachmentView: DEFAULT_COMPOSER.attachmentView });
 });
 
 afterAll(() => {
@@ -152,6 +163,18 @@ const settle = () =>
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 const chips = (handle: RefObject<ComposerHandle | null>) => handle.current!.wakeState().attachments ?? [];
+/// The prompt's own words: its text without the attachments placed in it (their chips draw names).
+const words = () => {
+  const copy = field().cloneNode(true) as HTMLElement;
+  for (const node of copy.querySelectorAll("[data-inline-attachment]")) node.remove();
+  return copy.textContent ?? "";
+};
+/// The attachments placed in the prompt, by id, in its order.
+const placed = () =>
+  [...field().querySelectorAll<HTMLElement>("[data-inline-attachment]")].map((node) => node.dataset.inlineAttachment);
+/// Settings' attachment view: the default draws each attachment where it sits in the prompt; the strip
+/// view draws them all in the strip and keeps their places in the text (inlineAttachments.tsx).
+const showAttachments = (view: AttachmentView) => act(async () => setComposerSettings({ attachmentView: view }));
 
 /// Pastes plain text on the prompt field as WebKit delivers it: one ClipboardEvent with its data.
 async function paste(plain: string, files: File[] = []) {
@@ -200,11 +223,27 @@ test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typ
   const held = chips(composer);
   expect(held.map((chip) => chip.kind)).toEqual(["pasted"]);
   expect(held[0]!.text).toBe(LOG);
-  expect(field().textContent).toBe("why does this fail?");
-  const chip = host.querySelector(".acpmux-attachment-pasted")!;
+  // The chip goes in at the caret, after the words, and draws its first words there.
+  expect(words()).toBe("why does this fail?");
+  expect(placed()).toEqual([held[0]!.id]);
+  const chip = field().querySelector("[data-inline-attachment] .acpmux-md-inline-chip")!;
   expect(chip).not.toBeNull();
   expect(chip.textContent).toContain("line 1 of the build log");
-  expect(chip.textContent).toContain("25 lines");
+  // Leo, 2026-11-01: "bro this is a TERRIBLE text preview ...". The inline chip is a small page of
+  // the paste's first lines over its label (TextAttachmentCard.tsx), never its name alone.
+  expect(chip.getAttribute("data-preview")).toBe("text");
+  expect(chip.querySelector(".acpmux-text-card__lines")!.textContent!.split("\n")[0]).toContain(
+    "line 1 of the build log",
+  );
+  expect(chip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
+  // The strip view draws the same chip in the strip, its first words and its line count.
+  await showAttachments("strip");
+  const strip = host.querySelector(".acpmux-attachment-pasted")!;
+  expect(strip).not.toBeNull();
+  expect(strip.textContent).toContain("line 1 of the build log");
+  expect(strip.textContent).toContain("25 lines");
+  expect(strip.querySelector(".acpmux-text-card__label")!.textContent).toBe("Pasted text · 25 lines");
+  expect(words()).toBe("why does this fail?");
 });
 
 test("a paste over 2,000 characters on one line is a chip too", async () => {
@@ -212,7 +251,8 @@ test("a paste over 2,000 characters on one line is a chip too", async () => {
   const long = "word ".repeat(450);
   await paste(long);
   expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
-  expect(field().textContent).toBe("");
+  expect(words()).toBe("");
+  expect(placed()).toEqual([chips(composer)[0]!.id]);
 });
 
 test("a paste under the limit goes into the prompt as text, no chip", async () => {
@@ -245,34 +285,101 @@ test("Paste as Plain Text (⌘⇧V) keeps a large paste as raw text in the promp
   expect(chips(composer).map((chip) => chip.kind)).toEqual(["pasted"]);
 });
 
-test("× removes the chip and puts nothing in the prompt", async () => {
+/// A pasted chip's ×, and the button that opens its text, as the view draws them.
+const chipButtons = (view: AttachmentView) =>
+  view === "inline"
+    ? {
+        remove: () => field().querySelector<HTMLButtonElement>("[data-inline-attachment] .acpmux-md-inline-remove"),
+        open: () => field().querySelector<HTMLButtonElement>("[data-inline-attachment] .acpmux-md-inline-retry"),
+      }
+    : {
+        remove: () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted .acpmux-attachment-remove"),
+        open: () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open"),
+      };
+
+test.each(["inline", "strip"] as const)("× removes the chip and puts nothing in the prompt (%s view)", async (view) => {
   const composer = await openComposer();
+  await showAttachments(view);
   await paste(LOG);
-  const remove = host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted .acpmux-attachment-remove")!;
+  const remove = chipButtons(view).remove()!;
   expect(remove).not.toBeNull();
   await act(async () => remove.click());
   expect(chips(composer)).toEqual([]);
   expect(host.querySelector(".acpmux-attachment-pasted")).toBeNull();
+  expect(placed()).toEqual([]);
   expect(field().textContent).toBe("");
 });
 
-test("a click on the chip puts its text back in the prompt to edit, exactly as pasted, and the chip goes", async () => {
-  const sent: Sent[] = [];
-  const composer = await openComposer(sent);
-  await paste(SPACED);
-  const open = host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open")!;
-  expect(open).not.toBeNull();
-  await act(async () => open.click());
-  expect(chips(composer)).toEqual([]);
-  expect(field().textContent).toContain("line 1 of the build log");
-  expect(field().textContent).toContain("line 25 of the build log");
-  // The same text a raw paste gives: its lines and its blank line, nothing between the others.
-  expect(markdownField().agentText(markdownField().value())).toBe(SPACED);
-  await act(async () => {
-    composer.current!.send();
-  });
-  expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
-});
+test.each(["inline", "strip"] as const)(
+  "a click on the chip puts its text back in the prompt to edit, exactly as pasted, and the chip goes (%s view)",
+  async (view) => {
+    const sent: Sent[] = [];
+    const composer = await openComposer(sent);
+    await showAttachments(view);
+    await paste(SPACED);
+    const open = chipButtons(view).open()!;
+    expect(open).not.toBeNull();
+    await act(async () => open.click());
+    expect(chips(composer)).toEqual([]);
+    expect(placed()).toEqual([]);
+    expect(field().textContent).toContain("line 1 of the build log");
+    expect(field().textContent).toContain("line 25 of the build log");
+    // The same text a raw paste gives: its lines and its blank line, nothing between the others.
+    expect(markdownField().agentText(markdownField().value())).toBe(SPACED);
+    await act(async () => {
+      composer.current!.send();
+    });
+    expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
+  },
+);
+
+// Review (Codex): a chip between words opened its text at the caret, so a caret after the words put
+// the text after them and changed the prompt's order. It goes where the chip was.
+test.each(["inline", "strip"] as const)(
+  "a click on a chip between words puts its text at the chip's place, not at the caret (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    expect(placed()).toEqual([chips(composer)[0]!.id]);
+    // The caret is after " after", past the chip.
+    await act(async () => chipButtons(view).open()!.click());
+    expect(chips(composer)).toEqual([]);
+    expect(placed()).toEqual([]);
+    expect(markdownField().agentText(markdownField().value())).toBe(`before ${LOG} after`);
+  },
+);
+
+// Review (Codex): opening a chip dropped its text before its node left the prompt, so an undo
+// brought back an empty node and the paste was missing from the send. The undo brings the chip back
+// with its text.
+test.each(["inline", "strip"] as const)(
+  "undo after opening a chip brings the chip back with its text (%s view)",
+  async (view) => {
+    const sent: Sent[] = [];
+    const composer = await openComposer(sent);
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    const id = chips(composer)[0]!.id;
+    await act(async () => chipButtons(view).open()!.click());
+    expect(chips(composer)).toEqual([]);
+    // One undo: the open alone, never the typing before it.
+    await act(async () => markdownField().undo());
+    await settle();
+    expect(placed()).toEqual([id]);
+    expect(chips(composer).map((chip) => [chip.id, chip.kind, chip.text])).toEqual([[id, "pasted", LOG]]);
+    expect(words().replace(/\s+/g, " ")).toBe("before after");
+    await act(async () => {
+      composer.current!.send();
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.attachments.map((chip) => [chip.id, chip.text])).toEqual([[id, LOG]]);
+  },
+);
 
 test("Paste as Plain Text by the key's position (a non-Latin layout) keeps the paste raw too", async () => {
   const composer = await openComposer();
@@ -317,7 +424,9 @@ test("the pasted text goes to the agent as its own text block after the prompt's
     composer.current!.send();
   });
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.text).toBe("why does this fail?");
+  // The prompt places the chip where it was pasted, after the words.
+  expect(withoutInlineTokens(sent[0]!.text)).toBe("why does this fail?");
+  expect(inlineTokenIds(sent[0]!.text)).toEqual([sent[0]!.attachments[0]!.id]);
   expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
   expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
     { type: "text", text: "why does this fail?" },
@@ -359,8 +468,10 @@ const backspace = (repeat = false) =>
 
 // Austin 2026-10-21: a pasted image could only go by its ×. Backspace at the prompt's start now
 // takes back the last chip, as Claude's composer does; Backspace inside the text still edits it.
+// That is the strip view's: there the chips are in the strip, and the text keeps their places hidden.
 test("Backspace at the prompt's start removes the last chip, one per press; anywhere else it takes none", async () => {
   const composer = await openComposer();
+  await showAttachments("strip");
   await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
   await paste("", [new File(["b"], "b.txt", { type: "text/plain" })]);
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
@@ -368,7 +479,7 @@ test("Backspace at the prompt's start removes the last chip, one per press; anyw
   // The caret is after "hi": the key is the editor's, and no chip goes.
   await backspace();
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
-  await act(async () => markdownField().writeText("", 0, 0));
+  await act(async () => markdownField().setCaret(0));
   await backspace();
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
   // Holding Backspace down to clear the prompt stops at its start: a repeat takes no chip.
@@ -376,13 +487,22 @@ test("Backspace at the prompt's start removes the last chip, one per press; anyw
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
   await backspace();
   expect(chips(composer)).toEqual([]);
+  expect(placed()).toEqual([]);
+  expect(words()).toBe("hi");
 });
 
-test("Backspace at the start of a heading lifts the heading; the chips stay", async () => {
-  const composer = await openComposer();
-  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
-  await act(async () => markdownField().type("# Title"));
-  await act(async () => markdownField().setCaret(0));
-  await backspace();
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
-});
+test.each(["inline", "strip"] as const)(
+  "Backspace at the start of a heading lifts the heading; the chips stay (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await act(async () => markdownField().type("# Title"));
+    // The file goes in at the caret, the heading's end: Backspace at its start takes no chip.
+    await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+    await act(async () => markdownField().setCaret(0));
+    await backspace();
+    expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
+    expect(placed()).toEqual([chips(composer)[0]!.id]);
+    expect(withoutInlineTokens(markdownField().value())).toBe("Title");
+  },
+);

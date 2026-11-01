@@ -40,6 +40,7 @@ struct ScreensPage: View {
                     .accessibilityIdentifier("screens.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renameScreen(screen, to: screenName) } }
+                    .keyboardShortcut(.defaultAction)
             }
             // Close Screen's question when a tab on it is busy (the workspace's own is under this page).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
@@ -76,7 +77,7 @@ struct ScreensPage: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
-                                   description: Text("\(source.macName) hasn't listed this workspace's screens yet."))
+                                   description: Text("\(source.macName) hasn't listed this workspace's screens."))
         }
     }
 

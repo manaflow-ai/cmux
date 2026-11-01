@@ -21,15 +21,27 @@ use std::sync::atomic::Ordering;
 const REBUILDS: usize = 1;
 
 tokio::task_local! {
-    /// The request's id, and whether its reply was sent here: then whether it went whole.
-    static REPLY: RefCell<(Value, Option<bool>)>;
+    /// The request's id and list method ([`list_method`]), and whether its reply was sent here:
+    /// then whether it went whole.
+    static REPLY: RefCell<(Value, Option<&'static str>, Option<bool>)>;
 }
 
-/// Runs request `id`, whose list reply may be sent here: then the option is set, true if the
-/// reply went whole (not as its too-large error).
-pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Option<bool>) {
-    let run = async move { (request.await, REPLY.with(|r| r.borrow().1)) };
-    REPLY.scope(RefCell::new((id, None)), run).await
+/// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
+/// true if the reply went whole (not as its too-large error).
+pub(super) async fn scope<F: Future>(
+    id: Value,
+    method: &str,
+    request: F,
+) -> (F::Output, Option<bool>) {
+    let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
+    REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
+}
+
+/// `method` as the name a list reply sent here goes by in the size watch (`wire_size.rs`):
+/// a constant, so a request costs no copy of its method.
+fn list_method(method: &str) -> Option<&'static str> {
+    use crate::rpc::method::{MUX_SESSIONS, MUX_WATCH, SESSION_LIST};
+    [MUX_SESSIONS, MUX_WATCH, SESSION_LIST].into_iter().find(|known| *known == method)
 }
 
 /// List filters absent, null or empty: the whole list.
@@ -65,11 +77,14 @@ async fn reply(
             }
         };
         let text = make(&list)?;
-        let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
+        let Ok((id, method)) = REPLY.try_with(|r| {
+            let r = r.borrow();
+            (r.0.clone(), r.1)
+        }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if let Some(whole) = conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().1 = Some(whole));
+        if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
+            REPLY.with(|r| r.borrow_mut().2 = Some(whole));
             break;
         }
     }
@@ -93,43 +108,22 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
 /// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it. One with no
 /// `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`] as the
 /// client reads it; one larger goes in pages, each with the `nextCursor` of the rest
-/// (`Snapshot::bounded`), rather than as one message too large to send. A census in its own
-/// order (`orderBy`) pages by `limit` itself.
+/// (`Snapshot::bounded`), rather than as one message too large to send. A page by `limit`, or a
+/// census in its own order (`orderBy`), holds at most `limit` rows and at most
+/// [`LIST_PAGE_BYTES`] (`Snapshot::page`): no reply here is too large to send.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     let limit = params.get("limit").and_then(Value::as_u64);
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
-    let shown = |text: String| {
-        Arc::new(if raw { text } else { masked(serde_json::from_str(&text).unwrap_or_default()) })
-    };
-    if with_tools(params)? {
+    let tools = with_tools(params)?;
+    if tools || !whole(params) {
         return reply(hub, conn, limit, |list| {
             if by_bytes {
-                return within_limit(raw, |budget| list.bounded(hub, params, true, budget));
+                return within_limit(raw, |budget| list.bounded(hub, params, tools, budget));
             }
-            let full = list.full_whole(hub);
-            let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
-            if !whole(params) {
-                let rows = result
-                    .get_mut("sessions")
-                    .map(Value::take)
-                    .unwrap_or_default()
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-                result = crate::hub::session_pages::session_list_reply(rows, params)?;
-            }
-            Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
-        })
-        .await;
-    }
-    if !whole(params) {
-        return reply(hub, conn, limit, |list| {
-            if by_bytes {
-                return within_limit(raw, |budget| list.bounded(hub, params, false, budget));
-            }
-            Ok(shown(list.page(params)?))
+            let full = tools.then(|| list.full_rows(hub));
+            within_limit(raw, |budget| list.page(full.as_deref(), params, budget))
         })
         .await;
     }
@@ -165,6 +159,13 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     conn.watch_all.store(on, Ordering::SeqCst);
     if conn.origin == super::Origin::Peer && whole(params) {
         let raw = conn.raw_text;
+        // What the link holds of this list already: it reads only what changed
+        // (`watch_delta.rs`).
+        let known = match params.get("known") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(known)) => Some(known),
+            Some(_) => return Err(RpcError::invalid_params("known must be an object")),
+        };
         return reply(hub, conn, None, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
@@ -172,10 +173,14 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
                 (false, true) => "own",
                 (false, false) => "own masked",
             };
-            Ok(list.made(name, |_| {
+            let own = list.made(name, |_| {
                 let own = Snapshot::own_whole(hub, tools);
                 if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
-            }))
+            });
+            Ok(match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
+                Some(delta) => Arc::new(delta),
+                None => own,
+            })
         })
         .await;
     }
@@ -279,10 +284,10 @@ fn acp_row_within(s: &Value, budget: usize) -> Value {
 /// The longest id or `cwd` a stub row keeps.
 const STUB_TEXT_BYTES: usize = 4 << 10;
 
-/// The most a session list result may hold (`session/list`, and `_acpmux/sessions` or
-/// `_acpmux/watch` with no `limit`): a megabyte under the message limit, for the reply's own
-/// frame and what masking a peer's text may add.
-const LIST_PAGE_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
+/// The most a session list result may hold (`session/list`, `_acpmux/sessions` and
+/// `_acpmux/watch`): a megabyte under the message limit, for the reply's own frame and what
+/// masking a peer's text may add, the bound of every reply fitted whole (`hub/reply_fit.rs`).
+const LIST_PAGE_BYTES: usize = crate::hub::reply_fit::REPLY_BYTES;
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

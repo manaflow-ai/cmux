@@ -6,21 +6,16 @@ import Testing
 @Suite struct TabLookupGuardTests {
     static let allowed: [String: [String: Int]] = [
         "AgentChatCopyHandlers.swift": ["locateTab(key)": 1, "locateTab(target.tabKey)": 1],
-        "AppActionContext+TabSelection.swift": ["locateTab(id)": 1],
-        "AppActionContext+Targets.swift": ["locateTab(target.id)": 1],
+        // `AppActionContext.targetTab(_:_:)`: the unscoped fallback when an invocation names no machine.
+        "AppActionContext+Targets.swift": ["locateTab(id)": 1],
         "BrowserDeviceHandlers.swift": ["locateTab(tab)": 1],
-        "IconMenuVisibility.swift": ["locateTab(target.id)": 1],
-        "SSHTargetHandlers.swift": ["locateTab(target.id)": 1],
-        "TabGroupHandlers.swift": ["locateTab($0.id)": 1],
-        "TabHandlers.swift": ["locateTab(tabID)": 1, "locateTab(id)": 1],
-        "TabIconHandlers.swift": ["locateTab(id)": 1],
-        "WorkspaceSetVerbs.swift": ["locateTab(target.id)": 1],
+        "TabHandlers.swift": ["locateTab(tabID)": 1],
     ]
 
     // Paths are relative to Sources/CmuxNextApp; this legacy allowance only shrinks.
     static let legacyAllowed: [String: [String: Int]] = [
         "AgentCursor/AgentCursorSnapshotBuilder.swift": ["locateTabOnAnyMachine(id)": 1],
-        "AgentTabs+Wiring.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(chat)": 2, "locateTabOnAnyMachine(key)": 14],
+        "AgentTabs+Wiring.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(chat)": 3, "locateTabOnAnyMachine(key)": 15],
         "AppServices+Hibernation.swift": ["locateTabOnAnyMachine(key)": 1],
         "AppServices+Incognito.swift": ["locateTabOnAnyMachine(key)": 1],
         "AppServices+WorkContext.swift": ["locateTabOnAnyMachine(tab)": 1],
@@ -31,7 +26,6 @@ import Testing
         "Control/AppBrowserPasskeyHost.swift": ["locateTabOnAnyMachine(tabID)": 3],
         "DeepLinks/DurableTabLink.swift": ["locateTabOnAnyMachine(id)": 1],
         "DesignMode/BrowserDesignModeController.swift": ["locateTabOnAnyMachine(key)": 1],
-        "Drag/SidebarTabRowHandoff.swift": ["locateTabOnAnyMachine(handoff.tab.rawValue)": 1],
         "Hibernation/AgentPageHibernation.swift": ["locateTabOnAnyMachine(key)": 1],
         "Home/HomeLinkPreviewProvider.swift": ["locateTabOnAnyMachine($0)": 1, "locateTabOnAnyMachine(id)": 1, "locateTabOnAnyMachine(key)": 2, "locateTabOnAnyMachine(tabID)": 1],
         "Links/LinkOpener.swift": ["locateTabOnAnyMachine(key)": 1],

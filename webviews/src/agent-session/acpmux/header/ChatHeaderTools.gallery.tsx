@@ -147,9 +147,10 @@ const groupTreatment =
   };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
-// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a border or shadow, and only a pressed one draws a fill:
-// the selection fill on its own square, hovered or not, so the open panel's toggle reads as on (Leo,
+// just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
+// BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
+// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
+// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
 // 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -160,22 +161,23 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle loses its selection fill on hover");
+  if (!clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle draws a plate on hover");
+  const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
   await ctx.hover({ role: "menuitem", name: "Rename" });
   const menuButton = ctx.find({ role: "button", name: "Chat actions" });
   if (!menuButton.hasAttribute("data-popup-open")) throw new Error("the chat menu closed on pointer exit");
-  await ctx.waitFor(() => view.getComputedStyle(menuButton).color === view.getComputedStyle(panel).color);
+  // The open menu's trigger takes the text's ink, unlike a tool at rest (Browser is not pressed here).
+  const restInk = view.getComputedStyle(ctx.find({ selector: '[data-quick-action="browser"]' })).color;
+  await ctx.waitFor(() => view.getComputedStyle(menuButton).color !== restInk);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (pressed === clear(style.backgroundColor))
-      throw new Error(
-        `header tool ${name} ${pressed ? "is pressed with no fill" : "draws a fill"}: ${style.backgroundColor}`,
-      );
+    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);

@@ -15,6 +15,8 @@ export interface Principal {
   /** Automation principals only (built by the API Worker): the run that is calling. */
   readonly run?: string
   readonly grant?: string
+  /** Install authority incarnation, resolved by UserDO for owner socket and network fences. */
+  readonly install_authority?: string
   /**
    * How the connection authenticated: a human session or an install token.
    * `system` is built only inside a Durable Object for its own internal ops
@@ -113,7 +115,7 @@ export interface EventFrame {
    * the row writes. A mirror applies them instead of replaying the reducer, so it needs
    * no rows it was never sent (the delta form of OwnershipConvergence.tla Apply).
    */
-  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> }
+  readonly effects?: { readonly state: unknown; readonly writes: ReadonlyArray<RowWrite> } | undefined
 }
 
 /** Owner to requester. `replayed` is true when the key was already decided. */
@@ -211,7 +213,7 @@ export interface ReduceContext {
    * Read-only rows of a row-backed domain. The engine and mirrors always pass it (empty for
    * JSON-only domains); hand-built test contexts for JSON domains may omit it.
    */
-  readonly rows?: RowReader
+  readonly rows?: RowReader | undefined
   /**
    * The request's idempotency key: present on the owner and in a client's preview of its own
    * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).

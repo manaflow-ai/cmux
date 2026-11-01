@@ -2,6 +2,7 @@
   "keychain": {
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
+    "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
     "cmux-tui/crates/acpmux/src/config/profile_env.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the service an acpmux profile names for its own key"},
     "cmux-tui/crates/acpmux/src/daemon/login_session.rs": {"count": 1, "reason": "safe: a doc comment about the login keychain; no read"},
     "cmux-tui/crates/acpmux/src/hub/remote_sandbox.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code-credentials"},

@@ -41,6 +41,33 @@
   __export(exports_src, {
     RUNTIME_VERSION: () => RUNTIME_VERSION
   });
+  var exports_view = {};
+  __export(exports_view, {
+    Badge: () => Badge,
+    Button: () => Button,
+    Capsule: () => Capsule,
+    Circle: () => Circle,
+    Divider: () => Divider,
+    EmptyState: () => EmptyState,
+    ForEach: () => ForEach,
+    Group: () => Group,
+    HStack: () => HStack,
+    Icon: () => Icon,
+    Image: () => Image,
+    LazyVStack: () => LazyVStack,
+    Menu: () => Menu,
+    ProgressView: () => ProgressView,
+    Rectangle: () => Rectangle,
+    Reorderable: () => Reorderable,
+    RoundedRectangle: () => RoundedRectangle,
+    Row: () => Row,
+    Spacer: () => Spacer,
+    Text: () => Text,
+    TextField: () => TextField,
+    VStack: () => VStack,
+    ViewNode: () => ViewNode,
+    ZStack: () => ZStack
+  });
   var currentComputation = null;
   var currentOwner = null;
   var dirty = new Set;
@@ -502,34 +529,6 @@
       get: (_t, key) => cmuxObject[key]
     });
   }
-  var exports_view = {};
-  __export(exports_view, {
-    Badge: () => Badge,
-    Button: () => Button,
-    Capsule: () => Capsule,
-    Circle: () => Circle,
-    Divider: () => Divider,
-    EmptyState: () => EmptyState,
-    ForEach: () => ForEach,
-    Group: () => Group,
-    HStack: () => HStack,
-    Icon: () => Icon,
-    Image: () => Image,
-    LazyVStack: () => LazyVStack,
-    Menu: () => Menu,
-    ProgressView: () => ProgressView,
-    Rectangle: () => Rectangle,
-    Reorderable: () => Reorderable,
-    RoundedRectangle: () => RoundedRectangle,
-    Row: () => Row,
-    Spacer: () => Spacer,
-    Text: () => Text,
-    TextField: () => TextField,
-    VStack: () => VStack,
-    ViewNode: () => ViewNode,
-    ZStack: () => ZStack
-  });
-
   class ViewNode {
     type;
     children;

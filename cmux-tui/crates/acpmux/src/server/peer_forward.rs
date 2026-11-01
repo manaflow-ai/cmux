@@ -66,6 +66,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_status",
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
+    // Every live chat on this daemon (`host_notice.rs`).
+    "_acpmux/host_notice",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
@@ -160,6 +162,48 @@ fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
     e
 }
 
+/// How long a file upload for a peer's chat waits for that peer's link to come back before it is
+/// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
+pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The upload methods that wait for a peer's link (`await_upload_link`).
+pub(super) fn waits_for_link(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_STATUS
+    )
+}
+
+/// A file the person dropped for a chat on `peer` waits, up to `within`, for the peer's link to be
+/// up instead of failing at once while it reconnects: the peer is wanted (`peer_wanted.rs`), so the
+/// next attempt comes within a second, and each settled attempt is checked. Before, the first
+/// try of a pasted video met a link that was reconnecting and failed, and only the person's Retry
+/// got it through (Leo, 2026-11-01: "i had to retry to get it to load???"). Whether it came up:
+/// a link still down is refused as unreachable by the request, as before.
+pub(super) async fn await_upload_link(
+    peer: &crate::peer::Peer,
+    within: std::time::Duration,
+) -> bool {
+    if peer.ready() {
+        return true;
+    }
+    let mut settled = peer.settled();
+    peer.want();
+    let deadline = tokio::time::Instant::now() + within;
+    while !peer.ready() {
+        match tokio::time::timeout_at(deadline, settled.changed()).await {
+            Ok(Ok(())) => {}
+            // The deadline passed, or the peer went (its sender dropped).
+            _ => break,
+        }
+    }
+    peer.ready()
+}
+
 pub(super) async fn forward(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -167,10 +211,27 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A client waits on a peer that is down (a chat it opens): the peer reconnects within
+    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here.
+    if conn.origin != Origin::Peer
+        && let Some(Err(e)) = &reply
+        && let Some(peer) = unreachable_peer(hub, e)
+    {
+        peer.want();
+    }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// The peer of this daemon that `e` refused a request for because its link is down.
+fn unreachable_peer(hub: &Hub, e: &RpcError) -> Option<Arc<crate::peer::Peer>> {
+    let data = e.data.as_ref()?;
+    if data.get("reason").and_then(Value::as_str) != Some("peer_unreachable") {
+        return None;
+    }
+    hub.peer_by_name(data.get("peer").and_then(Value::as_str)?)
 }
 
 async fn forward_inner(
@@ -212,6 +273,13 @@ async fn forward_inner(
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
             return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
+        }
+        // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
+        if waits_for_link(m) && !peer.ready() {
+            tokio::select! {
+                _ = await_upload_link(&peer, UPLOAD_LINK_WAIT) => {}
+                () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
+            }
         }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
@@ -288,6 +356,11 @@ async fn forward_inner(
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
+        // And a chat's older native turns (`hub/native_history.rs`): a pane stops paging on it.
+        if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
         // every client here.
@@ -350,8 +423,10 @@ async fn forward_inner(
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        // A failed attach is logged there, and unmarked when the peer refused
+                        // it; the prompt still goes, and answers with the peer's own error if
+                        // the chat is gone.
+                        let _ = peer.attach_hidden(&id).await;
                     }
                 });
                 tokio::select! {
@@ -487,6 +562,11 @@ async fn forward_inner(
         // The link the request goes on and the generation the row names as it goes: a page is
         // kept only while that link is the peer's, and only as that generation's.
         let link = peer.link_epoch();
+        // A client here opens peer chats: their copies are read ahead from now on, so the next
+        // one opens on its copy even while its peer reconnects (`hub/peer_snapshot/warm.rs`).
+        if m == method::MUX_ATTACH && conn.origin != Origin::Peer {
+            hub.want_peer_copies();
+        }
         let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
         let purge =
             m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
@@ -548,7 +628,7 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
                                 .with_data(json!({
                                     "reason": "peer_version_skew",
                                     "try": format!("acpmux host update {}", peer.name),
@@ -640,7 +720,7 @@ fn mac_group_read(result: &mut Value, mac_signs: bool) {
 /// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
 /// older run stay there without their nonce). The rest of the reply, and the
 /// session, stay.
-fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
     let pending = match m {
         method::MUX_INFO => Some("/pending"),
         method::MUX_ATTACH => Some("/session/pending"),

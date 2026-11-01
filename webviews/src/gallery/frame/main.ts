@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { readEnv, widthPx } from "../env";
+import { overPicture, readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -18,10 +18,13 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { installUiFont } from "./uiFont";
+import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
 
 installGalleryClock();
+// A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
+setLastingGrace(0);
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
@@ -92,6 +95,8 @@ const pair =
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
+// The background axis: over a picture the page is see-through, as over the user's in the app.
+const seeThrough = overPicture(env);
 
 emulateMedia({
   "prefers-color-scheme": scheme,
@@ -106,8 +111,17 @@ document.head.append(bootstrap);
 bootstrap.remove();
 installUiFont();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
+  webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
 );
+if (seeThrough) {
+  const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
+    import("./background"),
+    import("virtual:cmux-gallery/metrics"),
+  ]);
+  // The same window-mode test as the shell's stage (Stage.tsx): page entries sit in a real pane.
+  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
+  applyGalleryBackground(env, tokens, { windowed, metrics });
+}
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
@@ -148,7 +162,7 @@ const context: StageContext = {
   theme,
   pair,
   tokens,
-  agentTheme: agentPaneTheme(tokens, env.reducedMotion),
+  agentTheme: agentPaneTheme(tokens, env.reducedMotion, seeThrough),
   appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
   options: optionValues,

@@ -71,7 +71,7 @@
   margin-inline: -4px;
   padding-inline: 4px;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-agent-card__head.is-open-chat:hover,
 .cv-agent-card__head.is-open-chat:focus-visible {

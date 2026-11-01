@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -167,12 +168,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let insert = request.insertLeading { return insert(leading) }
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
+                                                         entries: services.registry.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
                                                      services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
-            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
+            // The engine's menu holds the page rows: Customize Menu… ends it as it ends every whole menu.
+            // The engine's menu puts a separator before the extra rows; one more only after rows of ours.
+            let customize = services.registry.customizeMenuItem(for: .browserPage).map { extra.isEmpty ? [$0] : [NSMenuItem.separator(), $0] } ?? []
+            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra + customize)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
@@ -341,7 +345,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source) { target, placed in
+        services.linkOpener.open(from: source, kind: .browser) { target, placed in
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }

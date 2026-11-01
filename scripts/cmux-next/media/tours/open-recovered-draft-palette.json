@@ -1,0 +1,29 @@
+{
+  "title": "Open Recovered Draft… in the palette's Commands scope",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Diagnostic: open the Commands scope with the query as an argument, and check the drawn field shows it", "cmux": ["action", "run", "palette.open", "--arg", "scope=commands", "--arg", "query=Open Recovered Draft", "--focus"], "wait": 1, "shot": false, "optional": "diagnostic only, the steps below type the query", "expect": {"method": "debug.focus", "fields": {"palette.open": true, "palette.query": "Open Recovered Draft", "palette.field": "Open Recovered Draft"}}},
+    {"title": "Open the Commands scope empty (only catalog actions: no workspace, tab or draft rows)", "cmux": ["action", "run", "palette.open", "--arg", "scope=commands", "--focus"], "wait": 1, "shot": false, "expect": {"method": "debug.focus", "fields": {"palette.open": true, "palette.query": "", "palette.field": ""}}},
+    {"title": "Type 'O'", "rpc": {"method": "debug.key", "params": {"key": "O", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'p'", "rpc": {"method": "debug.key", "params": {"key": "p", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'e'", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'n'", "rpc": {"method": "debug.key", "params": {"key": "n", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type ' '", "rpc": {"method": "debug.key", "params": {"key": "space", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'R'", "rpc": {"method": "debug.key", "params": {"key": "R", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'e'", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'c'", "rpc": {"method": "debug.key", "params": {"key": "c", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'o'", "rpc": {"method": "debug.key", "params": {"key": "o", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'v'", "rpc": {"method": "debug.key", "params": {"key": "v", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'e'", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'r'", "rpc": {"method": "debug.key", "params": {"key": "r", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'e'", "rpc": {"method": "debug.key", "params": {"key": "e", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'd'", "rpc": {"method": "debug.key", "params": {"key": "d", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type ' '", "rpc": {"method": "debug.key", "params": {"key": "space", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'D'", "rpc": {"method": "debug.key", "params": {"key": "D", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'r'", "rpc": {"method": "debug.key", "params": {"key": "r", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'a'", "rpc": {"method": "debug.key", "params": {"key": "a", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 'f'", "rpc": {"method": "debug.key", "params": {"key": "f", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Type 't'", "rpc": {"method": "debug.key", "params": {"key": "t", "target": "palette"}}, "wait": 0.05, "shot": false},
+    {"title": "Palette: the field reads Open Recovered Draft and Open Recovered Draft… is the selected row", "wait": 0.5, "expect": {"method": "debug.focus", "fields": {"palette.open": true, "palette.field": "Open Recovered Draft", "palette.query": "Open Recovered Draft", "palette.ranking": false, "palette.loading": false, "palette.selected": "file.openRecoveredDraft", "palette.selected_title": "Open Recovered Draft…"}}}
+  ]
+}

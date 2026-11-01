@@ -4,7 +4,7 @@ import CmuxNextActions
 /// saves the group. Its menu offers Pin Group (`tabGroup.save`) or Unpin
 /// Group (`tabGroup.unsave`), whichever applies, never both.
 enum TabGroupPinMenu {
-    static func entries(saved: Bool) -> [ContextMenuEntry] {
-        ContextMenuCatalog.shared.entries(for: .tabGroup, removing: [saved ? "tabGroup.save" : "tabGroup.unsave"])
+    @MainActor static func entries(saved: Bool, registry: ActionRegistry) -> [ContextMenuEntry] {
+        registry.contextMenuEntries(for: .tabGroup, removing: [saved ? "tabGroup.save" : "tabGroup.unsave"])
     }
 }

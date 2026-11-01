@@ -1,17 +1,18 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
 
-/// Every `sidebar.rowCloseSpot` choice on a hovered working row with listed tabs, dark and light, one sidebar per
+/// Every `sidebar.rowCloseSpot` choice on a hovered working row, dark and light, one sidebar per
 /// column (Leo 2026-10-27: "the rightmost three things, they make sense, but this one, not so much"). Artifact
 /// `sidebar-close-spot-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct SidebarRowCloseSpotGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowCloseSpotGalleryTests {
     static func render(_ spot: SidebarRowCloseSpot, dark: Bool) throws -> CGImage {
-        try SidebarTabGroupControlsTests.withCloseSpot(spot) {
-            let (_, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        try SidebarRowCloseSpotTests.withCloseSpot(spot) {
+            let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()
             defer { window.close() }
             // As the nested-groups gallery: each mode its own theme, the appearance on the view, an opaque backdrop.
             let theme = dark ? "Soft Blue" : "Soft Blue Light"
@@ -29,7 +30,7 @@ import Testing
             root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
             window.orderFrontRegardless()
             sidebar.renderNow()
-            let row = try #require(sidebar.list.rowViews[.workspace(SidebarTabGroupControlsTests.other)] as? WorkspaceRowView)
+            let row = try #require(sidebar.list.rowViews[.workspace(SidebarRowCloseSpotTests.other)] as? WorkspaceRowView)
             row.isHovered = true
             for view in AANestedGroupsGalleryTests.all(root) { view.layoutSubtreeIfNeeded(); view.needsDisplay = true; view.displayIfNeeded() }
             CATransaction.flush()

@@ -9,7 +9,10 @@ members = ["crates/cmux-vm", "crates/cmux-vm-client", "crates/cmux-vm-codegen"]
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
-rust-version = "1.95"
+# The cmux CLI links these crates in process, so they keep its minimum Rust
+# (cmux-tui/Cargo.toml, checked by cmux-tui.yml's MSRV job), not the newer
+# toolchain both workspaces build with.
+rust-version = "1.91"
 
 [workspace.dependencies]
 # Code generator. Pinned exactly: a generator upgrade changes the checked-in
@@ -24,13 +27,19 @@ syn = { version = "=3.0.6", features = ["full"] }
 bytes = "1"
 futures = "0.3"
 regress = "0.12"
-reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+# No TLS backend and no system proxy by default: cmux-vm-client's default-tls and system-proxy
+# features turn them on, and the cmux CLI, which links this crate in process, uses its own
+# rustls (ring) and, like the rest of the cmux CLI, no SystemConfiguration.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream", "charset", "http2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # CLI.
 clap = { version = "4.6", features = ["derive", "env"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+base64 = "0.22"
+security-framework = "3"
+nix = { version = "0.31", default-features = false }
 
 # Tests.
 wiremock = "0.6.5"

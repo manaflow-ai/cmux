@@ -26,18 +26,23 @@ test("the page shows every character, the chosen one checked while the pet is of
   await settle();
   const pet = card(page.container);
   expect(choices(pet).map((choice) => choice.dataset.pet)).toEqual([
-    "orb",
-    "orb-spark",
-    "orb-hood",
+    "fox",
     "machine",
     "machine-cyan",
     "machine-blue",
     "moon",
     "moon-blue",
-    "fox",
     "mochi",
+    "fox-arctic",
+    "machine-violet",
+    "machine-gold",
+    "moon-rose",
+    "orb",
+    "orb-spark",
+    "orb-hood",
   ]);
-  // The pet is off by default, but every Chief surface wears the first character: it is the one checked.
+  // The pet is off by default, but every Chief surface wears the default character, orb, wherever it
+  // sits in the grid (Series 1 without the orbs, Mochi, Series 2, then the orbs): it is the one checked.
   expect(checked(pet)).toBe("orb");
   expect(pet.dataset.enabled).toBe("false");
   // The card draws both rows: no plain toggle or menu for them below it.
@@ -108,4 +113,21 @@ test("hovering a character previews it without picking it", async () => {
   expect(shown(card(page.container))).toEqual({ enabled: false, character: "Moon" });
   expect(preview().dataset.previewing).toBe("false");
   page.unmount();
+});
+
+// Leo 2026-11-01: "obv i assume this won't switch up what they've currently selected...?" The value is
+// the character's id, so a saved choice stays checked after the reorder, and an id that is no character
+// checks the default, orb, not the grid's first cell.
+test("a saved character stays checked after the reorder; an unknown one checks orb", async () => {
+  const saved = await renderPage({ path: "/settings/chief", mock: { values: { "home.chiefPetMascot": "moon" } } });
+  await settle();
+  expect(checked(card(saved.container))).toBe("moon");
+  saved.unmount();
+  const unknown = await renderPage({
+    path: "/settings/chief",
+    mock: { values: { "home.chiefPetMascot": "retired-character" } },
+  });
+  await settle();
+  expect(checked(card(unknown.container))).toBe("orb");
+  unknown.unmount();
 });

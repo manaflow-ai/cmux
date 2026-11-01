@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test";
 import { layoutConversation, type AcpmuxRow } from "../model";
-import { preserveScrollAnchorTop, scrollAnchorBase } from "./scrollAnchor";
+import { preserveScrollAnchorTop, scrollAnchorBase, settleFollowBottom } from "./scrollAnchor";
 
 test("keeps a pending wheel's movement without reusing a browser resize adjustment", () => {
   expect(scrollAnchorBase(240, 320, true)).toBe(240);
   expect(scrollAnchorBase(340, 320, false)).toBe(320);
+});
+
+test("corrects a 5–8px measured growth instead of leaving the reader short of bottom", () => {
+  for (const growth of [5, 6, 7, 8]) {
+    const node = { scrollHeight: 1000 + growth, clientHeight: 600, scrollTop: 400 };
+    expect(settleFollowBottom(node, 0, false)).toBe(true);
+    expect(node.scrollTop).toBe(400 + growth);
+  }
 });
 
 const row = (id: string, text: string): AcpmuxRow => ({ id, kind: "assistant", text, version: 1, at: 1 });
@@ -56,6 +64,25 @@ test("does not move the row itself when its streaming text grows", () => {
     anchorTop: oldTop,
   });
   expect(next).toBe(oldTop);
+});
+
+test("keeps a reader's anchor when a live activity row is appended below it", () => {
+  const oldRows = [row("prompt", "prompt"), row("anchor", "the row in view"), row("reply", "reply")];
+  const activity = row("subagent-done", "Subagent finished");
+  activity.kind = "activity";
+  const newRows = [...oldRows, activity];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  const oldTop = oldLayout.tops[1]! + 9;
+  const next = preserveScrollAnchorTop({
+    oldLayout,
+    newLayout,
+    oldRows,
+    newRows,
+    liveTop: oldTop,
+    anchorTop: oldTop,
+  });
+  expect(next! - newLayout.tops[1]!).toBe(9);
 });
 
 test("finds the same anchor after older history is inserted above it", () => {

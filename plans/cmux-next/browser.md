@@ -770,3 +770,37 @@ Checked side by side with Google Chrome 155 by `scripts/cmux-next/devtools-devic
 - Agent mouse input under touch emulation (cx-3ny35): Chrome also times out `Input.dispatchMouseEvent` there; the driver should send `Input.dispatchTouchEvent`.
 - Fixed: every cmux emulation change waited 5 s, because Chromium answers `Emulation.setEmitTouchEventsForMouse` inside `ExecuteDevToolsMethod`, before a waiter existed (`CEFRuntime.devTools`).
 
+
+## Chromium security updates (2026-10-31, a930)
+
+Trigger: pwn.ai "Chrome GPU Sandbox Escape to RCE" (CVE-2026-106378, crbug 507596239, fixed in Chrome 155). The
+macOS GPU sandbox (`gpu.sb`) allows the `com.apple.windowserver.active` lookup that graphics need; code running in
+the GPU process can then call `CGSPostKeyboardEvent` and type into the desktop, provided the GPU process holds an
+Accessibility grant. A helper spawned without a TCC disclaim inherits its parent's responsible process, so it holds
+the parent's grants. Chromium 155 adds `kMacDisclaimGpuTccResponsibility`: the GPU child disclaims only when the
+browser process is not self-responsible (`!base::IsCurrentProcessSelfResponsible()`, a Chrome started from Terminal).
+
+cmux-next was exposed, and Chromium 155+ alone does not fix it:
+
+- The shipped pin was cef-154.0.28-cmux.28 (Chromium 154.0.8037.58): no disclaim at all.
+- cmux's Chromium browser process is the cmux app itself (in-process CEF, `CEFShim/src/shim_process.mm`). Started
+  from Finder or the Dock it is self-responsible, so upstream's condition never disclaims for it, and the app can hold
+  Accessibility (Mac screen share host, Computer Use onboarding) and Screen Recording. Its GPU helper then holds them
+  too. A GPU-process compromise (a second bug after a renderer exploit) becomes keystrokes as cmux.
+- Config otherwise as Chrome: `no_sandbox = false` (helpers enter the sandbox in `helper_main.mm`), site isolation
+  on, no `--no-sandbox`, `--disable-gpu-sandbox`, `--single-process` or remote debugging port, no Mojo JS bindings.
+
+Fix: fork patch `cmux_gpu_disclaim_tcc` (GPU child always disclaims; the feature stays the kill switch) on both the
+154 line (cef-154.0.28-cmux.37 = cmux.29 + the patch) and the 156 line (cef-156.0.15-cmux.38, upstream CEF 8078 at
+Chromium 156.0.8078.80; CEF had no 8103/157 branch on 2026-10-31). Test: fork embedder case `gpu-tcc` relaunches the
+test app self-responsible (as launchd starts cmux) and checks that the GPU child's
+`responsibility_get_pid_responsible_for_pid` is itself; cmux.28 fails it (GPU responsible pid = the app).
+
+Guard: `.github/workflows/cmux-next-chromium-staleness.yml` (`scripts/cmux-next/chromium_staleness.py`, unit test
+`tests/test_chromium_staleness.py`) warns and keeps one `chromium-stale` issue when the pinned Chromium is more than
+one Chrome stable major behind (Google Version History API, mac stable).
+
+Update path for the next Chrome major: merge the newest upstream CEF branch into the fork line, regenerate conflicted
+patches at source level (fetch the patched files at the old and new Chromium tags from gitiles, three-way merge,
+diff against the new tag), check every patch applies in `patch.cfg` order, build arm64 and x86_64 with
+`cmux-ci build cef --release-version`, publish, and pin here with the credits page.

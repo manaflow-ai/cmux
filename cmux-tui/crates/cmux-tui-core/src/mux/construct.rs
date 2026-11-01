@@ -200,6 +200,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
+            bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,
@@ -316,7 +317,9 @@ impl Mux {
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
+            agent_hook_projection: Mutex::new(()),
             agent_presence: Mutex::new(HashMap::new()),
+            agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
@@ -362,6 +365,7 @@ impl Mux {
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            startup_adoption_gate: Default::default(),
             terminal_adoption_ended: Condvar::new(),
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
@@ -397,6 +401,7 @@ impl Mux {
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            pty_reclaim_forced: AtomicBool::new(false),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(

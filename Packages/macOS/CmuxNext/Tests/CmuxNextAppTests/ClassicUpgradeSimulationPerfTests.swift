@@ -7,7 +7,7 @@ import Testing
 /// Opt-in fleet measurements for the classic upgrade simulation. The functional
 /// simulation deliberately checks only migration behavior; this harness keeps
 /// launch timing visible without turning host load into a PR failure.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(15)),
+@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(15)),
                   .enabled(if: ProcessInfo.processInfo.environment["CMUX_CLASSIC_UPGRADE_PERF"] == "1"
                                && SameTreeDaemonBinary.url != nil,
                            "set CMUX_CLASSIC_UPGRADE_PERF=1 on a fleet run"))
@@ -19,7 +19,9 @@ struct ClassicUpgradeSimulationPerfTests {
         try mac.save(profile)
         let before = try mac.classicDigest()
         let sim = try ClassicUpgradeSimulator(mac: mac)
+        BenchSpans.begin()
         let launch = await sim.launch()
+        Self.reportDocumentWaits(name, BenchSpans.end())
         print(String(format: "CLASSIC-SIM-PERF %@ workspaces=%d first_window=%.2fs migration=%.2fs per_workspace=%.0fms",
                      name, profile.expectedCount, launch.firstWindow.simSeconds, launch.migration.simSeconds,
                      profile.expectedCount == 0 ? 0 : launch.migration.simSeconds * 1000 / Double(profile.expectedCount)))
@@ -35,5 +37,15 @@ struct ClassicUpgradeSimulationPerfTests {
             throw error
         }
         await sim.shutdown()
+    }
+
+    /// The import's wait for the sidebar document's reply before each group write (#28425), per
+    /// imported workspace: count, sum and p50/p95/max in ms. A p95 above a frame (16 ms) asks for
+    /// one settle per import batch instead.
+    private static func reportDocumentWaits(_ name: String, _ spans: [BenchSpans.Span]) {
+        let waits = spans.filter { $0.name == AppOnboardingServices.documentSettledSpan }.map(\.milliseconds).sorted()
+        let at = { (share: Double) -> Double in waits.isEmpty ? 0 : waits[min(waits.count - 1, Int((share * Double(waits.count)).rounded(.up)) - 1)] }
+        print(String(format: "CLASSIC-SIM-PERF-SETTLE %@ n=%d sum=%.2fms p50=%.2fms p95=%.2fms max=%.2fms", name, waits.count,
+                     waits.reduce(0, +), at(0.5), at(0.95), waits.last ?? 0))
     }
 }

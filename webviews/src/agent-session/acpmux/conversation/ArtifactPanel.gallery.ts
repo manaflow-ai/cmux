@@ -66,6 +66,66 @@ const counterVersion = (index: number) => ({
   },
 });
 
+// A finished edit to counter.html (artifactWrites.ts): Gemini's replace and OpenCode's edit record the
+// whole old and new file, which opens; Claude Code's Edit records only its replacement, which never does.
+const editChat = (harness: string, name: string, fields: Parameters<typeof tool>[3]) =>
+  chat(
+    [
+      user("Make the counter add 2 per click", 6),
+      activity([tool(name, "edit", "completed", fields)], 5),
+      summary(5, { status: "completed" }),
+    ],
+    { harness },
+  );
+const counterPage = (step: number) => `<!doctype html>
+<html>
+  <body style="font-family: system-ui; padding: 24px">
+    <h1>Counter</h1><p>Adds ${step} per click.</p>
+    <button onclick="this.textContent = Number(this.textContent) + ${step}">0</button>
+  </body>
+</html>`;
+const expand = async (ctx: PlayContext) => {
+  await ctx.click({ role: "button", name: "Worked for 42s" });
+};
+const editVariants = {
+  "edit-complete": {
+    note: "OpenCode's finished edit records the whole file: Open sits under the row.",
+    snapshot: editChat("opencode", "edit", {
+      inputSummary: JSON.stringify({ filePath: "counter.html", oldString: "Adds 1", newString: "Adds 2" }),
+      diffs: [{ path: "counter.html", oldText: counterPage(1), newText: counterPage(2) }],
+    }),
+    play: expand,
+  },
+  "replace-complete": {
+    note: "Gemini's finished replace records the whole file: Open sits under the row.",
+    snapshot: editChat("gemini", "replace", {
+      inputSummary: JSON.stringify({ file_path: "counter.html", old_string: "Adds 1", new_string: "Adds 2" }),
+      diffs: [{ path: "counter.html", oldText: counterPage(1), newText: counterPage(2) }],
+    }),
+    play: expand,
+  },
+  "edit-complete-open": {
+    note: "Open on OpenCode's finished edit shows the whole edited page.",
+    snapshot: editChat("opencode", "edit", {
+      inputSummary: JSON.stringify({ filePath: "counter.html", oldString: "Adds 1", newString: "Adds 2" }),
+      diffs: [{ path: "counter.html", oldText: counterPage(1), newText: counterPage(2) }],
+    }),
+    play: async (ctx: PlayContext) => {
+      await expand(ctx);
+      await open(ctx);
+      await ctx.click({ role: "button", name: "Run" });
+    },
+  },
+  "edit-snippet": {
+    note: "Claude Code's Edit records only its replacement, not the page: no Open.",
+    snapshot: editChat("claude", "Edit counter.html", {
+      inputSummary: JSON.stringify({ file_path: "counter.html", old_string: "Adds 1", new_string: "Adds 2" }),
+      diffs: [{ path: "counter.html", oldText: "<p>Adds 1 per click.</p>", newText: "<p>Adds 2 per click.</p>" }],
+    }),
+    play: expand,
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.artifact-panel",
   title: "Side preview panel",
@@ -105,6 +165,7 @@ export default agentPaneEntry({
         },
       ]),
     ),
+    ...editVariants,
     svg: {
       snapshot: reply(
         "Draw a circle",

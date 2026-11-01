@@ -272,6 +272,8 @@ impl HostedReader {
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
             pty.stream_progress.notify();
             if let Some(mux) = mux.upgrade() {
+                // The last output's scroll position goes before the exit.
+                let _ = pty.frame_requests.flush_scroll(&mux, surface.id);
                 mux.surface_exited(surface.id);
             }
             return None;
@@ -300,7 +302,9 @@ impl HostedReader {
         }
 
         if self.connected_at.is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION) {
-            self.flap_backoff = TerminalHostReconnectBackoff::default();
+            // A flapping host past its budget shows `failed` but is still
+            // retried: its shell may run, and it may answer again.
+            self.flap_backoff = TerminalHostReconnectBackoff::retrying_after_failure();
             self.resync_backoff = TerminalHostReconnectBackoff::default();
         } else if resync_requested {
             // A live host's resync never fails the terminal, but

@@ -40,10 +40,17 @@
   left: 0;
   display: block;
 }
-/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+/* While text leaves no room the rail stays drawn over it, dimmed, and takes no clicks from the text;
+   the pane-edge strip and keyboard focus reveal it at full strength (Leo, 2026-10-24: "for the narrow
+   windows, i think we should just simply be able to show it. don't shove the ui ... just hide it more"). */
 .acpmux-minimap__rail[data-occluded] {
-  opacity: 0;
+  opacity: 0.4;
   pointer-events: none;
+}
+/* The `dimmed` gutter arm (gutter.experiment.ts): the occluded rail stays drawn, faint, and still
+   leaves the text its clicks. */
+.acpmux-minimap__rail[data-occluded][data-dim] {
+  opacity: 0.4;
 }
 @keyframes acpmux-minimap-in {
   from {
@@ -112,7 +119,7 @@
      its compact focus treatment and marks the control with data-focus-ring="tick". */
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
   outline-offset: -1.5px;
-  border-radius: var(--acpmux-inspector-row-radius, 4px);
+  border-radius: var(--acpmux-session-info-row-radius, 4px);
 }
 @media (prefers-contrast: more) {
   .acpmux-minimap__tick:focus-visible {
@@ -139,15 +146,17 @@
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
    and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
-   rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
+   rail's room (--acpmux-minimap-place, the row's place in the list's view as the tick mounted, over
+   --acpmux-minimap-rows; no per-scroll value the list's rows inherit), so the
    whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
-   ticks and newly appended prompts enter; virtualization remounts draw immediately. It stops at its
-   end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place and starts
-   at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+   ticks and newly appended prompts enter (data-entering); virtualization remounts draw immediately. It
+   stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place
+   and starts at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own
+   check). The full-height map (ScrollMap.tsx) keeps its marks still. */
 .acpmux-minimap__tick {
   --acpmux-minimap-stagger: clamp(
     0ms,
-    calc((var(--acpmux-minimap-row, 0) - var(--acpmux-minimap-first, 0)) * 72ms / var(--acpmux-minimap-rows, 1)),
+    calc(var(--acpmux-minimap-place, 0) * 72ms / var(--acpmux-minimap-rows, 1)),
     72ms
   );
 }
@@ -347,7 +356,7 @@
   border-radius: 4px;
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-minimap__bookmark:hover {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -459,7 +468,7 @@
    tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
    them is the view; it moves by transform on the scroll's frame. */
 .acpmux-scrollmap {
-  cursor: pointer;
+  cursor: default;
   touch-action: none;
 }
 .acpmux-scrollmap__view {
@@ -517,9 +526,22 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar {
   opacity: var(--acpmux-minimap-mark, 0.7);
 }
-/* The rows the rail does not draw (tickWindow.ts): one block as tall as they are. */
+/* The rows the rail does not draw (tickWindow.ts): one block as tall as they are, painted as their
+   resting ticks: the bar's 2 px at 4 px down each 10 px row, at its resting length (model.ts
+   tickLength(0), 0.2308 of the bar's box) in the rest tone at its 40%. A fast wheel or fling can move
+   the list past the drawn rows for a frame before its scroll event draws them (Chromium scrolls on
+   its compositor); that frame shows ticks at rest, not a blank strip (Leo, 2026-10-31: "if i scroll
+   too fast in the left scroll rail it can flicker and disapper at the edges"). A lit or bookmarked
+   row among them shows at rest for that frame. It is a static background: no animation, no timer. */
 .acpmux-minimap__gap {
   flex: none;
+  background: linear-gradient(
+      to bottom,
+      transparent 4px,
+      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) 4px 6px,
+      transparent 6px
+    )
+    0 0 / calc(min(26px, 100%) * 0.2308) 10px repeat-y;
 }
 /* A tick's list item (its place among every prompt for assistive tech): a plain block around its
    tick, so it takes the tick's 10 px and the list's rows stay where they were. */

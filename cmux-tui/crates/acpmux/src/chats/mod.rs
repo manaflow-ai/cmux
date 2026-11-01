@@ -15,9 +15,11 @@ mod activity;
 pub(crate) mod brand;
 mod open;
 mod query;
+pub mod search;
 mod settings;
 pub(crate) mod sources;
 mod watch;
+mod window;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,6 +39,7 @@ pub use open::{StoreProfile, plan_open, store_profiles};
 pub use query::{ChatCursor, ChatQuery};
 pub use settings::{ChatSettings, SettingsRefusal, probe};
 pub use sources::{ChatSources, EnvLookup, launch_roots, login_var, lookup, refusal};
+pub use window::{WindowRows, WindowSpec, WindowState};
 
 /// Work run once the chat index has started.
 pub type ChatsWaiter = Box<dyn FnOnce(&Arc<ChatService>) + Send>;
@@ -81,7 +84,7 @@ impl ChatService {
     /// Discovers the roots, starts the watcher, then scans every root
     /// (incremental from the cache). Blocking: call it off the executor.
     pub fn start(sources: ChatSources) -> Arc<Self> {
-        let recorded = RecordedRoots::load(sources.acpmux_home.join("chat-roots.json"));
+        let recorded = RecordedRoots::load(recorded_roots_path(&sources));
         let settings = ChatSettings::load(&settings_path(&sources));
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
@@ -138,6 +141,60 @@ impl ChatService {
         let more = start + held.len() < matching.len();
         let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
         (page, next, seq)
+    }
+
+    /// Every chat the filter passes from its cursor on, newest first, copied out of the lock so
+    /// a caller can read their transcripts (`_acpmux/chats_search`); None while chats are off.
+    /// The filter's `limit` is the caller's to apply.
+    pub fn listed_from(&self, query: &ChatQuery) -> Option<Vec<IndexedChat>> {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return None;
+        }
+        let matching: Vec<&IndexedChat> =
+            state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
+        let start = query.cursor.start(&matching);
+        Some(matching.get(start..).unwrap_or_default().iter().map(|c| (*c).clone()).collect())
+    }
+
+    /// The rows of a client's window (`_acpmux/chats_window`), read under the index lock: none
+    /// while chats are off.
+    pub fn window_rows(&self, spec: &WindowSpec, activity: &ChatActivity) -> WindowRows {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return WindowRows::default();
+        }
+        window::rows(spec, &state.index, activity)
+    }
+
+    /// `_acpmux/chat_projects`: each harness's project folders, every absolute chat folder with
+    /// the time of its newest chat (a chat another chat started left out), by harness id then
+    /// path. acpmux groups its own index, so the app relays a few rows, never every chat. None
+    /// while chats are off.
+    pub fn projects(&self, activity: &ChatActivity) -> Option<Vec<Value>> {
+        let state = lock(&self.state);
+        if !state.settings.enabled {
+            return None;
+        }
+        let mut newest: std::collections::BTreeMap<(&str, &str), i64> =
+            std::collections::BTreeMap::new();
+        for chat in state.index.chats() {
+            let entry = &chat.entry;
+            let Some(cwd) = entry.cwd.as_deref().filter(|cwd| cwd.starts_with('/')) else {
+                continue;
+            };
+            if activity.has_parent(&key_text(&entry.key())) {
+                continue;
+            }
+            let used = newest.entry((entry.harness.id(), cwd)).or_insert(i64::MIN);
+            *used = (*used).max(entry.updated_ms);
+        }
+        Some(
+            newest
+                .into_iter()
+                .map(|((harness, path), used)| json!({"harness": harness, "path": path, "lastUsedMs": used}))
+                .collect(),
+        )
     }
 
     pub fn get(&self, key: &ChatKey) -> Option<IndexedChat> {
@@ -228,6 +285,10 @@ impl ChatService {
         Ok(new)
     }
 
+    fn recorded_roots_path(&self) -> PathBuf {
+        recorded_roots_path(&self.sources)
+    }
+
     /// Records the store roots a spawn's env named (launch roots, C3); new
     /// ones are scanned and watched. Blocking.
     pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
@@ -235,7 +296,11 @@ impl ChatService {
         {
             let mut state = lock(&self.state);
             for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
-                match state.recorded.record(spec.clone()) {
+                // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
+                let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| state.recorded.record(spec.clone()));
+                match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
                 }
@@ -352,7 +417,11 @@ impl ChatService {
     }
 
     fn save(&self, index: &ChatIndex) {
-        if let Err(e) = index.save(&cache_path(&self.sources)) {
+        let path = cache_path(&self.sources);
+        // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+        let saved = crate::config::refuse_lost_home(&path)
+            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
@@ -367,6 +436,10 @@ impl ChatService {
         drop(state);
         drop(old);
     }
+}
+
+fn recorded_roots_path(sources: &ChatSources) -> PathBuf {
+    sources.acpmux_home.join("chat-roots.json")
 }
 
 fn cache_path(sources: &ChatSources) -> PathBuf {

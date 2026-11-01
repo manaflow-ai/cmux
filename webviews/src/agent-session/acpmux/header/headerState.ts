@@ -55,8 +55,8 @@ export interface HeaderState {
   /// Side sessions (/btw) are on by default; `agentPane.debug.sideSessions` remains an explicit kill
   /// switch. The App may override it in the header state; an update that leaves it out keeps the value.
   readonly sideSessions: boolean;
-  /// The header offers the Inspector (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx).
-  readonly inspector: boolean;
+  /// The header offers Session Info (Debug Settings `agent.inspector`, session-info/SessionInfo.tsx).
+  readonly sessionInfo: boolean;
   /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
   /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).
   readonly browserOpensPreview: boolean;
@@ -84,7 +84,7 @@ let current: HeaderState = {
   lit: [],
   floatingChat: false,
   sideSessions: true,
-  inspector: false,
+  sessionInfo: false,
   browserOpensPreview: true,
   moves: [],
   moveTargets: [],
@@ -115,7 +115,8 @@ export function setHeaderState(value: unknown): void {
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     sideSessions: typeof raw.sideSessions === "boolean" ? raw.sideSessions : current.sideSessions,
-    inspector: typeof raw.inspector === "boolean" ? raw.inspector : current.inspector,
+    // `inspector` is the wire name the App sends (AgentPaneHeaderState.swift); kept so either side of the rename agrees.
+    sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
     browserOpensPreview:
       typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,

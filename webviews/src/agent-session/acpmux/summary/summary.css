@@ -15,6 +15,9 @@
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
+/* While hidden, the popover blurs nothing under it (ui/glass/seeThroughBlur.ts): no Find bar or
+   transcript stays blurred under an invisible card. Above glass.css's filter rule in specificity. */
+:root[data-cmux-see-through] :is(.acpmux-reviewing,.acpmux-inspecting,.acpmux-stage:has(.acpmux-find))>[data-glass-under=summary]{filter:none}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left}
@@ -75,6 +78,9 @@
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+/* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
+.acpmux-summary-title__button{max-width:100%;text-align:left}
+.acpmux-summary-title__text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
@@ -125,162 +131,14 @@
 .acpmux-chat-gallery-image img{display:block;width:100%;height:100%;object-fit:contain}
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
-.acpmux-pr-fallback{display:flex;min-width:0;padding-inline:var(--cv-inset)}
-/* Links share the message's existing line; the popover is portaled out of transcript flow. */
-.acpmux-pr-dock {
-  position: relative;
-  display: inline-flex;
-  flex: 1 1 220px;
-  min-width: 80px;
-  max-width: 320px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  height: var(--cv-meta-row, 24px);
-  margin-inline-start: auto;
-  font-size: var(--text-detail);
-  line-height: 18px;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-pr-dock__bar {
-  display: inline-flex;
-  flex: 0 1 auto;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  padding: 0 4px;
-  height: 100%;
-  border-radius: 5px;
-  color: var(--agent-muted);
-  text-decoration: none;
-  background: none;
-  white-space: nowrap;
-}
-.acpmux-pr-dock__bar:hover,
-.acpmux-pr-dock__more:hover {
-  color: var(--agent-text);
-  background: none;
-}
-.acpmux-pr-dock__number {
-  flex: none;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.acpmux-pr-dock__repo {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-pr-dock__more {
-  flex: none;
-  border: 0;
-  border-radius: 5px;
-  padding: 0 4px;
-  height: 100%;
-  background: none;
-  color: var(--agent-muted);
-  font: inherit;
-  cursor: pointer;
-}
-.acpmux-pr-dock__bar:focus-visible,
-.acpmux-pr-dock__more:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
-}
-.acpmux-pr-dock__measure {
-  position: absolute;
-  display: flex;
-  gap: 8px;
-  visibility: hidden;
-  pointer-events: none;
-  white-space: nowrap;
-  inset: 0 auto auto 0;
-  width: max-content;
-}
-.acpmux-pr-dock__measure > span {
-  padding-inline: 4px;
-}
-.acpmux-pr-dock__popover {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  max-width: min(320px, calc(100vw - 24px));
-  transition: none;
-  animation: none;
-}
-.acpmux-pr-dock__popover .acpmux-pr-dock__bar {
-  height: 24px;
-  flex: none;
-  font-size: var(--text-detail);
-}
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
 .cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
-.cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
-.cv-codeblock__header:has(.acpmux-pr-dock)>span:not(.cv-codeblock__actions){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
 .cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
 .cv-block-tail>div:first-child{flex:1;min-width:0}
 /* The wrapper keeps a block and its trailing pills on one baseline. Preserve the Markdown
    container's first/last-child margin resets across that extra box. */
 .cv-md>.cv-block-tail:first-child>div:first-child>:first-child{margin-top:0}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
-.cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
-.cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
-/* Keep the links visible while the existing action buttons retain their hover behavior. */
-.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock),
-.cv-reply-actions:has(> .acpmux-pr-dock) {
-  opacity: 1;
-}
-.acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within)
-  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(
-    > .acpmux-pr-dock
-  )
-  > :not(.acpmux-pr-dock),
-.acpmux-assistant:not(:hover):not(:focus-within)
-  .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) {
-  opacity: 0;
-}
-/* Retained gallery comparisons, isolated from the selected inline treatment. */
-.acpmux-pr-comparison{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-quick .acpmux-pr-comparison{padding:6px 8px 0}
-.acpmux-pr-comparison[data-mode="compact"]{padding-bottom:4px}
-.acpmux-pr-comparison__compact{display:flex;align-items:center}
-.acpmux-pr-comparison__list{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
-/* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
-.acpmux-pr-comparison[data-mode="compact"] .acpmux-pr-comparison__list{flex-direction:row;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
-/* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
-html[data-pr-dock-layout="below"] .acpmux-pr-comparison[data-mode="compact"] .acpmux-pr-comparison__list{order:0}
-html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
-html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .acpmux-pr-comparison__list{order:0;flex:1;min-width:0}
-.acpmux-pr-comparison__list[hidden]{display:none}
-.acpmux-pr-comparison__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
-.acpmux-pr-comparison__count>svg{color:var(--agent-muted)}
-.acpmux-pr-comparison__count:hover{color:var(--agent-text);background:var(--acpmux-composer-hover)}
-.acpmux-pr-comparison__count:hover>svg{color:var(--agent-text)}
-.acpmux-pr-comparison__count:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-pr-comparison[data-mode="collapsed"]{flex-direction:row;flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none}
-.acpmux-pr-comparison[data-mode="collapsed"]::-webkit-scrollbar{display:none}
-.acpmux-pr-comparison[data-mode="collapsed"] .acpmux-pr-comparison__list{flex-direction:row;flex-wrap:nowrap;min-width:max-content;max-width:none}
-.acpmux-pr-comparison[data-mode="collapsed"] .acpmux-pr-comparison__chip{flex:0 0 auto}
-.acpmux-pr-comparison__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
-.acpmux-pr-comparison__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none}
-.acpmux-pr-comparison__bar>svg{flex:none;color:var(--agent-muted)}
-.acpmux-pr-comparison__bar:hover{background:var(--acpmux-composer-hover)}
-.acpmux-pr-comparison__bar:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-pr-comparison__number,.acpmux-pr-comparison__repo{flex:none;color:var(--agent-muted)}
-.acpmux-pr-comparison__repo{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-comparison__title{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-comparison__state{flex:none;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-pr-comparison__bar[data-state="open"] .acpmux-pr-comparison__state,.acpmux-pr-comparison__bar[data-state="open"]>svg{color:var(--agent-status-success)}
-.acpmux-pr-comparison__bar[data-state="merged"] .acpmux-pr-comparison__state,.acpmux-pr-comparison__bar[data-state="merged"]>svg{color:var(--agent-status-merged)}
-.acpmux-pr-comparison__bar[data-state="closed"] .acpmux-pr-comparison__state,.acpmux-pr-comparison__bar[data-state="closed"]>svg{color:var(--agent-status-failure)}
-.acpmux-pr-comparison__dismiss{flex:none}
-.acpmux-pr-comparison__more{align-self:flex-start;height:24px;padding:0 8px 0 0;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-pr-comparison__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-pr-comparison__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
 .acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-quick .acpmux-recap{padding:6px 8px 0}
@@ -302,7 +160,10 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
    work behind an aggregate count. */
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:8px}
-.acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
+.acpmux-summary-task>.acpmux-session-info-stop{margin-right:4px}
+/* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
+.acpmux-summary-task>.acpmux-session-info-stop[data-state=idle]{opacity:0}
+.acpmux-summary-task:is(:hover,:focus-within)>.acpmux-session-info-stop{opacity:1}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
@@ -321,7 +182,7 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-workflow__columns{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(0,1.2fr);gap:8px}
 .acpmux-workflow__columns h4{margin:0 0 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__phase,.acpmux-workflow__agent{display:flex;align-items:center;gap:4px;min-width:0;min-height:24px;padding:4px;box-sizing:border-box;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-workflow__phase{width:100%;justify-content:space-between;border:0;border-radius:5px;background:none;text-align:start;cursor:pointer}
+.acpmux-workflow__phase{width:100%;justify-content:space-between;border:0;border-radius:5px;background:none;text-align:start;cursor:default}
 .acpmux-workflow__phase:hover,.acpmux-workflow__phase[aria-pressed=true]{background:var(--acpmux-pill-hover);color:var(--agent-text)}
 .acpmux-workflow__phase>span:first-child,.acpmux-workflow__agent>.acpmux-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-workflow__phase>span:last-child{flex:none;text-transform:capitalize}
@@ -330,11 +191,11 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-workflow__agent[data-selected=true]{border-radius:var(--ui-row-radius);background:var(--acpmux-pill-fill);color:var(--agent-text)}
 .acpmux-workflow__agent>.acpmux-summary-text{display:flex;flex:1;flex-direction:column}
 .acpmux-workflow__doing{overflow:hidden;color:var(--agent-soft);text-overflow:ellipsis;white-space:nowrap}
-.acpmux-workflow__transcript{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:pointer}
+.acpmux-workflow__transcript{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-workflow__transcript:hover{background:var(--acpmux-pill-hover);color:var(--agent-text)}
 .acpmux-workflow__selected{display:block;margin-top:5px;color:var(--agent-soft);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
-.acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-workflow__actions button:hover{background:var(--acpmux-pill-hover)}
 .acpmux-workflow__actions button:focus-visible,.acpmux-workflow__phase:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
@@ -347,3 +208,6 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
 .acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}
+
+/* The toolbar popover starts with Environment, without a title band or divider above it. */
+.acpmux-summary-card[data-placement=popover] .acpmux-summary-card__body{padding-top:4px;border-top:0}

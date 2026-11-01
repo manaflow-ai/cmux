@@ -202,6 +202,8 @@ export type CloudMachine = {
     readonly at: number
   } | null
   readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
+  readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly running_since?: number | null
   readonly revision: Revision
 }
 
@@ -227,7 +229,7 @@ export type CloudPlan = {
   readonly usage: {
     readonly active: number
     readonly saved: number
-    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN"
+    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
 }
@@ -944,6 +946,7 @@ export type ServerNetworkBinding = {
   readonly mesh: NativeMeshId
   readonly device: NativeDeviceId
   readonly confirmed_at: number
+  readonly install_grant?: GrantId
 }
 
 export type ServerNetworkProof = {

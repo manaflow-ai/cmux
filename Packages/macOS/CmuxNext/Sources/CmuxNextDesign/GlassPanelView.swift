@@ -49,16 +49,16 @@ public final class GlassPanelView: NSView {
     public let keepsActiveLook: Bool
 
     /// `liquidGlass` picks the material; it defaults to this Mac's
-    /// (`Glass.isLiquidGlassAvailable`). `keepsActiveLook` keeps the key
-    /// window's glass when the window resigns key, as the fallback's
-    /// `NSVisualEffectView.state = .active` does (the window backdrop).
+    /// (`Glass.isLiquidGlassAvailable`). `activeLook`, the app's one ``ActiveLookScope``, keeps the
+    /// key window's glass when the window resigns key, as the fallback's
+    /// `NSVisualEffectView.state = .active` does (the window backdrop); nil follows the key state.
     public init(style: Glass.Style = .regular, cornerRadius: CGFloat = 0, interactive: Bool = false,
-                liquidGlass: Bool = Glass.isLiquidGlassAvailable, keepsActiveLook: Bool = false) {
+                liquidGlass: Bool = Glass.isLiquidGlassAvailable, activeLook: ActiveLookScope? = nil) {
         self.style = style
         self.cornerRadius = cornerRadius
-        self.keepsActiveLook = keepsActiveLook
+        keepsActiveLook = activeLook != nil
         if #available(macOS 26.0, *), liquidGlass {
-            let glass = keepsActiveLook ? ActiveLookGlassEffectView() : NSGlassEffectView()
+            let glass: NSGlassEffectView = activeLook.map { ActiveLookGlassEffectView(scope: $0) } ?? NSGlassEffectView()
             Self.setInteractive(glass, interactive)
             isLiquidGlass = true
             materialView = glass
@@ -176,7 +176,7 @@ public final class GlassPanelView: NSView {
 ///
 /// `NSGlassEffectView` has no public `state` like `NSVisualEffectView.state = .active`. It draws
 /// from a private SwiftUI graph whose environment it builds from its window, and the inactive grey
-/// frost follows the window's `_hasActiveAppearanceIgnoringKeyFocus` read there. ``ActiveLookScope``
+/// frost follows the window's `_hasActiveAppearanceIgnoringKeyFocus` read there. Its ``ActiveLookScope``
 /// finds that one read while this view updates its own subtree, then answers it true for every
 /// glass graph in a window that holds this view: Liquid Glass draws a window's glass together, and
 /// AppKit re-renders those graphs from many paths (the display cycle, key and appearance changes,
@@ -188,23 +188,27 @@ public final class GlassPanelView: NSView {
 /// there, nothing is forced and the glass follows the key state again.
 @available(macOS 26.0, *)
 final class ActiveLookGlassEffectView: NSGlassEffectView {
-    override init(frame frameRect: NSRect) {
-        ActiveLookScope.install()
-        super.init(frame: frameRect)
+    /// The app's one scope (its composition root makes it), which this view's updates feed.
+    private let scope: ActiveLookScope
+
+    init(scope: ActiveLookScope) {
+        self.scope = scope
+        scope.install()
+        super.init(frame: .zero)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() { ActiveLookScope.during(window) { super.layout() } }
-    override func updateConstraints() { ActiveLookScope.during(window) { super.updateConstraints() } }
-    override func viewWillDraw() { ActiveLookScope.during(window) { super.viewWillDraw() } }
+    override func layout() { scope.during(window) { super.layout() } }
+    override func updateConstraints() { scope.during(window) { super.updateConstraints() } }
+    override func viewWillDraw() { scope.during(window) { super.viewWillDraw() } }
     /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one.
     private weak var countedWindow: NSWindow?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if let countedWindow, countedWindow !== newWindow {
-            ActiveLookScope.detach(from: countedWindow)
+            scope.detach(from: countedWindow)
             self.countedWindow = nil
         }
         super.viewWillMove(toWindow: newWindow)
@@ -212,12 +216,12 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 
     override func viewDidMoveToWindow() {
         if let window, countedWindow !== window {
-            ActiveLookScope.attach(to: window)
+            scope.attach(to: window)
             countedWindow = window
         }
-        ActiveLookScope.during(window) { super.viewDidMoveToWindow() }
+        scope.during(window) { super.viewDidMoveToWindow() }
     }
-    override func viewDidChangeEffectiveAppearance() { ActiveLookScope.during(window) { super.viewDidChangeEffectiveAppearance() } }
+    override func viewDidChangeEffectiveAppearance() { scope.during(window) { super.viewDidChangeEffectiveAppearance() } }
 
     // AppKit lays out and updates constraints for the subtree (the glass's own hosting view, where
     // the read happens) through these, not through the public methods above.
@@ -226,7 +230,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
         let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
+        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
     }
 
     @objc(_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:)
@@ -234,7 +238,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
         let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
+        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
     }
 
     @objc(_windowChangedKeyState)
@@ -242,7 +246,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector) -> Void
         let selector = NSSelectorFromString("_windowChangedKeyState") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        ActiveLookScope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
+        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
     }
 
     /// The glass's own implementation (NSView's when it has none), or nil when AppKit has none.
@@ -271,8 +275,13 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 ///    holds an ``ActiveLookGlassEffectView`` now (``attach(to:)``), wherever the read comes
 ///    from. Every other read, and every read off the main thread, keeps AppKit's answer. Until
 ///    calibration ends the glass follows the key state.
+///
+/// The getter hook is process-wide, so the app has one scope: its composition root (`AppServices`)
+/// makes it and passes it to every window (`NSWindow.install(kind:content:scope:activeLook:)`).
+/// The hook is installed once per process and captures the first scope whose
+/// ``ActiveLookGlassEffectView`` installs it; a later scope (a test's) never stacks a second hook.
 @MainActor
-enum ActiveLookScope {
+public final class ActiveLookScope {
     /// One calibration read: where in AppKit it was, and the return address of its caller.
     struct Read: Hashable {
         let site: UInt
@@ -286,20 +295,22 @@ enum ActiveLookScope {
     static let confirmations = 1
 
     /// The windows of the glass updates under way, innermost last.
-    private static var windows: [ObjectIdentifier] = []
+    private var windows: [ObjectIdentifier] = []
     /// The calibration reads of the outermost update under way.
-    private static var pending: [Read] = []
+    private var pending: [Read] = []
     /// The candidate pair and how many updates in a row agreed on it.
-    private static var candidate: (pair: [UInt], count: Int)?
+    private var candidate: (pair: [UInt], count: Int)?
     /// The material read's site, once calibration ended.
-    private(set) static var materialSite: UInt?
-    private static var installed = false
+    private(set) var materialSite: UInt?
+    private var installed = false
+
+    public init() {}
     /// Frames read per check: the reader, its caller and the SwiftUI frames above them (3 to 6
     /// frames up in the fleet traces).
     private static let depth = 32
 
     /// Runs `body`, a glass update for `window`, with that window's material read forced active.
-    static func during(_ window: NSWindow?, _ body: () -> Void) {
+    func during(_ window: NSWindow?, _ body: () -> Void) {
         guard let window else { return body() }
         windows.append(ObjectIdentifier(window))
         defer {
@@ -310,7 +321,7 @@ enum ActiveLookScope {
     }
 
     /// The window whose glass is updating now (tests read it).
-    static var scopedWindow: ObjectIdentifier? { windows.last }
+    var scopedWindow: ObjectIdentifier? { windows.last }
 
     /// The pair `reads` (one update's calibration reads) show: the two sites of their only caller,
     /// ascending, or nil when they show anything else.
@@ -333,17 +344,23 @@ enum ActiveLookScope {
         return count >= confirmations ? pair.first : nil
     }
 
-    private static func finishCalibration() {
+    private func finishCalibration() {
         defer { pending.removeAll() }
         // An update with no calibration reads (no graph update) says nothing.
         guard !pending.isEmpty else { return }
-        materialSite = confirm(pair(in: pending), candidate: &candidate)
+        materialSite = Self.confirm(Self.pair(in: pending), candidate: &candidate)
     }
 
-    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through the scope, once.
-    static func install() {
+    /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through this scope, once per process;
+    /// the hook captures the scope. The swizzle is process-wide, so its once lives where it does, in
+    /// the runtime: a marker method on NSWindow that only the first install can add. A second hook
+    /// would wrap the first and push the reader past ``forcingDepth``.
+    func install() {
         guard !installed else { return }
         installed = true
+        let marker = NSSelectorFromString("cmux_activeLookScopeInstalled") // crash-allow: our own marker selector, added with class_addMethod and never called
+        let markerBody: @convention(block) (NSWindow) -> Bool = { _ in true }
+        guard class_addMethod(NSWindow.self, marker, imp_implementationWithBlock(markerBody), "B@:") else { return }
         let selector = NSSelectorFromString("_hasActiveAppearanceIgnoringKeyFocus") // crash-allow: AppKit private getter, swizzled only when class_getInstanceMethod finds it
         guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
         let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
@@ -353,24 +370,24 @@ enum ActiveLookScope {
     typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
 
     /// The getter AppKit calls from any thread: off the main thread it touches nothing here.
-    nonisolated private static func replacement(_ original: Getter, _ selector: Selector) -> @convention(block) (NSWindow) -> Bool {
-        { window in
+    nonisolated private func replacement(_ original: Getter, _ selector: Selector) -> @convention(block) (NSWindow) -> Bool {
+        { [self] window in
             let answer = original(window, selector)
             guard pthread_main_np() != 0 else { return answer }
             return MainActor.assumeIsolated { decide(window, answer: answer) } // main-proof: pthread_main_np() checked on the line above
         }
     }
 
-    private static func decide(_ window: NSWindow, answer: Bool) -> Bool {
+    private func decide(_ window: NSWindow, answer: Bool) -> Bool {
         if let materialSite {
             // Calibrated: only an inactive answer in an active-look window can change.
             guard !answer, keepsActiveLook(window) else { return answer }
-            return reader(depth: forcingDepth) == materialSite
+            return reader(depth: Self.forcingDepth) == materialSite
         }
         // Calibrating: only reads inside a glass update for this window count.
         guard windows.last == ObjectIdentifier(window) else { return answer }
-        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
-        let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
+        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: Self.depth)
+        let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(Self.depth)) })
         // The reader: the first AppKit frame (below it only this getter and its Swift thunks).
         guard let reader = (0..<count).first(where: { kind(of: frames[$0]) == .appKit }), reader + 1 < count,
               frames[(reader + 1)..<count].contains(where: { kind(of: $0) == .swiftUI }),
@@ -384,7 +401,7 @@ enum ActiveLookScope {
     private static let forcingDepth = 16
 
     /// The current read's site: the first AppKit frame in the innermost `depth` frames, or nil.
-    private static func reader(depth: Int) -> UInt? {
+    private func reader(depth: Int) -> UInt? {
         var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
         let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
         guard let reader = frames[0..<count].first(where: { kind(of: $0) == .appKit }), let reader else { return nil }
@@ -392,30 +409,30 @@ enum ActiveLookScope {
     }
 
     /// How many ``ActiveLookGlassEffectView``s each window holds; a closed window drops out on its own.
-    private static let counts = NSMapTable<NSWindow, NSNumber>.weakToStrongObjects()
+    private let counts = NSMapTable<NSWindow, NSNumber>.weakToStrongObjects()
 
     /// Counts an ``ActiveLookGlassEffectView`` into `window`: while any is in it, the material read
     /// of every glass graph in it answers active. Liquid Glass renders a window's glass together: a
     /// fleet run that left the window's plain glass (composer, header) to AppKit's answer drew the
     /// frost over the backdrop again in 3 of 4 runs.
-    static func attach(to window: NSWindow) {
+    func attach(to window: NSWindow) {
         setCount(count(window) + 1, window)
     }
 
     /// Counts one out of `window`; at zero its glass follows the key state again (a backdrop that
     /// switched to an opaque or frosted material, or moved to another window).
-    static func detach(from window: NSWindow) {
+    func detach(from window: NSWindow) {
         setCount(max(count(window) - 1, 0), window)
     }
 
     /// Whether an ``ActiveLookGlassEffectView`` is in `window` now.
-    static func keepsActiveLook(_ window: NSWindow) -> Bool { count(window) > 0 }
+    func keepsActiveLook(_ window: NSWindow) -> Bool { count(window) > 0 }
 
-    private static func count(_ window: NSWindow) -> Int {
+    private func count(_ window: NSWindow) -> Int {
         counts.object(forKey: window)?.intValue ?? 0
     }
 
-    private static func setCount(_ count: Int, _ window: NSWindow) {
+    private func setCount(_ count: Int, _ window: NSWindow) {
         if count == 0 { counts.removeObject(forKey: window) } else { counts.setObject(NSNumber(value: count), forKey: window) }
     }
 
@@ -423,14 +440,14 @@ enum ActiveLookScope {
     enum ImageKind { case appKit, swiftUI, other }
 
     /// The kind of each return address seen: code never moves while its image is loaded.
-    private static var kinds: [UnsafeMutableRawPointer: ImageKind] = [:]
+    private var kinds: [UnsafeMutableRawPointer: ImageKind] = [:]
 
-    private static func kind(of frame: UnsafeMutableRawPointer?) -> ImageKind {
+    private func kind(of frame: UnsafeMutableRawPointer?) -> ImageKind {
         guard let frame else { return .other }
         if let known = kinds[frame] { return known }
         var info = Dl_info()
         let path = dladdr(frame, &info) != 0 ? info.dli_fname.map { String(cString: $0) } ?? "" : ""
-        let kind = imageKind(path: path)
+        let kind = Self.imageKind(path: path)
         kinds[frame] = kind
         return kind
     }

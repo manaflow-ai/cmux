@@ -18,10 +18,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
+    private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
-    /// Last rendered title column sent to disclosed child rows.
-    var lastTabAnchorTitleX: CGFloat?
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -34,8 +34,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
-    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
-    /// color, small, before the title; hidden while the sidebar lists one machine.
+    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in one neutral
+    /// colour, a status mark's size, in the trailing column; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
     /// The side `machineMark`'s image was drawn at.
@@ -45,17 +45,13 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    let closeButton = SidebarIconButton.rowClose(label: Strings.closeButton) // a listed tab row's too (SidebarRowCloseButton)
+    let closeButton = SidebarIconButton.rowClose(label: Strings.closeButton) // SidebarRowCloseButton
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreButton = OverflowButton(label: Strings.workspaceMenu)
     /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
     let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
-    /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
-    /// while the setting is on (never on hover), so rows never shift.
-    let disclosureButton = SidebarIconButton(icon: .disclosureFolded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
-                                             label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
@@ -70,7 +66,6 @@ final class WorkspaceRowView: SidebarRowView {
     var treeDepth = 0
     var treeFold: SidebarTreeFold?
     var onToggleTree: (() -> Void)?
-    internal(set) var disclosure: SidebarTabDisclosure?
     internal(set) var count: Int?
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
@@ -90,6 +85,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
+    /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
+    var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {
@@ -103,6 +100,12 @@ final class WorkspaceRowView: SidebarRowView {
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+    /// The keyboard focused the group this row stands for (`SidebarRow.standsForGroup`): its header's focus ring.
+    var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsDisplay = true } } }
+    /// The group this row stands for (`SidebarRow.standsForGroup`): its header's VoiceOver state and actions.
+    var standingGroup: StandingGroupAccess? {
+        didSet { setAccessibilityExpanded(standingGroup?.expanded ?? false) } // the header's AXExpanded; a plain row's stays off
+    }
     var onClose: (() -> Void)?
     var onMore: (() -> Void)?
     /// The menu the more button opened is open (`SidebarRowMenu`): the hover controls stay shown and the more
@@ -121,7 +124,6 @@ final class WorkspaceRowView: SidebarRowView {
     var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
-    var onToggleTabs: (() -> Void)?
     var onToggleAudio: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     internal(set) var isShowingPlaceholder = false
@@ -160,10 +162,9 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
-        disclosureButton.isHidden = true
         tabCount.isHidden = true
         prBadge.isHidden = true
         prBadge.lineBreakMode = .byTruncatingTail
@@ -181,11 +182,10 @@ final class WorkspaceRowView: SidebarRowView {
         closeButton.onPress = { [weak self] in self?.onClose?() }
         moreButton.onPress = { [weak self] in self?.onMore?() }
         pinButton.onPress = { [weak self] in self?.onPin?() }
-        disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, treeFoldButton, audioButton] }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
         switch iconKind {
@@ -195,9 +195,6 @@ final class WorkspaceRowView: SidebarRowView {
         case .emoji?: "emoji"
         case .favicon?: "favicon"
         }
-    }
-    override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
-        disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }
 
     /// Draws the last configuration again (a sidebar tunable changed).
@@ -214,16 +211,16 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
+        isKeyboardFocused = false
+        standingGroup = nil
         onClose = nil
         onMore = nil
         showsMenu = false
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
-        onToggleTabs = nil
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
-        lastTabAnchorTitleX = nil
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -242,7 +239,6 @@ final class WorkspaceRowView: SidebarRowView {
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
-        var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
 
@@ -251,10 +247,10 @@ final class WorkspaceRowView: SidebarRowView {
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
-            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
+            fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
-            disclosure: row.tabDisclosure, row: row.content
+            row: row.content
         )
         guard needsConfigure(content) else { return }
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
@@ -274,6 +270,7 @@ final class WorkspaceRowView: SidebarRowView {
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
+        configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
             titleArrivalGeneration &+= 1
@@ -314,6 +311,7 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
+        agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -332,7 +330,7 @@ final class WorkspaceRowView: SidebarRowView {
         let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
         // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
-        let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
+        let machineSize = SidebarStyle.statusGlyphSize // drawn at its box's size, as the status marks beside it
         if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
             machineMarkSize = machineSize
             machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
@@ -342,11 +340,7 @@ final class WorkspaceRowView: SidebarRowView {
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
         audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
-        disclosure = row.tabDisclosure
         count = row.tabCount
-        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureFolded // up, as Chrome's
-        disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
-        disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.setString(row.tabCount.map(String.init) ?? "")
         badgeText = shown.badge
         prBadge.setString(shown.badge ?? "")
@@ -362,7 +356,7 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
-        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown,
