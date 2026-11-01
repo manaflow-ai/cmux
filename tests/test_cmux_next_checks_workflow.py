@@ -816,7 +816,15 @@ class PathRoutingStructure(unittest.TestCase):
                     # GUI/session routes need a fresh reading on human reruns too. Discover the role
                     # consumer from the expression, so this also covers a newly added job.
                     routed_role = "needs.macos-placement.outputs.gui_runner" in expression
-                    allocated_side = "outputs.owned_jobs" in expression
+                    # A complete PR cascade can precede the unchanged push/display route.
+                    # Count owned allocation only in alternatives active for this event.
+                    from test_ci_runs_on_fallback import EXPRESSION, flat_alternatives, conjuncts
+                    alternatives = flat_alternatives(EXPRESSION.findall(expression)[0])
+                    allocated_side = any(
+                        "outputs.owned_jobs" in part
+                        and (event == "pull_request" or "github.event_name == 'pull_request'" not in conjuncts(part))
+                        for part in alternatives
+                    )
                     wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
                         self.assertEqual(evaluate(expression, context), wanted)
