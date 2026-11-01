@@ -170,7 +170,7 @@ class NightlyTrustedRouting(unittest.TestCase):
 
     def test_decide_uses_only_read_permissions_for_metadata_and_placement(self):
         job = DOC['jobs']['decide']
-        self.assertEqual(job['permissions'], {'actions': 'read', 'contents': 'read'})
+        self.assertEqual(job['permissions'], {'actions': 'read', 'checks': 'read', 'contents': 'read'})
         script = next(step['with']['script'] for step in job['steps'] if step.get('id') == 'decide')
         self.assertNotRegex(script, r"github\.rest\.[A-Za-z]+\.(?:create|update|delete|upload)")
         self.assertNotIn('core.exportVariable', script)
