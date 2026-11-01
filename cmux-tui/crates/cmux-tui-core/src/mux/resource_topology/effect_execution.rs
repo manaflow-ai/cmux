@@ -960,11 +960,7 @@ impl Mux {
             intent,
             target,
             &workspace_key,
-            argv,
-            cwd,
-            size,
-            name,
-            on_exit,
+            PaneTerminalSpawn { argv, cwd, size, name, on_exit },
         )?;
         let surface = spawned.surface().clone();
         #[cfg(test)]
