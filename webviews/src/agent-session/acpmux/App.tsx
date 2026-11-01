@@ -514,6 +514,7 @@ import {
   oneCloudStart,
   type CloudStart,
 } from "./cloudRun";
+import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
@@ -12834,6 +12835,11 @@ function AcpmuxPane() {
             onComputer={(computer) =>
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
             }
+            // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it
+            // there and sends its first prompt again (cloudRepick.ts), instead of a new empty chat.
+            {...(snapshot.summary?.hostKind === "cloud" && !quick
+              ? { onRepick: (machine: RepickMachine) => repickCloudChat(callNative, machine) }
+              : {})}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.

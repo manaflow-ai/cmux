@@ -1169,6 +1169,49 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
 }
 
+/// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+/// sr2-tunnel-probe". Another machine picked for a send whose first try did not run there re-pins
+/// the send (`pin`): its retry plans the picked machine, copies afresh there, and the workspace takes
+/// the picked machine too.
+#[test]
+fn a_repick_moves_a_sends_retry_to_the_picked_machine() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send_key = key();
+    let machines = json!([
+        {"id": "vm-sr2", "title": "sr2-tunnel-probe", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+        {"id": "vm-zesty", "title": "zesty-indigo-lemur", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    ]);
+    let request = json!({"key": send_key, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": true, "machines": machines})
+        .to_string();
+    // A workspace's first send makes a machine of its own (pick.rs), which the App pins.
+    assert_eq!(plan(&path, &request)["machine"], Value::Null);
+    let (from, to) = ("vm-sr2", "vm-zesty");
+    assert_eq!(pin(&path, &send_key, ACCOUNT, from, Some("ws-a"))["ok"], json!(true));
+    // The first try's copy finished there.
+    let copy = StartCopy {
+        key: send_key.clone(),
+        machine: from.into(),
+        ..copy_of("/Users/me/src/paint", "")
+    };
+    let pushes = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *pushes.borrow_mut() += 1;
+        Ok(json!({}))
+    };
+    assert_eq!(copy.run(&path, &push)["copied"], json!(true));
+    // Without the repick, the retry stays where it was.
+    assert_eq!(plan(&path, &request)["machine"], json!(from));
+    // The person picks the other machine.
+    assert_eq!(pin(&path, &send_key, ACCOUNT, to, Some("ws-a"))["ok"], json!(true));
+    assert_eq!(plan(&path, &request)["machine"], json!(to));
+    let moved = StartCopy { machine: to.into(), ..copy }.run(&path, &push);
+    assert_eq!(moved["copied"], json!(true), "{moved}");
+    assert_eq!(*pushes.borrow(), 2);
+    let pins = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(pins.workspace_machine("ws-a", ACCOUNT).as_deref(), Some(to));
+}
+
 const ENV: &str = "env_0123456789abcdef01234567";
 
 #[test]
