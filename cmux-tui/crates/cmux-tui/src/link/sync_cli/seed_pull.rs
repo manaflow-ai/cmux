@@ -1,10 +1,11 @@
-//! `cmux link seed pull --socket PATH LOCAL REMOTE --base-head SHA
-//! --base-index SHA --base-work SHA`: brings a seeded Cloud folder's changes
-//! back to this Mac as a diff, never a folder copy (leo-workspace
-//! `design/cloud.md`, "Getting the project onto the machine", rule 6).
+//! The engine of `cmux link seed pull` ([`super::super::seed_cli`], which
+//! parses it and keeps the base in its record): brings a seeded Cloud
+//! folder's changes back to this Mac as a diff, never a folder copy
+//! (leo-workspace `design/cloud.md`, "Getting the project onto the machine",
+//! rule 6).
 //!
 //! The base is the seed this Mac last sent or pulled (its HEAD, INDEX and
-//! WORK commits; `cmux link seed push` keeps them). The machine answers
+//! WORK commits; `cmux link seed push` and every pull keep them). The machine answers
 //! `git.seed.export` with one bundle of what changed since (`git-seed-export-v1`),
 //! read here through `fs-v1` and streamed to disk. It is fetched into a
 //! quarantine repository whose object store borrows this one's, every object
@@ -30,8 +31,7 @@
 //! secrets and nested repositories never come back: the export leaves them
 //! out of its WORK.
 //!
-//! On any conflict nothing here changes: `{"ok":false,"error_code":
-//! "sync_conflict","conflicts":[paths]}`. Otherwise files move into place
+//! On any conflict nothing here changes ([`SeedPulled::Conflict`]). Otherwise files move into place
 //! through [`super::place::Transaction`], then the branch moves by
 //! compare-and-swap and the index follows; any failure puts back what
 //! changed. The answer's `base` (the machine's HEAD, INDEX and WORK) is the
@@ -55,8 +55,6 @@ use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::Remote;
 use super::{names, pull};
 
-const USAGE: &str = "usage: cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
---base-head SHA --base-index SHA --base-work SHA";
 /// Most bytes of the machine's bundle (big untracked files travel in it).
 const MAX_BUNDLE_BYTES: u64 = 64 << 30;
 /// How long the export may run.
@@ -65,14 +63,14 @@ const EXPORT_POLL: Duration = Duration::from_millis(200);
 
 /// The seed a pull merges against: its HEAD, INDEX and WORK commits.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct SeedBase {
-    pub head: String,
-    pub index: String,
-    pub work: String,
+pub(crate) struct SeedBase {
+    pub(crate) head: String,
+    pub(crate) index: String,
+    pub(crate) work: String,
 }
 
 /// What a pull did, or the paths that stopped it.
-pub(super) enum SeedPulled {
+pub(crate) enum SeedPulled {
     Done(Value),
     /// The conflicting paths, and why for each one that has a reason.
     Conflict(Vec<String>, Vec<String>),
@@ -80,7 +78,7 @@ pub(super) enum SeedPulled {
 
 /// The machine refused or failed the export: its code and message.
 #[derive(Debug)]
-pub(super) struct ExportFailed {
+pub(crate) struct ExportFailed {
     pub code: String,
     pub message: String,
 }
@@ -95,7 +93,7 @@ impl std::error::Error for ExportFailed {}
 
 /// The base's commits are not in this repository.
 #[derive(Debug)]
-pub(super) struct NoSeedBase;
+pub(crate) struct NoSeedBase;
 
 impl std::fmt::Display for NoSeedBase {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -128,45 +126,8 @@ enum Step {
     Delete { relative: String, expected: Expected },
 }
 
-pub(super) fn run(args: &[String]) -> i32 {
-    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
-        println!("{USAGE}");
-        return 0;
-    }
-    let Some((socket, local, remote, base)) = parse(args) else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    let needed =
-        [cmux_tui_core::fs_ops::FS_CAPABILITY, cmux_tui_core::git_seed::GIT_SEED_EXPORT_CAPABILITY];
-    if let Some(outdated) = super::super::machine_gate::outdated(&socket, &needed) {
-        println!("{}", outdated.line());
-        return 1;
-    }
-    let line = match seed_pull(&socket, &local, &remote, &base) {
-        Ok(SeedPulled::Done(summary)) => {
-            println!("{summary}");
-            return 0;
-        }
-        Ok(SeedPulled::Conflict(conflicts, reasons)) => {
-            let mut error = format!(
-                "{} changed both here and on the machine; nothing was brought back",
-                conflicts.join(", ")
-            );
-            if !reasons.is_empty() {
-                error = format!("{error} ({})", reasons.join("; "));
-            }
-            json!({ "ok": false, "error": error, "error_code": "sync_conflict",
-                    "conflicts": conflicts })
-        }
-        Err(error) => json!({ "ok": false, "error": format!("{error:#}"),
-                              "error_code": failure_code(&error) }),
-    };
-    println!("{line}");
-    1
-}
-
-fn failure_code(error: &anyhow::Error) -> String {
+/// The error code of a failed [`seed_pull`].
+pub(crate) fn failure_code(error: &anyhow::Error) -> String {
     if let Some(failed) = error.downcast_ref::<ExportFailed>() {
         return failed.code.clone();
     }
@@ -176,43 +137,9 @@ fn failure_code(error: &anyhow::Error) -> String {
     pull::failure_code(error)
 }
 
-fn parse(args: &[String]) -> Option<(PathBuf, PathBuf, String, SeedBase)> {
-    let [action, rest @ ..] = args else { return None };
-    if action != "pull" {
-        return None;
-    }
-    let (mut socket, mut head, mut index, mut work) = (None, None, None, None);
-    let mut positional = Vec::new();
-    let mut rest = rest.iter();
-    while let Some(arg) = rest.next() {
-        match arg.as_str() {
-            "--socket" => socket = Some(PathBuf::from(rest.next()?)),
-            "--base-head" => head = Some(rest.next()?.clone()),
-            "--base-index" => index = Some(rest.next()?.clone()),
-            "--base-work" => work = Some(rest.next()?.clone()),
-            flag if flag.starts_with('-') => return None,
-            value => positional.push(value),
-        }
-    }
-    let [local, remote] = positional.as_slice() else { return None };
-    if !remote.starts_with('/') {
-        return None;
-    }
-    let base = SeedBase { head: head?, index: index?, work: work? };
-    if ![&base.head, &base.index, &base.work].iter().all(|sha| is_sha(sha)) {
-        return None;
-    }
-    Some((socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string(), base))
-}
-
-fn is_sha(text: &str) -> bool {
-    matches!(text.len(), 40 | 64)
-        && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 /// Pulls the machine's changes to the seeded folder `remote_root` since
 /// `base` into the working copy at `local`.
-pub(super) fn seed_pull(
+pub(crate) fn seed_pull(
     socket: &Path,
     local_folder: &Path,
     remote_root: &str,
@@ -758,71 +685,5 @@ impl Drop for Staging {
             return;
         }
         let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|arg| (*arg).to_string()).collect()
-    }
-
-    #[test]
-    fn parses_the_pull_and_its_base() {
-        let sha = "a".repeat(40);
-        let (socket, local, remote, base) = parse(&args(&[
-            "pull",
-            "--socket",
-            "/s",
-            "/l",
-            "/r/",
-            "--base-head",
-            &sha,
-            "--base-index",
-            &sha,
-            "--base-work",
-            &sha,
-        ]))
-        .unwrap();
-        assert_eq!(
-            (socket.to_str(), local.to_str(), remote.as_str()),
-            (Some("/s"), Some("/l"), "/r")
-        );
-        assert_eq!(base.work, sha);
-        assert!(parse(&args(&["pull", "--socket", "/s", "/l", "/r"])).is_none(), "no base");
-        assert!(
-            parse(&args(&[
-                "pull",
-                "--socket",
-                "/s",
-                "/l",
-                "r",
-                "--base-head",
-                &sha,
-                "--base-index",
-                &sha,
-                "--base-work",
-                &sha,
-            ]))
-            .is_none()
-        );
-        assert!(
-            parse(&args(&[
-                "pull",
-                "--socket",
-                "/s",
-                "/l",
-                "/r",
-                "--base-head",
-                "HEAD",
-                "--base-index",
-                &sha,
-                "--base-work",
-                &sha,
-            ]))
-            .is_none()
-        );
     }
 }

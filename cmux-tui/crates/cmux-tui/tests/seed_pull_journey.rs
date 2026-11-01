@@ -1,9 +1,10 @@
 //! Seed pull, end to end on one Linux box with real processes: a project
 //! seeded to a daemon shaped like a personal Cloud VM (`git-seed-v1`, its
 //! GitHub remote a `file://` bare repository through the debug-only
-//! `CMUX_TEST_GIT_SEED_REMOTES` seam) changes there, and `cmux link seed
+//! `CMUX_TEST_GIT_SEED_GITHUB` seam) changes there, and `cmux link seed
 //! pull` brings the changes back as a diff (`git-seed-export-v1` and
-//! `fs-v1`), never a folder copy.
+//! `fs-v1`), never a folder copy, merged against this Mac's seed record or
+//! the `--base-*` flags.
 //!
 //! Linux only: a Cloud host is a Linux machine (`cloud_fs::is_cloud_host`).
 #![cfg(target_os = "linux")]
@@ -52,7 +53,7 @@ impl World {
                 ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
                 ("CMUX_VM_ID", format!("vm-seed-pull-{label}")),
                 ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
-                ("CMUX_TEST_GIT_SEED_REMOTES", root.join("remotes").to_string_lossy().into_owned()),
+                ("CMUX_TEST_GIT_SEED_GITHUB", root.join("remotes").to_string_lossy().into_owned()),
             ],
         );
         Self { root, mac, vm, _cleanup: cleanup }
@@ -133,16 +134,28 @@ impl World {
         Base { head: sha("head"), index: sha("index"), work: sha("work") }
     }
 
-    fn pull(&self, repo: &Path, name: &str, base: &Base) -> (bool, Value) {
-        run_json(
-            Command::new(bin())
-                .args(["link", "seed", "pull", "--socket"])
-                .arg(&self.vm.socket)
-                .arg(repo)
-                .arg(self.folder(name))
-                .args(["--base-head", &base.head, "--base-index", &base.index])
-                .args(["--base-work", &base.work]),
-        )
+    /// `cmux link seed pull` on the Mac, against `base` or (None) the
+    /// Mac's record.
+    fn pull(&self, repo: &Path, name: &str, base: Option<&Base>) -> (bool, Value) {
+        let mut command = self.mac.command();
+        command.args(["link", "seed", "pull", "--socket"]);
+        command.arg(&self.vm.socket).arg(repo).arg(self.folder(name));
+        if let Some(base) = base {
+            command.args(["--base-head", &base.head, "--base-index", &base.index]);
+            command.args(["--base-work", &base.work]);
+        }
+        run_json(&mut command)
+    }
+
+    /// `cmux link seed push` on the Mac (it keeps the record).
+    fn push(&self, repo: &Path, name: &str, since_last: bool) -> (bool, Value) {
+        let mut command = self.mac.command();
+        command.args(["link", "seed", "push", "--socket"]);
+        command.arg(&self.vm.socket).arg(repo).arg(self.folder(name));
+        if since_last {
+            command.arg("--since-last");
+        }
+        run_json(&mut command)
     }
 
     /// Bundles the export left on the VM.
@@ -203,10 +216,15 @@ fn conflicted(answer: &Value) -> Vec<&str> {
 fn a_pull_brings_back_commits_edits_adds_deletes_and_staged_changes_not_ignored_files() {
     let world = World::new("all");
     let repo = world.project("app");
-    let base = world.seed(&repo, "app");
+    // No seed yet: no record to merge against.
+    let (ok, none) = world.pull(&repo, "app", None);
+    assert!(!ok && none["error_code"] == "seed.no_previous", "{none}");
+    // `cmux link seed push` seeds it and keeps the record each pull reads.
+    let (ok, pushed) = world.push(&repo, "app", false);
+    assert!(ok && pushed["mode"] == "seed", "{pushed}");
     let vm = world.folder("app");
     // Nothing changed yet: nothing is downloaded.
-    let (ok, same) = world.pull(&repo, "app", &base);
+    let (ok, same) = world.pull(&repo, "app", None);
     assert!(ok && same["unchanged"] == json!(true), "{same}");
     assert_eq!(same["bundle_bytes"], 0);
     assert!(world.leftover_bundles().is_empty(), "{:?}", world.leftover_bundles());
@@ -221,7 +239,7 @@ fn a_pull_brings_back_commits_edits_adds_deletes_and_staged_changes_not_ignored_
     write(&vm.join("node_modules/dep/index.js"), "ignored\n");
     write(&vm.join(".env"), "SECRET=1\n");
 
-    let (ok, pulled) = world.pull(&repo, "app", &base);
+    let (ok, pulled) = world.pull(&repo, "app", None);
     assert!(ok, "seed pull: {pulled}");
     assert_eq!(pulled["fast_forwarded"], true, "{pulled}");
     assert_eq!(pulled["staged"], true, "{pulled}");
@@ -244,14 +262,17 @@ fn a_pull_brings_back_commits_edits_adds_deletes_and_staged_changes_not_ignored_
     assert_eq!(status(&repo), status(&vm), "git status differs from the VM's");
     assert!(world.leftover_bundles().is_empty(), "{:?}", world.leftover_bundles());
 
-    // The new base composes: a second pull finds nothing new.
-    let next = Base {
-        head: pulled["base"]["head"].as_str().unwrap().to_owned(),
-        index: pulled["base"]["index"].as_str().unwrap().to_owned(),
-        work: pulled["base"]["work"].as_str().unwrap().to_owned(),
-    };
-    let (ok, again) = world.pull(&repo, "app", &next);
+    // The record moved to the pull's base: a second pull finds nothing new,
+    let (ok, again) = world.pull(&repo, "app", None);
     assert!(ok && again["unchanged"] == json!(true), "{again}");
+    assert_eq!(again["base"], pulled["base"], "{again}");
+    // and the next delta push builds on it.
+    write(&repo.join("a"), "a\nedited on the vm\nthen on the mac\n");
+    let (ok, delta) = world.push(&repo, "app", true);
+    assert!(ok && delta["mode"] == "delta", "{delta}");
+    assert_eq!(read(&vm.join("a")), "a\nedited on the vm\nthen on the mac\n");
+    let (ok, after) = world.pull(&repo, "app", None);
+    assert!(ok && after["unchanged"] == json!(true), "{after}");
 }
 
 #[test]
@@ -264,7 +285,7 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     // Different files: both kept.
     write(&repo.join("a"), "a\nedited on the mac\n");
     write(&vm.join("b"), "b\nedited on the vm\n");
-    let (ok, pulled) = world.pull(&repo, "app", &base);
+    let (ok, pulled) = world.pull(&repo, "app", Some(&base));
     assert!(ok, "{pulled}");
     assert_eq!(read(&repo.join("a")), "a\nedited on the mac\n");
     assert_eq!(read(&repo.join("b")), "b\nedited on the vm\n");
@@ -279,7 +300,7 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     write(&vm.join("notes"), "notes\nfrom the vm\n");
     write(&vm.join("other"), "would come back\n");
     let before = everything(&repo);
-    let (ok, refused) = world.pull(&repo, "app", &base);
+    let (ok, refused) = world.pull(&repo, "app", Some(&base));
     assert!(!ok, "{refused}");
     assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
     assert_eq!(conflicted(&refused), vec!["notes"], "{refused}");
@@ -290,7 +311,7 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     write(&repo.join("notes"), "notes\nfrom the vm\n");
     git(&vm, &["commit", "-q", "--amend", "-am", "rewritten on the vm"]);
     let before = everything(&repo);
-    let (ok, refused) = world.pull(&repo, "app", &base);
+    let (ok, refused) = world.pull(&repo, "app", Some(&base));
     assert!(!ok, "{refused}");
     assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
     assert!(conflicted(&refused).contains(&".git/HEAD"), "{refused}");
@@ -314,7 +335,7 @@ fn a_pull_never_brings_back_hooks_or_repositories() {
     git(&inner, &["add", "-A"]);
     git(&inner, &["commit", "-q", "-m", "inner"]);
     write(&vm.join("a"), "a\nfrom the vm\n");
-    let (ok, pulled) = world.pull(&repo, "app", &base);
+    let (ok, pulled) = world.pull(&repo, "app", Some(&base));
     assert!(ok, "{pulled}");
     assert_eq!(read(&repo.join("a")), "a\nfrom the vm\n");
     assert!(!repo.join("vendor").exists(), "a nested repository came back");
@@ -331,7 +352,7 @@ fn a_pull_never_brings_back_hooks_or_repositories() {
     // A file in this Mac's hooks folder (`core.hooksPath`): refused.
     write(&vm.join(".githooks/pre-commit"), "#!/bin/sh\ntouch /tmp/pwned\n");
     let before = everything(&repo);
-    let (ok, refused) = world.pull(&repo, "app", &base);
+    let (ok, refused) = world.pull(&repo, "app", Some(&base));
     assert!(!ok, "{refused}");
     assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
     assert_eq!(conflicted(&refused), vec![".githooks/pre-commit"], "{refused}");

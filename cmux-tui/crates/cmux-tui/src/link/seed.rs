@@ -1,6 +1,3 @@
-//! `cmux link seed pull ...` brings a seeded folder's changes back
-//! (`sync_cli::seed_pull`).
-//!
 //! `cmux link seed plan --local FOLDER --bundle OUT [--base SHA]`: plans a
 //! `git-seed-v1` seed of a git working copy with a GitHub remote and
 //! writes its bundle ([`plan`]). Not wired into `start-chat` yet.
@@ -28,10 +25,6 @@ pub(super) fn run(args: &[String]) -> i32 {
     if matches!(args.first().map(String::as_str), None | Some("-h" | "--help" | "help")) {
         println!("{USAGE}");
         return if args.is_empty() { 64 } else { 0 };
-    }
-    // `seed pull` brings a seeded folder's changes back (sync_cli::seed_pull).
-    if args.first().map(String::as_str) == Some("pull") {
-        return super::sync_cli::seed_pull_cli(args);
     }
     let Some((local, bundle, base)) = parse(args) else {
         eprintln!("{USAGE}");

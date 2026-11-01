@@ -28,6 +28,10 @@
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
 //!
+//! `cmux link seed pull --socket PATH LOCAL REMOTE` brings the seeded
+//! folder's changes back as a diff, merged against the [`record`]
+//! ([`pull`]).
+//!
 //! Output: progress on stderr as JSON lines, `{"progress":{"phase":"upload",
 //! "bytes_done","bytes_total"}}` while the bundle goes, then
 //! `{"progress":{"phase":clone|fetch|bundle|checkout|submodules|lfs,
@@ -43,6 +47,7 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
+mod pull;
 mod record;
 
 use std::path::{Path, PathBuf};
@@ -53,11 +58,14 @@ use serde_json::{Value, json};
 
 use super::seed::plan::{self, Fallback, FallbackCode, Planned, PreviousSeed};
 use super::{machine_gate, sync_cli};
+use sync_cli::SeedBase;
 use record::{Kept, Record};
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--since-last]
-       cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER";
+       cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
+       cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
+[--base-head SHA --base-index SHA --base-work SHA]";
 
 /// Time between two `git.seed.status` requests.
 const STATUS_EVERY: Duration = Duration::from_millis(500);
@@ -172,16 +180,17 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 64;
     };
     let answer = match command {
+        Command::Pull { socket, local, remote, base } => pull::pull(&socket, &local, &remote, base),
         Command::Push { socket, local, remote, since_last } => {
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
             } else {
                 push(&socket, &local, &remote)
             };
-            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error))
+            pushed.map(|pushed| pushed.json()).map_err(|error| SeedError::of(&error).line())
         }
         Command::Clone { socket, repo, git_ref, remote } => {
-            clone(&socket, &repo, git_ref.as_deref(), &remote)
+            clone(&socket, &repo, git_ref.as_deref(), &remote).map_err(|error| error.line())
         }
     };
     match answer {
@@ -189,14 +198,15 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             0
         }
-        Err(error) => {
-            println!("{}", error.line());
+        Err(line) => {
+            println!("{line}");
             1
         }
     }
 }
 
 enum Command {
+    Pull { socket: PathBuf, local: PathBuf, remote: String, base: Option<SeedBase> },
     Push { socket: PathBuf, local: PathBuf, remote: String, since_last: bool },
     Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
 }
@@ -204,6 +214,7 @@ enum Command {
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
+    let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
@@ -212,6 +223,9 @@ fn parse(args: &[String]) -> Option<Command> {
             "--repo" => repo = Some(rest.next()?.clone()),
             "--ref" => git_ref = Some(rest.next()?.clone()),
             "--since-last" => since_last = true,
+            "--base-head" => head = Some(rest.next()?.clone()),
+            "--base-index" => index = Some(rest.next()?.clone()),
+            "--base-work" => work = Some(rest.next()?.clone()),
             flag if flag.starts_with('-') => return None,
             value => positional.push(value),
         }
@@ -220,8 +234,25 @@ fn parse(args: &[String]) -> Option<Command> {
         (remote.starts_with('/') && remote.len() > 1)
             .then(|| remote.trim_end_matches('/').to_string())
     };
+    let base = match (head, index, work) {
+        (None, None, None) => None,
+        (Some(head), Some(index), Some(work))
+            if [&head, &index, &work].iter().all(|sha| is_sha(sha)) =>
+        {
+            Some(SeedBase { head, index, work })
+        }
+        _ => return None,
+    };
+    let plain = repo.is_none() && git_ref.is_none();
     match (action.as_str(), positional.as_slice()) {
-        ("push", [local, remote]) if repo.is_none() && git_ref.is_none() => Some(Command::Push {
+        ("pull", [local, remote]) if plain && !since_last => Some(Command::Pull {
+            socket: socket?,
+            local: PathBuf::from(local),
+            remote: absolute(remote)?,
+            base,
+        }),
+        _ if base.is_some() => None,
+        ("push", [local, remote]) if plain => Some(Command::Push {
             socket: socket?,
             local: PathBuf::from(local),
             remote: absolute(remote)?,
@@ -233,6 +264,11 @@ fn parse(args: &[String]) -> Option<Command> {
         }
         _ => None,
     }
+}
+
+fn is_sha(text: &str) -> bool {
+    matches!(text.len(), 40 | 64)
+        && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The machine as `identify` describes it.
@@ -644,6 +680,26 @@ mod tests {
         list.iter().map(|arg| (*arg).to_string()).collect()
     }
 
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn parses_pull_with_its_base_from_the_record_or_all_three_flags() {
+        let Some(Command::Pull { local, remote, base, .. }) =
+            parse(&args(&["pull", "--socket", "/s", "/a", "/home/w/a/"]))
+        else {
+            panic!("pull");
+        };
+        assert_eq!((local.to_str(), remote.as_str()), (Some("/a"), "/home/w/a"));
+        assert!(base.is_none(), "the record's");
+        let Some(Command::Pull { base: Some(base), .. }) = parse(&args(&[
+            "pull", "--socket", "/s", "/a", "/b", "--base-head", SHA, "--base-index", SHA,
+            "--base-work", SHA,
+        ])) else {
+            panic!("pull with a base");
+        };
+        assert_eq!(base.work, SHA);
+    }
+
     #[test]
     fn parses_push_and_clone() {
         let Some(Command::Push { local, remote, since_last, .. }) =
@@ -674,6 +730,15 @@ mod tests {
             &["clone", "--socket", "/s", "/b"],
             &["plan", "--socket", "/s", "/a", "/b"],
             &["push", "--socket", "/s", "/a", "/b", "--x"],
+            &["push", "--socket", "/s", "/a", "/b", "--base-head", SHA, "--base-index", SHA,
+              "--base-work", SHA],
+            &["pull", "--socket", "/s", "/a"],
+            &["pull", "/a", "/b"],
+            &["pull", "--socket", "/s", "/a", "b"],
+            &["pull", "--socket", "/s", "/a", "/b", "--since-last"],
+            &["pull", "--socket", "/s", "/a", "/b", "--base-head", SHA],
+            &["pull", "--socket", "/s", "/a", "/b", "--base-head", "HEAD", "--base-index", SHA,
+              "--base-work", SHA],
         ] {
             assert!(parse(&args(bad)).is_none(), "{bad:?}");
         }
