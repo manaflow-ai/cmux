@@ -9,8 +9,8 @@
 //
 // The gap is REST_GAP (model.ts, 56px) in every state the reader sees the chat's end in: at rest, while a
 // reply streams, after the composer grows two lines, with the running tray shown, and on every
-// painted frame of a chat's load. Before: 20px (the last row's turn gap alone), and a load painted
-// frames with another gap before it settled.
+// painted frame of a chat's load. Before: 16px (the last row's turn gap alone), and a streamed line
+// was drawn up to 34px under the composer's top before it rose.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -210,7 +210,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
 
   /// Installed before the page's own scripts. `__restGap()` reads the gap as laid out now: the stack's
   /// top (its first drawn part: the tray, a queue, or the composer card) less the bottom of the newest
-  /// row's content (its last line or action row; not the turn gap the row keeps under it). `__frames` holds it
+  /// row's line (its action row or live line; not the turn gap the row keeps). `__frames` holds it
   /// for every painted frame from the first that draws both: read in a ResizeObserver made after the
   /// pane's own observers (which place the rows and the room under them before paint), on a probe
   /// resized in each frame's callbacks, so each read is of the layout that frame paints.
@@ -219,13 +219,11 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       __restGap: () => number | undefined;
       __frames: { t: number; gap: number }[];
     };
-    /// The bottom of the newest row's drawn content: its box, less the turn gap it keeps under itself
-    /// (`.acpmux-row__gap`). For a turn's footer that is its 24px action row; for the live line, its
-    /// 24px line; for a reply, its last line box.
-    const contentBottom = (row: Element) => {
-      const spacer = [...row.children].findLast((child) => child.classList.contains("acpmux-row__gap"));
-      return spacer ? spacer.getBoundingClientRect().top : row.getBoundingClientRect().bottom;
-    };
+    /// Where the newest row's line ends: its box less the turn gap every last row keeps (16px,
+    /// `--cv-turn-gap`). A turn's footer keeps that gap under its 24px action row; the running turn's
+    /// live line keeps it over its line, so the two swap at a turn's end without moving anything.
+    const TURN_GAP = 16;
+    const contentBottom = (row: Element) => row.getBoundingClientRect().bottom - TURN_GAP;
     /// The top of the bottom stack's first drawn part: the tray, a question, the queue or the card.
     const stackTop = (dock: Element) => {
       const parts = [...dock.children].flatMap((part) =>
@@ -318,9 +316,15 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       w.__frames = [];
       return taken;
     });
-  /// The frames whose gap is not `want` (within half a pixel, for the fractional line heights).
+  /// The frames whose gap is not `want`, within a pixel: a composer line is fractional (22.75px), and
+  /// the rows' lift by its growth is whole pixels.
   const off = (taken: { t: number; gap: number }[], want: number) =>
-    taken.filter((frame) => Math.abs(frame.gap - want) > 0.5).map((frame) => `${frame.t}ms: ${frame.gap}px`);
+    taken.filter((frame) => Math.abs(frame.gap - want) > 1).map((frame) => `${frame.t}ms: ${frame.gap}px`);
+  /// The frames of a streaming reply whose gap leaves (0, want]: a new line drawn under the stack's top,
+  /// or the rows dropping below where they rest. A line that wraps rises into the gap's room over a
+  /// few frames (followGlide.ts), so a frame may sit inside the gap but never past either edge.
+  const outside = (taken: { t: number; gap: number }[], want: number) =>
+    taken.filter((frame) => frame.gap <= 0 || frame.gap > want + 1).map((frame) => `${frame.t}ms: ${frame.gap}px`);
 
   test.each(engines.map(([name]) => name))("%s: a chat loads with the rest gap on every painted frame", async (name) => {
     const page = await open(name);
@@ -329,7 +333,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
     const shifted = off(taken, settled!);
     console.log(`${name} load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
     expect(taken.length).toBeGreaterThan(0);
-    expect(settled).toBeCloseTo(REST_GAP, 0);
+    expect(Math.abs(settled! - REST_GAP)).toBeLessThanOrEqual(1);
     expect(shifted).toEqual([]);
     await page.close();
   });
@@ -345,7 +349,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const shifted = off(taken, settled!);
       console.log(`${name} busy load: settled ${settled}px over ${taken.length} frames; ${shifted.length} shift frames: ${shifted.slice(0, 8).join(", ")}`);
       expect(taken.length).toBeGreaterThan(0);
-      expect(settled).toBeCloseTo(REST_GAP, 0);
+      expect(Math.abs(settled! - REST_GAP)).toBeLessThanOrEqual(1);
       expect(shifted).toEqual([]);
       await page.close();
     },
@@ -380,24 +384,7 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       const streamed = await frames(page);
       console.log(`${name} streaming: ${streamed.length} frames, gaps ${[...new Set(streamed.map((f) => f.gap))].join(", ")}`);
       seen.streaming = await gap(page);
-      console.log(
-        `${name} streaming rows: ` +
-          (await page.evaluate(() => {
-            const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")]
-              .sort((a, b) => Number(a.getAttribute("aria-posinset")) - Number(b.getAttribute("aria-posinset")))
-              .slice(-2);
-            const dock = document.querySelector(".acpmux-dock")!.getBoundingClientRect();
-            const after = document.querySelector(".acpmux-transcript-after-latest");
-            const box = (node: Element) => `${node.getBoundingClientRect().top.toFixed(1)}-${node.getBoundingClientRect().bottom.toFixed(1)}`;
-            const describe = (node: Element, depth: number): string =>
-              depth > 2
-                ? ""
-                : `${"  ".repeat(depth)}${node.localName}.${[...node.classList].join(".")} ${box(node)}\n` +
-                  [...node.children].map((child) => describe(child, depth + 1)).join("");
-            return `dock ${dock.top.toFixed(1)} after-latest ${after ? box(after) : "none"}\n${rows.map((row) => describe(row, 0)).join("")}`;
-          })),
-      );
-      shifts.streaming = off(streamed, REST_GAP);
+      shifts.streaming = outside(streamed, REST_GAP);
 
       // (d) The running tray comes into the stack over the composer: the rows keep the gap above it.
       emit(
@@ -438,7 +425,8 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       await page.close();
       console.log(`${name} states: ${JSON.stringify(seen)} shifts: ${JSON.stringify(shifts)}`);
       // (a) at rest, (b) streaming, (d) with the tray, (c) after the composer grew two lines.
-      for (const state of ["rest", "streaming", "tray", "grown"]) expect([state, Math.round(seen[state] ?? NaN)]).toEqual([state, REST_GAP]);
+      for (const state of ["rest", "streaming", "tray", "grown"])
+        expect([state, Math.abs((seen[state] ?? NaN) - REST_GAP) <= 1]).toEqual([state, true]);
       for (const state of ["streaming", "tray", "grown"]) expect([state, shifts[state]]).toEqual([state, []]);
     },
   );

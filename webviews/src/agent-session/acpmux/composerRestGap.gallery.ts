@@ -22,7 +22,8 @@ const rows = Array.from({ length: 10 }, (_, index) => {
   ];
 }).flat();
 
-/// The newest row's drawn bottom sits `want` px over the bottom stack's drawn top.
+/// The newest row's line (its box less the 16px turn gap it keeps) sits `want` px over the bottom
+/// stack's top.
 const gapIs =
   (want: number): Play =>
   async (ctx: PlayContext) => {
@@ -33,14 +34,13 @@ const gapIs =
     const last = drawn.reduce((a, b) =>
       Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
     );
-    const drawnRects = (node: Node) => {
-      const range = ctx.document.createRange();
-      range.selectNodeContents(node);
-      return [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
-    };
-    const bottom = Math.max(...drawnRects(last).map((rect) => rect.bottom));
-    const top = Math.min(...drawnRects(dock).map((rect) => rect.top));
-    const gap = top - bottom;
+    const parts = [...dock.children].flatMap((part) =>
+      part.classList.contains("acpmux-composer") ? [...part.children] : [part],
+    );
+    const top = Math.min(
+      ...parts.map((part) => part.getBoundingClientRect()).filter((rect) => rect.height > 0).map((rect) => rect.top),
+    );
+    const gap = top - (last.getBoundingClientRect().bottom - 16);
     if (Math.abs(gap - want) > 1) throw new Error(`The rest gap is ${gap.toFixed(1)}px, not ${want}px`);
   };
 
