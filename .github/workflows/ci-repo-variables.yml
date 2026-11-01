@@ -55,6 +55,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check out reviewed runner-pool tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            scripts/ci/runner_pool_reconcile.py
+            tests/test_ci_runner_pool_reconcile.py
+            .github/workflows/ci.yml
+            .github/workflows/cmux-next-ios-kit.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Check main policy with the reviewed tooling
+        env:
+          RUNNER_POOL_POLICY_ROOT: ${{ github.workspace }}
+        run: bash scripts/ci/python-with-yaml.sh .runner-pool-tooling/tests/test_ci_runner_pool_reconcile.py
+
       # Signing jobs on feat-cmux-next read runner variables too (scripts/ci/signing_runner_variables.py).
       # Without this checkout the check fails closed: every runner variable must be ephemeral.
       - name: Check out feat-cmux-next's workflows
@@ -115,9 +133,10 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          CI_CLOUD_LABEL_HEALTH: ${{ vars.CI_CLOUD_LABEL_HEALTH }}
           LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
-        run: python3 scripts/ci/runner_pools.py --check
+        run: python3 .runner-pool-tooling/scripts/ci/runner_pool_reconcile.py --source-root "$GITHUB_WORKSPACE" --check
 
       # No runs-on waits on one machine through a variable's value
       # (scripts/ci/runs_on_values.py). The workflow text passes

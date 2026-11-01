@@ -13,7 +13,6 @@
     "manual flake hunt, non-urgent background work) is cost policy and is not",
     "expressed here."
   ],
-
   "capabilities": {
     "linux": "x86_64 Linux; the default for every non-macOS job",
     "linux_arm64": "aarch64 Linux; native ARM64 package entrypoint verification",
@@ -24,7 +23,6 @@
     "macos_26_ios": "macOS 26 with installed iOS runtimes and a working simctl",
     "macos_26_large": "macOS 26 on the large SKU: 12 vCPU, 48 GB RAM, 250 GB disk"
   },
-
   "fleets": {
     "blacksmith": {
       "linux": "blacksmith-4vcpu-ubuntu-2404",
@@ -47,13 +45,10 @@
       "macos_26_large": "macos-26"
     }
   },
-
   "owners": {
     "manaflow-ai": "blacksmith"
   },
-
   "default_fleet": "hosted",
-
   "pools": {
     "$comment": [
       "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",
@@ -61,14 +56,16 @@
       "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
       "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
       "when the queue janitor or the overflow probe sees the current one start nothing.",
-      "Members are ephemeral only: owned Macs come first through a picker's output, never a pool.",
+      "Only the audited linux pool admits the secretless GCP JIT fleet; legacy mirrors use linux_ephemeral.",
       "Only a pool marked hosted may name a GitHub-hosted label, and it says why."
     ],
     "linux": {
-      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\"), smallest first. Blacksmith now caps us on vCPUs at once, so a 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 the live member was 32 vCPU: 106,443 jobs and 193,021 billed minutes (about $12.4k of $19.3k) ran there, most of them checks under a minute (pr-perf-section-check 2,940 runs at 0.1 min). A stalled 4 vCPU moves the pool to 16 vCPU; 8 vCPU is not a member because the bounded selectors (vars.LINUX_RUNNER in 4/16/32, else 4) would send its readers back to 4 (Leo, 2026-11-01: \"we clearly are not able to use them. so we should have resized a long-ass time ago.\"). A job that needs more cores names its size, not this pool",
+      "why": "Audited secretless Linux pool: request the owned GCP JIT fleet first. Paid overflow follows only an actual probe with three minutes of no fleet start. Fork and secret-bearing readers keep their explicit ephemeral route.",
       "members": [
-        "blacksmith-4vcpu-ubuntu-2404",
-        "blacksmith-16vcpu-ubuntu-2404"
+        "cmux-fleet-linux-x64",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
       ]
     },
     "linux_arm64": {
@@ -118,6 +115,15 @@
       "members": [
         "macos-15-intel"
       ]
+    },
+    "linux_ephemeral": {
+      "why": "Legacy LINUX_RUNNER readers include secret-bearing jobs and retain their existing ephemeral trust boundary. Measured 8-vCPU overflow first; probes exclude labels that have not started work.",
+      "members": [
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ],
+      "unavailable": "null means every measured ephemeral label is stalled; no workflow may use this key directly as runs-on, and the writer leaves legacy variables unchanged while reporting unavailable capacity"
     }
   }
 }
