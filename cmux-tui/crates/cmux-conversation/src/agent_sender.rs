@@ -39,11 +39,7 @@ fn keep(c: char) -> bool {
 }
 
 fn clean(text: &str, max: usize) -> String {
-    text.trim()
-        .chars()
-        .map(|c| if keep(c) { c } else { '-' })
-        .take(max)
-        .collect()
+    text.trim().chars().map(|c| if keep(c) { c } else { '-' }).take(max).collect()
 }
 
 impl AgentSender {
@@ -54,14 +50,10 @@ impl AgentSender {
         if name.trim_matches('-').is_empty() {
             return None;
         }
-        let class = class
-            .map(str::trim)
-            .filter(|c| CLASSES.contains(c))
-            .unwrap_or("result")
-            .to_owned();
-        let thread = thread
-            .map(|t| clean(t, MAX_THREAD))
-            .filter(|t| !t.trim_matches('-').is_empty());
+        let class =
+            class.map(str::trim).filter(|c| CLASSES.contains(c)).unwrap_or("result").to_owned();
+        let thread =
+            thread.map(|t| clean(t, MAX_THREAD)).filter(|t| !t.trim_matches('-').is_empty());
         Some(AgentSender { name, class, thread })
     }
 
@@ -106,7 +98,8 @@ mod tests {
 
     #[test]
     fn a_marked_id_names_its_sender_class_and_thread() {
-        let sender = AgentSender::new("claude-sr2-coord", Some("question"), Some("pr:123")).unwrap();
+        let sender =
+            AgentSender::new("claude-sr2-coord", Some("question"), Some("pr:123")).unwrap();
         let id = sender.client_msg_id("0123456789abcdef0123");
         assert_eq!(id, "agent~claude-sr2-coord~question~pr:123~0123456789abcdef");
         assert!(crate::valid_token(&id));
@@ -123,7 +116,8 @@ mod tests {
     #[test]
     fn names_and_threads_are_cleaned_and_the_class_defaults_to_result() {
         let long = "x".repeat(200);
-        let sender = AgentSender::new(&format!(" lane a~{long}"), Some("urgent"), Some("t 1")).unwrap();
+        let sender =
+            AgentSender::new(&format!(" lane a~{long}"), Some("urgent"), Some("t 1")).unwrap();
         assert_eq!(sender.name.len(), MAX_NAME);
         assert!(sender.name.starts_with("lane-a-"));
         assert_eq!(sender.class, "result");

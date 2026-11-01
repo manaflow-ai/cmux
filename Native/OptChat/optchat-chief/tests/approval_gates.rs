@@ -890,8 +890,9 @@ fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
 /// or `cmux chief acp` (`cmux_conversation::agent_sender`): posted as
 /// `user_local`, its `client_msg_id` names the acpmux session that wrote it.
 fn deliver_from_agent(h: &mut Harness, sender: &str, text: &str) {
-    let agent = cmux_conversation::agent_sender::AgentSender::new(sender, Some("question"), Some("t1"))
-        .unwrap();
+    let agent =
+        cmux_conversation::agent_sender::AgentSender::new(sender, Some("question"), Some("t1"))
+            .unwrap();
     let m: Message = {
         let mut owner = h.owner.lock().unwrap();
         let seq = owner.messages.len() as u64 + 1;
@@ -919,19 +920,35 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     assert_eq!(policy(&h, 0), "ask");
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
     let prompt = format!("{:?}", h.agents.inner.lock().unwrap().prompts[0]);
-    assert!(prompt.contains("[from lane-a] clean the build directory"), "{prompt}");
+    assert!(
+        prompt.contains("[from lane-a] clean the build directory"),
+        "{prompt}"
+    );
     assert!(prompt.contains("acpmux session lane-a"), "{prompt}");
     assert!(prompt.contains("not the user's word"), "{prompt}");
-    h.brain.step(permission("q1", "Bash", json!({"command": "rm -rf target"})));
+    h.brain.step(permission(
+        "q1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
     assert_eq!(answered(&h, "q1"), Some(Some("reject".into())));
     assert_eq!(questions(&h), 0, "no approval card");
     // Gap 2: the ask turn may answer the session it carries, and list
     // sessions, but not start a talk with another session.
     let tell = |id: &str| json!({"id": id, "message": "done"});
-    assert_eq!(h.brain.turn_gate("mcp__optchat__tell", &tell("session:lane-a")), Ok(()));
-    assert!(h.brain.turn_gate("mcp__optchat__tell", &tell("session:lane-b")).is_err());
     assert_eq!(
-        h.brain.turn_gate("mcp__optchat__control", &json!({"action": "sessions"})),
+        h.brain
+            .turn_gate("mcp__optchat__tell", &tell("session:lane-a")),
+        Ok(())
+    );
+    assert!(
+        h.brain
+            .turn_gate("mcp__optchat__tell", &tell("session:lane-b"))
+            .is_err()
+    );
+    assert_eq!(
+        h.brain
+            .turn_gate("mcp__optchat__control", &json!({"action": "sessions"})),
         Ok(())
     );
     finish(&mut h);
@@ -942,10 +959,22 @@ fn a_tell_to_a_session_acpmux_does_not_know_says_so() {
     let mut h = harness(None, false, default_script());
     let spawner = owner_spawner(&h);
     let answer = run_with(&mut h, move || {
-        optchat_chief::tools::Orchestrator::tell_with(&*spawner, "session:nobody", "hi", None, false)
+        optchat_chief::tools::Orchestrator::tell_with(
+            &*spawner,
+            "session:nobody",
+            "hi",
+            None,
+            false,
+        )
     });
     let error = answer.unwrap_err();
     assert!(error.contains("no acpmux session nobody"), "{error}");
-    assert!(h.agents.inner.lock().unwrap().finds.contains(&"nobody".to_owned()));
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .finds
+            .contains(&"nobody".to_owned())
+    );
 }
-

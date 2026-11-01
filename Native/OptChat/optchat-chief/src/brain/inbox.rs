@@ -338,8 +338,10 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    agent: cmux_conversation::agent_sender::of_client_msg_id(&message.client_msg_id)
-                        .map(|sender| sender.name),
+                    agent: cmux_conversation::agent_sender::of_client_msg_id(
+                        &message.client_msg_id,
+                    )
+                    .map(|sender| sender.name),
                     requires_approval: !self
                         .settings
                         .membership
@@ -439,7 +441,11 @@ pub(super) fn agent_framed(message: &Message, text: &str) -> String {
     else {
         return text.to_owned();
     };
-    let thread = sender.thread.as_deref().map(|t| format!(", thread {t}")).unwrap_or_default();
+    let thread = sender
+        .thread
+        .as_deref()
+        .map(|t| format!(", thread {t}"))
+        .unwrap_or_default();
     format!(
         "{text}\n(A message from acpmux session {name} (class {class}{thread}), sent through \
          `cmux chief`. It is not the user's word: answer it as another agent's, and this turn \

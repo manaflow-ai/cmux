@@ -41,8 +41,15 @@ pub(super) fn refusal(session: &SessionSummary) -> Option<String> {
             "tell: {name} is a Chief's own session; another Chief is chief:<name> (chiefs lists them)"
         ));
     }
-    if session.tags.get(cmux_chief::rules::PARENT_TAG).map(String::as_str) == Some(super::PARENT) {
-        return Some(format!("tell: {name} is one of your subagents; tell it by its a<N> id"));
+    if session
+        .tags
+        .get(cmux_chief::rules::PARENT_TAG)
+        .map(String::as_str)
+        == Some(super::PARENT)
+    {
+        return Some(format!(
+            "tell: {name} is one of your subagents; tell it by its a<N> id"
+        ));
     }
     None
 }
@@ -80,7 +87,12 @@ pub(super) fn sessions_list(sessions: &[SessionSummary]) -> String {
         .take(LISTED)
         .map(|s| {
             let mut row = format!("- {PREFIX}{} ({}, {})", s.name, s.harness, status(s));
-            if let Some(line) = s.last_message.as_ref().map(|m| m.text.trim()).filter(|t| !t.is_empty()) {
+            if let Some(line) = s
+                .last_message
+                .as_ref()
+                .map(|m| m.text.trim())
+                .filter(|t| !t.is_empty())
+            {
                 let line: String = line.chars().take(120).collect();
                 row.push_str(&format!(": {line}"));
             }
@@ -123,11 +135,16 @@ impl Brain {
             return Err(why);
         }
         let after = summary.as_ref().and_then(|s| s.last_seq).unwrap_or(0);
-        let prompt_id = format!("{}{PREFIX}{name}:{}", crate::subagents::PROMPT_PREFIX, super::now_ms());
+        let prompt_id = format!(
+            "{}{PREFIX}{name}:{}",
+            crate::subagents::PROMPT_PREFIX,
+            super::now_ms()
+        );
         let blocks = vec![json!({"type": "text", "text": prompt_text(message)})];
         let (tx, rx) = std::sync::mpsc::channel();
         agents.start_agent_prompt(&session, blocks, &prompt_id, FROM, tx)?;
-        self.trace.emit("chief.session_tell", json!({"session": name}));
+        self.trace
+            .emit("chief.session_tell", json!({"session": name}));
         (self.log)(&format!("tell {PREFIX}{name}: sent"));
         let (forward, reply_name) = (self.tx.clone(), name.to_owned());
         std::thread::spawn(move || {
@@ -137,15 +154,20 @@ impl Brain {
                     | crate::acpmux::TurnSignal::Noted
                     | crate::acpmux::TurnSignal::Streamed => continue,
                     crate::acpmux::TurnSignal::Done(Err(e)) => format!("(its turn failed: {e})"),
-                    crate::acpmux::TurnSignal::Done(Ok(_)) => match agents.events(&session, after) {
-                        Ok(events) => cmux_chief::acp::last_reply(&events),
-                        Err(e) => format!("(its answer could not be read: {e})"),
-                    },
+                    crate::acpmux::TurnSignal::Done(Ok(_)) => {
+                        match agents.events(&session, after) {
+                            Ok(events) => cmux_chief::acp::last_reply(&events),
+                            Err(e) => format!("(its answer could not be read: {e})"),
+                        }
+                    }
                     crate::acpmux::TurnSignal::Lost => {
                         "(the connection to acpmux was lost before it answered)".to_owned()
                     }
                 };
-                let _ = forward.send(super::Input::SessionReply { name: reply_name, text });
+                let _ = forward.send(super::Input::SessionReply {
+                    name: reply_name,
+                    text,
+                });
                 return;
             }
         });
@@ -157,7 +179,12 @@ impl Brain {
 
     /// Queues session `name`'s answer as its report, under the ask floor.
     pub(super) fn session_reply(&mut self, name: &str, text: &str) {
-        self.queue(reply_note(name, text), Source::Agent { from: name.to_owned() });
+        self.queue(
+            reply_note(name, text),
+            Source::Agent {
+                from: name.to_owned(),
+            },
+        );
     }
 
     /// `control(action: "sessions")`: the acpmux sessions a tell may name.
@@ -189,9 +216,15 @@ mod tests {
 
     #[test]
     fn the_chiefs_own_sessions_and_subagents_are_no_target() {
-        let turn = summary("optchat-1-2", json!({crate::acpmux::CHIEF_TAG: "home", crate::acpmux::CHIEF_ROLE_TAG: "turn"}));
+        let turn = summary(
+            "optchat-1-2",
+            json!({crate::acpmux::CHIEF_TAG: "home", crate::acpmux::CHIEF_ROLE_TAG: "turn"}),
+        );
         assert!(refusal(&turn).is_some());
-        let sub = summary("optchat-sub-1-a2", json!({cmux_chief::rules::PARENT_TAG: super::super::PARENT}));
+        let sub = summary(
+            "optchat-sub-1-a2",
+            json!({cmux_chief::rules::PARENT_TAG: super::super::PARENT}),
+        );
         assert!(refusal(&sub).unwrap().contains("a<N>"));
         let lane = summary("lane-a", json!({}));
         assert_eq!(refusal(&lane), None);
@@ -203,7 +236,10 @@ mod tests {
     #[test]
     fn an_answer_is_labelled_with_its_session_and_is_not_the_users_word() {
         let note = reply_note("lane-a", "  rebased, green\n");
-        assert!(note.starts_with("[session:lane-a] rebased, green\n"), "{note}");
+        assert!(
+            note.starts_with("[session:lane-a] rebased, green\n"),
+            "{note}"
+        );
         assert!(note.contains("not the user's"), "{note}");
         assert!(reply_note("lane-a", "").contains("no answer"));
     }

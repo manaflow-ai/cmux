@@ -6,10 +6,14 @@
 
 use serde_json::{Map, Value, json};
 
-/// [`add_sender`] for a steer's `opts`.
-pub(super) fn add_steer_sender(params: &mut Value, sender: Option<&str>, opts: &super::PromptOptions) {
-    let class = opts.class.map(crate::prompt_class::PromptClass::as_str);
-    add_sender(params, sender, class, opts.provenance.as_ref());
+/// [`add_sender`] for a steer's class and provenance.
+pub(super) fn add_steer_sender(
+    params: &mut Value,
+    sender: Option<&str>,
+    class: Option<crate::prompt_class::PromptClass>,
+    provenance: Option<&Value>,
+) {
+    add_sender(params, sender, class.map(crate::prompt_class::PromptClass::as_str), provenance);
 }
 
 /// [`prompt_params`] for queued prompt `run`.
@@ -75,7 +79,10 @@ mod tests {
     fn a_steer_keeps_its_own_meta_and_names_its_sender() {
         let mut params = json!({"sessionId": "s", "prompt": [], "_meta": {"steer": true}});
         add_sender(&mut params, Some("lane-a"), None, None);
-        assert_eq!(params["_meta"], json!({"steer": true, "acpmux": {"sender": {"name": "lane-a"}}}));
+        assert_eq!(
+            params["_meta"],
+            json!({"steer": true, "acpmux": {"sender": {"name": "lane-a"}}})
+        );
     }
 
     #[test]
