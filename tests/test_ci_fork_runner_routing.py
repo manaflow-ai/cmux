@@ -56,7 +56,8 @@ BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
     "(runner.environment != 'github-hosted'"
     " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-')"
-    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')"
+    " && !startsWith(runner.name, 'blacksmith-8vcpu-ubuntu-2404-'))"
     " || contains(runner.name, 'glaeda')"
 )
 FORK_BRANCHES = (
@@ -108,7 +109,7 @@ HOSTED_LITERAL_RUNNER = re.compile(
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
@@ -137,8 +138,8 @@ APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MUL
 # when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
-BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
-                        "blacksmith-32vcpu-ubuntu-2404")
+BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
@@ -1584,13 +1585,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d"): False,
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
             ("github-hosted", "GitHub Actions 12"): False,
             # Owned glaeda hosts, even under a Blacksmith-looking name.
             ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-glaeda"): True,
             ("github-hosted", "x-glaeda-1"): True,
             # Labels outside the runs-on allowlist, and the bare label.
-            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc"): True,
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404"): True,
         }
