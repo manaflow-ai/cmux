@@ -7,6 +7,7 @@ const NOW = new Date("2026-10-07T02:00:00.000Z");
 const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
 
 function replayer(input: {
+  readonly clock?: () => Date;
   readonly applySubscriptionUpdate: () => Promise<unknown>;
   readonly retrieveEvent?: (id: string) => Promise<unknown>;
 }) {
@@ -32,7 +33,7 @@ function replayer(input: {
         },
       }) as never,
     inbox: store.inbox,
-    now: () => NOW,
+    now: input.clock ?? (() => NOW),
     recordCheckoutCompletion: (async () => {
       throw new Error("unexpected checkout");
     }) as never,
@@ -120,6 +121,43 @@ describe("Stripe webhook inbox drain", () => {
     expect(await store.inbox.complete(stale, null)).toBe(false);
     expect(await store.inbox.fail(stale, "late", later)).toBe(false);
     expect(await store.inbox.complete(current, null)).toBe(true);
+  });
+
+  test("a row stored before the inbox gains its object key and waits for a running sibling", async () => {
+    const { replay, store } = replayer({
+      applySubscriptionUpdate: async () => ({ scope: "user", stackUserId: "user_1", isActive: true }),
+    });
+    await store.inbox.record({ id: "evt_legacy", type: "customer.subscription.created", payloadHash: "h", objectKey: null, createdAt: null });
+    Object.assign(store.rows.get("evt_legacy")!, { storedAt: minutesAgo(30), nextAttemptAt: minutesAgo(20) });
+    await store.inbox.record({ id: "evt_running", type: "invoice.paid", payloadHash: "h", objectKey: "sub_1", createdAt: null });
+    await store.inbox.claim("evt_running", NOW, new Date(NOW.getTime() + 60_000));
+
+    expect(await replay(NOW)).toEqual({ attempted: 0, succeeded: 0, failed: 0 });
+    expect(store.rows.get("evt_legacy")).toMatchObject({ objectKey: "sub_1", processedAt: null, attempts: 0 });
+  });
+
+  test("leases each drained event from the time it is claimed", async () => {
+    let clock = NOW;
+    const { replay, store, enqueue } = replayer({
+      clock: () => clock,
+      applySubscriptionUpdate: async () => {
+        // The first event takes ten minutes.
+        clock = new Date(clock.getTime() + 10 * 60_000);
+        return { skipped: true };
+      },
+    });
+    await enqueue("evt_a", 20, "sub_a");
+    await enqueue("evt_b", 10, "sub_b");
+    const leases: number[] = [];
+    const claim = store.inbox.claim;
+    store.inbox.claim = async (id, now, leaseUntil) => {
+      leases.push(leaseUntil.getTime() - NOW.getTime());
+      return claim(id, now, leaseUntil);
+    };
+
+    await replay(NOW);
+
+    expect(leases).toEqual([15 * 60_000, 25 * 60_000]);
   });
 
   test("records an event Stripe no longer serves as a failure for the alert", async () => {

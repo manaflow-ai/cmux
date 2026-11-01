@@ -30,7 +30,10 @@ import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
 import { databaseTeamSeatQueue } from "./teamSeatQueue";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
-import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
+import {
+  STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS,
+  STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX,
+} from "./stripeWebhookErrors";
 import {
   createDrizzleStripeWebhookInbox,
   type StripeWebhookClaim,
@@ -164,8 +167,13 @@ type RecordedStripeEventOutcome =
   | { readonly ok: true; readonly result: Omit<StripeEventOutcome, "analytics"> }
   | { readonly ok: false; readonly retryable: boolean };
 
-/** How long one attempt holds an event, and its object, before another worker may take it over. */
-const STRIPE_WEBHOOK_LEASE_MS = 5 * 60 * 1_000;
+/**
+ * How long one attempt holds an event, and its object, before another worker
+ * may take it over. It outlives the longest a Vercel function can run (800 s),
+ * so a worker is always gone before its lease lapses and can never apply a
+ * stale subscription read after a newer event of the object has applied.
+ */
+const STRIPE_WEBHOOK_LEASE_MS = 15 * 60 * 1_000;
 /** Wait before the next attempt after the Nth failure; the last step repeats. */
 const STRIPE_WEBHOOK_RETRY_DELAYS_MS = [1, 5, 15, 60, 180].map((minutes) => minutes * 60 * 1_000);
 
@@ -174,14 +182,48 @@ async function claimAndProcessStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
 ): Promise<RecordedStripeEventOutcome | null> {
-  const now = currentTime(dependencies);
-  const claim = await dependencies.inbox.claim(
-    event.id,
-    now,
-    new Date(now.getTime() + STRIPE_WEBHOOK_LEASE_MS),
-  );
+  // The handler stored every other event's key; a refund's needs a Stripe read.
+  if (event.type === "charge.refunded") await recordObjectKey(event, dependencies);
+  const claim = await claimStripeEvent(event.id, dependencies);
   if (!claim) return null;
   return processClaimedStripeEvent(event, claim, dependencies);
+}
+
+function claimStripeEvent(
+  id: string,
+  dependencies: StripeWebhookDependencies,
+): Promise<StripeWebhookClaim | null> {
+  const now = currentTime(dependencies);
+  return dependencies.inbox.claim(id, now, new Date(now.getTime() + STRIPE_WEBHOOK_LEASE_MS));
+}
+
+/**
+ * Every claim is serialized on the event's object, so its key must be stored
+ * before the claim: a refund's subscription is only known from its invoice,
+ * and a row stored before the inbox existed has no key at all.
+ */
+async function recordObjectKey(
+  event: Stripe.Event,
+  dependencies: StripeWebhookDependencies,
+): Promise<void> {
+  const entry = inboxEntry(event, "");
+  if (event.type === "charge.refunded") {
+    const objectKey = await refundObjectKey(event.data.object, dependencies);
+    if (!objectKey) return;
+    await dependencies.inbox.record({ ...entry, objectKey });
+    return;
+  }
+  if (entry.objectKey) await dependencies.inbox.record(entry);
+}
+
+async function refundObjectKey(
+  charge: Stripe.Charge & { invoice?: string | Stripe.Invoice | null },
+  dependencies: StripeWebhookDependencies,
+): Promise<string | null> {
+  const invoiceId = stringId(charge.invoice);
+  if (!invoiceId) return null;
+  const invoice = await dependencies.stripe().invoices.retrieve(invoiceId);
+  return invoiceSubscriptionId(invoice) ?? invoice.id;
 }
 
 async function processClaimedStripeEvent(
@@ -246,8 +288,6 @@ export type StripeWebhookReplaySummary = {
   readonly failed: number;
 };
 
-/** Stripe only serves events through the API for 30 days; stop well before. */
-const STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
 /** Events per cron run; the webhook's own `after()` processes nearly all of them first. */
 const STRIPE_WEBHOOK_REPLAY_BATCH = 10;
 
@@ -274,19 +314,24 @@ export function makeStripeWebhookReplayer(
     let succeeded = 0;
     let failed = 0;
     for (const id of ids) {
-      const claim = await dependencies.inbox.claim(id, now, new Date(now.getTime() + STRIPE_WEBHOOK_LEASE_MS));
-      if (!claim) continue;
-      attempted += 1;
       let event: Stripe.Event;
       try {
         event = await dependencies.stripe().events.retrieve(id);
+        await recordObjectKey(event, dependencies);
       } catch (error) {
+        // Nothing was applied; count the attempt and back off.
+        const claim = await claimStripeEvent(id, dependencies);
+        if (!claim) continue;
+        attempted += 1;
         failed += 1;
         captureBillingError(error, { operation: "stripe_webhook_replay", eventId: id });
         const message = error instanceof Error ? error.message : String(error);
-        await dependencies.inbox.fail(claim, message, nextAttemptAt(claim.attempts, now));
+        await dependencies.inbox.fail(claim, message, nextAttemptAt(claim.attempts, currentTime(dependencies)));
         continue;
       }
+      const claim = await claimStripeEvent(id, dependencies);
+      if (!claim) continue;
+      attempted += 1;
       const outcome = await processClaimedStripeEvent(event, claim, dependencies);
       if (outcome.ok) succeeded += 1;
       else failed += 1;

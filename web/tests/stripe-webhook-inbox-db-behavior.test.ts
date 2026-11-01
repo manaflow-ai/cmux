@@ -8,6 +8,7 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import { createDrizzleStripeWebhookInbox } from "../services/billing/stripeWebhookInbox";
+import { runBillingAlertChecks } from "../services/observability/billingAlerts";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -123,6 +124,52 @@ describe("Stripe webhook inbox store", () => {
     expect(await inbox.supersededBy(old, ["customer.subscription.updated", "invoice.paid"])).toBe("evt_new");
     expect(await inbox.supersededBy(old, ["invoice.paid"])).toBeNull();
     expect(await inbox.supersededBy({ id: "evt_new", objectKey: "sub_1", createdAt: t(20) }, ["customer.subscription.updated"])).toBeNull();
+  });
+
+  dbTest("a later record fills a stored row's missing object key and keeps its schedule", async () => {
+    await sql!`
+      insert into stripe_webhook_events (id, type, payload_hash, next_attempt_at)
+      values ('evt_legacy', 'charge.refunded', 'h', now() - interval '1 minute')
+    `;
+    const created = new Date(Date.UTC(2026, 9, 30));
+    expect(await inbox.record(entry("evt_legacy", "sub_1", "charge.refunded", created))).toEqual({ processed: false });
+    await inbox.record(entry("evt_legacy", "sub_other", "charge.refunded", new Date()));
+    const [row] = await sql!<{ object_key: string; event_created_at: Date; due: boolean }[]>`
+      select object_key, event_created_at, next_attempt_at <= now() as due from stripe_webhook_events where id = 'evt_legacy'
+    `;
+    expect(row).toEqual({ object_key: "sub_1", event_created_at: created, due: true });
+
+    // Now keyed, it waits while a sibling of the subscription holds a lease.
+    await inbox.record(entry("evt_sibling"));
+    const now = new Date();
+    expect(await inbox.claim("evt_sibling", now, new Date(now.getTime() + MINUTE))).not.toBeNull();
+    expect(await inbox.claim("evt_legacy", now, new Date(now.getTime() + MINUTE))).toBeNull();
+  });
+
+  dbTest("billing alerts page on events still unprocessed after the grace, across the retry window", async () => {
+    await sql!`
+      insert into stripe_webhook_events (id, type, payload_hash, error, processed_at, created_at) values
+        ('evt_stuck_2d', 'invoice.paid', 'h', null, null, now() - interval '2 days'),
+        ('evt_failing', 'customer.subscription.updated', 'h', 'Stack down', null, now() - interval '5 minutes'),
+        ('evt_contention', 'invoice.paid', 'h', 'retryable: lease', null, now() - interval '5 minutes'),
+        ('evt_fresh', 'invoice.paid', 'h', null, null, now() - interval '5 minutes'),
+        ('evt_done', 'invoice.paid', 'h', null, now(), now() - interval '2 days'),
+        ('evt_expired', 'invoice.paid', 'h', null, null, now() - interval '4 days')
+    `;
+    const sent: { key: string; body: string }[] = [];
+    const summary = await runBillingAlertChecks({
+      sendAlert: async (input) => {
+        sent.push(input);
+        return { sent: true, configured: true };
+      },
+      countUnsentPurchaseEmails: async () => 0,
+    });
+
+    expect(summary.webhookErrors).toEqual({ triggered: true, count: 2 });
+    expect(sent[0]?.body).toContain("evt_stuck_2d");
+    expect(sent[0]?.body).toContain("evt_failing");
+    expect(sent[0]?.body).not.toContain("evt_contention");
+    expect(sent[0]?.body).not.toContain("evt_fresh");
   });
 
   dbTest("rows stored before the inbox columns existed are drained", async () => {

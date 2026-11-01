@@ -4,7 +4,9 @@ import type {
   StripeWebhookInboxEntry,
 } from "../../services/billing/stripeWebhookInbox";
 
-export type MemoryStripeWebhookRow = StripeWebhookInboxEntry & {
+export type MemoryStripeWebhookRow = Omit<StripeWebhookInboxEntry, "objectKey" | "createdAt"> & {
+  objectKey: string | null;
+  createdAt: Date | null;
   processedAt: Date | null;
   skipReason: string | null;
   error: string | null;
@@ -24,7 +26,11 @@ export function memoryStripeWebhookInbox(clock: () => Date = () => new Date()) {
   const inbox: StripeWebhookInbox = {
     async record(entry) {
       const existing = rows.get(entry.id);
-      if (existing) return { processed: Boolean(existing.processedAt) };
+      if (existing) {
+        existing.objectKey ??= entry.objectKey;
+        existing.createdAt ??= entry.createdAt;
+        return { processed: Boolean(existing.processedAt) };
+      }
       const now = clock();
       rows.set(entry.id, {
         ...entry,

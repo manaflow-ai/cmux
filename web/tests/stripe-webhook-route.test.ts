@@ -1062,6 +1062,18 @@ describe("Stripe billing webhook route", () => {
     expect(inbox.rows.get("evt_waiting")).toMatchObject({ processedAt: null, attempts: 0 });
   });
 
+  test("a refund waits while another event of its invoice's subscription is running", async () => {
+    await inbox.inbox.record({ id: "evt_running", type: "customer.subscription.deleted", payloadHash: "h", objectKey: "sub_1", createdAt: null });
+    await inbox.inbox.claim("evt_running", new Date(), new Date(Date.now() + 60_000));
+    currentEvent = { id: "evt_refund", type: "charge.refunded", data: { object: { id: "ch_1", invoice: "in_1" } } };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(inbox.rows.get("evt_refund")).toMatchObject({ objectKey: "sub_1", processedAt: null, attempts: 0 });
+    expect(applySubscriptionUpdate).not.toHaveBeenCalled();
+  });
+
   test("acts on every event type the endpoint subscribes to", async () => {
     for (const type of STRIPE_WEBHOOK_EVENT_TYPES) {
       currentEvent = {

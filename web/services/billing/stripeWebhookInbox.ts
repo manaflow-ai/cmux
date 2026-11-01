@@ -35,7 +35,10 @@ export type StripeWebhookClaim = {
 };
 
 export type StripeWebhookInbox = {
-  /** Store a verified event once; answers whether a stored copy was already processed. */
+  /**
+   * Store a verified event once, or fill a stored copy's missing object key
+   * and creation time; answers whether the stored copy was already processed.
+   */
   record(entry: StripeWebhookInboxEntry): Promise<{ readonly processed: boolean }>;
   /**
    * Lease an unprocessed event until `leaseUntil`. Null when it is processed,
@@ -68,7 +71,9 @@ export function createDrizzleStripeWebhookInbox(
 ): StripeWebhookInbox {
   return {
     async record(entry) {
-      const [inserted] = await db()
+      // A row stored earlier (a redelivery, or one from before the inbox
+      // columns existed) keeps its schedule and gains a missing object key.
+      const [row] = await db()
         .insert(events)
         .values({
           id: entry.id,
@@ -80,15 +85,15 @@ export function createDrizzleStripeWebhookInbox(
           // the drain picks it up only if that did not finish.
           nextAttemptAt: sql`now() + make_interval(secs => ${FIRST_DRAIN_DELAY_SECONDS})`,
         })
-        .onConflictDoNothing({ target: events.id })
-        .returning({ id: events.id });
-      if (inserted) return { processed: false };
-      const [existing] = await db()
-        .select({ processedAt: events.processedAt })
-        .from(events)
-        .where(eq(events.id, entry.id))
-        .limit(1);
-      return { processed: Boolean(existing?.processedAt) };
+        .onConflictDoUpdate({
+          target: events.id,
+          set: {
+            objectKey: sql`coalesce(${events.objectKey}, excluded.object_key)`,
+            eventCreatedAt: sql`coalesce(${events.eventCreatedAt}, excluded.event_created_at)`,
+          },
+        })
+        .returning({ processedAt: events.processedAt });
+      return { processed: Boolean(row?.processedAt) };
     },
 
     async claim(id, now, leaseUntil) {

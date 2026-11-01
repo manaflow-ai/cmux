@@ -2,7 +2,10 @@ import { and, countDistinct, desc, eq, gte, isNotNull, isNull, like, lt, not, no
 import { alias } from "drizzle-orm/pg-core";
 import { cloudDb } from "../../db/client";
 import { billingEmailVerificationDeliveries, stripeWebhookEvents } from "../../db/schema";
-import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "../billing/stripeWebhookErrors";
+import {
+  STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS,
+  STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX,
+} from "../billing/stripeWebhookErrors";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
 
 /**
@@ -29,13 +32,15 @@ export type WebhookErrorSample = {
   readonly eventIds: readonly string[];
 };
 
-const WEBHOOK_ERROR_WINDOW_MS = 60 * 60 * 1_000;
+/** Every event the inbox still retries, so one stuck past its first hour keeps paging. */
+const WEBHOOK_ERROR_WINDOW_MS = STRIPE_WEBHOOK_REPLAY_MAX_AGE_MS;
 /**
  * Lease contention between sibling events of one purchase clears within
- * minutes through the inbox's retries on the five-minute cron. An event still
- * unprocessed after this, with or without an error, pages.
+ * minutes through the inbox's retries on the five-minute cron, and a worker
+ * that died mid-event is taken over once its 15-minute lease lapses. An event
+ * still unprocessed after this, with or without an error, pages.
  */
-const RETRYABLE_WEBHOOK_ERROR_GRACE_MS = 15 * 60 * 1_000;
+const RETRYABLE_WEBHOOK_ERROR_GRACE_MS = 30 * 60 * 1_000;
 const UNSENT_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1_000;
 /** A delivery normally completes within seconds; allow the retry lease to lapse first. */
 const UNSENT_EMAIL_GRACE_MS = 15 * 60 * 1_000;
@@ -66,11 +71,11 @@ export async function runBillingAlertChecks(options: {
       key: "stripe-webhook-errors",
       title: "Stripe webhook processing errors",
       body: [
-        `${errors.count} webhook event(s) from the last hour are still failing.`,
+        `${errors.count} webhook event(s) from the last 3 days are still unprocessed.`,
         `Types: ${errors.types.length ? errors.types.join(", ") : "unknown"}.`,
         errors.eventIds.length ? `Events: ${errors.eventIds.join(", ")}.` : "",
         errors.latest ? `Latest error: ${errors.latest}` : "",
-        "The alerts cron replays lease-contention failures every 5 minutes, Stripe redelivers the rest, and the hourly billing reconcile reapplies Stripe subscription state; check the buyer's entitlement if this persists.",
+        "The alerts cron retries every stored event with backoff for 3 days, and the hourly billing reconcile reapplies Stripe subscription state; check the buyer's entitlement if this persists.",
       ].filter(Boolean).join(" "),
       severity: "critical",
     });
