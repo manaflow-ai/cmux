@@ -245,7 +245,9 @@ import Testing
         _ = await model.finished()
         #expect(host.commands == [.enroll(host: "huge-blue", name: "lab")])
         #expect(host.names == ["lab"], "the app connects it under the Name field's name")
-        #expect(HostCommand.enroll(host: "huge-blue", name: "lab").arguments == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--json"])
+        // Setup does the whole job: this Mac's agent profiles and the host's way back, no skips.
+        #expect(HostCommand.enroll(host: "huge-blue", name: "lab").arguments
+            == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--harness", "local", "--reverse", "--json"])
     }
 
     @Test func aFailedStepStaysOpenWithTryAgainAndCopyDetails() async {
@@ -497,7 +499,9 @@ import Testing
         #expect(!model.perform(.fix))
         _ = await model.finished()
         #expect(host.commands.last == .doctor(host: "leo@huge-blue", fix: true))
-        #expect(HostCommand.doctor(host: "hb", fix: true).arguments == ["acp", "host", "doctor", "hb", "--fix", "--json"])
+        #expect(HostCommand.doctor(host: "hb", fix: true).arguments
+            == ["acp", "host", "doctor", "hb", "--fix", "--harness", "local", "--reverse", "--json"])
+        #expect(HostCommand.doctor(host: "hb", fix: false).arguments == ["acp", "host", "doctor", "hb", "--json"])
         #expect(model.buttons == [AddMachineButton(action: .done, key: .return)])
         #expect(host.recorded.count == 2)
         #expect(host.connected.isEmpty, "a check never connects")
@@ -592,7 +596,9 @@ import Testing
         #expect(host.commands.isEmpty, "a pick alone runs nothing")
         model.perform(.add)
         #expect(await model.finished() == nil)
-        #expect(host.commands == [.doctor(host: "hb", fix: false)], "no enroll for a peer")
+        // A picked peer gets the same setup an add does (approvals enrolled, profiles, peer-back),
+        // not a check that leaves "run doctor --fix" warnings.
+        #expect(host.commands == [.doctor(host: "hb", fix: true)], "no enroll for a peer")
         #expect(host.connected == ["huge-blue"], "ssh to the host; the daemon port stays acpmux's")
         #expect(host.names == ["hb"])
         #expect(host.recorded.map(\.0) == ["ssh-huge-blue"])
