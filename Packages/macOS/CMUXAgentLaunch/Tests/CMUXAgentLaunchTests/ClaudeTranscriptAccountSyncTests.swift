@@ -207,6 +207,7 @@ import Testing
         try continued.write(toFile: targetNested, atomically: true, encoding: .utf8)
 
         let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .layoutMismatch)
         #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
                 == nil)
         #expect(try String(contentsOfFile: targetNested, encoding: .utf8) == continued)
@@ -230,6 +231,7 @@ import Testing
         try continued.write(toFile: targetFlat, atomically: true, encoding: .utf8)
 
         let error = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(error as? ClaudeTranscriptAccountSyncError == .layoutMismatch)
         #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: error, sourceAccountName: "a", targetAccountName: "b")
                 == nil)
         #expect(try String(contentsOfFile: targetFlat, encoding: .utf8) == continued)

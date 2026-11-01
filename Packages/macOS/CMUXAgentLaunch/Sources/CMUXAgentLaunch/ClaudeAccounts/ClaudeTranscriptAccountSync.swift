@@ -44,6 +44,11 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
     /// separately under each account, and cmux does not merge them. `targetIsNewer` tells which
     /// copy was written last, by modification time.
     case diverged(targetIsNewer: Bool)
+    /// The target has the session's transcript only in the other layout (flat `<sid>.jsonl`
+    /// against nested `<sid>/messages/<sid>.jsonl`), so the copies cannot be compared, and
+    /// copying the source in would either replace the target's sidecar tree or leave two
+    /// transcripts of one session.
+    case layoutMismatch
 }
 
 /// Copies or refreshes a Claude transcript (and its sidecar directory) from one account config dir
@@ -56,7 +61,8 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 /// Code only appends, so a target that is a prefix of the source is refreshed, a target that
 /// already holds the whole source is kept, and copies that diverged are refused with
 /// ``ClaudeTranscriptAccountSyncError/diverged(targetIsNewer:)`` without touching either one.
-/// The target's sidecar follows its transcript: it is replaced only on a refresh, or filled in
+/// A target whose copy is only in the other transcript layout is refused the same way
+/// (``ClaudeTranscriptAccountSyncError/layoutMismatch``). The target's sidecar follows its transcript: it is replaced only on a refresh, or filled in
 /// when the copies are identical and the target has none.
 ///
 /// Nothing is ever deleted from the source, and a target with turns the source lacks is never
@@ -109,6 +115,13 @@ public struct ClaudeTranscriptAccountSync: Sendable {
         let hasSourceSidecar = fileManager.fileExists(atPath: sourceSidecar, isDirectory: &isDirectory)
             && isDirectory.boolValue
         let hasTargetTranscript = fileManager.fileExists(atPath: targetTranscript)
+        // Only a copy at the source's own layout can be compared; one in the other layout is
+        // refused before anything is touched.
+        if !hasTargetTranscript, ClaudeTranscriptForkSeeder.transcriptLocation(
+            projectPath: targetProject, sessionID: request.sessionID, fileManager: fileManager
+        ) != nil {
+            throw ClaudeTranscriptAccountSyncError.layoutMismatch
+        }
 
         if hasTargetTranscript {
             switch try ClaudeTranscriptCopyRelation(sourcePath: source.path, targetPath: targetTranscript) {
