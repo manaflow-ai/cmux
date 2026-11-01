@@ -57,10 +57,11 @@ import {
   applyCommand,
   fastModeState,
   isFastCommand,
-  matchCommands,
-  slashQuery,
+  slashMatches,
+  useSlashNames,
   type SlashCommand,
   type SlashMatch,
+  type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
@@ -523,6 +524,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  /// The `/word` the prompt's caret ends (MarkdownField `onSlash`), which opens the menu.
+  const [slash, setSlash] = useState<SlashTrigger | undefined>();
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
@@ -1146,9 +1149,14 @@ export function Composer({
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
   const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
-  const query = slashQuery(text, caret);
-  const open = query !== undefined && dismissed !== text && !recalling;
-  const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
+  // A `/word` at the prompt's start lists every command; one after a space or line break further
+  // on lists those the agent reads anywhere (slashCommands.ts slashMatches), and opens only on a
+  // match: mid-prompt, `/tmp` with nothing to offer is the person's text, not an empty menu.
+  const typedSlash = slash !== undefined && dismissed !== text && !recalling ? slash : undefined;
+  const query = typedSlash?.query;
+  const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
+  const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
+  const slashNames = useSlashNames(commands);
 
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
@@ -1217,6 +1225,11 @@ export function Composer({
   const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
+    // In place, over the typed `/word`, the text around it kept; the field reports the edit.
+    if (field.current?.insertCommand(command.name)) {
+      field.current.focus();
+      return;
+    }
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
@@ -2267,6 +2280,8 @@ export function Composer({
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
           onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
+          slashNames,
+          onSlash: setSlash,
         }}
         attachments={attachments}
         pending={pending}

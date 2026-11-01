@@ -108,7 +108,7 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
-import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { applyCommand, slashMatches, useSlashNames, type SlashCommand, type SlashTrigger } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
@@ -346,6 +346,8 @@ export function NewTabScreen(props: Props) {
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   const [commandDismissed, setCommandDismissed] = useState<string>();
+  /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
+  const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
   const requestedCommands = useRef<string | undefined>(undefined);
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(Boolean(carried?.text));
@@ -750,15 +752,28 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
-  const commandQuery = slashQuery(text, field.current?.caret() ?? text.length);
-  const commandMatches = commandQuery === undefined ? [] : matchCommands(snapshot.commands ?? [], commandQuery);
-  const commandsOpen = commandQuery !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // Shell mode's text is a command line, where a `/` starts a path.
+  const commandAt = shell ? undefined : commandTrigger;
+  const commandQuery = commandAt?.query;
+  const commandMatches = useMemo(
+    () => (commandAt ? slashMatches(snapshot.commands ?? [], commandAt) : []),
+    [commandAt, snapshot.commands],
+  );
+  const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // A `/word` further on that names no command is the person's text (a path): the rows stay.
+  const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
+  const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
+    setCommandActive(0);
+    // In place, over the typed `/word`, the text around it kept; the field reports the edit.
+    if (field.current?.insertCommand(command.name)) {
+      requestAnimationFrame(() => field.current?.focus());
+      return;
+    }
     const next = applyCommand(text, field.current?.caret() ?? text.length, command).text;
     setText(next);
-    setCommandActive(0);
     requestAnimationFrame(() => field.current?.focus());
   };
   useEffect(() => {
@@ -792,7 +807,7 @@ export function NewTabScreen(props: Props) {
   );
   const suggested = useMemo(
     () =>
-      touched && !shell && commandQuery === undefined
+      touched && !shell && !commandTyping
         ? screenRows(typed, {
             omnibar,
             home,
@@ -806,7 +821,7 @@ export function NewTabScreen(props: Props) {
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, typed, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
+    [touched, shell, typed, omnibar, home, ask, creates, commandTyping, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // The strip's labels are measured again when their words change (another language): a new ref.
@@ -1800,6 +1815,8 @@ export function NewTabScreen(props: Props) {
                 }}
                 onSubmit={() => submit()}
                 onFirstInput={touch}
+                slashNames={commandNames}
+                onSlash={setCommandTrigger}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
                 attributes={{

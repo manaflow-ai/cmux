@@ -393,6 +393,36 @@ test("Return on a typed address still opens it without a harness", async () => {
   }
 });
 
+test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
+  const snapshot = noChat([], {
+    catalog: [],
+    commands: [
+      { name: "model", description: "", source: "cmux" },
+      { name: "compact", description: "", source: "agent" },
+      { name: "review-pr", description: "", source: "skill" },
+    ],
+  });
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={snapshot} />);
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await typePrompt("/");
+  expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  await typePrompt("src/app");
+  expect(names()).toEqual([]);
+  const field = await typePrompt("fix it /");
+  expect(names()).toEqual(["/review-pr"]);
+  await press(field, "Enter");
+  expect(promptValue()).toBe("fix it /review-pr ");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect([...container.querySelectorAll(".nt-field .acpmux-slash-token")].map((token) => token.textContent)).toEqual([
+    "/review-pr",
+  ]);
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
