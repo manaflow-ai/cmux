@@ -235,6 +235,17 @@ def check_what_counts_as_a_transcript(failures: list[str]) -> None:
     run = run_wrapper(folder_with_the_name)
     expect(failures, "folder with the transcript's name", relative_config_dir(run) == "foreign", run.config_dir)
 
+    def directly_under_projects(home: Path) -> None:
+        (home / ".claude" / "projects").mkdir(parents=True)
+        (home / ".claude" / "projects" / TRANSCRIPT).write_text("{}\n", encoding="utf-8")
+
+    run = run_wrapper(directly_under_projects)
+    expect(failures, "directly under projects/", relative_config_dir(run) == "foreign", run.config_dir)
+
+    for folders in ((".hidden",), (".hidden", "a"), ("a", ".hidden"), ("a", "b", "c", "d", ".hidden")):
+        run = run_wrapper(lambda home, f=folders: write_transcript(home / ".claude", *f))
+        expect(failures, f"hidden folder {folders}", relative_config_dir(run) == "foreign", run.config_dir)
+
 
 def check_symlinks_resolve_as_the_globs_did(failures: list[str]) -> None:
     def linked_projects(home: Path) -> None:
@@ -271,6 +282,10 @@ def check_symlinks_resolve_as_the_globs_did(failures: list[str]) -> None:
 
 
 def main() -> int:
+    if ensure_node_on_path() is None:
+        print("SKIP: node runtime not found; the wrapper's settings merge needs node")
+        return 0
+
     failures: list[str] = []
     check_miss_walks_once_per_root(failures)
     check_depth_one_needs_no_search(failures)

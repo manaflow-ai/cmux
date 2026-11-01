@@ -645,7 +645,7 @@ cmux_claude_config_dir_has_session() {
     for transcript in "$root"/projects/*/"$sid".jsonl; do
         [[ -f "$transcript" && -s "$transcript" ]] && return 0
     done
-    [[ -n "$(/usr/bin/find -L "$root/projects" -mindepth 3 -maxdepth 6 -type f -name "$sid.jsonl" -size +0c -print -quit 2>/dev/null)" ]]
+    [[ -n "$(/usr/bin/find -L "$root/projects" -maxdepth 6 -name '.*' -prune -o -type f -name "$sid.jsonl" -size +0c -path '*/projects/*/*' -print -quit 2>/dev/null)" ]]
 }
 
 claude_option_consumes_value() {
