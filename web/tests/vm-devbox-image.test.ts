@@ -756,6 +756,7 @@ test "$daemon_pid" = fixture
     const service = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiDaemon.ts"), "utf8");
     expect(service).toContain('loginctl enable-linger');
     expect(service).toContain('systemctl --user enable --now acpmux.service');
+    expect(service).toContain('systemctl --user is-active --quiet acpmux.service');
     // The image contract stays explicit: the work user has the tools needed
     // by agent turns and the locale/shims are preserved by the base recipe.
     const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");

@@ -109,6 +109,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("ExecStart=%h/.local/bin/acpmux daemon run");
     expect(command).toContain("systemctl --user daemon-reload");
     expect(command).toContain("systemctl --user enable --now acpmux.service");
+    expect(command).toContain("systemctl --user is-active --quiet acpmux.service");
     expect(command).toContain("Restart=always");
     expect(command).toContain("StartLimitIntervalSec=0");
   });
