@@ -53,6 +53,14 @@ pub(super) fn try_handle(
         return Some(refuse(writer, id, "unavailable", "acpmux is unavailable"));
     };
     let params = Value::Object(object);
+    let local_machine_id = serde_json::to_value(&mux.machine_public_id)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned));
+    if let Some(requested) = params.get("machine_id").and_then(Value::as_str)
+        && local_machine_id.as_deref() != Some(requested)
+    {
+        return Some(refuse(writer, id, "bad_request", "machine_id does not match this daemon"));
+    }
     let expected_prompt_id = (command == "mobile-chat-send")
         .then(|| params.get("prompt_id").and_then(Value::as_str).map(str::to_owned))
         .flatten();
@@ -69,7 +77,13 @@ pub(super) fn try_handle(
                 let _ = prompt_tx.try_send(PromptOutcome::Accepted(notification));
             }
         }) {
-            Ok(link) => dispatch(&link, &command, params, Some((prompt_rx, prompt_tx_for_call))),
+            Ok(link) => dispatch(
+                &link,
+                &command,
+                params,
+                local_machine_id.as_deref(),
+                Some((prompt_rx, prompt_tx_for_call)),
+            ),
             Err(_) => Err(("unavailable", "acpmux is unavailable".to_owned())),
         };
         match result {
@@ -95,14 +109,14 @@ pub(super) fn try_handle(
 }
 
 fn dispatch(
-    link: &AcpmuxLink,
+    link: &Arc<AcpmuxLink>,
     command: &str,
     params: Value,
+    machine_id: Option<&str>,
     acceptance: Option<(Receiver<PromptOutcome>, SyncSender<PromptOutcome>)>,
 ) -> Result<Value, (&'static str, String)> {
     match command {
         "mobile-chat-sessions" => {
-            let machine_id = params.get("machine_id").and_then(Value::as_str);
             let acpmux_params = bounded_page_params(&params)?;
             let raw =
                 link.call("_acpmux/sessions", acpmux_params, CALL_TIMEOUT).map_err(link_error)?;
@@ -112,7 +126,7 @@ fn dispatch(
             let session = required_text(&params, "session_id")?;
             bounded_limit(&params, "limit")?;
             let mut request = Map::new();
-            request.insert("sessionId".into(), Value::String(session));
+            request.insert("sessionId".into(), Value::String(session.clone()));
             for (mobile, wire) in [
                 ("after_seq", "afterSeq"),
                 ("before_seq", "beforeSeq"),
@@ -146,7 +160,7 @@ fn dispatch(
             let Some((acceptance, outcome_tx)) = acceptance else {
                 return Err(("internal_error", "prompt acceptance channel unavailable".into()));
             };
-            let caller = link.clone();
+            let caller = Arc::clone(link);
             let prompt = json!({
                 "sessionId": session,
                 "prompt": [{"type": "text", "text": text}],
@@ -162,6 +176,9 @@ fn dispatch(
                 Ok(PromptOutcome::Error(error)) => return Err(link_error(error)),
                 Err(_) => return Err(("timeout", "acpmux did not acknowledge the prompt".into())),
             };
+            // Acceptance is the durable hand-off; release this short-lived
+            // relay link while the Cloud chat continues in acpmux.
+            link.close();
             Ok(json!({"accepted": true, "prompt_id": prompt_id,
                 "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
                 "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
@@ -178,12 +195,16 @@ fn bounded_page_params(params: &Value) -> Result<Value, (&'static str, String)> 
             result.insert(key.into(), value.clone());
         }
     }
-    bounded_limit(&result, "limit")?;
+    check_limit(result.get("limit"), "limit")?;
     Ok(Value::Object(result))
 }
 
 fn bounded_limit(params: &Value, key: &str) -> Result<Option<u64>, (&'static str, String)> {
-    let Some(value) = params.get(key) else { return Ok(None) };
+    check_limit(params.get(key), key)
+}
+
+fn check_limit(value: Option<&Value>, key: &str) -> Result<Option<u64>, (&'static str, String)> {
+    let Some(value) = value else { return Ok(None) };
     let Some(limit) = value.as_u64() else {
         return Err(("bad_request", format!("{key} must be an integer")));
     };
@@ -219,10 +240,11 @@ fn normalize_history(raw: Value, session_id: &str) -> Result<Value, (&'static st
         .into_iter()
         .enumerate()
         .filter_map(|(index, event)| {
-            let record = event.get("record").unwrap_or(&event);
+            let record = event.get("record").or_else(|| event.get("msg")).unwrap_or(&event);
             let kind = record
                 .get("kind")
                 .or_else(|| record.get("type"))
+                .or_else(|| record.pointer("/params/update/sessionUpdate"))
                 .or_else(|| event.get("kind"))
                 .or_else(|| event.get("type"))
                 .and_then(Value::as_str)
@@ -247,6 +269,8 @@ fn normalize_history(raw: Value, session_id: &str) -> Result<Value, (&'static st
             let id = record
                 .get("id")
                 .or_else(|| record.get("seq"))
+                .or_else(|| event.get("id"))
+                .or_else(|| event.get("seq"))
                 .and_then(value_as_string)
                 .unwrap_or_else(|| format!("{session_id}:{index}"));
             let created_at = record
@@ -254,6 +278,9 @@ fn normalize_history(raw: Value, session_id: &str) -> Result<Value, (&'static st
                 .or_else(|| record.get("created_at"))
                 .or_else(|| record.get("at"))
                 .or_else(|| record.get("timestamp"))
+                .or_else(|| event.get("createdAt"))
+                .or_else(|| event.get("at"))
+                .or_else(|| event.get("timestamp"))
                 .cloned()
                 .unwrap_or(Value::Null);
             Some(json!({"id": id, "role": role, "text": text, "created_at": created_at}))
@@ -285,20 +312,23 @@ fn value_as_string(value: &Value) -> Option<String> {
 }
 
 fn event_text(value: &Value) -> Option<String> {
-    for key in ["text", "answer", "message"] {
-        if let Some(text) = value.get(key).and_then(Value::as_str) {
-            if !text.is_empty() {
-                return Some(text.to_owned());
-            }
+    for key in ["text", "answer"] {
+        if let Some(text) = value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()) {
+            return Some(text.to_owned());
         }
     }
-    if let Some(message) = value.get("msg") {
-        if let Some(text) = event_text(message) {
-            return Some(text);
+    for key in ["message", "msg", "params", "update"] {
+        if let Some(nested) = value.get(key) {
+            if let Some(text) = event_text(nested) {
+                return Some(text);
+            }
         }
     }
     if let Some(content) = value.get("content") {
         if let Some(text) = content.as_str() {
+            return (!text.is_empty()).then(|| text.to_owned());
+        }
+        if let Some(text) = content.get("text").and_then(Value::as_str) {
             return (!text.is_empty()).then(|| text.to_owned());
         }
         if let Some(parts) = content.as_array() {
@@ -347,4 +377,135 @@ fn refuse(writer: &MessageWriter, id: Option<Value>, code: &'static str, message
             error_delivery: None,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+    fn scripted(
+        results: Vec<Value>,
+        accepted: Option<SyncSender<PromptOutcome>>,
+    ) -> (Arc<AcpmuxLink>, cmux_unix_socket::TestDir) {
+        let dir = cmux_unix_socket::short_test_dir("mobile-chat");
+        let socket = dir.path().join("acpmux.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut lines = BufReader::new(stream).lines();
+            for result in results {
+                let Some(Ok(line)) = lines.next() else { return };
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let accepted = result.get("$accept").is_some();
+                if accepted {
+                    writeln!(
+                        writer,
+                        "{}",
+                        json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{"sessionId":"s1","promptId":"p1","turnId":"t1","queued":false}})
+                    )
+                    .unwrap();
+                }
+                if let Some(message) = result.get("$error").and_then(Value::as_str) {
+                    writeln!(
+                        writer,
+                        "{}",
+                        json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32000,"message":message}})
+                    )
+                    .unwrap();
+                } else {
+                    let mut value = result;
+                    if let Some(object) = value.as_object_mut() {
+                        object.remove("$accept");
+                    }
+                    writeln!(
+                        writer,
+                        "{}",
+                        json!({"jsonrpc":"2.0","id":request["id"],"result":value})
+                    )
+                    .unwrap();
+                }
+            }
+        });
+        let link = AcpmuxLink::connect(&socket, move |inbound| {
+            if let (Some(sender), Inbound::Notification(method, params)) = (&accepted, inbound)
+                && method == "_acpmux/prompt_accepted"
+            {
+                let _ = sender.try_send(PromptOutcome::Accepted(params));
+            }
+        })
+        .unwrap();
+        (link, dir)
+    }
+
+    #[test]
+    fn relay_normalizes_sessions_and_actual_acp_records() {
+        let (link, _dir) = scripted(
+            vec![json!({
+                "sessions": [{"sessionId":"s1","name":"Cloud","status":"running","updatedAt":42}]
+            })],
+            None,
+        );
+        let sessions = dispatch(
+            &link,
+            "mobile-chat-sessions",
+            json!({"machine_id":"vm_1","limit":20}),
+            Some("vm_1"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(sessions["sessions"][0]["machine_id"], "vm_1");
+
+        let (link, _dir) = scripted(
+            vec![json!({
+                "events": [
+                    {"sessionId":"s1","seq":1,"at":10,"kind":"user_message","msg":{"text":"hello"}},
+                    {"sessionId":"s1","seq":2,"at":11,"kind":"message","msg":{"params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}}
+                ], "nextSeq":3
+            })],
+            None,
+        );
+        let history = dispatch(
+            &link,
+            "mobile-chat-history",
+            json!({"session_id":"s1","limit":20}),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(history["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(history["messages"][0]["text"], "hello");
+        assert_eq!(history["messages"][1]["role"], "assistant");
+        assert_eq!(history["messages"][1]["text"], "hi");
+    }
+
+    #[test]
+    fn relay_send_waits_for_prompt_acceptance_and_surfaces_errors() {
+        let (tx, rx) = sync_channel(2);
+        let (link, _dir) = scripted(vec![json!({"$accept": true})], Some(tx.clone()));
+        let accepted = dispatch(
+            &link,
+            "mobile-chat-send",
+            json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
+            None,
+            Some((rx, tx)),
+        )
+        .unwrap();
+        assert_eq!(accepted["accepted"], true);
+        assert_eq!(accepted["turn_id"], "t1");
+
+        let (tx, rx) = sync_channel(2);
+        let (link, _dir) = scripted(vec![json!({"$error":"permission.denied"})], None);
+        let error = dispatch(
+            &link,
+            "mobile-chat-send",
+            json!({"session_id":"s1","text":"hello","prompt_id":"p1"}),
+            None,
+            Some((rx, tx)),
+        )
+        .unwrap_err();
+        assert_eq!(error.0, "acpmux_refused");
+        assert!(error.1.contains("permission.denied"));
+    }
 }
