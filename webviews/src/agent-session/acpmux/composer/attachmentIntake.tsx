@@ -451,7 +451,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         const stop = retryUploadLater(
           tries,
           () => {
-            if (still()) retryRef.current(id);
+            if (!still()) return;
+            // A delayed retry must use the chat that owns these bytes. The user may have
+            // switched chats since this failure (including via the key/click that queued
+            // this callback). Retrying through live.options would upload this old File to
+            // the *new* chat's machine. Keep the old scoped chip with a manual Retry.
+            if (batch.scope !== live.current.options.scope) {
+              giveUp();
+              return;
+            }
+            retryRef.current(id);
           },
           giveUp,
         );
