@@ -592,7 +592,8 @@ async fn forward_inner(
         // must reach the peer even when its client is gone.
         // A page goes on the link it is labelled with, or fails; so does a held prompt or an
         // answer to one, on the link that listed `queueApproval`.
-        let on = if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
+        let on =
+            if approval { approval_link } else { pages.then_some(link).or(resume_link.flatten()) };
         let result = if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
