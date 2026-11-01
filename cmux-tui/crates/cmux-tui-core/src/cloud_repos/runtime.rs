@@ -257,7 +257,11 @@ impl Backend for Runtime<'_> {
                 Err(failure) => {
                     // An expired/unknown job needs a fresh start on retry;
                     // transport failures retain it to avoid a duplicate clone.
-                    if failure.0["code"] == "seed.bad_request" {
+                    // git-seed-v1 answers seed.unknown_job for a job it
+                    // no longer has (its daemon restarted).
+                    if failure.0["code"] == "seed.bad_request"
+                        || failure.0["code"] == "seed.unknown_job"
+                    {
                         store::set_job(self.mux, session, name, None)?;
                     }
                     return Err(failure);
