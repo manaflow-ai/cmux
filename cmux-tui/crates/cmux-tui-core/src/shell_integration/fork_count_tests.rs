@@ -57,7 +57,7 @@
 //!
 //! ```text
 //! cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh \
-//!   --arg test --arg shell_integration:: --ref SHA
+//!   --os macos --arg test --arg shell_integration:: --ref SHA
 //! ```
 //!
 //! The bench (`scripts/cmux-next/shell-integration-bench.py`) counts the same

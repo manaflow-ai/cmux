@@ -93,7 +93,8 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
+      // Ten harnesses and Add, less Claude Code (sr): a route of the Claude tab, never its own tab.
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {
@@ -218,8 +219,11 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     const page = await open("claude");
     try {
       expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
-      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
+      // A launch configuration of a family is a route in its Account row, never a tab of its own
+      // (Leo 2026-10-31: "THE FUCKING APP SERVER THE FUCKING SR" / "WHERE IS THE FUCKING ACCOUNTS").
+      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(0);
       await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitemradio", { name: "Claude Code (sr)", exact: true }).waitFor();
       await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
     } finally {
       await page.close();
@@ -303,6 +307,38 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       ).toBe(true);
     } finally {
       await chat.close();
+    }
+    // One right edge (Leo 2026-10-31: "plus all this dumbass shit in the model picker"): with each
+    // row's effort item on, every ⌘N key and the running row's check share the menu's trailing
+    // column, after the effort item and the star, never mid-row.
+    const inChat = await open("in-chat");
+    try {
+      await inChat.locator(".acpmux-quick-model-effort[data-running]").first().waitFor();
+      const edges = await inChat.locator(".acpmux-quick-model-effort").evaluateAll((rows) =>
+        rows.map((row) => {
+          const key = row.querySelector(
+            ":scope > .ui-menu-item .ui-menu-shortcut, :scope > .ui-menu-item .ui-menu-check:not(:empty)",
+          );
+          const effort = row.querySelector(":scope > .acpmux-quick-effort-trigger");
+          const star = row.querySelector(":scope > .acpmux-quick-star");
+          const box = key?.getBoundingClientRect();
+          return {
+            right: box ? Math.round(box.right) : undefined,
+            left: box?.left,
+            effortRight: effort?.getBoundingClientRect().right,
+            starRight: star?.getBoundingClientRect().right,
+          };
+        }),
+      );
+      const keyed = edges.filter((edge) => edge.right !== undefined);
+      expect(keyed.length, JSON.stringify(edges)).toBeGreaterThan(1);
+      expect(new Set(keyed.map((edge) => edge.right)).size, JSON.stringify(edges)).toBe(1);
+      for (const edge of keyed) {
+        if (edge.effortRight !== undefined) expect(edge.effortRight).toBeLessThanOrEqual(edge.left! + 0.5);
+        if (edge.starRight !== undefined) expect(edge.starRight).toBeLessThanOrEqual(edge.left! + 0.5);
+      }
+    } finally {
+      await inChat.close();
     }
   });
 
@@ -389,7 +425,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         // Beside the row's effort item, clear of the model's name (a starred row's star may follow
         // the effort item at the row's very end).
         const triggerBox = (await trigger.boundingBox())!;
-        const nameBox = (await row.locator(":scope > .acpmux-quick-item:first-child").boundingBox())!;
+        const nameBox = (await row
+          .locator(":scope > .acpmux-quick-item:first-child > .acpmux-quick-label")
+          .boundingBox())!;
         const menuBox = (await dropdown.boundingBox())!;
         const viewport = page.viewportSize()!;
         // Beside the effort item whenever the window has room on that side; a narrow window shifts it,
@@ -518,7 +556,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("searching from a launch entry selects the visible model, not that launch entry", async () => {
+  test("searching from another family's tab selects the visible model", async () => {
     const page = await open("claude");
     try {
       await page.keyboard.press("ArrowLeft");
@@ -527,7 +565,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       );
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(
-        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
+        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "OpenCode",
       );
       await page.locator(".acpmux-quick-search input").fill("Sonnet");
       await page.keyboard.press("Enter");

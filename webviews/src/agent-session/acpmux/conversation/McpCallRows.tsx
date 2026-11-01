@@ -26,7 +26,7 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
@@ -44,7 +44,8 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the calls.
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -101,7 +102,8 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
 function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useState(false);
+  // Closed, or open in the Verbose transcript view.
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),

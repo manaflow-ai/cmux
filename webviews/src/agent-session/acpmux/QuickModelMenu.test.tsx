@@ -890,3 +890,124 @@ test("another tab whose models honor Fast mode draws the Fast row and lands its 
   await settle();
   expect(picks.map(({ id, fast }) => ({ id, fast }))).toEqual([{ id: "sol", fast: true }]);
 });
+
+// Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS SEPARATE
+// HARNESSES" / "THE FUCKING APP SERVER THE FUCKING SR" / "WHERE IS THE FUCKING ACCOUNTS". The
+// symbols row has one tab per model family; a family's routes (direct CLI, the SR route, the app
+// server, a work login) are an Account choice in the menu, never tabs.
+const route = (id: string, name: string, group: string, extra: Partial<QuickFamily> = {}): QuickFamily => ({
+  id,
+  name,
+  group,
+  models: [{ id: `${id}-m`, name: `${name} model`, family: id }],
+  more: [],
+  ...extra,
+});
+const familyRail = [
+  route("claude", "Claude Code", "claude"),
+  route("claude-sr2", "Claude Code (sr2)", "claude"),
+  route("claude-work", "Claude Code (work)", "claude", { launch: true, models: [] }),
+  route("codex", "Codex", "openai"),
+  route("codex-app-server", "Codex (app-server)", "openai"),
+  route("vercel", "Vercel AI Gateway", "vercel"),
+];
+
+test("familyTabs: one tab per model family, its routes in rail order", async () => {
+  const { familyTabs } = await import("./QuickModelMenu");
+  const tabs = familyTabs(familyRail);
+  expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
+    ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
+    ["openai", "Codex", ["codex", "codex-app-server"]],
+    ["vercel", "Vercel AI Gateway", ["vercel"]],
+  ]);
+});
+
+test("searchGroups: a family's routes share one heading and list a model once", async () => {
+  const { searchGroups } = await import("./QuickModelMenu");
+  const found: QuickModel[] = [
+    { id: "opus", name: "Opus", family: "claude-sr2" },
+    { id: "opus", name: "Opus", family: "claude" },
+    { id: "sol", name: "Sol", family: "codex-app-server" },
+  ];
+  const groups = searchGroups(found, familyRail, "claude");
+  expect(groups.map((group) => [group.name, group.rows.map((row) => `${row.family}/${row.id}`)])).toEqual([
+    ["Claude Code", ["claude/opus"]],
+    ["Codex", ["codex-app-server/sol"]],
+  ]);
+});
+
+test("the symbols row draws one tab per family and the Account row switches its route", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const launched: string[] = [];
+  function FamilyHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          models: [],
+          current: "claude-sr2-m",
+          onModel() {},
+          harnessPlacement: "symbols",
+          families: { current: "claude-sr2", onPick() {}, onLaunch: (id) => launched.push(id), list: familyRail },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<FamilyHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  const tabNames = () =>
+    [...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)")].map((tab) =>
+      tab.getAttribute("aria-label"),
+    );
+  expect(tabNames()).toEqual(["Claude Code", "Codex", "Vercel AI Gateway"]);
+  // The Claude tab opens on the chat's own route, and the Account row names it.
+  expect(document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.getAttribute("aria-label")).toBe(
+    "Claude Code",
+  );
+  expect(labels(list())).toContain("Claude Code (sr2) model");
+  const account = () => document.querySelector<HTMLElement>(".acpmux-quick-account")!;
+  expect(account().textContent).toContain("Claude Code (sr2)");
+  await act(async () => account().click());
+  await settle();
+  const routes = () => [...document.querySelectorAll<HTMLElement>(".acpmux-quick-route")];
+  expect(routes().map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    "Claude Code",
+    "Claude Code (sr2)",
+    "Claude Code (work)",
+  ]);
+  expect(routes()[1]!.getAttribute("aria-checked")).toBe("true");
+  await act(async () => routes()[0]!.click());
+  await settle();
+  expect(labels(list())).toContain("Claude Code model");
+  expect(labels(list())).not.toContain("Claude Code (sr2) model");
+  // A route with no models of its own starts its harness, as its tab did.
+  if (!document.querySelector(".acpmux-quick-route")) {
+    await act(async () => account().click());
+    await settle();
+  }
+  await act(async () => routes()[2]!.click());
+  await settle();
+  expect(launched).toEqual(["claude-work"]);
+  // Codex is one tab: its default route is its first.
+  if (!document.querySelector(".acpmux-quick-account")) {
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+    await settle();
+  }
+  await act(async () => document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!.click());
+  await settle();
+  expect(labels(list())).toContain("Codex model");
+  expect(account().textContent).toContain("Codex");
+});
