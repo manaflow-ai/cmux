@@ -1476,12 +1476,29 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         (json!(true), Value::Null),
         "{fallback}"
     );
+    // The client has no credential: it skipped the platform entirely and may create the legacy machine.
     let empty = plan_with(&path, &request(&self::key(), "user-leo/"), &mut "".as_bytes(), &never);
     assert_eq!(
         (empty["ok"].clone(), empty["machine"].clone()),
         (json!(true), Value::Null),
         "{empty}"
     );
+
+    // Real platform authentication refusals, and a typed missing resource, must stop the send.
+    // Otherwise an unauthorized or invalid workspace request silently attempts an App-created machine.
+    for (status, code, expected) in [
+        (401, "", "refused"),
+        (403, "machine.forbidden", "machine.forbidden"),
+        (404, "machine.snapshot.not_found", "machine.snapshot.not_found"),
+    ] {
+        let denied = |_: &Ensure, _: &str| -> Result<Value, E> { Err(E::Status { status, code }) };
+        let answer =
+            plan_with(&path, &request(&self::key(), "user-leo/"), &mut "token-1\n".as_bytes(), &denied);
+        assert_eq!(answer["ok"], json!(false), "{answer}");
+        assert_eq!(answer["error_code"], json!(expected), "{answer}");
+        assert!(answer.get("new_name").is_none(), "{answer}");
+        assert!(!made_no_machine(&E::Status { status, code }));
+    }
 
     // A refused environment, or a failure after which the machine may exist, refuses the send.
     let theirs = |_: &Ensure, _: &str| -> Result<Value, E> {
@@ -1497,6 +1514,9 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
         json!("unreachable")
     );
     assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.unconfigured" }));
+    // Current platform code is ambiguous: this status also covers a missing provider offer.
+    // Keep the compatibility fallback until the backend separates that from quota denials.
+    assert!(made_no_machine(&E::Status { status: 503, code: "workspace_machine.not_admitted" }));
     assert!(!made_no_machine(&E::Status { status: 503, code: "machine.placement_unavailable" }));
     assert!(!made_no_machine(&E::Status { status: 400, code: "machine.conflict" }));
 }
