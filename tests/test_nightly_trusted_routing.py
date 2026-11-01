@@ -427,6 +427,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
+                                      {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"}
+                                      if name == "legacy-identity-target" else
                                       (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 

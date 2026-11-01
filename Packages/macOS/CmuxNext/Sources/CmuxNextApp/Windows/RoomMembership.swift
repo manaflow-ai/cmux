@@ -40,6 +40,12 @@ struct RoomMembership: Equatable, Sendable {
         return !followed && room == .defaultProfile
     }
 
+    /// Whether no room in `shown` (the rooms the open windows show) shows `workspace`: its space is
+    /// hidden, so it hibernates on the shorter clock (design/spaces.md, "Hibernation and the perf plan").
+    func isHidden(_ workspace: Workspace, shown: Set<ProfileID>) -> Bool {
+        !shown.contains { contains(workspace, in: $0) }
+    }
+
     /// Whether Delete Space on `room` closes `workspace`
     /// (SPACE-DELETE-CLOSES-ITS-WORKSPACES): no other room shows it. The
     /// daemon applies the same rule (`room_archive::closing_keys`).

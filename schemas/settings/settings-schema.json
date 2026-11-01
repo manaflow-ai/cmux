@@ -164,7 +164,8 @@
             "key" : "settings.group.workspaceHibernation",
             "rows" : [
               "workspaces.hibernation.enabled",
-              "workspaces.hibernation.idleMinutes"
+              "workspaces.hibernation.idleMinutes",
+              "workspaces.hibernation.hiddenSpaceMinutes"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -1268,9 +1269,9 @@
           "text" : "Agents"
         },
         "trail" : [
+          "computerUse",
           "harnesses",
           "agentHarnesses",
-          "computerUse",
           "agentIntegrations"
         ]
       },
@@ -19432,6 +19433,149 @@
       "title" : {
         "key" : "settings.workspaceHibernation.idleMinutes",
         "text" : "Hibernate After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        1440,
+        722.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 15,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.hiddenSpaceMinutes.help",
+        "text" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.hiddenSpaceMinutes",
+      "keywords" : [
+        "hibernate",
+        "idle",
+        "minutes",
+        "hidden",
+        "space",
+        "spaces",
+        "window",
+        "memory"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "hiddenSpaceMinutes"
+      ],
+      "range" : {
+        "max" : 1440,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -1430,
+        2875,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.hibernation.hiddenSpaceMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.hiddenSpaceMinutes",
+        "text" : "Hibernate Hidden Spaces After"
       },
       "validation" : "portable"
     },
@@ -79263,40 +79407,30 @@
     },
     {
       "accepts" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb",
-            "text" : "Orb"
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
           },
-          "value" : "orb"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-spark",
-            "text" : "Orb Spark"
-          },
-          "value" : "orb-spark"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-hood",
-            "text" : "Hooded Orb"
-          },
-          "value" : "orb-hood"
+          "value" : "fox"
         },
         {
           "title" : {
@@ -79335,17 +79469,59 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.chiefPetMascot.fox",
-            "text" : "Fox"
-          },
-          "value" : "fox"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.chiefPetMascot.mochi",
             "text" : "Mochi"
           },
           "value" : "mochi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox-arctic",
+            "text" : "Arctic Fox"
+          },
+          "value" : "fox-arctic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-violet",
+            "text" : "Violet Machine"
+          },
+          "value" : "machine-violet"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-gold",
+            "text" : "Gold Machine"
+          },
+          "value" : "machine-gold"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-rose",
+            "text" : "Rose Moon"
+          },
+          "value" : "moon-rose"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
         }
       ],
       "consumers" : [

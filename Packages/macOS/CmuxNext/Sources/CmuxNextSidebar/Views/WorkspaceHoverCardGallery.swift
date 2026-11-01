@@ -78,9 +78,9 @@ public struct WorkspaceHoverCardGallery {
             ("Tabs first · details collapsed · chosen", .afterTitle, 4, true, false),
         ]
         let tabCards = variants.map { name, placement, limit, details, expanded in
-            let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)
+            let card = WorkspaceHoverCardView(tabPlacement: placement, style: WorkspaceTabHoverCardStyle(twoLines: details, rowLimit: limit))
             card.configure(content, now: now)
-            card.tabList.configure(title: content.title, tabs: overflow)
+            card.configureTabs(title: content.title, tabs: overflow, now: now)
             if expanded { card.detailsToggle.performClick(nil) }
             return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
         }
