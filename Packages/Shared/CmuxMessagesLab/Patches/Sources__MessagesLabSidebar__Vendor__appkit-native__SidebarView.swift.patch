@@ -147,7 +147,7 @@
              l.avatar.contents = avatars.image(c.avatar, diameter: ah, ctx: renderContext)
              l.avatarSpec = c.avatar; l.avatarGeneration = generation
          }
-+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
++        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
          let d = SidebarMetrics.dotDiameter
          l.dot.isHidden = !c.unread
          l.dot.frame = CGRect(x: metrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
@@ -181,7 +181,7 @@
              l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
              l.avatarSpec = c.avatar; l.avatarGeneration = generation
          }
-+        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id.rawValue, window: document.window) // cmux
++        avatarMotion.apply(l, mode: c.avatarMotion, seed: c.id, window: document.window) // cmux
          configureSenders(l, c, avatar: ar)
          l.dot.isHidden = !c.unread
 -        l.dot.cornerRadius = 6
