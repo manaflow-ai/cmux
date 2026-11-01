@@ -238,6 +238,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         def label(job, runner, primary_result=''):
             source = DOC['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'needs.decide.outputs.track': 'nightly-next',
                        'needs.prepare-nightly-variant-primary.result': primary_result}
             return evaluate(parse_expression(source), context)
         for runner in ('', 'blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404'):
@@ -273,6 +274,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
         source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
         placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                  'needs.decide.outputs.track': 'nightly-next',
                   'needs.decide.outputs.early_attempt': '1',
                   'needs.decide.outputs.early_signer_build_runner': 'cmux-fleet-linux-x64'}
         self.assertEqual(evaluate(parse_expression(source), placed), 'cmux-fleet-linux-x64')
@@ -294,6 +296,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', *sorted(members)):
                 for primary in ('success', 'failure'):
                     context = {'github.repository_owner': 'manaflow-ai', 'vars.LINUX_RUNNER': runner,
+                               'needs.decide.outputs.track': 'nightly-next',
                                'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):

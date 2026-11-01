@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import nightly_linux_admission as admission
+import fleet_admission_transport as transport
 from test_nightly_trusted_routing import evaluate, parse_expression
 
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
@@ -78,7 +79,7 @@ class Receipts(unittest.TestCase):
         mutations = [
             {"run_id": 124}, {"run_attempt": 2}, {"source_sha": "c" * 40},
             {"repository": "another/repo"}, {"jobs": ["signer-build"]},
-            {"lease_id": "../bad"}, {"no_start_seconds": True}, {"no_start_seconds": float("nan")},
+            {"lease_id": "../bad"}, {"no_start_seconds": 999}, {"no_start_seconds": True}, {"no_start_seconds": float("nan")},
             {"created_at": "2026-11-01T00:00:00"},
             {"expires_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
             {"decided_at": (CREATED + dt.timedelta(seconds=179)).isoformat()},
@@ -164,6 +165,45 @@ class Receipts(unittest.TestCase):
             self.assertIsNone(json.loads(record.read_text())["receipt"])
 
 
+class Transport(unittest.TestCase):
+    def test_http_requires_an_online_peer_of_the_running_tailnet(self):
+        peer = {"BackendState": "Running", "Peer": {
+            "controller": {"Online": True, "TailscaleIPs": ["100.64.0.8"]}}}
+        with mock.patch.object(transport.shutil, "which", return_value="/bin/tailscale"), \
+             mock.patch.object(transport.subprocess, "run") as run:
+            run.return_value.stdout = json.dumps(peer)
+            transport.verify_authority("http://100.64.0.8:18765/v1/admission")
+            for bad in ({**peer, "BackendState": "Stopped"},
+                        {**peer, "Peer": {}},
+                        {**peer, "Peer": {"controller": {"Online": False, "TailscaleIPs": ["100.64.0.8"]}}}):
+                run.return_value.stdout = json.dumps(bad)
+                with self.subTest(status=bad), self.assertRaises(ValueError):
+                    transport.verify_authority("http://100.64.0.8:18765/v1/admission")
+            self.assertEqual(run.call_args.kwargs["timeout"], 5)
+
+    def test_no_plain_dns_public_http_credentials_or_other_protocol(self):
+        for url in ("http://controller/v1", "http://127.0.0.1/v1", "http://203.0.113.1/v1",
+                    "https://user:password@controller/v1", "file:///tmp/receipt", "https://controller/v1#other"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                transport.verify_authority(url)
+
+    def test_https_uses_certificate_transport_without_tailnet_probe(self):
+        with mock.patch.object(transport.subprocess, "run") as run:
+            transport.verify_authority("https://controller.example/v1/admission")
+            run.assert_not_called()
+
+    def test_redirect_is_never_followed(self):
+        with self.assertRaises(ValueError):
+            transport.NoRedirect().redirect_request(None, None, 302, "redirect", {}, "https://other.example/")
+
+    def test_exchange_disables_environment_proxies(self):
+        with mock.patch.object(transport.urllib.request, "build_opener") as build:
+            build.return_value.open.return_value = io.BytesIO(b'{"status": "pending"}')
+            self.assertEqual(transport.exchange("https://controller.example/v1"), {"status": "pending"})
+            self.assertEqual(build.call_args.args[0].proxies, {})
+            self.assertIsInstance(build.call_args.args[1], transport.NoRedirect)
+
+
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -182,10 +222,11 @@ class Workflow(unittest.TestCase):
     def test_missing_stale_or_quota_failed_picker_cannot_select_blacksmith_first(self):
         for name in admission.JOBS:
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
-            key = f"needs.decide.outputs.early_{name.replace('-', '_')}_runner"
+            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
             for attempt in (1, 2, 3):
                 for overflow in admission.OVERFLOW:
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
+                               "needs.decide.outputs.track": "nightly-next",
                                "needs.decide.outputs.early_attempt": "0", key: overflow,
                                "vars.LINUX_RUNNER": overflow}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
@@ -220,9 +261,10 @@ class Workflow(unittest.TestCase):
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:
             source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
-            key = f"needs.decide.outputs.early_{name.replace('-', '_')}_runner"
+            key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
             for label in (receipt("fleet")["runners"][name], ENV["OVERFLOW_LINUX"]):
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2,
+                           "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "2", key: label}
                 with self.subTest(job=name, label=label):
                     self.assertEqual(evaluate(parse_expression(source), context), label)

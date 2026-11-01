@@ -105,9 +105,18 @@ def portable_order(runs_on: str, nightly: bool = False) -> str:
     # the per-job lease. Missing or stale outputs must retain the declared JIT
     # pool, never select paid work without a no-start receipt.
     if nightly and re.search(r"needs\.decide\.outputs\.early_(?!(?:linux|mini)_runner)[a-z_]+_runner", runs_on):
-        if terms[-1] != "'cmux-fleet-linux-x64'" or any(BLACKSMITH_LINUX.match(t) for t in terms):
+        alternatives = [part.strip() for part in _split_top(expressions[0].strip(), "||")]
+        if alternatives[0] == "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'":
+            alternatives = alternatives[1:]
+        gated = [part.strip() for part in _split_top(alternatives[0], "&&")]
+        if len(gated) != 2 or gated[0] != "needs.decide.outputs.track == 'nightly-next'":
+            return "early admission must be the first route for the NEXT track"
+        # Other tracks retain their prior route outside this guarded branch.
+        admitted = _unwrap(gated[1])
+        admitted_terms = value_terms(admitted)
+        if admitted_terms[-1] != "'cmux-fleet-linux-x64'" or any(BLACKSMITH_LINUX.match(t) for t in admitted_terms):
             return "early admission must fall back to fleet Linux without a paid literal"
-        if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in runs_on:
+        if "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in admitted:
             return "early admission must consume only its own attempt"
         return ""
     if nightly:

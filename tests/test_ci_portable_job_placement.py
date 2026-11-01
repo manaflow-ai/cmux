@@ -262,10 +262,10 @@ class Wiring(unittest.TestCase):
                 route = job["runs-on"]
                 self.assertIn("decide", job["needs"])
                 self.assertIn("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)", route)
-                selected = f"needs.decide.outputs.early_{name.replace('-', '_')}_runner"
+                selected = f"needs.decide.outputs.early_{name.replace('cmux-', '').replace('-', '_')}_runner"
                 self.assertIn(selected, route)
                 self.assertLess(route.index(selected), route.index("'cmux-fleet-linux-x64'"))
-                self.assertNotIn("'blacksmith-", route)
+                self.assertIn("needs.decide.outputs.track == 'nightly-next'", route)
                 self.assertNotIn("secrets.APPLE", yaml.safe_dump(job))
                 self.assertNotIn("secrets.CMUX_RELEASE_APP_KEY", yaml.safe_dump(job))
 

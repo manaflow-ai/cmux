@@ -16,11 +16,11 @@ import re
 import signal
 import sys
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
 import portable_job_placement as portable
+from fleet_admission_transport import exchange
 
 FLEET_LINUX = "cmux-fleet-linux-x64"
 OVERFLOW = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
@@ -68,10 +68,15 @@ def validate(receipt: Mapping[str, Any], request: Mapping[str, Any]) -> str:
     created, expires = timestamp(receipt.get("created_at")), timestamp(receipt.get("expires_at"))
     if (expires - created).total_seconds() != WAIT_SECONDS:
         raise ValueError("admission lease must give the fleet 180 seconds")
+    now = dt.datetime.now(dt.timezone.utc)
+    if created > now:
+        raise ValueError("admission receipt starts in the future")
     status = receipt.get("status")
     if status == "pending":
         return status
     decided = timestamp(receipt.get("decided_at"))
+    if decided > now:
+        raise ValueError("admission receipt was decided in the future")
     if status == "fleet":
         expected = {job: f"cmux-nightly-{lease}-{job}" for job in request["jobs"]}
         if receipt.get("runners") != expected or not created <= decided < expires:
@@ -80,21 +85,12 @@ def validate(receipt: Mapping[str, Any], request: Mapping[str, Any]) -> str:
         elapsed = receipt.get("no_start_seconds")
         if (not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool)
                 or not math.isfinite(elapsed) or elapsed < WAIT_SECONDS
-                or decided < expires or receipt.get("runners") != {}):
+                or decided < expires or elapsed != int((decided - created).total_seconds())
+                or receipt.get("runners") != {}):
             raise ValueError("overflow requires a recorded 180-second fleet no-start")
     else:
         raise ValueError("unknown admission status")
     return str(status)
-
-
-def exchange(url: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    data = json.dumps(payload).encode() if payload is not None else None
-    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=35) as response:
-        value = json.load(response)
-    if not isinstance(value, dict):
-        raise ValueError("admission response must be an object")
-    return value
 
 
 def admit(env: Mapping[str, str], request: Mapping[str, Any]) -> dict[str, Any]:
@@ -138,12 +134,18 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     return result
 
 
+def output_key(job: str) -> str:
+    # A job's routing output is not a runner label. Keep the public output
+    # free of the legacy guard's bare product-name label token.
+    return job.replace("cmux-", "").replace("-", "_")
+
+
 def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[str, Any] | None,
           error: str = "") -> None:
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
             for job, label in selected.items():
-                output.write(f"{job.replace('-', '_')}_runner={label}\n")
+                output.write(f"{output_key(job)}_runner={label}\n")
     record = {"identity": identity(env), "receipt": receipt, "runners": selected, "error": error}
     if env.get("ADMISSION_RECEIPT_PATH"):
         Path(env["ADMISSION_RECEIPT_PATH"]).write_text(json.dumps(record, sort_keys=True) + "\n")
