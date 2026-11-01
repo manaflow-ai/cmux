@@ -11983,116 +11983,116 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "نقل علامة التبويب إلى مساحة…"
+            "state": "needs_review",
+            "value": "نقل علامة التبويب إلى مساحة عمل…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Premjesti tab u prostor…"
+            "state": "needs_review",
+            "value": "Premjesti tab u radni prostor…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Flyt fane til område…"
+            "state": "needs_review",
+            "value": "Flyt fane til arbejdsområde…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tab in Space bewegen …"
+            "state": "needs_review",
+            "value": "Tab in Arbeitsbereich bewegen …"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mover pestaña a espacio…"
+            "state": "needs_review",
+            "value": "Mover pestaña a espacio de trabajo…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Déplacer l’onglet vers l’espace…"
+            "state": "needs_review",
+            "value": "Déplacer l’onglet vers l’espace de travail…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sposta scheda nello spazio…"
+            "state": "needs_review",
+            "value": "Sposta scheda in area di lavoro…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ផ្លាស់ថេបទៅលំហ…"
+            "state": "needs_review",
+            "value": "ផ្លាស់ថេបទៅកន្លែងធ្វើការ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "탭을 스페이스로 이동…"
+            "state": "needs_review",
+            "value": "탭을 작업 공간으로 이동…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Flytt fane til område …"
+            "state": "needs_review",
+            "value": "Flytt fane til arbeidsområde …"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Przenieś kartę do obszaru…"
+            "state": "needs_review",
+            "value": "Przenieś kartę do przestrzeni roboczej…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mover Aba para Espaço…"
+            "state": "needs_review",
+            "value": "Mover Aba para Área de Trabalho…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Переместить вкладку в область…"
+            "state": "needs_review",
+            "value": "Переместить вкладку в рабочее пространство…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายแท็บไปพื้นที่…"
+            "state": "needs_review",
+            "value": "ย้ายแท็บไปเวิร์กสเปซ…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sekmeyi Alana Taşı…"
+            "state": "needs_review",
+            "value": "Sekmeyi Çalışma Alanına Taşı…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Перемістити вкладку до простору…"
+            "state": "needs_review",
+            "value": "Перемістити вкладку в робочу область…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Di chuyển tab vào không gian…"
+            "state": "needs_review",
+            "value": "Di chuyển tab sang không gian làm việc…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "将标签页移到空间…"
+            "state": "needs_review",
+            "value": "将标签页移到工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "將標籤頁移至空間…"
+            "state": "needs_review",
+            "value": "將標籤頁移至工作區…"
           }
         }
       }

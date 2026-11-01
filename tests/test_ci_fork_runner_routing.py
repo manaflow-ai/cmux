@@ -88,6 +88,12 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
 }
+# Release publication controls are trusted release-environment jobs. They must
+# stay on the trusted Blacksmith fallback for forks too; a hosted runner cannot
+# receive release credentials.
+RELEASE_PUBLICATION_JOBS = {
+    "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
+}
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
@@ -747,6 +753,8 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
+            continue
+        if name == "nightly.yml" and job in RELEASE_PUBLICATION_JOBS:
             continue
         if matrix_branch and re.search(r'"hosted_runner":\s*"macos-[^"]+"', raw):
             continue

@@ -54,52 +54,44 @@ extension TabHandlers {
         registry.bindEffect("tab.moveToSpace", requires: DaemonCapability.profiles.rawValue,
                             daemon: ctx.services.machines.local, effect: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
-            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
-                return .refused(reason)
-            }
-            guard let room = try ctx.optionalRoom(invocation["space"]) else {
-                return .refused(RoomStrings.roomArgumentRequired)
-            }
-            guard let sourceWorkspace = ctx.services.workspaceID(ofTab: tab.id),
-                  let source = WindowProfiles.qualified(sourceWorkspace, machines: ctx.services.machines) else {
-                return .refused(RefusalStrings.noWorkspaceToActOn)
-            }
-            let services = ctx.services
-            let origin = services.windows.moveOrigin(of: sourceWorkspace)
-            let preferred = services.landingWindow(tab: tab.id, workspaceID: nil)?.state
-            // A space contains workspaces, so moving one tab means promoting that tab to a new
-            // workspace first. This preserves any sibling tabs in the source workspace; pinning
-            // the source workspace would silently move all of them into the destination space.
-            // action-wait-allow: the source daemon allocates the promoted workspace key before the home daemon can pin it.
-            return .waiting(.daemonEcho) {
-                guard let key = await TabMoves.toNewWorkspace(tab, services: services) else {
-                    return ActionWorkFailure("move-tab-to-space failed (see the app log)")
-                }
-                // Keep the promoted tab owned by its original window even if the pin fails;
-                // automation files it away without selecting it or switching the user's space.
-                services.windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: false, select: false)
-                return await services.machines.local.failure("pin-workspace") {
-                    try await $0.pinWorkspace(session: source.session, key: key, to: room.id)
-                }
-            }
+            guard let room = try ctx.optionalRoom(invocation["space"]) else { return .refused(RoomStrings.roomArgumentRequired) }
+            return moveToSpace(ctx, tab: tab, room: room.id)
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
+    }
+
+    /// Move Tab to Space moves only the tab: a tab alone in its workspace takes that workspace (a pin in the home
+    /// session, as Move Workspace to Space), one with siblings moves to a new workspace pinned to the space.
+    private static func moveToSpace(_ ctx: AppActionContext, tab: TabModel, room: ProfileID) -> ActionEffect {
+        let services = ctx.services, home = services.machines.local
+        guard let id = services.workspaceID(ofTab: tab), let workspace = services.workspace(id: id),
+              let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+        if WindowProfiles.membership(services.machines)?.pinned(qualified) == room { return .refused(RoomStrings.alreadyInRoom) }
+        if let reason = TabPromotion.refusal(tab: tab, services: services) { return .refused(reason) }
+        let alone = workspace.screens.flatMap(\.panes).flatMap(\.tabs).count == 1, session = qualified.session
+        // action-wait-allow: a space pin has no store intent (Move Workspace to Space sends it the same way), so nothing local stands in.
+        return .waiting(.daemonEcho) {
+            var key: WorkspaceKey? = WorkspaceKey(rawValue: qualified.key)
+            if !alone { key = await TabMoves.toNewWorkspace(tab, services: services) }
+            guard let key else { return "move-tab-to-new-workspace failed (see the app log)" }
+            return await home.failure("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
+        }
     }
 
     /// Move Tab to New Workspace, or to a New Window that shows the new workspace. On one of several
     /// selected tabs every selected tab goes, in strip order (`movingTabs`).
     private static func moveToNewWorkspace(_ ctx: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) {
         guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-        if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+        if let reason = TabPromotion.refusal(tab: tab, services: ctx.services) {
             return ctx.registry.refuse(reason)
         }
         let windows = ctx.services.windows, tabs = ctx.movingTabs(invocation, tab)
-        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
+        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab))
         // Read before the await: whether this run may change the view (a run this client's user did
         // not start opens the window behind, never key), and the window it acts in.
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
+        let source = newWindow ? nil : ctx.services.landingWindow(tabWorkspace: ctx.services.workspaceID(ofTab: tab), workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
         if allowed, let source, let pane = ctx.services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
         let work: ActionWork = Task {
@@ -173,8 +165,8 @@ extension TabHandlers {
                          workspaceID: String?) -> @MainActor (Bool) -> Void {
         let services = ctx.services
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = services.landingWindow(tab: tab.id, workspaceID: nil)
-        let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
+        let source = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: nil)
+        let landing = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: workspaceID) ?? source
         if allowed, let landing, let pane = services.locateTab(model: tab)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in

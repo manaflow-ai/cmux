@@ -185,7 +185,7 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         let services = context.services, windows = services.windows
-        if newWindow, let reason = TabPromotion.refusal(tab: first.id, services: services) { throw ActionFailure.invalidTarget(reason) }
+        if newWindow, let reason = TabPromotion.refusal(tab: first, services: services) { throw ActionFailure.invalidTarget(reason) }
         let workspace = services.machines.allWorkspaces.map(\.0).first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
         // Read before the await: whether this run may change the view, and where the pane came from.
         let allowed = ActionRunScope.viewChangeAllowed(), origin = windows.moveOrigin(of: workspace?.id)

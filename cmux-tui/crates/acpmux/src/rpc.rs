@@ -317,6 +317,11 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Dedicated, scoped Cloud trigger chat operations. These never fall
+    /// through to the ordinary session/new, session/prompt or info paths.
+    pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";
+    pub const TRIGGER_CHAT_SEND: &str = "trigger/chat.send";
+    pub const TRIGGER_CHAT_STATUS: &str = "trigger/chat.status";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
@@ -467,6 +472,8 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    pub const AGENT_SESSION_TURN_PREPARE: &str = "agent-session-turn-prepare";
+    pub const AGENT_SESSION_TURN_ABANDON: &str = "agent-session-turn-abandon";
     /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
     pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
     /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.
@@ -565,6 +572,12 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// An agent CLI's own sign-in on this machine (`agent_login.rs`): the
+    /// unix socket, the local app and the owner's own peer daemon.
+    pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
+    pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
+    pub const MUX_AGENT_LOGIN_API_KEY: &str = "_acpmux/agent_login/api_key";
     /// Local socket only: bounded, cached inventory snapshots; no health control.
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.

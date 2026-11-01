@@ -443,6 +443,17 @@
    ]
   },
   {
+   "name": "terminal.prompt",
+   "meaning": "Terminal command (the prompt alone, no window box)",
+   "sf": "terminal",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8l4 4-4 4M12.5 16H18'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "terminal's >_ without the rounded window box, for rows that list commands (Session Info Background tasks). Leo 2026-10-24: \"remove the box for the terminal so it's just the >_\".",
+   "replaces": []
+  },
+  {
    "name": "terminal.copymode",
    "meaning": "Terminal copy mode",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M14.718 8.829v6.342M13.359 8.829h2.718M13.359 15.171h2.718'/></svg>",

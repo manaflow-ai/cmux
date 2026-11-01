@@ -26,16 +26,15 @@ impl Mux {
         if durable.lifecycle != TerminalLifecycle::Running {
             return Ok(());
         }
-        let topology = registry.resource_topology_snapshot()?;
-        let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs =
-            terminal_tab_ids_in_canonical_order(
-                topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
-                    (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
-                }),
-            )
-            .remove(id)
-            .unwrap_or_default();
+        // This terminal's own tab rows, not the whole session topology.
+        let tabs = terminal_tab_ids_in_canonical_order(
+            registry
+                .resource_tabs_of_content(id.as_str())?
+                .into_iter()
+                .map(|tab| (id.clone(), tab.pane_id, tab.position, tab.public_id)),
+        )
+        .remove(id)
+        .unwrap_or_default();
         let value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,

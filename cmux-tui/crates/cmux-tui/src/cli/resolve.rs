@@ -169,6 +169,14 @@ pub(super) fn apply(
                 params.insert("tab".into(), Value::String(tab));
             }
             Resolve::Caller => {
+                // A `current` browser is the one nearest the caller (#26648).
+                #[cfg(unix)]
+                if caller_route
+                    && super::caller_browser::wants(params)
+                    && let Some(identity) = caller_identity(socket)
+                {
+                    super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
+                }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
             }
         }
@@ -504,6 +512,18 @@ fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Valu
         }
     }
     Ok(Some(path))
+}
+
+/// The app's `system.identify` answer for this caller (agent session, Chief
+/// turn or terminal), or `None` when nothing names a caller, no app owns
+/// this daemon, or the app does not answer (down, restarting, slow): the
+/// `current` chain then goes to the daemon as before.
+#[cfg(unix)]
+fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
+    let app = socket.app.as_ref()?;
+    super::app::caller_from(|key| std::env::var(key).ok())?;
+    let mut stream = super::app::connect(app).ok()?;
+    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
 }
 
 #[cfg(unix)]

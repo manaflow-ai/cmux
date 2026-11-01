@@ -44,10 +44,19 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   // #27064); another popup in the row does not (message-actions-menu-reveal.test.ts).
   ["agent-session/acpmux/conversation/conversation.css|.cv-received:hover .cv-received-actions", "own-menu rule"],
   ["agent-session/acpmux/styles.css|.acpmux-file-header:hover .acpmux-fh-chevron", "disclosure chevron"],
-  // The ⋯ keeps itself shown while its menu is open (.acpmux-chat-inspector-pr__more:is([data-popup-open], …)).
+  // The ⋯ keeps itself shown while its menu is open (.acpmux-session-info-pr__more:is([data-popup-open], …)).
   [
-    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more",
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-pr:is(:hover, :focus-within) .acpmux-session-info-pr__more",
     "own-menu rule",
+  ],
+  // A running subagent's Stop (SubagentGroup.tsx StopButton) stops it on the click; it opens no menu.
+  [
+    "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop",
+    "stop button",
+  ],
+  [
+    "agent-session/acpmux/subagents/subagents.css|.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop:disabled",
+    "stop button",
   ],
   // A Shell block's Wrap lines is a pressed toggle (BlockParts.tsx WrapButton); it opens no menu.
   ["agent-session/acpmux/conversation/conversation.css|.cv-shell:hover .cv-shell__wrap", "wrap toggle"],
@@ -112,7 +121,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["optchat-inspector/styles.css|.term:hover .tip", "inspector tooltip"],
   ["agent-session/acpmux/styles.css|.acpmux-omni-row:hover .acpmux-omni-action", "new-tab affordance"],
   [
-    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle",
+    "agent-session/acpmux/session-info/sessionInfo.css|.acpmux-session-info-section:hover > .acpmux-session-info-section__handle",
     "drag handle",
   ],
   [

@@ -268,7 +268,9 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return ageWithDate(
     updatedAt,
     now,
-    (minutes, translate) => {
+    (_, translate, elapsedMs) => {
+      // Rounded, as this card's age always was; the date switch is ageWithDate's.
+      const minutes = Math.round(elapsedMs / 60_000);
       if (minutes < 1) return translate("age.now");
       if (minutes < 60) return translate("age.minutes", { n: minutes });
       const hours = Math.round(minutes / 60);
@@ -718,8 +720,8 @@ export function NewTabPage({
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
-  // lays the row under the field out as Codex's (composerLook.css).
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
+  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
   const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
   useRowFit(foot, `${kind}:${plainFooter}:${look}`);

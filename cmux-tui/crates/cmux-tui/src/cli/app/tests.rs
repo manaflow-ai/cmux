@@ -45,7 +45,7 @@ fn screenshot_out_is_made_absolute_except_stdout() {
 fn space_mutations_use_the_catalog_actions_and_name_targets() {
     for (words, action, target, action_args) in [
         (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
-        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), Value::Null),
+        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
         (
             &["space", "rename", "Work", "Office"][..],
             "space rename",
@@ -76,7 +76,8 @@ fn space_mutations_use_the_catalog_actions_and_name_targets() {
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], action);
         assert_eq!(params.get("target").and_then(Value::as_str), target);
-        assert_eq!(params["args"], action_args);
+        // `run_action` leaves `args` out when the action takes none.
+        assert_eq!(params.get("args").cloned().unwrap_or_else(|| json!({})), action_args);
     }
 }
 
@@ -88,13 +89,59 @@ fn space_catalog_actions_keep_their_generic_cli_routes() {
     assert_eq!(params["cli"], true);
 }
 
+/// A flag is never a positional space name: `space rename --name Office`
+/// renames the current space through the catalog action, as it did before the
+/// positional forms, instead of targeting a space called `--name`.
 #[test]
-fn space_rename_options_keep_the_current_space_target() {
+fn space_flags_are_not_positional_names() {
+    for (words, action, target, action_args) in [
+        (
+            &["space", "rename", "--name", "Office"][..],
+            "space rename",
+            None,
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "rename", "--target", "room:Work", "--name", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "delete", "--target", "room:Work", "--confirm"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "switch", "--target", "room:Work"][..],
+            "space switch",
+            Some("room:Work"),
+            json!({}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run", "{words:?}");
+        assert_eq!(params["action"], action, "{words:?}");
+        assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
+        assert_eq!(
+            params.get("args").cloned().unwrap_or_else(|| json!({})),
+            action_args,
+            "{words:?}"
+        );
+    }
+}
+
+/// Options after a positional form still reach the action.
+#[test]
+fn space_positional_forms_keep_trailing_options() {
     let (_, params) =
-        call(parse(&args(&["space", "rename", "--name", "Office"])).unwrap().unwrap());
+        call(parse(&args(&["space", "rename", "Work", "Office", "--no-wait"])).unwrap().unwrap());
     assert_eq!(params["action"], "space rename");
+    assert_eq!(params["target"], "room:Work");
     assert_eq!(params["args"], json!({"name": "Office"}));
-    assert!(params.get("target").is_none());
+    assert_eq!(params["wait"], false);
 }
 
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
@@ -228,6 +275,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
     assert_eq!(params["action"], "app quit");
     assert_eq!(params["args"], json!({ "keepSessions": true, "browserProfile": "work" }));
     assert!(parse(&args(&["action", "run", "quit", "--target"])).is_err());
+}
+
+#[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
 }
 
 #[test]
@@ -1477,20 +1544,27 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
-/// The agent cursor's tag says who drives and where, and goes there on a click
-/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
-/// the agent's terminal or chat. Reads and navigation do not need it.
+/// Every page verb sends its caller: the app runs a verb without a tab on the
+/// browser nearest the caller, not the person's focused tab in another window
+/// (#26648), and an input verb's agent cursor tag says who drives and where
+/// (user, 2026-10-20).
 #[test]
-fn page_input_verbs_send_the_caller() {
-    for method in
-        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
-    {
+fn page_verbs_send_the_caller() {
+    for method in [
+        "browser.page.click",
+        "browser.page.fill",
+        "browser.page.press",
+        "browser.page.drag",
+        "browser.page.text",
+        "browser.page.navigate",
+        "browser.page.screenshot",
+        "browser.page.snapshot",
+        "browser.page.tabs",
+    ] {
         assert!(takes_caller(method), "{method}");
     }
-    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
-        assert!(!takes_caller(method), "{method}");
-    }
     assert!(takes_caller("action.run"));
+    assert!(!takes_caller("settings.get"));
 }
 
 #[path = "right_tests.rs"]

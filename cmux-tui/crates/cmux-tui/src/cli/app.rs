@@ -42,6 +42,7 @@ mod right;
 mod run;
 mod settings;
 mod skew;
+mod space;
 mod version;
 pub(super) mod wait;
 
@@ -189,54 +190,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return Ok(None);
     }
     let rest = &args[1..];
-    // Spaces have a small noun-first CLI of their own. Reads stay with the
-    // daemon's room resource (`space list`); mutations are app actions so
-    // the same action registry powers the CLI and MCP.
+    // Spaces have a small noun-first CLI of their own (app/space.rs).
     if scope == "space" {
+        if let Some(command) = space::parse(rest)? {
+            return Ok(Some(command));
+        }
         if rest.first().map(String::as_str) == Some("list") {
             return Ok(None);
-        }
-        let words = rest.iter().map(String::as_str).collect::<Vec<_>>();
-        let custom = match words.as_slice() {
-            ["new", name] if !name.starts_with('-') => {
-                Some(("space.new", vec!["--name".into(), (*name).into()], ActionName::Any))
-            }
-            ["switch", name] if !name.starts_with('-') => Some((
-                "space switch",
-                vec!["--target".into(), format!("room:{name}")],
-                ActionName::Cli,
-            )),
-            ["rename", old, new] if !old.starts_with('-') && !new.starts_with('-') => Some((
-                "space rename",
-                vec!["--target".into(), format!("room:{old}"), "--name".into(), (*new).into()],
-                ActionName::Cli,
-            )),
-            ["close", name] if !name.starts_with('-') => Some((
-                "space delete",
-                vec!["--target".into(), format!("room:{name}"), "--confirm".into()],
-                ActionName::Cli,
-            )),
-            ["move", kind, target, name] if !target.starts_with('-') && !name.starts_with('-') => {
-                let action = match *kind {
-                    "workspace" => "workspace move-to-space",
-                    "tab" => "tab move-to-space",
-                    _ => return Err(UsageError::new("space move takes workspace or tab")),
-                };
-                Some((
-                    action,
-                    vec![
-                        "--target".into(),
-                        format!("{kind}:{target}"),
-                        "--space".into(),
-                        (*name).into(),
-                    ],
-                    ActionName::Cli,
-                ))
-            }
-            _ => None,
-        };
-        if let Some((action, action_args, action_name)) = custom {
-            return run_action(action, &action_args, action_name).map(Some);
         }
     }
     // The session host owns history reads and edits (`history.*`), so they

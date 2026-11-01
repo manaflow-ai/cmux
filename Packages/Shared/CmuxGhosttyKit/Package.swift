@@ -90,11 +90,13 @@ import PackageDescription
 // draws to at most one per display refresh (it drew one per output batch,
 // 190-270 frames a second on a 120 Hz iPhone).
 //
-// Since 9ce9b7d08..8444cc1eb (release/cmux-9ce9b7d0-e2: the pin plus only
+// Since 9ce9b7d08..34e73ba8b (release/cmux-9ce9b7d0-e2: the pin plus only
 // fork PR #66 and the release workflow of #67): a scroll region scroll breaks
 // the soft wrap across its edges, and the unwrapping formatter carries blank
 // cells only across a joined wrap (VT fuzz finding E2: the attach replay drew
-// the row under a DECSTBM region 43 or 163 columns to the right).
+// the row under a DECSTBM region 43 or 163 columns to the right). The edge
+// break reads a compressed history row only when the pair was joined, and
+// a clear of rows (ED, DECALN) breaks the wrap across the cleared rows' edges.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -119,8 +121,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8444cc1eb8436b090fdccbdb2369e9c3816f9f26-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "eee858c7830376f0e99e7e612de60b9c731d11a681cb1c27eb1f9174d4c8516f"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "32cb09bbc69510a099df9206a460cc8e7f2aba41a1a5489de98f185da07154a4"
         ),
     ]
 )

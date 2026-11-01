@@ -10,7 +10,7 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
-pub(crate) use topology_load::load_resource_topology;
+pub(crate) use topology_load::{load_resource_topology, load_topology_frame};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -1445,6 +1445,17 @@ impl WorkspaceRegistry {
             terminal.lifecycle,
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting | TerminalLifecycle::Running
         ))
+    }
+
+    /// The topology's frame only: its revision, generation, active
+    /// workspace and active screens, without screens, panes, tabs or
+    /// browsers (a workspace list and a session ping need no more).
+    pub(crate) fn resource_topology_frame(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        load_topology_frame(
+            &self.connection.get(),
+            self.session_id.clone(),
+            self.generation.clone(),
+        )
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {

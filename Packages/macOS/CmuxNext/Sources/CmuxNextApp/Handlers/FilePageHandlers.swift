@@ -87,17 +87,17 @@ enum FilePageHandlers {
                 }
             })
         })
-        // The word wrap toggle is the `editor.wordWrap` setting (PAGE-PREFS); the page follows its look.
-        registry.bind("toggleFileEditorWordWrap", run: { invocation in
-            _ = try page(.editor, context, invocation)
-            let look = services.viewers.editorPages.look
-            let current = look.current()["settings"]?["wordWrap"]?.stringValue ?? "off"
-            let writer = SettingWriter(invocation.origin)
-            registry.track(Task { @MainActor in
-                try? await look.setPreference(key: "editor.wordWrap", value: .string(current == "off" ? "on" : "off"), by: writer)
-                return nil
+        // The word wrap and minimap toggles flip the `editor.*` settings the page toolbar writes (PAGE-PREFS).
+        for toggle in EditorPreferenceToggle.all {
+            registry.bindEffect(ActionID(rawValue: toggle.action), requires: nil, effect: { invocation in
+                _ = try page(.editor, context, invocation)
+                let look = services.viewers.editorPages.look, writer = SettingWriter(invocation.origin)
+                let value = toggle.next(in: look.current()["settings"])
+                return .applied(result: {
+                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
+                })
             })
-        })
+        }
     }
 
     /// The focused (or targeted) tab's page of `kind`.
@@ -119,11 +119,11 @@ enum FilePageHandlers {
         services.pages.storeKey(of: id) ?? id
     }
 
-    /// The file a file page tab shows (Reveal in Finder, Open With), nil for any other tab.
+    /// The local file a file page tab shows (Reveal in Finder, Open With), nil for remote files or other tabs.
     static func file(ofTab id: String, _ services: AppServices) -> URL? {
         let key = providerKey(id, services)
         return FilePageKind.allCases.lazy.compactMap { kind in
-            LocalPageTab.page(of: key) == kind.page ? service(kind, services).file(key) : nil
+            LocalPageTab.page(of: key) == kind.page ? service(kind, services).localFile(key) : nil
         }.first
     }
 
