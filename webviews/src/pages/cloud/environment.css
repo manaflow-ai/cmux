@@ -13,6 +13,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
+.cloud-environment-sheet.ui-glass { background: var(--glass-tint); }
 .env-heading { display: flex; align-items: center; gap: 12px; padding: 24px; }
 .env-heading h2 { margin: 0; font-size: var(--text-heading); font-weight: 600; line-height: var(--text-heading--line-height); }
 .env-close { margin-inline-start: auto; }
