@@ -13,7 +13,7 @@ import { chromium, type Browser } from "playwright";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { batchLaneNotices } from "../src/agent-session/acpmux/conversation/laneNoticeBatches";
-import { pendingMessagesRow } from "../src/agent-session/acpmux/conversation/pendingMessages";
+import { PENDING_MESSAGES_ROW_ID, pendingMessagesRow } from "../src/agent-session/acpmux/conversation/pendingMessages";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -195,7 +195,7 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           "i2",
           "t5",
           "m2",
-          "pendingMessages",
+          PENDING_MESSAGES_ROW_ID,
         ]);
         const [first] = lines;
         const pitch = lines[1]!.top - first!.top;
