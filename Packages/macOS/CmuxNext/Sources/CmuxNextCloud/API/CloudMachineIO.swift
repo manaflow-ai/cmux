@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 import Darwin
@@ -17,25 +18,29 @@ public struct CloudMachineIO: Sendable {
     /// long as the one machine IO the app's Cloud service makes and injects into its machines client
     /// (copies of the client share it); a test passes its own.
     let probes: Probes
+    /// The app's blocking-work lanes: every file call of a call (the probe's stats, the answer's temp file and
+    /// its read) runs on `.files`, never on the cooperative pool (threading-model.md).
+    let work: BackgroundWork
 
-    public init(binary: URL, cacheDirectory: URL) {
-        self.init(binary: binary, cacheDirectory: cacheDirectory, probes: Probes())
+    public init(binary: URL, cacheDirectory: URL, work: BackgroundWork) {
+        self.init(binary: binary, cacheDirectory: cacheDirectory, probes: Probes(), work: work)
     }
 
-    init(binary: URL, cacheDirectory: URL, probes: Probes) {
+    init(binary: URL, cacheDirectory: URL, probes: Probes, work: BackgroundWork) {
         self.binary = binary
         self.cacheDirectory = cacheDirectory
         self.probes = probes
+        self.work = work
     }
 
     /// The app's: the bundled cmux at `bundleResources/bin/cmux` and its client sessions in `cloudRoot/client-sessions`.
     /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
     /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
     /// call over HTTP.
-    public init?(bundleResources: URL?, cloudRoot: URL) {
+    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork) {
         guard let resources = bundleResources else { return nil }
         self.init(binary: resources.appendingPathComponent("bin/cmux"),
-                  cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true))
+                  cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true), work: work)
     }
 
     /// The probe answers, by binary path and modification date.
@@ -72,7 +77,7 @@ public struct CloudMachineIO: Sendable {
         var request = request
         request["cache_dir"] = cacheDirectory.path
         let input = try JSONSerialization.data(withJSONObject: request)
-        let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout)
+        let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout, work: work)
         guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
               let status = object["status"] as? Int, let route = object["route"] as? String else { throw NoAnswer(dispatched: true) }
@@ -95,7 +100,7 @@ public struct CloudMachineIO: Sendable {
         }
         let output: Data
         do {
-            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10))
+            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10), work: work)
         } catch is NoAnswer {
             return false
         }
@@ -109,7 +114,8 @@ public struct CloudMachineIO: Sendable {
     /// Runs the child with `stdin` written through a pipe after launch (a file write's request is
     /// larger than a pipe buffer) and its stdout in an unlinked temp file. Past `timeout` the child is
     /// killed and this throws ``NoAnswer``; so does a child that cannot start.
-    @concurrent static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration) async throws -> Data {
+    @concurrent static func run(_ binary: URL, arguments: [String], stdin: Data, timeout: Duration,
+                                work: BackgroundWork) async throws -> Data {
         try Task.checkCancellation()
         let process = Process()
         process.executableURL = binary
