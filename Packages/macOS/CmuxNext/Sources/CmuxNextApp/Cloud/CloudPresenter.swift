@@ -138,8 +138,7 @@ enum CloudPresenter {
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
-            allowsCreatorTeamGuest: CloudStartChat.passesHarnessLogin(
-                isDebugBuild: DevTools.isDebugBuild, optedIn: UserDefaults.standard.bool(forKey: CloudStartChat.passHarnessLoginKey)),
+            allowsCreatorTeamGuest: CloudStartChat.passesHarnessLoginHere,
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })
