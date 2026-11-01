@@ -115,6 +115,12 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
+/// The error code and message of a failed [`push`].
+pub(super) fn failure(error: &anyhow::Error) -> (String, String) {
+    let error = SeedError::of(error);
+    (error.code, error.message)
+}
+
 /// What a push did.
 #[derive(Debug)]
 pub(super) struct Pushed {
@@ -259,7 +265,7 @@ impl<'a> Machine<'a> {
         let seeds = lacks(cmux_tui_core::git_seed::GIT_SEED_CAPABILITY).is_none();
         let id = identity
             .as_ref()
-            .and_then(|identity| identity["session_id"].as_str())
+            .and_then(|identity| identity.get("session_id").and_then(Value::as_str))
             .map(str::to_owned);
         Ok(Self { socket, id, seeds })
     }
@@ -287,7 +293,7 @@ pub(super) fn push(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<
     // the person (and offer the App install) while the copy runs.
     let mut announce = json!({"phase": "copy", "fallback_code": fallback.code});
     if let Some(url) = &fallback.install_url {
-        announce["install_url"] = json!(url);
+        announce.set("install_url", json!(url));
     }
     eprintln!("{}", json!({ "progress": announce }));
     copy(&machine, &local, remote, Some(fallback))
@@ -332,7 +338,7 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     }
     let status = run_seed(machine.socket, remote, &planned, &bundle)?;
     keep_seed(&machine, &local, remote, &planned);
-    Ok(seeded("delta", &planned, status["head"].as_str()))
+    Ok(seeded("delta", &planned, status.get("head").and_then(Value::as_str)))
 }
 
 /// Why a full seed did not happen.
@@ -371,7 +377,7 @@ fn seed_full(machine: &Machine<'_>, local: &Path, remote: &str) -> Result<Pushed
     match result {
         Ok(status) => {
             keep_seed(machine, local, remote, &planned);
-            Ok(seeded("seed", &planned, status["head"].as_str()))
+            Ok(seeded("seed", &planned, status.get("head").and_then(Value::as_str)))
         }
         Err(error) if FALLBACK_CODES.contains(&error.code.as_str()) => {
             // What the seed left is not the copy's to build on.
@@ -410,7 +416,7 @@ fn copy(
         bundle_bytes: 0,
         head: None,
         work: None,
-        skipped_files: line["skipped_files"].clone(),
+        skipped_files: line.get("skipped_files").cloned().unwrap_or_default(),
         copy: Some(line),
         fallback,
     })
@@ -500,8 +506,9 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
         }
         refused
     })?;
-    let job = started["job"]
-        .as_str()
+    let job = started
+        .get("job")
+        .and_then(Value::as_str)
         .ok_or_else(|| SeedError::new("seed.bad_request", "git.seed.start answered no job"))?
         .to_owned();
     let deadline = Instant::now() + SEED_DEADLINE;
@@ -509,26 +516,32 @@ fn start_and_wait(socket: &Path, start: Value) -> Result<Value, SeedError> {
     loop {
         let status = sync_cli::machine_call(socket, "git.seed.status", json!({"job": job}))
             .map_err(|error| SeedError::of(&error))?;
-        match status["state"].as_str() {
+        match status.get("state").and_then(Value::as_str) {
             Some("done") => return Ok(status),
             Some("failed") => {
                 return Err(SeedError {
-                    install_url: status["install_url"].as_str().map(str::to_owned),
+                    install_url: status
+                        .get("install_url")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                     ..SeedError::new(
-                        status["error_code"].as_str().unwrap_or("seed.failed"),
-                        status["error"].as_str().unwrap_or("the seed failed on the machine"),
+                        status.get("error_code").and_then(Value::as_str).unwrap_or("seed.failed"),
+                        status
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the seed failed on the machine"),
                     )
                 });
             }
             _ => {}
         }
-        let progress = &status["progress"];
+        let progress = status.get("progress").unwrap_or(&Value::Null);
         report(
             json!({
-                "phase": status["phase"],
-                "bytes_done": progress["received_bytes"],
-                "objects": progress["objects"],
-                "objects_total": progress["total_objects"],
+                "phase": status.get("phase"),
+                "bytes_done": progress.get("received_bytes"),
+                "objects": progress.get("objects"),
+                "objects_total": progress.get("total_objects"),
             }),
             false,
         );
@@ -559,7 +572,8 @@ fn clone(
         start.set("ref", json!(git_ref));
     }
     let status = start_and_wait(socket, start)?;
-    Ok(json!({"ok": true, "mode": "clone", "head": status["head"], "head_ref": status["head_ref"]}))
+    let (head, head_ref) = (status.get("head"), status.get("head_ref"));
+    Ok(json!({"ok": true, "mode": "clone", "head": head, "head_ref": head_ref}))
 }
 
 /// Prints `{"progress": PROGRESS}` on stderr, at most every

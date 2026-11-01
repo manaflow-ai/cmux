@@ -2563,16 +2563,20 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
@@ -5066,6 +5070,14 @@
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
+    },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
     },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,
