@@ -127,7 +127,11 @@ struct CmdNThenNewTerminalTabTests {
 
     /// The keys the person types while the Ctrl-` waits for Cmd-N's create belong to the new terminal (coordinator
     /// 17:2xZ): the window's creation hold must open at the Ctrl-` press, not when the create is sent after the wait,
-    /// hold every key typed meanwhile, and end because the focus landed on the new terminal, not at its 2 s bound.
+    /// and end because the focus landed on the new terminal, not at its 2 s bound. On this dogfood line a key typed
+    /// while the Ctrl-` stand-in terminal has the keyboard is not held: it goes to that terminal at once
+    /// (107f5da1ac6, 050651b6e16, `EarlyTerminalKeysTests`; its view sends it by the minted terminal id, or by the
+    /// attachment when the daemon does not know the id yet). So every key is either held or goes to that early
+    /// terminal; none is dropped and none goes to another view (the New Tab page, a Chromium page window).
     /// (A replayed key reaches only the key window, and a test window is never key, so the line's run in the shell is
     /// the journey's check, cmdn-ctrlbt-type-quick step 6; this test checks the hold that carries the keys there.)
     @Test func keysTypedWhileCtrlBacktickWaitsForCmdNAreHeldForTheNewTerminal() async throws {
@@ -158,7 +162,8 @@ struct CmdNThenNewTerminalTabTests {
             }
             // In the press's turn, with the daemon still stopped: the hold is open, and every key typed now waits in it.
             #expect(coordinator.isHolding(in: window), "no creation hold right after the Ctrl-`: the keys would go to the New Tab page")
-            var held = 0, typed = 0
+            var held = 0, early = 0, typed = 0
+            var elsewhere: [String] = []
             for character in "echo held\r" {
                 let text = String(character)
                 let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -166,9 +171,21 @@ struct CmdNThenNewTerminalTabTests {
                                                           context: nil, characters: text, charactersIgnoringModifiers: text,
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
                 typed += 1
-                if coordinator.capture(event, in: window) { held += 1 }
+                if coordinator.capture(event, in: window) {
+                    held += 1
+                    continue
+                }
+                // Not held: AppKit sends the key on to the first responder, which must be the Ctrl-` stand-in's terminal.
+                let state = coordinator.earlyDeliveryState(in: window)
+                if !coordinator.droppedLastKey, state.contains("takesKeysEarly true") {
+                    early += 1
+                } else {
+                    elsewhere.append("\(text.debugDescription): dropped \(coordinator.droppedLastKey), first responder "
+                        + "\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "none"), \(state)")
+                }
             }
-            #expect(held == typed, "only \(held) of \(typed) keys typed while the Ctrl-` waited were held for the new terminal")
+            #expect(elsewhere.isEmpty, "keys typed while the Ctrl-` waited went neither to the hold nor to the new terminal: \(elsewhere)")
+            #expect(held + early == typed, "\(held) held and \(early) sent to the new terminal of \(typed) keys typed while the Ctrl-` waited")
             #expect(kill(pid, SIGCONT) == 0)
             resumed = true
 
