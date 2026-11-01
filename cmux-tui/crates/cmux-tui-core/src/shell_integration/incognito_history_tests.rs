@@ -421,3 +421,53 @@ fn an_integrated_incognito_shell_is_not_integrated_again_at_launch() {
         assert_eq!(again.env, first.env, "{shell}: integrated twice");
     }
 }
+
+/// Whether this host can write the daemon's integration scripts (the tests
+/// below need them).
+fn scripts_available() -> bool {
+    let mut env = vec![("HOME".to_string(), "/home/user".to_string())];
+    keep_no_history(&mut env);
+    let launched = integrate_with(vec!["/bin/zsh".to_string()], env, &|_: &str| None);
+    launched.env.iter().any(|(key, _)| key == "ZDOTDIR")
+}
+
+/// A launch key alone proves no integration: an incognito zsh whose launch
+/// names a shell integration that is not there (a caller may set any key)
+/// is still integrated, so its history stays off.
+#[test]
+fn a_named_but_missing_integration_does_not_skip_incognito_integration() {
+    if !scripts_available() {
+        eprintln!("skipped: the integration scripts could not be written here");
+        return;
+    }
+    let fake = std::env::temp_dir().join("cmux-incognito-fake/shell-integration/fake/zsh");
+    for key in ["GHOSTTY_ZSH_ZDOTDIR", "CMUX_CLI_ZSH_ZDOTDIR", "GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] {
+        let mut env = vec![
+            ("HOME".to_string(), "/home/user".to_string()),
+            ("ZDOTDIR".to_string(), fake.to_string_lossy().into_owned()),
+            (key.to_string(), fake.to_string_lossy().into_owned()),
+        ];
+        keep_no_history(&mut env);
+        let launched = shell_launch(Some(vec!["/bin/zsh".to_string()]), env);
+        let zdotdir = launched.env.iter().rev().find(|(name, _)| name == "ZDOTDIR").map(|(_, value)| value);
+        assert_ne!(
+            zdotdir.map(String::as_str),
+            Some(fake.to_string_lossy().as_ref()),
+            "{key}: an incognito zsh must be integrated"
+        );
+    }
+}
+
+/// With no integration scripts to run, an incognito shell starts without
+/// the startup files that could turn its history back on.
+#[test]
+fn an_incognito_shell_without_integration_reads_no_startup_files() {
+    let args = |command: &[&str], shell| {
+        without_startup_files(shell, command.iter().map(|arg| arg.to_string()).collect())
+    };
+    assert_eq!(args(&["/bin/zsh", "-l"], Shell::Zsh), ["/bin/zsh", "-f", "-l"]);
+    assert_eq!(args(&["bash"], Shell::Bash), ["bash", "--noprofile", "--norc"]);
+    assert_eq!(args(&["fish", "-l"], Shell::Fish), ["fish", "--private", "--no-config", "-l"]);
+    // A shell started for a command is left alone.
+    assert_eq!(args(&["bash", "-c", "true"], Shell::Bash), ["bash", "-c", "true"]);
+}
