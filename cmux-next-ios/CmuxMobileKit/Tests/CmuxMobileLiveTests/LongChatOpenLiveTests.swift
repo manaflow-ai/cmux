@@ -79,8 +79,8 @@ import Testing
                 return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
-                if emptyOlderPageOnce && requests.count("_acpmux/events") == 1
-                    && params["beforeSeq"] != nil {
+                if emptyOlderPageOnce, requests.count("_acpmux/events") == 1,
+                   params["beforeSeq"] != nil {
                     return [reply(#"{"events":[],"hasMore":true}"#)]
                 }
                 return [reply("{\(page())}")]
