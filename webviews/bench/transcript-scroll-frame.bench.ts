@@ -36,9 +36,13 @@ try {
   await page.evaluate(`window.__debug.seedRows(${ROWS})`);
   await page.locator(".acpmux-scroll").hover();
 
+  /// What debug.ts's flingStats and perf.ts's stats report, as far as this bench reads them.
+  type Summary = { p50_ms: number; p95_ms: number; max_ms: number };
+  type Frames = Summary & { frames: number; dropped_frames?: number; over_25ms?: number };
+  type Perf = { blank_frames: number; react: Summary; layout: Summary; other: Summary; spans: Record<string, Summary> };
   type Debug = {
-    startFling(seconds: number, options: { wait: boolean; nominal_ms?: number }): Promise<Record<string, unknown>>;
-    perfStats(): Record<string, unknown>;
+    startFling(seconds: number, options: { wait: boolean; nominal_ms?: number }): Promise<Frames>;
+    perfStats(): Perf;
   };
   const fling = () =>
     page.evaluate(async () => {
@@ -53,8 +57,8 @@ try {
     await page.evaluate(async () => {
       // The page's URL for the module, which tsc cannot resolve from here: a variable, not a literal.
       const perfUrl = "/src/agent-session/acpmux/perf.ts";
-      type Perf = typeof import("../src/agent-session/acpmux/perf");
-      const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as Perf;
+      type PerfModule = typeof import("../src/agent-session/acpmux/perf");
+      const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
       for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
@@ -107,17 +111,14 @@ try {
     wheels.push(await wheel(240));
   }
   // One short line per run and per span: CI logs cut long lines.
-  const line = (name: string, frame: Record<string, unknown>, perf: Record<string, unknown>) => {
-    const pick = (value: unknown) => {
-      const { p50_ms, p95_ms, max_ms } = value as Record<string, number>;
-      return `${p50_ms}/${p95_ms}/${max_ms}`;
-    };
+  const line = (name: string, frame: Frames, perf: Perf) => {
+    const pick = ({ p50_ms, p95_ms, max_ms }: Summary) => `${p50_ms}/${p95_ms}/${max_ms}`;
     console.log(
       `transcript-scroll-frame ${name}: frames=${frame.frames} interval=${frame.p50_ms}/${frame.p95_ms}/${frame.max_ms} ` +
-        `dropped=${frame.dropped_frames ?? frame.over_25ms} blank=${perf.blank_frames} react=${pick(perf.react)} ` +
+        `dropped=${frame.dropped_frames ?? frame.over_25ms ?? 0} blank=${perf.blank_frames} react=${pick(perf.react)} ` +
         `layout=${pick(perf.layout)} other=${pick(perf.other)}`,
     );
-    for (const [span, value] of Object.entries(perf.spans as Record<string, unknown>))
+    for (const [span, value] of Object.entries(perf.spans))
       console.log(`transcript-scroll-frame ${name} span ${span}=${pick(value)}`);
   };
   flings.forEach(({ fling, perf }, round) => line(`fling#${round}`, fling, perf));
@@ -126,4 +127,3 @@ try {
   await browser.close();
   await vite.close();
 }
-
