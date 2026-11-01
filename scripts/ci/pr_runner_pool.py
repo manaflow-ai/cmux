@@ -2154,12 +2154,17 @@ class RetryBudget:
 
 class GitHub:
     def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0,
-                 retries: RetryBudget | None = None) -> None:
+                 retries: RetryBudget | None = None,
+                 deadline: float | None = None) -> None:
         # One retry per budget, not per read: whatever the reads, retrying adds at most one
         # wait (retry_cap) and one request (its 15 s timeout) to what the reads take today.
         # Clients that share a budget (one per token in a step) share that one retry.
         self.retry_cap = retry_cap
         self.retries = retries if retries is not None else RetryBudget(1 if retry_cap > 0 else 0)
+        # An optional monotonic deadline lets a caller bound a multi-request
+        # census as a whole. Existing callers leave this unset and retain the
+        # per-request timeouts below.
+        self.deadline = deadline
         self.repo = repo
         self.headers = {
             "Accept": "application/vnd.github+json",
@@ -2167,6 +2172,14 @@ class GitHub:
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-pr-runner-pool",
         }
+
+    def _timeout(self, default: float) -> float:
+        if self.deadline is None:
+            return default
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("GitHub request deadline exceeded")
+        return min(default, remaining)
 
     def get(self, path: str) -> Any:
         """GET a path under this repository."""
@@ -2177,13 +2190,17 @@ class GitHub:
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         for attempt in (1, 2):
             try:
-                with urllib.request.urlopen(request, timeout=15) as response:
+                with urllib.request.urlopen(request, timeout=self._timeout(15)) as response:
                     return json.loads(response.read())
             except urllib.error.HTTPError as error:
                 wait = (retry_wait(error, self.retry_cap)
                         if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
                 if wait is not None:
                     self.retries.left -= 1
+                    if self.deadline is not None:
+                        remaining = self.deadline - time.monotonic()
+                        if remaining <= wait:
+                            raise TimeoutError("GitHub request deadline exceeded") from error
                 print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
                       + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
                 if wait is None:
@@ -2207,14 +2224,14 @@ class GitHub:
         opener = urllib.request.build_opener(_NoRedirect)
         download = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
         try:
-            opener.open(download, timeout=15)
+            opener.open(download, timeout=self._timeout(15))
             raise RuntimeError("artifact download did not redirect")
         except urllib.error.HTTPError as error:
             location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
             if not location:
                 raise RuntimeError(f"artifact download failed ({error.code})") from error
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
-        with urllib.request.urlopen(blob, timeout=30) as response:
+        with urllib.request.urlopen(blob, timeout=self._timeout(30)) as response:
             return response.read()
 
     def runs_since(self, workflow: str, since: str, **filters: str) -> list[Mapping[str, Any]]:
