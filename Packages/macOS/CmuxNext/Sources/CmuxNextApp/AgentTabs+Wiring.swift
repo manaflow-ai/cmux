@@ -116,7 +116,7 @@ extension AgentTabStore {
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
             // a stale inventory's. The dispatch checks the id against this same list again.
-            guard let services, Self.offersMoveTargets(signedIn: services.cloud.isSignedIn,
+            guard let services, AgentPaneMoveTarget.offered(signedIn: services.cloud.isSignedIn,
                                                        loadedCurrent: services.cloud.hasLoadedCurrentMachines) else { return [] }
             // CloudMove can route only to a Cloud session. Paused machines remain eligible because
             // the existing transfer path resumes them; failed and destroyed records are omitted.
@@ -128,7 +128,7 @@ extension AgentTabStore {
                 case .running, .provisioning, .paused:
                     return AgentPaneMoveTarget(id: machine.machineID, label: machine.machine.title,
                                                status: machine.machine.status.rawValue)
-                case .failed, .destroyed, .unknown:
+                case .pausing, .starting, .deleting, .failed, .destroyed, .unknown:
                     return nil
                 }
             }
@@ -332,6 +332,12 @@ extension AgentTabStore {
             await client.close()
             return folders
         }
+        tabs.shareMachineWithMe = { [weak services, weak tabs] key in
+            guard let services, let tabs, let machine = tabs.remoteMachineID(of: key), let session = services.machines.session(machine) else {
+                return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
+            }
+            return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
+        }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)
@@ -360,11 +366,22 @@ extension AgentTabStore {
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
+            // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
+            // once the machine list loaded for the account signed in now (never a previous team's).
+            host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = links?.ownerLink
+            // A start its older daemon refused updates the machine to this app's build and tries
+            // once more, only on the caller's own machine (the link's owner answer, read then).
+            if let cloudMachineID = host.cloudMachineID, let ownerLink = links?.ownerLink {
+                host.updateMachine = { [weak services] in
+                    guard await ownerLink() != nil, let services else { return false }
+                    return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
+                }
+            }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.

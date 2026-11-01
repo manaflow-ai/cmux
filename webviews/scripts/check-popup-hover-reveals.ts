@@ -44,10 +44,6 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   // #27064); another popup in the row does not (message-actions-menu-reveal.test.ts).
   ["agent-session/acpmux/conversation/conversation.css|.cv-received:hover .cv-received-actions", "own-menu rule"],
   ["agent-session/acpmux/styles.css|.acpmux-file-header:hover .acpmux-fh-chevron", "disclosure chevron"],
-  [
-    "agent-session/acpmux/conversation/MessageGroupRow.css|.cv-msggroup__entry .cv-tool:hover .cv-tool__chevron",
-    "disclosure chevron",
-  ],
   // The ⋯ keeps itself shown while its menu is open (.acpmux-chat-inspector-pr__more:is([data-popup-open], …)).
   [
     "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more",
@@ -58,6 +54,8 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link",
     "revoke affordance",
   ],
+  // A Shell block's Wrap lines is a pressed toggle (BlockParts.tsx WrapButton); it opens no menu.
+  ["agent-session/acpmux/conversation/conversation.css|.cv-shell:hover .cv-shell__wrap", "wrap toggle"],
   // The model star is a pressed toggle (QuickModelMenu.tsx); it opens no menu.
   [
     "agent-session/acpmux/modelPicker.css|.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star",

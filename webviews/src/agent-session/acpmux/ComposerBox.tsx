@@ -79,7 +79,8 @@ export type ComposerBoxProps = {
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
   ring?: React.ReactNode;
-  /// The actions before Codex's bolt and the mic (steer, and Stop with the plain footer).
+  /// The one send control (Send or Stop) where Claude's look draws it, before the mic, which keeps
+  /// the right edge; Codex's look puts it last (`trailing`).
   actionsLead?: React.ReactNode;
   /// The mic, which keeps every width (composerRowFit.ts).
   accessory?: React.ReactNode;

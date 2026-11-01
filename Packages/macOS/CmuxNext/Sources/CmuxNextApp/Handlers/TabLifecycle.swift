@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
@@ -40,6 +41,7 @@ enum TabLifecycle {
             })
             return
         }
+        if openTerminalFromDock(ctx, invocation, pane: focused, cwd: cwd, keep: keep) { return }
         // `layout.newPanePlacement: split`: a new pane like New Pane (Auto Layout) (PanePlacementRouting).
         let pane: PaneModel
         switch PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
@@ -157,8 +159,10 @@ enum TabLifecycle {
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation, slot: slot)
         case .agent, .page:
-            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
-            if user, let controller {
+            // The docked agent chat gets no tools: a chat or page from it opens in the strip (ChatColumnPlacement),
+            // except a person's New Tab page, which opens in the dock, the main pane (Leo 2026-10-30: "IF I'M
+            // FOCUSED ON THE MAIN PANE OPEN IT THERE"). What is picked on it opens beside the chat (NewTabPage.replace).
+            if user, let controller, !(kind == .page && ChatColumnPlacement.keepsNewTabPage(in: controller)) {
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
                 if strip !== controller { return strip.newTabPage() }
@@ -225,6 +229,7 @@ enum TabLifecycle {
         }
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
+        if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
         // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
         // that opens what the chat works on, not the strip's selected tab. The
         // chat header's Preview is placed beside the chat as an agent's is.
@@ -383,7 +388,7 @@ enum TabLifecycle {
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
             if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) {
                 trace.mark(.creationCancelled, input: input)
-                return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
+                ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation()
             }
             // A press aimed at a pane the last close emptied (made before the frame showing the
             // focus elsewhere was presented, or a repeat of the held key that emptied it) closes
@@ -394,6 +399,7 @@ enum TabLifecycle {
                 return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
             }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
+            defer { pane.workspace?.showCancelledCreation() } // a close of a pending split's stand-in: the focus to a live pane now
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
@@ -452,5 +458,59 @@ enum TabLifecycle {
         let surface = tab.surface
         ctx.send("rename-surface") { try await $0.renameTab(surface, to: name) }
         return true
+    }
+}
+
+extension TabLifecycle {
+    /// Tools opened by a person from the chat dock are placed before Auto Layout: its strip is
+    /// the right column, regardless of which strip pane was focused last or the tiling setting.
+    /// The working directory comes from the chat, never from the terminal above the new split.
+    static func openTerminalFromDock(_ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel,
+                                     cwd: String?, keep: Bool?) -> Bool {
+        guard invocation.origin == .user, !invocation.besideCaller,
+              let chat = ctx.services.paneController(for: pane) else { return false }
+        let start = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: chat.daemon, besides: chat.selectedTab)
+            ?? NewTerminalStart.inherited(besides: chat.selectedTab, in: pane, services: ctx.services)
+        return ChatColumnPlacement.openTool(from: chat, services: ctx.services, kind: .terminal) { target, placed in
+            guard target.daemon.connection != nil else { return false }
+            let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
+            target.newTerminalTab(cwd: start, keep: keep, daemonResolvesCwd: true, placementOwner: placed != nil, then: then)
+            return true
+        }
+    }
+
+    /// A browser uses the same serialized right-column open as a terminal. Preserve the chat's
+    /// working URL and the requested profile; while a split is being made, its upper pane keeps
+    /// showing its existing tab and the browser appears only after its move below lands.
+    static func openBrowserFromDock(_ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel,
+                                    url: URL?, engine: String?, profile: AgentBrowserProfile.Request) -> Bool {
+        guard invocation.origin == .user, !invocation.besideCaller,
+              let chat = ctx.services.paneController(for: pane) else { return false }
+        return ChatColumnPlacement.openTool(from: chat, services: ctx.services, background: invocation.opensInBackground, kind: .browser) { target, placed in
+            let then = placed ?? NewTabSlot.placing(after: target.selectedTab, services: ctx.services, then: nil)
+            let background = placed != nil || invocation.opensInBackground
+            switch profile {
+            case .cascade:
+                if url == nil {
+                    chat.newBrowserTabFromSelectedTab(engine: engine, in: target, background: background, placementOwner: placed != nil, then: then)
+                    return true
+                }
+                return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, then: then)
+            case .explicit(let id):
+                return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
+            case .agent:
+                let profiles = ctx.services.browserProfiles
+                ctx.registry.track(Task { @MainActor in
+                    do {
+                        let id = try await AgentBrowserProfile.ensure(profiles)
+                        target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)
+                        return nil
+                    } catch {
+                        return "agent-browser-profile: \(error)"
+                    }
+                })
+                return true
+            }
+        }
     }
 }

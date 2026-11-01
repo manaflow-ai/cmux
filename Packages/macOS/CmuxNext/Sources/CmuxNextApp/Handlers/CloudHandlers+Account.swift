@@ -18,6 +18,7 @@ extension CloudHandlers {
         bindMachineCreation(into: registry, context: context, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
+            if let target { try requireAttachableState(target) }
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
                 if target == nil, origin(of: invocation) == .user, window != nil {
@@ -74,10 +75,15 @@ extension CloudHandlers {
             // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
             let supportsEnvironments = cloud.configuration.linkSource == .appServer
             let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
+            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
+            // (the app server's create refuses one for now), so its path shows no size choice.
+            let sizes = cloud.configuration.linkSource == .legacy
+                ? cloud.planSizes : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
+                environments: environments, supportsEnvironments: supportsEnvironments,
+                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
@@ -163,7 +169,8 @@ extension CloudHandlers {
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
-                                       currentUserID: { cloud.auth.user?.id }, confirmed: true)
+                                       currentUserID: { cloud.auth.user?.id }, confirmed: true,
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
             }
         }
     }
@@ -501,57 +508,6 @@ extension CloudHandlers {
         }
         return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
     }
-}
 
-// HQ #4884 ("Signed-out cloud is text only"): a person's run of a Cloud action that is
-// unavailable only because nobody is signed in signs in, then runs the action, the way New
-// Cloud Machine resumes after sign-in (#27104). The CLI, MCP, scripts and pages still get
-// ``CloudStrings/signInFirst``.
-extension CloudHandlers {
-    /// Actions whose signed-out reason gets no recovery: running them after a sign-in means
-    /// nothing (Sign Out) or the sign-in already chose for them (Switch Active Team).
-    static let signInRecoveryExempt: Set<ActionID> = ["palette.auth.signOut", "openTeamPicker"]
-
-    /// Whether a person's run of `id`, unavailable for `reason`, signs in and then runs it.
-    static func signInRecovers(_ id: ActionID, reason: String) -> Bool {
-        reason == CloudStrings.signInFirst && !signInRecoveryExempt.contains(id)
-    }
-
-    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) {
-        // One pending replay, shared with New Cloud Machine's: a later intent, a sign-out or a
-        // team change drops the earlier one (``CloudSignedOutCreationContinuation``).
-        let pending = cloud.signedOutCreation
-        registry.unavailableRecoveries.append { [weak registry] id, reason in
-            guard signInRecovers(id, reason: reason) else { return nil }
-            return ActionRecovery(note: CloudStrings.signInToContinue) { id, invocation in
-                let expected = pending.reserve()
-                // task-owner: the reserved generation owns the replay; a later intent, sign-out or team change cancels it.
-                Task { @MainActor in
-                    // The machine list loads after sign-in; a machine action replayed before it lands finds no machine.
-                    await pending.perform(expected: expected, signIn: {
-                        guard await cloud.auth.signIn() else { return false }
-                        // A list read for this account, else a fresh read; one a newer read superseded (the
-                        // sign-in's own refresh) is read once more. A failed read still replays, so the action
-                        // reports its own error instead of nothing.
-                        for _ in 0..<2 where !cloud.hasCurrentList(within: .seconds(30)) && cloud.isSignedIn {
-                            if await cloud.refresh() { break }
-                        }
-                        return true
-                    }, resume: {
-                        guard let registry, cloud.isSignedIn else { return }
-                        resumeAfterSignIn(id, invocation, in: registry)
-                    })
-                }
-            }
-        }
-    }
-
-    /// Runs `id` for the person once signed in; a reason that still holds (no team, no backend) is reported.
-    static func resumeAfterSignIn(_ id: ActionID, _ invocation: ActionInvocation, in registry: ActionRegistry) {
-        if let reason = registry.unavailableReason(for: id) {
-            registry.refuse(reason)
-            return
-        }
-        registry.perform(id, invocation: invocation)
-    }
+    static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884
 }

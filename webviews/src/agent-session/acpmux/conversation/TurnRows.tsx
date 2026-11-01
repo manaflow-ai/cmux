@@ -1,4 +1,3 @@
-import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -7,7 +6,6 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
-import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -17,12 +15,13 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { awaitsPermission, groupId, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, groupId, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
@@ -44,7 +43,6 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { ToolVerbColumn } from "./ToolVerb";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -136,16 +134,6 @@ function groupNode(
           message={group.message}
           messageAt={group.item.tool!.startedAt ?? rowAt}
         />
-      );
-    case "messages":
-      return (
-        <MessageGroupRow
-          key={group.items[0]!.tool!.id || index}
-          members={group.members}
-          disclosureKey={messageGroupKey(group.items, rowId, index)}
-        >
-          {group.members.map((member, at) => groupNode(member, at, rowId, rowAt, false))}
-        </MessageGroupRow>
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
@@ -250,7 +238,6 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
-    group.type === "messages" ||
     group.type === "send" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
@@ -298,7 +285,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
+          {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
+              lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
+          <div className="cv-tools">{nodes}</div>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -312,7 +301,6 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const prDock = useHasPullRequestDock();
   const {
     fork,
     forkSeq,
@@ -328,6 +316,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     switchModel,
   } = useContext(TurnActionsContext);
   const text = row.text;
+  // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
+  // a turn of tool calls alone draws no Copy and no Read aloud.
+  const turnCopy = row.turnCopy;
+  const copy = useMemo(() => (turnCopy ? turnCopyText(t, turnCopy) : text), [t, turnCopy, text]);
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
@@ -409,7 +401,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
-        data-pr-dock={prDock ? "" : undefined}
       >
         <MessageFooterRow className="cv-turn-footer-row">
           {label && (
@@ -440,7 +431,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           <span className="cv-turn-action-group">
-            {text && <MessageCopy text={text} />}
+            {copy && <MessageCopy text={copy} />}
             {failedRetry && (
               <button
                 type="button"
@@ -481,7 +472,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
-        <PullRequestDock />
       </div>
     </>
   );

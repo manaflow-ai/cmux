@@ -1092,11 +1092,14 @@ APNs.
   characters), only the ids, `kind`, `state` and texts cut to 20 characters
   stay.
 - Banner text: question "<Agent> asks" / the question; permission "<Agent>
-  needs permission" / the title; completed "<Agent> finished" / the last
-  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
-  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
-  "<title>: <body>" (a program never chooses the banner's title). Subtitle
-  "<workspace or place> · <Mac>".
+  wants to act on <Mac>" / the title, as the Mac's approval prompt for a
+  streaming device ("<device> wants to control this Mac"); completed
+  "<Agent> finished" / the last `tail` line; failed "<Agent> stopped with an
+  error" / `body` or the last line; chief "Chief" / `body`; terminal
+  "Terminal · <workspace>" / "<title>: <body>" (a program never chooses the
+  banner's title). Subtitle "<workspace or place> · <Mac>"; for a permission
+  only "<workspace or place>" (the Mac is in the title). The phone writes the
+  same text for a sealed push (`PushBanner`, `ApprovalBanner`).
 - `previews: false` (the phone turned Show previews off): the 0.11 banner
   text ("Claude has a question", body the Mac's name) and no subtitle; the
   `cmuxMobile` fields stay, so the buttons still work after unlock.
