@@ -819,7 +819,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // An output's diff opens beside the chat. With Settings Push always, when that split leaves too
   // little room for a readable chat beside Session Info, it steps aside until the toggle opens it
   // again. By default it stays, floating or pushed at its narrowest.
-  const roomy = !pushes(display.sessionInfo) || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+  const roomy =
+    !pushes(display.sessionInfo) ||
+    paneWidth <= 0 ||
+    paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
   // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,

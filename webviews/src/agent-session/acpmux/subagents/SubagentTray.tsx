@@ -249,10 +249,7 @@ export const SubagentTray = memo(function SubagentTray({
       !foldMotion.reducedMotion() &&
       entranceMayRun()
     ) {
-      const drawn = new Set([
-        ...items.map(itemKey),
-        ...finished.map(itemKey),
-      ]);
+      const drawn = new Set([...items.map(itemKey), ...finished.map(itemKey)]);
       const rising = fresh.filter((key) => drawn.has(key));
       if (rising.length > 0) setArrived((current) => new Set([...current, ...rising]));
     }

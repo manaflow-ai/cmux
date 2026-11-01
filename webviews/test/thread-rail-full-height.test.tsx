@@ -117,7 +117,12 @@ const rail = () => {
   );
   const top = Number.parseFloat(nav.style.top);
   const lead = Number.parseFloat(list.style.marginTop || "0");
-  return { top, lead, height: Number.parseFloat(nav.style.height), latest: top + lead + (rows - 1) * 10 - list.scrollTop };
+  return {
+    top,
+    lead,
+    height: Number.parseFloat(nav.style.height),
+    latest: top + lead + (rows - 1) * 10 - list.scrollTop,
+  };
 };
 
 const centered = (height: number) => Math.round((VIEWPORT - height) / 2);

@@ -1215,9 +1215,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
         expect.stringContaining("acpmux-running-tray__head"),
         "acpmux-running-tray__fold",
       ]);
-      expect([...tray.children[1]!.children].map((child) => child.className)).toEqual([
-        "acpmux-running-tray__list",
-      ]);
+      expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
       expect(list.querySelectorAll("li").length).toBe(118);
       // Scrolling the list to its end leaves the header mounted, first, and the same node.
       const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
