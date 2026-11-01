@@ -9,7 +9,8 @@ import WebKit
 /// deadline. A page without the hook must answer that it has none, within a few seconds.
 ///
 /// The few seconds are the page's: its clock times the script, so the time other tests hold the
-/// main actor before the answer is delivered (a parallel run, `MainActorStall`) does not count.
+/// main actor before the answer is delivered does not count (a parallel run of the target held
+/// it 8.3 s, 7.6 s and 33.6 s at width 4 and 6, where the test's own clock failed it).
 /// A call that never answers (the frame wait) ends the test at its time limit.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -22,11 +23,8 @@ struct DebugAgentPaneScriptTests {
         webView.loadHTMLString("<!doctype html><title>no hook</title><p>not the chat page</p>", baseURL: nil)
         try await loaded.finished()
 
-        // The parallel run's load: other tests hold the main actor for 8 s while the page answers.
-        let stall = MainActorStall(duration: .seconds(8)).schedule()
         let answer = try? await webView.callAsyncJavaScript(Self.timed, arguments: ["fn": "chatState", "args": [Any]()],
                                                             in: nil, contentWorld: .page) as? String
-        await stall.value
         let timed = try answer.map { try JSONDecoder().decode(Timed.self, from: Data($0.utf8)) }
         #expect(timed != nil, "the call did not answer: \(String(describing: answer))")
         #expect(timed?.answer.contains("has no cmuxAcpmuxDebug.chatState") == true, "answer: \(String(describing: answer))")
