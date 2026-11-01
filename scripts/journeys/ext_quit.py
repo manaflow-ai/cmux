@@ -358,25 +358,58 @@ def cond_scrollback_whole(j, want, cache):
 def step_quit_speed(j, step):
     """QUIT P0 speed: COUNT quit-and-reopen cycles of kind HOW (default quit-keep: the File menu's Quit, Keep
     Sessions, no dialog), each through ext_restore's restore_relaunch (the visible panes sampled from the new
-    process's first socket answer). Per cycle: quit_to_gone_ms (the quit request to the old process's end), and from
-    the new process's main(): last_frame_ms (`terminal.launch_frame_shown`: every visible terminal shows its last
-    frame), window_frame_ms (`first_window_frame_committed`), interactive_ms (the slowest visible terminal live:
-    attached, connected, its screen replayed), and blank samples. Cycle 1 is `first` (the first reopen in this app's
-    lease), the rest `again`. Writes speed.json beside result.json; fails only when a cycle did not reopen."""
+    process's first socket answer, about every 20 ms: the sampler's own reads add main-thread work to the launch it
+    measures, the same on both arms of an A/B). Per cycle, all from the new process's main() (the launch marks and
+    the samples share the kernel's process start and the wall clock):
+      first_frame_ms   `terminal.launch_frame_shown`: the FIRST pane got its saved frame (the app records it once)
+      all_frames_ms    the slowest visible terminal pane's first sample with content (its held last frame or its
+                       replayed screen): every visible terminal shows its last frame
+      window_frame_ms  `first_window_frame_committed`
+      interactive_ms   the slowest visible terminal live (attached, connected, its screen replayed); a cycle where
+                       one never went live within the sampler's 20 s is `censored` (never dropped: a p95 counts it
+                       as slower than 20 s)
+      quit_to_gone_ms  the quit request to the old process's end (the driver's 250 ms poll: a coarse number)
+    Both arms are WARM (the app ran in this lease before): `warm-first` is cycle 1, `warm-again` the rest. A cycle
+    whose window was occluded (a capture slot's other windows over it: AppKit stops drawing) is marked `occluded`
+    and is not evidence; run it on a whole-host lease (run.py --whole-host). Writes speed.json and each cycle's
+    restore-trace-N.json; fails when a cycle did not reopen."""
     import ext_restore
     rows = []
     for index in range(int(step.get("count", 3))):
         record = ext_restore.step_restore_relaunch(j, {"how": step.get("how", "quit-keep")})
-        r = record.get("restore") or {}
+        r = getattr(j, "restore", None) or {}
+        trace_file = j.out / "restore-trace.json"
+        if trace_file.exists():
+            trace_file.replace(j.out / f"restore-trace-{index + 1}.json")
+        marks = {}
+        try:
+            marks = (j.app.rpc("debug.timings", timeout=10) or {}).get("launch_ms_since_process_start") or {}
+        except (D.StepError, OSError, ValueError):
+            pass
         main = r.get("main_start")
         sub = lambda mark: round(mark - main, 1) if isinstance(mark, (int, float)) and isinstance(main, (int, float)) else None
+        first_content = {}
+        for at, panes in r.get("trace") or []:
+            for pane, held, replayed, _link, _attach, _status in panes:
+                if (held or replayed) and pane not in first_content and at is not None:
+                    first_content[pane] = at
+        visible = int(r.get("visible_terminals") or 0)
         live = list((r.get("live_from_main_ms") or {}).values())
-        rows.append({"cycle": index + 1, "arm": "first" if index == 0 else "again",
+        censored = not live or len(live) < visible
+        occluded = False
+        try:
+            occluded = any(p.get("window_occluded") for p in j.app.panes() if p.get("visible"))
+        except (D.StepError, OSError, ValueError):
+            pass
+        rows.append({"cycle": index + 1, "arm": "warm-first" if index == 0 else "warm-again",
                      "quit_to_gone_ms": round(record["ended_after_s"] * 1000, 1) if record.get("ended_after_s") is not None else None,
-                     "last_frame_ms": sub(r.get("launch_frame_shown")), "window_frame_ms": sub(r.get("first_window_frame_committed")),
-                     "interactive_ms": max(live) if live and len(live) >= int(r.get("visible_terminals") or 0) else None,
-                     "visible_terminals": r.get("visible_terminals"), "blank_pane_samples": r.get("blank_pane_samples"),
-                     "socket_ms": r.get("socket_ms"), "main_start_ms": main})
+                     "first_frame_ms": sub(marks.get("terminal.launch_frame_shown", r.get("launch_frame_shown"))),
+                     "frame_missed": marks.get("terminal.launch_frame_missed"),
+                     "all_frames_ms": sub(max(first_content.values())) if len(first_content) >= visible > 0 else None,
+                     "window_frame_ms": sub(r.get("first_window_frame_committed")),
+                     "interactive_ms": None if censored else max(live), "censored": censored,
+                     "visible_terminals": visible, "samples": r.get("samples"), "blank_pane_samples": r.get("blank_pane_samples"),
+                     "occluded": occluded, "socket_ms": r.get("socket_ms"), "main_start_ms": main})
         (j.out / "speed.json").write_text(json.dumps({"how": step.get("how", "quit-keep"), "rows": rows}, indent=1) + "\n")
     return {"rows": rows}
 

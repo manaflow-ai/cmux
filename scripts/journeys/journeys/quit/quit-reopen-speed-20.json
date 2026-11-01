@@ -7,6 +7,10 @@
  "budget_seconds": 260,
  "steps": [
   {
+   "do": "require_whole_host",
+   "title": "timings need a key window on screen (a whole-host lease), else not run"
+  },
+  {
    "do": "wait",
    "seconds": 6,
    "title": "set-up: Home finishes its first load"
@@ -77,6 +81,10 @@
    "count": 4,
    "how": "quit-keep",
    "title": "timed: quit (Keep Sessions) and reopen, from main()"
+  },
+  {
+   "do": "require_drawable",
+   "title": "the window is on screen (frame checks)"
   },
   {
    "do": "expect",
