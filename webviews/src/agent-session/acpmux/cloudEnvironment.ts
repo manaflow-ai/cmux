@@ -1,4 +1,11 @@
-import type { EnvironmentOpen } from "../../pages/cloud/environmentModel";
+/// Kept structural so this shared opener can land alongside the environment editor PR without
+/// creating a page dependency in the agent pane.
+export type EnvironmentOpen = {
+  environmentId?: string;
+  repo?: string;
+  ref?: string;
+  section?: "overview" | "network" | "secrets" | "script" | "variables";
+};
 
 let current: (EnvironmentOpen & { request: number }) | undefined;
 let sequence = 0;
