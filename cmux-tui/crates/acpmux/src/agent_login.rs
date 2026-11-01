@@ -671,6 +671,10 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
         Ok(Ok(status)) => status,
     };
     if !status.success() {
+        // The expiry stopped it while this waited.
+        if Instant::now() >= expires {
+            return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
+        }
         return Err(match agent {
             Agent::Claude => LoginError::new(
                 reason::BAD_CODE,

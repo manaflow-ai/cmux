@@ -88,7 +88,7 @@ pub(crate) fn cli_for(cfg: &Config, agent: Agent) -> Option<Cli> {
         .env
         .iter()
         .map(|(k, v)| (k.clone(), expand(v)))
-        .filter(|(_, v)| !v.contains("${") && !v.contains("keychain"))
+        .filter(|(_, v)| !v.contains("${"))
         .collect();
     let argv: Vec<String> = profile.argv.iter().map(|a| expand(a)).collect();
     let (command, args) = argv.split_first()?;
