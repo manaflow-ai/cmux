@@ -27,6 +27,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
@@ -905,10 +907,10 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("next-batch", jobs["request-cmux-next-dev-publish"]["if"])
 
     def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
-        for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
-                                 ("cmux-tui-artifacts.yml", "tree-preflight")):
+        for filename, job_id, step_id in (("cmux-next.yml", "push-head-preflight", "head"),
+                                          ("cmux-tui-artifacts.yml", "tree-preflight", "inspect")):
             document = yaml.safe_load((WORKFLOW.parent / filename).read_text())
-            script = document["jobs"][job_id]["steps"][-1]["run"]
+            script = preflight_step(document, job_id, step_id)["run"]
             with self.subTest(workflow=filename):
                 self.assertIn("Authorization: Basic", script)
                 self.assertIn("x-access-token:%s", script)
@@ -993,6 +995,13 @@ class StepRunnerLeavesNoChild(unittest.TestCase):
         self.fail(f"step child {child} outlived the timed-out step")
 
 
+def preflight_step(document, job_id, step_id):
+    """The preflight step by id: steps after it (tree-preflight's owner observation, #30221) do not move it."""
+    steps = [step for step in document["jobs"][job_id]["steps"] if step.get("id") == step_id]
+    assert len(steps) == 1, f"{job_id} has {len(steps)} steps with id {step_id!r}"
+    return steps[0]
+
+
 class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
@@ -1001,8 +1010,8 @@ class PushPreflightBehavior(unittest.TestCase):
                       missing="", malformed=False, fork=False):
         filename = "cmux-tui-artifacts.yml" if artifacts else "cmux-next.yml"
         workflow = yaml.safe_load((WORKFLOW.parent / filename).read_text())
-        job_id = "tree-preflight" if artifacts else "push-head-preflight"
-        script = workflow["jobs"][job_id]["steps"][-1]["run"]
+        job_id, step_id = ("tree-preflight", "inspect") if artifacts else ("push-head-preflight", "head")
+        script = preflight_step(workflow, job_id, step_id)["run"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             git = root / "git"
@@ -1400,8 +1409,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = cargo["runs-on"]
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
+        self.assertTrue(runs_on.endswith(blacksmith_route("cmux-next.yml", "fast-tier-cargo") + " }}"), runs_on)
         self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(

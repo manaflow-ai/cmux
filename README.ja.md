@@ -384,7 +384,7 @@ tmuxは任意のターミナル内で動くターミナルマルチプレクサ�
 
 ### cmuxをどうやって支援できますか？
 
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)をご覧ください。
+cmuxは無料でオープンソースであり、今後もそうあり続けます。
 
 ### 機能リクエストがある、またはバグを見つけました？
 
@@ -423,19 +423,6 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
   <strong>WeChat:</strong> QRコードをスキャンしてコミュニティに参加してください。<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
 </p>
-
-## Founder's Edition
-
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発をサポートし、次に来る機能への早期アクセスを得たい方へ：
-
-**[Founder's Editionを入手](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **機能リクエスト/バグ修正の優先対応**
-- **早期アクセス：すべてのワークスペース、タブ、パネルのコンテキストを提供するcmux AI**
-- **早期アクセス：デスクトップと携帯電話間でターミナルを同期するiOSアプリ**
-- **早期アクセス：クラウドVM**
-- **早期アクセス：ボイスモード**
-- **私の個人的なiMessage/WhatsApp**
 
 ## ライセンス
 

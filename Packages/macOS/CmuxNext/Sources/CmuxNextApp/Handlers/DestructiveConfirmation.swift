@@ -136,7 +136,7 @@ enum DestructiveConfirmation {
         return await withTaskGroup(of: (SurfaceID, String?).self) { group in
             for surface in surfaces {
                 group.addTask {
-                    (surface, try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1)).runningProgram)
+                    (surface, await connection.readProcessInfo(surface, timeout: .seconds(1))?.runningProgram)
                 }
             }
             var programs: RunningPrograms = [:]
