@@ -203,7 +203,10 @@ fn workspace_name_source_store_lets_auto_name_a_created_default_name() {
     let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
     commit(&mut registry, "create", renamed("workspace-151", NameSource::User, 0));
     commit(&mut registry, "auto", renamed("Fix Login", NameSource::Auto, 1));
-    assert_eq!(registry.snapshot().unwrap().workspaces[0], renamed("Fix Login", NameSource::Auto, 1));
+    assert_eq!(
+        registry.snapshot().unwrap().workspaces[0],
+        renamed("Fix Login", NameSource::Auto, 1)
+    );
     drop(registry);
     fs::remove_dir_all(&root).unwrap();
 
@@ -211,10 +214,16 @@ fn workspace_name_source_store_lets_auto_name_a_created_default_name() {
     let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
     commit(&mut registry, "create", renamed("workspace-151", NameSource::User, 0));
     resource_upsert(&mut registry, "auto", renamed("Fix Login", NameSource::Auto, 1)).unwrap();
-    assert_eq!(registry.snapshot().unwrap().workspaces[0], renamed("Fix Login", NameSource::Auto, 1));
+    assert_eq!(
+        registry.snapshot().unwrap().workspaces[0],
+        renamed("Fix Login", NameSource::Auto, 1)
+    );
     commit(&mut registry, "pin", renamed("workspace-151", NameSource::User, 2));
     let pinned = try_commit(&mut registry, "over-user", renamed("Topic", NameSource::Auto, 3));
-    assert_eq!(refusal(&pinned.unwrap_err()), ("operation.failed".to_string(), json!("name_pinned")));
+    assert_eq!(
+        refusal(&pinned.unwrap_err()),
+        ("operation.failed".to_string(), json!("name_pinned"))
+    );
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
