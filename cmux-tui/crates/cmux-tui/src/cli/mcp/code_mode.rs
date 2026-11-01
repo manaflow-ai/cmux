@@ -190,7 +190,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
              workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
              pill); \
-             notification_create {{title, body}}.\n\n\
+             notification_create {{title, body}}.\n\
+             - A video file (a screen recording, an attached .mp4 or .mov): video_frames {{path, \
+             at: [seconds] | range: {{from, to, count}} | scenes: true, maxSide}} answers its \
+             frames as images you see, with each one's time; video_info {{path}} its length, \
+             size, fps and audio. Use these instead of ffmpeg.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
@@ -989,8 +993,9 @@ fn closed() -> Value {
 }
 
 /// Images a script's calls returned that one `cmux_exec` result carries
-/// (a computer use screenshot), and their total base64 bytes.
-const MAX_IMAGES: usize = 8;
+/// (a computer use screenshot, a `video_frames` call's frames), and their
+/// total base64 bytes.
+const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
 
 /// A tool result as a script sees it. A result without structured content

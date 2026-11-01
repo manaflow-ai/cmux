@@ -41,11 +41,11 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
         await page.locator('[data-section="environment"]').waitFor();
         expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(theme);
         expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
-        const save = page.locator('[data-section="environment"] button.acpmux-chat-inspector-link');
+        const save = page.locator('[data-section="environment"] button.acpmux-session-info-link');
         await save.click();
         await page.waitForFunction(() => {
           const button = document.querySelector<HTMLButtonElement>(
-            '[data-section="environment"] button.acpmux-chat-inspector-link',
+            '[data-section="environment"] button.acpmux-session-info-link',
           );
           return button && !button.disabled;
         });
@@ -59,7 +59,7 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
         await save.click();
         await page.waitForFunction(
           () =>
-            document.querySelector('[data-section="environment"] button.acpmux-chat-inspector-link')?.textContent ===
+            document.querySelector('[data-section="environment"] button.acpmux-session-info-link')?.textContent ===
             "Saved",
         );
         expect(await save.isDisabled()).toBe(true);

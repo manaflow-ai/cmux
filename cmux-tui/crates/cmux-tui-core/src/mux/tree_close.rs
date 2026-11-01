@@ -245,6 +245,78 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    /// Remove a staged workspace from memory alone, for a creation whose
+    /// rollback the store refused (a full disk). The store never published
+    /// the workspace, so no client may keep showing it: subscribers get its
+    /// close delta and then a tree resync. The delta keeps the current
+    /// workspace revision (nothing committed), so a client whose delta gate
+    /// drops a delta that does not advance the revision (the app's) re-reads
+    /// the tree on the resync, which no longer has the workspace. The stored
+    /// row goes with the creation's recovery (its receipt stays unsettled)
+    /// or with the next workspace commit, which writes the list from memory.
+    /// Returns whether the workspace was in memory, or the typed reason it
+    /// could not be discarded (memory is then unchanged).
+    pub(crate) fn discard_unpublished_workspace_from_memory(
+        &self,
+        target: WorkspaceId,
+    ) -> Result<bool, DiscardUnpublishedError> {
+        let lifecycle = self.workspace_lifecycle(target);
+        let _workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
+        let notifications = self.tree_decorations();
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let (removed, delta, empty_revision, selection_resync) = {
+            // A poisoned state still holds the staged workspace; the other
+            // locks of this function take the same path.
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+            let Some(index) = state.workspace_index(target) else {
+                return Ok(false);
+            };
+            let previous_active = state.active_pane();
+            let Some(mut delta) = close_workspace_delta(&state, &notifications, target) else {
+                return Err(DiscardUnpublishedError::NoCloseDelta(target));
+            };
+            let was_active = state.active_workspace == index;
+            let active_id =
+                state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);
+            let workspace = state.remove_workspace(index);
+            let mut pane_ids = Vec::new();
+            for screen in &workspace.screens {
+                screen.root.pane_ids(&mut pane_ids);
+            }
+            let mut removed = Vec::new();
+            for pane_id in pane_ids {
+                if let Some(pane) = state.remove_pane(pane_id) {
+                    for surface in pane.tabs {
+                        if let Some(surface) = state.surfaces.remove(&surface) {
+                            removed.push(surface);
+                        }
+                    }
+                }
+            }
+            state.active_workspace = active_id
+                .and_then(|id| state.workspace_index(id))
+                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            stamp_changed_active_pane(self, &mut state, previous_active);
+            Self::rebuild_split_screen_index(&mut state);
+            delta.workspace_revision = Some(state.workspace_revision);
+            let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
+            let selection_resync = was_active && empty_revision.is_none();
+            (removed, delta, empty_revision, selection_resync)
+        };
+        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
+        self.emit(MuxEvent::TreeChanged);
+        drop(registry);
+        for surface in removed {
+            self.purge_surface_side_tables(surface.id);
+            if surface.kind() == SurfaceKind::Browser {
+                surface.kill();
+            }
+        }
+        self.emit_empty_if_current(empty_revision);
+        Ok(true)
+    }
+
     pub fn close_workspace_with_mutation(
         &self,
         target: Option<WorkspaceId>,
@@ -554,3 +626,23 @@ impl Mux {
         Ok(result)
     }
 }
+
+/// Why [`Mux::discard_unpublished_workspace_from_memory`] left memory as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiscardUnpublishedError {
+    /// The workspace is in memory, but its tree entity (and so its close
+    /// delta for subscribers) could not be built.
+    NoCloseDelta(WorkspaceId),
+}
+
+impl fmt::Display for DiscardUnpublishedError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoCloseDelta(workspace) => {
+                write!(formatter, "workspace {workspace:?} has no close delta")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DiscardUnpublishedError {}

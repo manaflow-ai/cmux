@@ -53,6 +53,40 @@ public struct DebugKeySequence: Sendable, Equatable {
             self.ticksPerSecond = ticksPerSecond
         }
 
+        /// The clock for a sequence that starts now: a fresh probe event's own ticks and the seconds AppKit reads
+        /// from it, or, when the probe carries no timestamp (macOS 27, 2026-10-31: every sequence was refused),
+        /// the host's mach ticks now at the timebase's rate (the HID clock event timestamps follow).
+        ///
+        /// - Parameters:
+        ///   - probeTimestamp: A fresh probe event's `timestamp`.
+        ///   - probeSeconds: The seconds AppKit reads from that probe (`NSEvent.timestamp`), nil without one.
+        ///   - hostTicks: `mach_absolute_time()` now.
+        ///   - timebaseNumer: `mach_timebase_info` numerator (nanoseconds per tick, times `timebaseDenom`).
+        ///   - timebaseDenom: `mach_timebase_info` denominator.
+        /// - Returns: The start, or nil when neither clock is usable.
+        public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?, hostTicks: UInt64,
+                                 timebaseNumer: UInt32, timebaseDenom: UInt32) -> Stamp? {
+            if probeTimestamp > 0, let probeSeconds, probeSeconds > 0 {
+                return Stamp(base: probeTimestamp, ticksPerSecond: Double(probeTimestamp) / probeSeconds)
+            }
+            guard hostTicks > 0, timebaseNumer > 0, timebaseDenom > 0 else { return nil }
+            return Stamp(base: hostTicks, ticksPerSecond: 1e9 * Double(timebaseDenom) / Double(timebaseNumer))
+        }
+
+        /// ``start(probeTimestamp:probeSeconds:hostTicks:timebaseNumer:timebaseDenom:)`` with this host's
+        /// mach clock now.
+        ///
+        /// - Parameters:
+        ///   - probeTimestamp: A fresh probe event's `timestamp`.
+        ///   - probeSeconds: The seconds AppKit reads from that probe, nil without one.
+        /// - Returns: The start, or nil when neither clock is usable.
+        public static func start(probeTimestamp: CGEventTimestamp, probeSeconds: Double?) -> Stamp? {
+            var timebase = mach_timebase_info_data_t()
+            mach_timebase_info(&timebase)
+            return start(probeTimestamp: probeTimestamp, probeSeconds: probeSeconds, hostTicks: mach_absolute_time(),
+                         timebaseNumer: timebase.numer, timebaseDenom: timebase.denom)
+        }
+
         /// The event timestamp `offset` after the start.
         ///
         /// - Parameter offset: The time since the sequence's start.

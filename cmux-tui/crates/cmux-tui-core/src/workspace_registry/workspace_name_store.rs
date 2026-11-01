@@ -8,7 +8,7 @@ use serde_json::json;
 
 use super::RegistryWorkspace;
 use crate::resource::ResourceError;
-use crate::resource_name::{NAME_PINNED, NameSource, name_refusal};
+use crate::resource_name::{NAME_PINNED, NameSource, is_default_workspace_name, name_refusal};
 
 /// Additive migration: names written before provenance stay user-owned.
 ///
@@ -116,10 +116,14 @@ pub(crate) fn fence_stored_name(
     if read != stored.revision {
         return Err(ResourceError::revision_conflict(read, stored.revision).into());
     }
+    // A never-renamed `workspace-N` is unnamed whatever source it was stored with (#26680),
+    // as `NameUpdate::apply_workspace` judges it in memory.
+    let unnamed = stored.name.trim().is_empty()
+        || (stored.revision == 0 && is_default_workspace_name(stored.name));
     if desired.name_source == NameSource::Auto
         && !same_name
         && stored.source == NameSource::User
-        && !stored.name.trim().is_empty()
+        && !unnamed
     {
         return Err(name_refusal(
             "workspace.rename",

@@ -5,6 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
+import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
@@ -25,25 +26,10 @@ import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import {
-  ArrowUpIcon,
-  ReturnIcon,
-  AtIcon,
-  BuildIcon,
-  ContextRing,
-  PaperclipIcon,
-  Picker,
-  PlusIcon,
-  SearchIcon,
-  PlanIcon,
-  SlashIcon,
-  StopIcon,
-  type ComposerPermissionAccess,
-} from "./ComposerPickers";
+import { ArrowUpIcon, BuildIcon, ContextRing, PlanIcon, ReturnIcon, StopIcon } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
-import { Icon } from "./icons/Icon";
 import { Spinner } from "./conversation/icons";
 import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import {
@@ -62,6 +48,7 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
   composerCommand,
   harnessTakesToo,
   type CmuxCommand,
@@ -126,12 +113,9 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
-import {
-  composerPlusRegistry,
-  composerPlusSections,
-  runComposerPlusAction,
-  type ComposerPlusExtension,
-} from "./composerPlusRegistry";
+import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
+import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -271,10 +255,7 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
-  chips: React.ComponentType<{
-    snapshot: AcpmuxSnapshot;
-    permissionAccess?: ComposerPermissionAccess;
-  }>;
+  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -308,8 +289,6 @@ type Props = {
   chatKnown?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
-  /// Granted folder trust and chat-wide permission state, rendered inside Access.
-  permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
@@ -423,7 +402,7 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
-  /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
+  /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
 
@@ -449,7 +428,6 @@ export function Composer({
   draft,
   chatKnown = true,
   leading,
-  permissionAccess,
   accessory,
   dictating = false,
   prompt,
@@ -630,10 +608,10 @@ export function Composer({
   // Whether Esc stops a turn on a double press (escapeStop.ts).
   const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
-  // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
-  // Codex keeps its action behavior even though the model moved.
+  // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
+  // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
   const look = useComposerLook();
-  const quietActions = plainFooter && look === "claude";
+  const quietActions = plainFooter;
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -1236,13 +1214,17 @@ export function Composer({
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
   };
+  // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
+  const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
     const next = `/${command.name} ${existing}`;
     pendingCaret.current = next.length;
@@ -1379,9 +1361,10 @@ export function Composer({
               if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
               sentAt.current = Date.now();
             },
-            () => {
+            (reason: unknown) => {
               sending.current = false;
-              setAttachError(t("composer.cmuxUnavailable"));
+              // A command may refuse with its own sentence (`/cd` to a path that is no folder).
+              setAttachError(reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable"));
             },
           );
           return true;
@@ -1403,7 +1386,7 @@ export function Composer({
         return true;
       }
     }
-    // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
+    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
@@ -1812,9 +1795,16 @@ export function Composer({
 
   // Stop was sent and the turn has not ended: Stop turns and says so.
   const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
-  const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt held while the chat's agent starts (harnessSwitch.ts) reads as its turn already
+  // running: Stop is there from the send on and takes the held prompts back to the composer (the
+  // transcript draws no Cancel for them, Leo 2026-11-01), then stops the turn once it runs.
+  const holding =
+    !snapshot.isWorking &&
+    snapshot.switching?.phase === "starting" &&
+    snapshot.rows.some((row) => row.queued !== undefined);
+  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && snapshot.isWorking;
+  const running = !shell && (snapshot.isWorking || holding);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
@@ -2122,9 +2112,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's box draws no Send at rest until there is a draft, the mic alone on the right;
-      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right
-      // edge through a turn. Codex's look keeps Send's ↑ last, after the mic.
+      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
+      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn, in both looks.
       <button
         key="send"
         ref={sendButton}
@@ -2177,8 +2167,8 @@ export function Composer({
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
-      // The box inside draws Claude's compact grid (ComposerBox.tsx, composerLocation.css).
-      data-composer-grid={look === "codex" ? undefined : ""}
+      // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
+      data-composer-grid=""
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -2297,6 +2287,7 @@ export function Composer({
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
+        onPasteFiles={(files) => void attach(files, true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -2345,25 +2336,30 @@ export function Composer({
                     .catch((error: unknown) => setAttachError(error instanceof Error ? error.message : String(error)));
               }}
             />
-            {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
+            {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up.
+                Drawn out of the box's glass, so their own glass frosts the transcript (backdropLayer.tsx). */}
             {open && (
-              <SlashMenu
-                matches={matches}
-                active={selected}
-                empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
-                fast={fastModeState(snapshot.summary?.configOptions)}
-                onHover={setActive}
-                onPick={pick}
-              />
+              <ComposerListLayer>
+                <SlashMenu
+                  matches={matches}
+                  active={selected}
+                  empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                  fast={fastModeState(snapshot.summary?.configOptions)}
+                  onHover={setActive}
+                  onPick={pick}
+                />
+              </ComposerListLayer>
             )}
             {mentionAt && (
-              <MentionMenu
-                state={searchFiles ? mentionSearch : undefined}
-                items={mentions}
-                active={mentionSelected}
-                onHover={(index) => setMentionActive(mentions[index]?.key)}
-                onPick={pickMention}
-              />
+              <ComposerListLayer>
+                <MentionMenu
+                  state={searchFiles ? mentionSearch : undefined}
+                  items={mentions}
+                  active={mentionSelected}
+                  onHover={(index) => setMentionActive(mentions[index]?.key)}
+                  onPick={pickMention}
+                />
+              </ComposerListLayer>
             )}
           </>
         }
@@ -2389,118 +2385,52 @@ export function Composer({
             {leading !== undefined ? (
               leading
             ) : (
-              <Picker
-                label={t(COMPOSER_LABELS.add)}
-                // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
-                tooltip={t("composer.addTooltip")}
-                className="acpmux-composer-plus"
-                button={<PlusIcon />}
-                align="start"
-                returnFocus={false}
-                sections={[
-                  ...composerPlusSections(
-                    composerPlusRegistry({
-                      commands,
-                      translate: t,
-                      extensions: plusExtensions,
-                      canCapture: Boolean(capture && allowImages),
-                      canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                      ...(planChoice && plan
-                        ? {
-                            planMode: {
-                              id: plan.id,
-                              name: planChoice.name,
-                              description: t("picker.planHint"),
-                            },
-                          }
-                        : {}),
-                    }).filter((entry) => {
-                      if (entry.id === "files.search") return Boolean(searchFiles);
-                      if (entry.id === "add.commands") return Boolean(commands?.length);
-                      return true;
-                    }),
-                  ),
-                ].flatMap(([section, entries]) =>
-                  entries.length
-                    ? [
-                        {
-                          title:
-                            section === "add"
-                              ? t(COMPOSER_LABELS.add)
-                              : section === "tools"
-                                ? t("summary.tools.search")
-                                : section === "sessions"
-                                  ? t("sidebar.sessions")
-                                  : section === "tabs"
-                                    ? (t as unknown as (key: string) => string)("newTab.openTabs")
-                                    : t("sidebar.searchPlaceholder"),
-                          choices: entries.map((entry): Choice => ({
-                            id: entry.id,
-                            name: entry.name,
-                            description:
-                              entry.description.trim() && entry.description.trim() !== entry.name.trim()
-                                ? entry.description
-                                : undefined,
-                            icon:
-                              entry.id === "add.files" ? (
-                                <PaperclipIcon />
-                              ) : entry.id === "add.mention" ? (
-                                <AtIcon />
-                              ) : entry.id === "add.commands" ? (
-                                <SlashIcon />
-                              ) : entry.id === "files.search" ? (
-                                <SearchIcon size={18} />
-                              ) : entry.id.startsWith("add.mode.") ? (
-                                planning ? (
-                                  <BuildIcon />
-                                ) : (
-                                  <PlanIcon />
-                                )
-                              ) : (
-                                <Icon name={entry.icon} size={18} />
-                              ),
-                            ...(entry.id === "add.mention" ? { hint: "@" } : {}),
-                            ...(entry.id === "add.commands" ? { hint: "/" } : {}),
-                          })),
-                          onPick: (id: string) => {
-                            const entry = entries.find((row) => row.id === id);
-                            if (!entry) return;
-                            const handled = runComposerPlusAction(entry.action, {
-                              command: (action, modeId) => {
-                                if (action === "composer.attachFiles") chooser.current?.click();
-                                else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
-                                  void capture?.(action === "composer.attachWindow" ? "window" : "screen")
-                                    .then(async (shot) => {
-                                      if (shot instanceof File) await attach([shot]);
-                                      else if (shot) setAttachError(attachmentErrorText(shot, t));
-                                    })
-                                    .finally(() => {
-                                      const focused = document.activeElement;
-                                      if (!focused || focused === document.body || form.current?.contains(focused))
-                                        field.current?.focus();
-                                    });
-                                } else if (action === "composer.chooseProject") openPicker("Location");
-                                else if (action === "composer.planMode" && modeId) togglePlan(modeId);
-                                else if (action === "composer.mention") mention();
-                                else if (action === "searchFiles") setFindingFiles(true);
-                                else if (action === "composer.commands") openCommands();
-                              },
-                              extension: onPlusCommand,
-                              slash: pickFromPlus,
-                            });
-                            return handled ? undefined : "keep";
-                          },
-                        },
-                      ]
-                    : [],
-                )}
+              <ComposerPlusMenu
+                planning={planning}
+                entries={composerPlusRegistry({
+                  commands,
+                  recentCommands: recentCommands(recentCommandNames, commands),
+                  translate: t,
+                  extensions: plusExtensions,
+                  canCapture: Boolean(capture && allowImages),
+                  canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
+                  ...(planChoice && plan
+                    ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
+                    : {}),
+                }).filter((entry) => {
+                  if (entry.id === "files.search") return Boolean(searchFiles);
+                  if (entry.id === "add.commands") return Boolean(commands?.length);
+                  return true;
+                })}
+                onCommand={(action, modeId) => {
+                  if (action === "composer.attachFiles") chooser.current?.click();
+                  else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
+                    void capture?.(action === "composer.attachWindow" ? "window" : "screen")
+                      .then(async (shot) => {
+                        if (shot instanceof File) await attach([shot]);
+                        else if (shot) setAttachError(attachmentErrorText(shot, t));
+                      })
+                      .finally(() => {
+                        const focused = document.activeElement;
+                        if (!focused || focused === document.body || form.current?.contains(focused))
+                          field.current?.focus();
+                      });
+                  } else if (action === "composer.chooseProject") openPicker("Location");
+                  else if (action === "composer.planMode" && modeId) togglePlan(modeId);
+                  else if (action === "composer.mention") mention();
+                  else if (action === "searchFiles") setFindingFiles(true);
+                  else if (action === "composer.commands") openCommands();
+                }}
+                {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
+                onSlash={pickFromPlus}
+                onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}
           </>
         }
         chips={
           <PromptFocus value={focusPrompt}>
-            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            <Chips snapshot={snapshot} />
           </PromptFocus>
         }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
@@ -2549,8 +2479,10 @@ function SlashMenu({
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;

@@ -5,22 +5,33 @@ import Security
 import Testing
 @testable import CmuxNextMobile
 
+/// The guard of the Keychain UI switch these tests share, as the app shares its one (`AppServices`):
+/// the switch is the process's, so two instances overlapping in parallel tests would restore it early.
+nonisolated let testLoginKeychain = LoginKeychain()
+
 /// The Mac's identity key in the Keychain never shows UI. Leo, 2026-10-31, on a rebuilt DEV app:
 /// "cmux DEV cloud-firstsend wants to use your confidential information stored in 'cmux iPhone host
 /// identity' in your keychain."
 @Suite struct MobileHostMacIdentityKeychainTests {
     /// What each Keychain call saw: its query and whether Keychain UI was on during it.
+    // crash-allow: every stored var is private and read or written only inside `lock.withLock`; `lock` and `copyStatus` are immutable lets.
     final class Recorder: @unchecked Sendable {
-        let lock = NSLock()
-        var queries: [[String: Any]] = []
-        var interactionDuringCalls: [Bool] = []
-        var stored: Data?
-        var copyStatus: OSStatus?
+        private let lock = NSLock()
+        private var recordedQueries: [[String: Any]] = []
+        private var recordedInteraction: [Bool] = []
+        private var stored: Data?
+        private let copyStatus: OSStatus?
+
+        /// `copyStatus`, when set, is what every read returns (an item the read is refused).
+        init(copyStatus: OSStatus? = nil) { self.copyStatus = copyStatus }
+
+        var queries: [[String: Any]] { lock.withLock { recordedQueries } }
+        var interactionDuringCalls: [Bool] { lock.withLock { recordedInteraction } }
 
         func record(_ query: [String: Any]) {
             lock.withLock {
-                queries.append(query)
-                interactionDuringCalls.append(LoginKeychain.userInteractionAllowed)
+                recordedQueries.append(query)
+                recordedInteraction.append(LoginKeychain.userInteractionAllowed)
             }
         }
 
@@ -51,8 +62,8 @@ import Testing
     }
 
     @Test func theItemIsThisBundleIDsAlone() {
-        let dev = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.debug.cloud.firstsend", stateDirectory: scratch())
-        let nightly = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.nightly", stateDirectory: scratch())
+        let dev = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.debug.cloud.firstsend", stateDirectory: scratch(), loginKeychain: testLoginKeychain)
+        let nightly = MobileHostMacIdentityStore(bundleID: "com.cmuxterm.app.nightly", stateDirectory: scratch(), loginKeychain: testLoginKeychain)
         #expect(dev.service == "com.cmuxterm.app.debug.cloud.firstsend.iphone-host.identity")
         #expect(nightly.service == "com.cmuxterm.app.nightly.iphone-host.identity")
         let query = MobileHostMacIdentityStore.readQuery(service: dev.service)
@@ -72,7 +83,7 @@ import Testing
         let recorder = Recorder()
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let first = try store.loadOrCreate()
         #expect(try store.loadOrCreate() == first)
         // read (not found), add, read (found)
@@ -85,11 +96,10 @@ import Testing
     /// An item an earlier build signed another way made: the read is refused (no prompt), and the
     /// store keeps a key of its own in the file, the same one every launch.
     @Test func aRefusedItemFallsBackToTheFileWithoutAsking() throws {
-        let recorder = Recorder()
-        recorder.copyStatus = errSecInteractionNotAllowed
+        let recorder = Recorder(copyStatus: errSecInteractionNotAllowed)
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls)
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let first = try store.loadOrCreate()
         #expect(FileManager.default.fileExists(atPath: store.fallbackFile.path))
         #expect(try store.loadOrCreate() == first)

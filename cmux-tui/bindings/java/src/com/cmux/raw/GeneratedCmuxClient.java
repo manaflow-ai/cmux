@@ -248,6 +248,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudEnvironment(CloudEnvironmentRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ENVIRONMENT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudHostReplicaClear(CloudHostReplicaClearRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_HOST_REPLICA_CLEAR, request.toWire());
         return Wire.immutableJson(result);
