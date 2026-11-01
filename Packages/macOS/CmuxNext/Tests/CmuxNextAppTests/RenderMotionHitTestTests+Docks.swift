@@ -64,6 +64,12 @@ extension RenderMotionHitTestTests {
     /// shown) and leaves p1 under the glass. The docked column narrows every strip column and the reducer keeps p2's
     /// left edge with value and target moved together, so the camera stays at rest and the arrival goes to the render
     /// server. The column gap is pinned: the default look has no strip gap, so its glass would be its pane.
+    ///
+    /// What it proves: the OUTCOME (no strip pane takes the press), not `stripPoint`'s overlay-cover rule alone. With
+    /// that rule removed the test still passed on screen minis (2026-11-01, 4f27c26fce7 and 1e5d18677f6), so another
+    /// path also stops the press. Most likely (read, not proven): the fixture has rows on, so each strip host sits in
+    /// its column's row container, and `stripChildHit` skips a clipping row container whose resting frame does not
+    /// hold the point. Keep the test; do not cite it as the only cover of the overlay-cover rule.
     @Test func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
         try await Render.withMotion {
             let fixture = Screen(Self.overlaid, focused: "p3", columnGap: 12)
