@@ -319,3 +319,230 @@ fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
     }
     assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU before it exited");
 }
+
+// DIAGNOSTIC ONLY (scratch branch diag/owner-idle-after-loss-race, never merged).
+fn diag_tree(root: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let meta = fs::symlink_metadata(&path);
+        let kind = match &meta {
+            Ok(m) if m.is_dir() => "d",
+            Ok(m) if m.file_type().is_symlink() => "l",
+            Ok(m) if m.is_file() => "f",
+            Ok(_) => "o",
+            Err(_) => "?",
+        };
+        let len = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        out.push(format!("{kind} {len} {}", path.display()));
+        if kind == "d" {
+            diag_tree(&path, out);
+        }
+    }
+}
+
+fn diag_procs(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(procs) = fs::read_dir("/proc") else { return out };
+    let root = root.to_string_lossy().to_string();
+    for proc_entry in procs.flatten() {
+        let name = proc_entry.file_name().to_string_lossy().to_string();
+        if !name.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let base = proc_entry.path();
+        let comm = fs::read_to_string(base.join("comm")).unwrap_or_default();
+        let cmdline = fs::read(base.join("cmdline")).unwrap_or_default();
+        let cmdline = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+        let cwd =
+            fs::read_link(base.join("cwd")).map(|p| p.display().to_string()).unwrap_or_default();
+        let mut fds = Vec::new();
+        if let Ok(fd_dir) = fs::read_dir(base.join("fd")) {
+            for fd in fd_dir.flatten() {
+                if let Ok(target) = fs::read_link(fd.path()) {
+                    let target = target.display().to_string();
+                    if target.contains(&root) {
+                        fds.push(target);
+                    }
+                }
+            }
+        }
+        if cwd.contains(&root) || !fds.is_empty() || cmdline.contains(&root) {
+            out.push(format!("pid {name} {} cwd={cwd} cmd={cmdline} fds={fds:?}", comm.trim()));
+        }
+    }
+    out
+}
+
+#[test]
+fn diag_owner_writes_after_root_removed() {
+    let mut report = Vec::new();
+    for round in 0..15 {
+        let root = scratch(&format!("diag{round}"));
+        fs::create_dir_all(&root).unwrap();
+        let owner = Owner::ensure(&root, Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &root);
+        let mut client = UnixStream::connect(&owner.socket).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+        let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+            .map_while(Result::ok)
+            .any(|line| line.contains("\"id\":1"));
+        assert!(answered);
+        let start = std::time::Instant::now();
+        if round == 0 {
+            let mut tree = Vec::new();
+            diag_tree(&root, &mut tree);
+            report.push(format!("round 0 tree before removal: {tree:#?}"));
+            report.push(format!("round 0 procs: {:#?}", diag_procs(&root)));
+        }
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            match fs::remove_dir_all(&root) {
+                Ok(()) => break,
+                Err(error) => {
+                    let mut left = Vec::new();
+                    diag_tree(&root, &mut left);
+                    report.push(format!(
+                        "round {round} attempt {attempts} at {:?}: {error}; left: {left:?}",
+                        start.elapsed()
+                    ));
+                    if attempts > 50 {
+                        break;
+                    }
+                }
+            }
+        }
+        // Does anything recreate the removed root while the client is connected?
+        let watch_until = std::time::Instant::now() + Duration::from_secs(2);
+        let mut seen = false;
+        while std::time::Instant::now() < watch_until {
+            if root.exists() && !seen {
+                seen = true;
+                let mut tree = Vec::new();
+                diag_tree(&root, &mut tree);
+                report.push(format!(
+                    "round {round} RECREATED while connected at {:?}: {tree:?}",
+                    start.elapsed()
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(client);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while cpu(owner.pid()).is_some() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        report.push(format!(
+            "round {round}: owner exited={} at {:?}",
+            cpu(owner.pid()).is_none(),
+            start.elapsed()
+        ));
+        std::thread::sleep(Duration::from_secs(1));
+        if root.exists() {
+            let mut tree = Vec::new();
+            diag_tree(&root, &mut tree);
+            report.push(format!("round {round} RECREATED after exit: {tree:?}"));
+        }
+        let procs = diag_procs(&root);
+        if !procs.is_empty() {
+            report.push(format!("round {round} procs after exit: {procs:#?}"));
+        }
+        drop(owner);
+    }
+    panic!("DIAG REPORT\n{}", report.join("\n"));
+}
+
+/// DIAGNOSTIC ONLY: the removed-root scenario 16 at a time, 4 rounds each,
+/// with a CPU hog per core, to see how often the first `remove_dir_all`
+/// meets ENOTEMPTY (base behavior), whether a retry converges (#30484),
+/// what was left, and whether anything recreates the root later.
+#[test]
+fn diag_concurrent_removed_root() {
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(8, |n| n.get());
+    let hogs: Vec<_> = (0..cores)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut x = 0u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                }
+                x
+            })
+        })
+        .collect();
+    let workers: Vec<_> = (0..16)
+        .map(|worker| {
+            std::thread::spawn(move || {
+                let mut lines = Vec::new();
+                for round in 0..4 {
+                    let root = scratch(&format!("cc{worker}-{round}"));
+                    fs::create_dir_all(&root).unwrap();
+                    let owner =
+                        Owner::ensure(&root, Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &root);
+                    let mut client = UnixStream::connect(&owner.socket).unwrap();
+                    client.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+                    client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+                    let _ = std::io::BufRead::lines(std::io::BufReader::new(&client))
+                        .map_while(Result::ok)
+                        .any(|line| line.contains("\"id\":1"));
+                    let started = std::time::Instant::now();
+                    let mut failures = 0;
+                    let mut lefts = Vec::new();
+                    loop {
+                        match fs::remove_dir_all(&root) {
+                            Ok(()) => break,
+                            Err(error) => {
+                                failures += 1;
+                                let mut left = Vec::new();
+                                diag_tree(&root, &mut left);
+                                lefts.push(format!("{error}: {left:?}"));
+                                if started.elapsed() > Duration::from_secs(5) {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                        }
+                    }
+                    let removed_after = started.elapsed();
+                    std::thread::sleep(Duration::from_secs(2));
+                    let recreated_connected = root.exists();
+                    drop(client);
+                    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+                    while cpu(owner.pid()).is_some() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    let exited = cpu(owner.pid()).is_none();
+                    std::thread::sleep(Duration::from_millis(500));
+                    let mut after = Vec::new();
+                    diag_tree(&root, &mut after);
+                    lines.push(format!(
+                        "w{worker} r{round}: first-remove-failures={failures} removed_after={removed_after:?} \
+                         recreated_while_connected={recreated_connected} exited={exited} \
+                         root_exists_after_exit={} after={after:?} lefts={lefts:?}",
+                        root.exists()
+                    ));
+                    drop(owner);
+                }
+                lines
+            })
+        })
+        .collect();
+    let mut report: Vec<String> = workers.into_iter().flat_map(|w| w.join().unwrap()).collect();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for hog in hogs {
+        let _ = hog.join();
+    }
+    let failed = report.iter().filter(|l| !l.contains("first-remove-failures=0 ")).count();
+    let recreated = report
+        .iter()
+        .filter(|l| {
+            l.contains("recreated_while_connected=true")
+                || l.contains("root_exists_after_exit=true")
+        })
+        .count();
+    report.insert(0, format!("SUMMARY runs={} with_enotempty={failed} recreated={recreated}", 64));
+    panic!("DIAG2 REPORT\n{}", report.join("\n"));
+}
