@@ -62,7 +62,14 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             for await event in client.events {
                 switch event {
                 case let .connected(info):
-                    self?.state.withLock { $0.server = info }
+                    // A handshake that finished after a newer session started (or a Stop) is not this
+                    // session's: its server name, status and `onConnected` are dropped.
+                    let current = self?.state.withLock { state -> Bool in
+                        guard state.generation == generation else { return false }
+                        state.server = info
+                        return true
+                    } ?? false
+                    guard current else { continue }
                     self?.setStatus(RemoteViewStatus(path: .compatibility, state: .streaming), generation: generation)
                     onConnected?()
                 case let .disconnected(error):
@@ -80,20 +87,28 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
             for await frame in client.frames {
                 let decoded = RemoteDecodedFrame(pixelBuffer: frame.pixelBuffer, frame: UInt32(truncatingIfNeeded: frame.sequence),
                                                  tCaptureMicros: 0, decodedAtNanos: DispatchTime.now().uptimeNanoseconds)
-                _ = self?.state.withLock { $0.frames }?.yield(decoded)
+                // A late frame of an older session never reaches the pane's stream.
+                _ = self?.state.withLock { $0.generation == generation ? $0.frames : nil }?.yield(decoded)
             }
         }
         state.withLock { $0.pumps = [events, frames] }
         Task { await client.connect() }
     }
 
-    /// Ends the session (Stop, a hidden tab, a closed tab).
+    /// Ends the session (Stop, a hidden tab, a closed tab). The session's generation ends here:
+    /// its pumps stop, and a late frame, handshake or status of it is dropped.
     public func stop() {
-        let client = state.withLock { state -> VNCClient? in
-            defer { state.client = nil }
-            return state.client
+        let stopped = state.withLock { state -> (VNCClient, Int)? in
+            guard let client = state.client else { return nil }
+            state.client = nil
+            for pump in state.pumps { pump.cancel() }
+            state.pumps.removeAll()
+            state.generation += 1
+            return (client, state.generation)
         }
-        guard let client else { return }
+        guard let stopped else { return }
+        setStatus(RemoteViewStatus(path: .compatibility, state: .ended(.stoppedByViewer)), generation: stopped.1)
+        let client = stopped.0
         Task { await client.disconnect() }
     }
 
@@ -165,23 +180,40 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 }
 
 /// Sends the pane's input to the RFB session, in order: one task drains a
-/// queue, so a key up never overtakes its key down.
+/// queue, so a key up never overtakes its key down. Each event is bound to the
+/// session that was current when the pane sent it: after a reconnect, input
+/// still queued for the old session is dropped, never sent to the new one.
 @MainActor
 public final class RemoteVNCInputSink: RemoteViewInputSink {
-    private let queue: AsyncStream<RemoteInputEvent>.Continuation
+    /// An event and the session it was sent to.
+    private nonisolated struct Queued: Sendable {
+        let client: VNCClient?
+        let event: RemoteInputEvent
+    }
+
+    private weak var source: RemoteVNCSource?
+    private let queue: AsyncStream<Queued>.Continuation
     private let drain: Task<Void, Never>
 
     public init(source: RemoteVNCSource) {
+        self.source = source
         // Far more than a live session ever queues (pointer moves at display rate drain as fast
         // as they come). Only a stalled connection fills it: then the oldest events go, so the
         // remote still gets the latest pointer position and the key and button ups that follow.
-        let (stream, queue) = AsyncStream.makeStream(of: RemoteInputEvent.self, bufferingPolicy: .bufferingNewest(1_024))
+        let (stream, queue) = AsyncStream.makeStream(of: Queued.self, bufferingPolicy: .bufferingNewest(1_024))
         self.queue = queue
         drain = Task.detached { [weak source] in
             var scroll = RemoteVNCScroll()
-            for await event in stream {
-                guard let client = source?.client else { continue }
-                await RemoteVNCInput(client: client).apply(event, scroll: &scroll)
+            var scrollClient: VNCClient?
+            for await item in stream {
+                // The bound session only, and only while it is still the current one.
+                guard let client = item.client, source?.client === client else { continue }
+                // A scroll remainder belongs to one session.
+                if scrollClient !== client {
+                    scroll = RemoteVNCScroll()
+                    scrollClient = client
+                }
+                await RemoteVNCInput(client: client).apply(item.event, scroll: &scroll)
             }
         }
     }
@@ -193,7 +225,7 @@ public final class RemoteVNCInputSink: RemoteViewInputSink {
     }
 
     public func send(_ event: RemoteInputEvent) {
-        queue.yield(event)
+        queue.yield(Queued(client: source?.client, event: event))
     }
 }
 

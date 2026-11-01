@@ -122,6 +122,7 @@ import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
+import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -1226,13 +1227,17 @@ export function Composer({
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types.
     if (!value.trim() && sessionId) onTyping?.("", sessionId);
   };
+  // The commands picked last (any chat), for the + menu's few recent rows; read again as + opens.
+  const [recentCommandNames, setRecentCommandNames] = useState(loadRecentCommandNames);
   const pick = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
+    setRecentCommandNames(rememberRecentCommand(command.name));
     const existing = field.current?.value() ?? text;
     const next = `/${command.name} ${existing}`;
     pendingCaret.current = next.length;
@@ -2385,6 +2390,7 @@ export function Composer({
                 planning={planning}
                 entries={composerPlusRegistry({
                   commands,
+                  recentCommands: recentCommands(recentCommandNames, commands),
                   translate: t,
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
@@ -2418,6 +2424,7 @@ export function Composer({
                 }}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
                 onSlash={pickFromPlus}
+                onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}
           </>

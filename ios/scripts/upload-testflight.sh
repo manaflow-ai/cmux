@@ -492,9 +492,9 @@ verify_app_store_ipa_has_no_external_purchase_links() {
     return 1
   fi
 
-  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition' "$app" 2>/dev/null || true)"
+  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition|buy\.stripe\.com' "$app" 2>/dev/null || true)"
   if [[ -n "$matches" ]]; then
-    echo "error: App Store IPA contains an external Founders Edition purchase/enrollment link; refusing to upload" >&2
+    echo "error: App Store IPA contains an external purchase/enrollment link; refusing to upload" >&2
     printf '%s\n' "$matches" >&2
     rm -rf "$workdir"
     return 1
@@ -585,9 +585,8 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the Founder's
-                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
-                            _NAME) and the Pro group
+                            also assigns the processed build to the configured external group
+                            (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME) and the Pro group
                             (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
@@ -1926,7 +1925,7 @@ fi
 
 # --external means "ship to subscribers", not merely "make this build externally
 # eligible in principle". After upload, assign the processed build to the
-# Founder's Edition and Pro beta groups so both audiences receive it, and create
+# Existing external beta groups so both audiences receive it, and create
 # the Beta App Review submission when Apple requires one for a new beta marketing
 # version. This is fatal: a red CI/upload is preferable to claiming the external
 # lane tracked main when either subscriber group missed the build.
@@ -1944,7 +1943,7 @@ if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && 
     EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
   fi
   PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the existing beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
