@@ -69,7 +69,7 @@ extension AgentTabStore {
         var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            supportsNoCwd = ownerLink != nil && (try? await lister.supportsNoCwd()) == true
+            if ownerLink != nil { supportsNoCwd = (try? await lister.supportsNoCwd()) == true }
             if !supportsNoCwd { fallback = try? await lister.folders().work }
             await lister.close()
         }
