@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 789,
-    "mcp": 705
+    "verbs": 791,
+    "mcp": 707
   },
   "nouns": [
     {
@@ -1968,6 +1968,13 @@
           "mcpTool": "app_home_enable_channels"
         },
         {
+          "command": "cmux home hide",
+          "title": "Delete Conversation from List",
+          "id": "home.hideConversation",
+          "mcp": true,
+          "mcpTool": "app_home_hide"
+        },
+        {
           "command": "cmux home invite",
           "title": "Invite to cmux-next…",
           "id": "home.invite",
@@ -2036,6 +2043,13 @@
           "id": "home.sendMessage",
           "mcp": true,
           "mcpTool": "app_home_send"
+        },
+        {
+          "command": "cmux home show-hidden",
+          "title": "Show Hidden Conversations",
+          "id": "home.showHiddenConversations",
+          "mcp": true,
+          "mcpTool": "app_home_show_hidden"
         },
         {
           "command": "cmux home switch-view",

@@ -260,15 +260,74 @@ def process_rows(pids):
     return rows
 
 
+def helper_pids(tag):
+    """This copy's helpers under Contents/Resources/bin/ (acpmux, cmux-browser-host, the cmux-tui daemon, the Chief)."""
+    return pgrep(f"{bundle_root(tag)}.*/Contents/Resources/bin/")
+
+
+def helper_name(command):
+    """The executable under Contents/Resources/bin/ that `command` runs ("acpmux", "cmux-tui"), or ""."""
+    match = re.search(r"/Contents/Resources/bin/([^/\s]+)", command)
+    return match.group(1) if match else ""
+
+
+def helper_args(command):
+    """The words after the helper's executable in `command` (["--headless", ...]), or []."""
+    match = re.search(r"/Contents/Resources/bin/[^/\s]+(.*)$", command)
+    return match.group(1).split() if match else []
+
+
+def kept_role(row, parent, grandparent):
+    """Why a helper may outlive the app's quit (plans/cmux-next/quit-persistence.md, a quit that keeps sessions), or
+    None when it must end soon after the app: the cmux-tui daemon keeps the terminals, its screen-detection plugin ends
+    with it, and the Chief's brain host with its own acpmux outlives the app by design (HomeBrainHost.swift). The app's
+    own acpmux and browser host are not here: idle, they end after the quit (#30090); a turn the bench never starts
+    would keep acpmux."""
+    name, args = helper_name(row["command"]), helper_args(row["command"])
+    up = helper_name(parent["command"]) if parent else ""
+    upper = helper_name(grandparent["command"]) if grandparent else ""
+    # The session owner starts `cmux-tui --headless ...` (cmux-tui local_owner.rs). An SSH or Cloud link
+    # (`cmux-tui remote connect ... --headless --exit-with-parent`) must end with the app: it is not kept.
+    if name == "cmux-tui" and args[:1] == ["--headless"] and "--exit-with-parent" not in args:
+        return "cmux-tui daemon (kept terminals)"
+    if name == "cmux-agent-screen-detection" and up == "cmux-tui":
+        return "screen-detection plugin of the kept cmux-tui daemon"
+    # The brain host is `optchat-chief host ...` (HomeBrainHost.swift); a one-shot command ends by itself.
+    if name == "optchat-chief" and args[:1] == ["host"]:
+        return "Chief brain host"
+    if name == "acpmux" and (up == "optchat-chief" or (up == "acpmux" and upper == "optchat-chief")):
+        return "the Chief's acpmux"
+    return None
+
+
+def watched_pids(tag):
+    """What the linger probe follows: the app and its CEF helpers (Contents/MacOS/) and the bundle's helpers."""
+    return sorted(set(app_pids(tag)) | set(helper_pids(tag)))
+
+
 def watch_linger(tag, quit_at):
-    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers, a bundled
-    daemon), each one's exit time after the quit, and the ones alive past LINGER_LIMIT_S. Waits up to LINGER_WAIT_S;
-    ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
-    first = process_rows(app_pids(tag))
+    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers) or under
+    Contents/Resources/bin/ (acpmux, cmux-browser-host and the other helpers), each one's exit time after the quit, and
+    the ones alive past LINGER_LIMIT_S. A documented survivor (``kept_role``) is listed under `kept` and not waited
+    for. Waits up to LINGER_WAIT_S; ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
+    rows = process_rows(watched_pids(tag))
+    by_pid = {r["pid"]: r for r in rows}
+    missing = sorted({r["ppid"] for r in rows if r["ppid"] not in by_pid})
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    missing = sorted({by_pid[r["ppid"]]["ppid"] for r in rows if r["ppid"] in by_pid} - set(by_pid))
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    first, kept = [], []
+    for row in rows:
+        parent = by_pid.get(row["ppid"])
+        role = kept_role(row, parent, by_pid.get(parent["ppid"]) if parent else None)
+        if role:
+            kept.append({**row, "role": role})
+        else:
+            first.append(row)
     exits, start = {}, {r["pid"]: r for r in first}
     deadline = quit_at + LINGER_WAIT_S
     while True:
-        live = set(app_pids(tag))
+        live = set(watched_pids(tag))
         now = time.monotonic()
         for pid in start:
             if pid not in live and pid not in exits:
@@ -276,13 +335,15 @@ def watch_linger(tag, quit_at):
         if not (live & set(start)) or now >= deadline:
             break
         time.sleep(0.25)  # bench: a process list read, bounded by the deadline
-    still = process_rows(sorted(set(app_pids(tag)) & set(start)))
+    still = process_rows(sorted(set(watched_pids(tag)) & set(start)))
     report = {"at_quit": first, "exit_s": exits, "past_limit": [p for p, s in exits.items() if s > LINGER_LIMIT_S],
-              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still}
+              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still, "kept": kept}
     print("BENCH-LINGER " + json.dumps(report), flush=True)
     for row in still:
         print(f"  LINGER: {row['pid']} ppid {row['ppid']} cpu {row['cpu']} % up {row['etime']}: {row['command']}",
               flush=True)
+    for row in kept:
+        print(f"  KEPT: {row['pid']} ({row['role']}): {row['command']}", flush=True)
     return report
 
 
