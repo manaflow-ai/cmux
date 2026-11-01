@@ -1,0 +1,293 @@
+{
+  "version": 1,
+  "build": "4133598742701",
+  "notes": "notes/4133598742701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31196,
+      "title": "nightly: agent-session-login-v1 is runtime-only in the static capability check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31140,
+      "title": "cmux NEXT sidebar: Workspaces as Tabs, Chrome-Style Groups and Workspaces Side by Side are App Store toggles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31178,
+      "title": "cmux NEXT updater: an install that left the old build running says why, instead of Restart to Update again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31190,
+      "title": "plans(cmux-next): rank the remaining waste (hidden pages, polls, transcript memory, acpmux, animations, GPU layers)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31055,
+      "title": "fix(next): keep incognito Runs and hand-offs right, hide late-flagged ephemeral workspaces from phones",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31116,
+      "title": "test(keys): NumberedShortcutPageTests follows ac2557f40b2's Select Space keys (Ctrl-Opt-Cmd-1…9)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31166,
+      "title": "acpmux transfer: a move that did not happen tells the carried turn it stayed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26600,
+      "title": "Fixes #26046",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31182,
+      "title": "base red: arch app_lines, move HandshakeFollower to CmuxNextCloud (#31147, #31145)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31160,
+      "title": "base red: Session Info's six-dot geometry test counts Usage in the top block",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31106,
+      "title": "Cloud start: a copy of a folder this Mac trusts is trusted on the machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31186,
+      "title": "Cloud no-folder starts use fresh chat folders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22953,
+      "title": "perf(control): Search Tabs closed facts look up workspaces in one index per publish",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31139,
+      "title": "cmux NEXT sidebar cards: a denser dark veil so the cards read over a custom background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30055,
+      "title": "base red: release-config test builds compile UiLayerPreviewTests",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31176,
+      "title": "Session Info scoped to a subagent holds its rows while the reader scrolls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31162,
+      "title": "base red: shorten the stale folder reply's fixture delay so its gallery state is ready within budget",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31159,
+      "title": "base red: new-tab-headline-place Compare arms expects the machine in the headline (#31125)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30985,
+      "title": "test(sidebar): the hover card gallery count includes #30439's running-work cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31135,
+      "title": "test(gallery): neutral machine name in the project chooser fixture (base red from #31108)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31020,
+      "title": "Chief: subagent routing is off by default; spawn takes a model; chief engine set controls routing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30965,
+      "title": "fix(daemon,app): a terminal-starting workspace.create ends on the daemon's answer; an incognito window at the bound opens its page or says why",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31141,
+      "title": "fix(passwords): search folds the Turkish dotted capital I",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31147,
+      "title": "Cloud: a new chat names agent_login from its first turn (#30894)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31165,
+      "title": "Swift Linux packages: CmuxAgentCursor via the cmux-cua#80 Linux gates, patched at the pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31150,
+      "title": "base red: panic ratchet, #30214's login finish builds its body without an index write",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31136,
+      "title": "fix(passwords): a start that failed while the link was down finishes when the link returns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31155,
+      "title": "fix(windows): a window closed during launch stays closed when the restore's workspace is reported late",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31168,
+      "title": "Swift on Linux: generated inventory of every target and test suite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31156,
+      "title": "cmux NEXT: the Feed's notices show in the main Chief's chat, for you only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31153,
+      "title": "base red: web-lint check:fixed-waits, #31066's held-prompt test says why it outwaits one request turn",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31146,
+      "title": "base red: crash ratchet, #30982's host-close locks recover a poisoned lock instead of unwrap",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31068,
+      "title": "fix(stash): Save and Close Tab is disabled in the palette and the tab menu alike, with the run's reason",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31069,
+      "title": "fix(sidebar): Cmd-N's row stays at its slot while its placement's own rows pass runs",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31066,
+      "title": "Agent pane: a guest's held prompt in the pane's model (carries #26862)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31145,
+      "title": "Cloud: update outdated machines before opening chat tabs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30400,
+      "title": "Transcript: more room around notes between tool calls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31133,
+      "title": "cloud: derive trigger identity from trusted scope",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29777,
+      "title": "fix(agent-pane): show workflow progress in tray and inspector (carry of #27886)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31138,
+      "title": "ci: use the reconciled runner pool for fast gates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30214,
+      "title": "cmux NEXT Cloud: a failed sign-in offers Sign in to Claude/Codex on the user's own machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30990,
+      "title": "cmux-next tests: run the copied-nc acpmux socket-peer tests only where the copy listens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30992,
+      "title": "cmux-next tests: MarkdownLiveShareTests waits up to 60 s for the reload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31124,
+      "title": "webviews test: model-sticks picks the row by its name, not its middle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31130,
+      "title": "base red: transcript-spacing play expects the footer's centring drop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31131,
+      "title": "fix(editor): a second Cmd-S during format on save no longer writes beside the first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31142,
+      "title": "Allow dialog: short key fingerprint beside the phone name",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
