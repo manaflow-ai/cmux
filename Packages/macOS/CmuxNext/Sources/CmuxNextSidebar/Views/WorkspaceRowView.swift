@@ -34,8 +34,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
-    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
-    /// color, small, before the title; hidden while the sidebar lists one machine.
+    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in one neutral
+    /// colour, a status mark's size, in the trailing column; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
     internal(set) var machine: SidebarMachineMark?
     /// The side `machineMark`'s image was drawn at.
@@ -330,7 +330,7 @@ final class WorkspaceRowView: SidebarRowView {
         let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
         // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
-        let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
+        let machineSize = SidebarStyle.statusGlyphSize // drawn at its box's size, as the status marks beside it
         if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
             machineMarkSize = machineSize
             machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }

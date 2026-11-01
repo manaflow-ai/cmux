@@ -13,9 +13,13 @@ use super::wire::{
     parse_bind_file,
 };
 
-/// One JSON POST: `(status, body)`, or a transport error.
+/// JSON HTTP operations: `(status, body)`, or a transport error.
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
+    /// Optional for POST-only test transports; production implements both methods.
+    fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
+        Err("GET is not supported by this transport".to_owned())
+    }
 }
 
 /// The agent's files (atomic writes with a mode).
@@ -337,6 +341,28 @@ impl<H: Http> CloudClient<H> {
     /// handling as [`CloudClient::op`] (the trajectory routes, `trajectory.rs`).
     pub fn post_json(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
         self.post_with_token(path, body, now_wall_ms)
+    }
+
+    /// A connector read against the environment's platform, authenticated as
+    /// this machine. Neither origin nor team is taken from the socket caller.
+    fn github_repos_get(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+        let url = format!("{}{}", self.bound.env.platform_origin(), path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.get(&url, Some(&token)).ok()
+        };
+        let Some((mut status, mut body)) = send(self) else { return Answer::Transport };
+        if status == 401 {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, body) = again;
+        }
+        Answer::Http { status, body }
+    }
+
+    pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
+        let team = self.bound.team.clone();
+        super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
     }
 
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`

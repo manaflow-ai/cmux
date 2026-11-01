@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: a workspace row's machine mark sits in the trailing status column, a status mark's size, one neutral
+  colour (#29833, fixing #22763's placement). Leo: "WHY ARE THE CLOUD ICONS LIKE THIS ON THE
+  LEFT WHO DID THIS" / "I HATE HOW SMALL THEY ARE, I HATE THAT THEY'RE ON THE LEFT, I HATE THAT THEY'RE ON THE
+  BOTTOM". The mark (Cloud, ssh and local alike) no longer sits before the title: it takes a
+  `statusGlyphSize` box (`statusGlyphFrame`) on the row's centre line, right to left after the muted bell and before
+  the warning triangle, or the column itself on a row with no status (`layoutColumnMark`). Tint is
+  `Palette.textTertiary`, never `MachineColor`. It gives way to the hover controls as the other marks do. The machine's
+  name in the row label and the show/hide rules are unchanged. Regression: `SidebarMachineMarkTests`.
 - 2026-11-01: the workspace hover preview shows a cloud icon and "Cloud" for Cloud, a globe and
   host name for remote, and no location label for local. It stays visible without opening details;
   expanding details does not duplicate it. Row marks and Session Info are unchanged. Leo: "oh this
@@ -918,3 +926,20 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 Leo: "what do you feel about this placeholder situation? idk doesn't that plceholder text seem a bit wack?"
 
 An empty group now keeps only its header at rest. The header's existing + appears on hover or keyboard focus, and New Workspace in Group remains available through accessibility and the group menu. A workspace dragged into the empty group highlights its header; no permanent "No workspaces · drag one here" row is projected by either full layout or fast fold. This replaces the placeholder and always-visible row + from 0105692a41d / user 17912; creation and drop capabilities remain. `SidebarEmptyGroupTests` and `SidebarEmptyGroupAddButtonTests` cover layout, folding, drop targeting and creation. `SidebarEmptyGroupGalleryTests` compares the old placeholder, the chosen header-only design, and a permanent header +, each at rest, hover and drop in light/dark at 2x. Chosen: header-only, because it keeps group names easy to scan and reveals the action when needed. Design spec: leo-workspace `design/sidebar.md`.
+## Search-aligned trailing controls and the single-space slot (2026-11-01)
+
+- 2026-11-01: unread dots and the row's end hover action share the footer Search center, including the
+  legacy count-and-status badge style and idle rows with counts. Leo: "imo it's just a bit nicer if we could
+  figure out how to make this more aligned with teh search... even tho claude isn't even aligned.. idk what we
+  should do". A lone space keeps its dot visible; when the footer has only one slot, hovering replaces the dot
+  with the reachable + without moving the slot. Leo: "but more than that, we need for when there's only the
+  existing space for the white dot at the bottom to be visible and for the plus sign to be acceessible (tho im
+  not entirel ysure if we want the dot to be shown. at least when you're in that area,  the plus should show.
+  idk if the p lus should show by default too? maybe? maybe not)". Four gallery variants compare dot always /
+  hover-only with + hover-only / always; the default keeps the dot at rest and + on hover. Multiple-space
+  navigation, explicit showSpaces/noFade settings and the simultaneous controls' slots to the left remain.
+  The lone-space visibility change applies to the bottom bar; the top placement still requires multiple spaces.
+  Counts and PR text covered by hover actions fade while those actions show. Tree folds and chips stay
+  visible and clickable left of the end action, with overflow on the next free shared slot.
+  Regression: SidebarSearchColumnTests and ProfileBarPlusPlacementTests. Builds on #27954 (bb5fb9695d26)
+  and its inset-contract repair (9a79771762c4); it does not change row insets or sidebar widths.
