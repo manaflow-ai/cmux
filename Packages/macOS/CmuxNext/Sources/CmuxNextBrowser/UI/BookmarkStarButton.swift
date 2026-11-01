@@ -27,11 +27,18 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
+            applyImage()
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             setAccessibilityLabel(label)
             needsDisplay = true
         }
+    }
+
+    /// Re-applies the star's size when the density or `browser.omnibar.*` sizes change.
+    private let density = DensityBinding()
+
+    private func applyImage(size: CGFloat = OmnibarStyle.trailingIconSize) {
+        image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: size)
     }
 
     override init(frame: NSRect) {
@@ -44,8 +51,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         image.imageScaling = .scaleNone
         addSubview(image)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            heightAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
+            // The trailing icon with 1 pt around it: 20 pt at Standard.
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.trailingIconSize + 2 },
             image.centerXAnchor.constraint(equalTo: centerXAnchor),
             image.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -53,6 +61,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
         hover = PointerHover(self) { [weak self] _ in self?.paintFill(animated: true) }
+        density.update { [weak self] in
+            guard let self else { return }
+            // Read the size even while hidden, so the loop keeps following it.
+            let size = OmnibarStyle.trailingIconSize
+            if state != .hidden { applyImage(size: size) }
+        }
+        density.start()
     }
 
     @available(*, unavailable)

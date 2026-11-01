@@ -5,6 +5,8 @@ import { base64 } from "./attachments";
 import { translate } from "./i18n";
 
 export type UploadResult = { paths: string[] } | { error: string } | undefined;
+/// How much of file `index` of an upload reached the host, 0 to 1 (its tile's progress ring).
+export type UploadProgressReport = (index: number, done: number) => void;
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
@@ -88,6 +90,7 @@ export async function uploadToMachine(
   files: File[],
   host: Call,
   cancelled: (index: number) => boolean = () => false,
+  progress?: UploadProgressReport,
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -134,6 +137,7 @@ export async function uploadToMachine(
         const answer = object(await call("chat.upload.chunk", { token, offset, data: await blobBase64(slice) }));
         if (answer.offset !== end) throw new Error(translate("upload.notCompleted"));
         offset = end;
+        progress?.(index, end / file.size);
       }
       if (cancelled(index)) throw CANCELLED;
       const [path, extra] = uploadedPaths(await call("chat.upload.finish", { token }));

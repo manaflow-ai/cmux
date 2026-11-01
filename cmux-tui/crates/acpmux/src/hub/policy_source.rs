@@ -161,6 +161,9 @@ impl Hub {
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
         self.follow_policy(session).await;
+        if policy == PermissionPolicy::ApproveAll {
+            self.approve_pending_tools(session).await;
+        }
     }
 
     /// Whether this machine's daemon could have given vmHost's approve-all (module docs): never

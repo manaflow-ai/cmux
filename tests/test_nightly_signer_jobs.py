@@ -130,8 +130,17 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 if name in SECRET_JOBS:
                     self.assertEqual(job["environment"], "${{ needs.decide.outputs.environment }}")
-                    self.assertIn("ubuntu", job["runs-on"])
-                    self.assertNotIn("macos", job["runs-on"])
+                    if name == "signer-dmg":
+                        # The DMG release signer is trusted on a drained owned Mac first;
+                        # the moving Blacksmith macOS picker is its overflow. It deliberately
+                        # stays off fleet Linux because it receives release credentials.
+                        self.assertIn("needs.pick-nightly-sign-runner.outputs.sign_owned", job["runs-on"])
+                        self.assertIn("needs.pick-nightly-sign-runner.outputs.runner", job["runs-on"])
+                        self.assertIn("blacksmith-6vcpu-macos-26", job["runs-on"])
+                        self.assertNotIn("ubuntu", job["runs-on"])
+                    else:
+                        self.assertIn("ubuntu", job["runs-on"])
+                        self.assertNotIn("macos", job["runs-on"])
                     self.assertNotIn("secrets.", yaml.safe_dump(job.get("env") or {}))
                 else:
                     self.assertNotIn("environment", job)
@@ -146,12 +155,19 @@ class Wiring(unittest.TestCase):
         for name in SECRET_JOBS:
             install = next(s for s in JOBS[name]["steps"] if s.get("name") == "Install the signer")
             self.assertIn("release-signer/install.sh", install["run"])
-            self.assertEqual(install["env"]["SIGNER_SHA256"], "${{ needs.signer-build.outputs.sha256 }}")
+            expected = "${{ needs.signer-build-macos.outputs.sha256 }}" if name == "signer-dmg" else "${{ needs.signer-build.outputs.sha256 }}"
+            self.assertEqual(install["env"]["SIGNER_SHA256"], expected)
         # A rerun of failed jobs reads the signer by the name its build attempt gave it.
         self.assertEqual(JOBS["signer-build"]["outputs"]["artifact"], "nightly-signer-${{ github.run_attempt }}")
         text = yaml.safe_dump({k: JOBS[k] for k in SIGNER_JOBS[1:]})
         self.assertNotIn("nightly-signer-${{ github.run_attempt }}", text)
         self.assertIn("name: ${{ needs.signer-build.outputs.artifact }}", text)
+
+    def test_native_signer_build_has_the_same_arm64_gate_as_the_linux_signer(self):
+        self.assertEqual(JOBS["signer-build-macos"]["if"], JOBS["signer-build"]["if"])
+        self.assertEqual(JOBS["signer-build-macos"]["outputs"]["artifact"], "nightly-signer-macos-${{ github.run_attempt }}")
+        install = next(s for s in JOBS["signer-dmg"]["steps"] if s.get("name") == "Install the signer")
+        self.assertEqual(install["env"]["SIGNER_SHA256"], "${{ needs.signer-build-macos.outputs.sha256 }}")
 
     def test_the_mac_jobs_run_every_apple_check_including_the_copied_helper(self):
         checks = (ROOT / "scripts/ci/nightly-steps/signer-apple-checks.sh").read_text()
@@ -234,12 +250,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(app_upload["with"]["compression-level"], 6)
         # verify-signed-nightly's checks, by the commands it runs.
         script = (ROOT / "scripts/ci/nightly-steps/signer-verify-signed.sh").read_text()
-        for command in ("./scripts/cmux-next/check-version-surfaces.sh", "./scripts/verify-diff-sidecar-artifact.sh",
+        for command in ("./scripts/cmux-next/check-version-surfaces.sh", "./scripts/cmux-next/check-bundled-cli-commands.sh",
+                        "./scripts/verify-diff-sidecar-artifact.sh",
                         "--require-signed", "REQUIRE_HELPER_TICKET=true bash scripts/ci/nightly-steps/verify-signed-app-checks.sh",
                         "./tests/test_bundled_ghostty_theme_picker_helper.sh", "scripts/verify_remote_daemon_release.py"):
             self.assertIn(command, script)
         verify_text = yaml.safe_dump(JOBS["verify-signed-nightly"], width=1000)
-        for command in ("check-version-surfaces.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
+        for command in ("check-version-surfaces.sh", "check-bundled-cli-commands.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
                         "test_bundled_ghostty_theme_picker_helper.sh", "verify_remote_daemon_release.py"):
             self.assertIn(command, verify_text)
         self.assertFalse([s for s in JOBS["signer-dmg"]["steps"] if "signed-app-handoff" in yaml.safe_dump(s)])
@@ -389,7 +406,8 @@ class SignerVerifySigned(unittest.TestCase):
     background and hands back their status; the build tree's scripts are stubs here."""
 
     SCRIPT = ROOT / "scripts/ci/nightly-steps/signer-verify-signed.sh"
-    STUBS = ("scripts/cmux-next/check-version-surfaces.sh", "scripts/verify-diff-sidecar-artifact.sh",
+    STUBS = ("scripts/cmux-next/check-version-surfaces.sh", "scripts/cmux-next/check-bundled-cli-commands.sh",
+             "scripts/verify-diff-sidecar-artifact.sh",
              "scripts/ci/nightly-steps/verify-signed-app-checks.sh", "tests/test_bundled_ghostty_theme_picker_helper.sh")
 
     def setUp(self):
@@ -414,7 +432,8 @@ class SignerVerifySigned(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "ditto").write_text('#!/bin/sh\nexec cp -a "$1" "$2"\n')
         (bin_dir / "lipo").write_text('#!/bin/sh\necho arm64\n')
-        for tool in ("ditto", "lipo"):
+        (bin_dir / "uname").write_text('#!/bin/sh\necho arm64\n')
+        for tool in ("ditto", "lipo", "uname"):
             (bin_dir / tool).chmod(0o755)
         (self.tmp / "runner").mkdir()
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ.get('PATH', '')}", RUNNER_TEMP=str(self.tmp / "runner"),
@@ -434,13 +453,14 @@ class SignerVerifySigned(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         calls = self.calls()
         self.assertEqual([c.split("|")[0] for c in calls],
-                         ["check-version-surfaces.sh", "verify-diff-sidecar-artifact.sh", "verify-signed-app-checks.sh",
-                          "test_bundled_ghostty_theme_picker_helper.sh", "daemon"])
+                         ["check-version-surfaces.sh", "check-bundled-cli-commands.sh", "verify-diff-sidecar-artifact.sh",
+                          "verify-signed-app-checks.sh", "test_bundled_ghostty_theme_picker_helper.sh", "daemon"])
         copy = str(self.tmp / "runner" / "signer-verify-signed" / "snapshot" / "cmux NEXT.app")
-        self.assertIn(f"|{copy}|", calls[2])
-        self.assertTrue(calls[2].startswith("verify-signed-app-checks.sh|true|"))
-        self.assertIn(f"{copy}/Contents/Resources/bin/cmux-diff-sidecar --archs arm64 --require-signed", calls[1])
-        self.assertEqual(calls[4], f"daemon|--manifest remote-daemon-assets/cmuxd-remote-manifest-77.json "
+        self.assertTrue(calls[1].endswith(f"|{copy}"), calls[1])
+        self.assertIn(f"|{copy}|", calls[3])
+        self.assertTrue(calls[3].startswith("verify-signed-app-checks.sh|true|"))
+        self.assertIn(f"{copy}/Contents/Resources/bin/cmux-diff-sidecar --archs arm64 --require-signed", calls[2])
+        self.assertEqual(calls[5], f"daemon|--manifest remote-daemon-assets/cmuxd-remote-manifest-77.json "
                                    f"--assets-dir remote-daemon-assets --app {copy}")
         # Nothing a check wrote reached the app the DMG is built from, and the copy is gone.
         self.assertEqual(sorted(p.name for p in self.app.iterdir()), ["Contents"])
@@ -457,7 +477,7 @@ class SignerVerifySigned(unittest.TestCase):
         done = self.run_step("finish")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("Verify signed diff sidecar protocol contract: FAILED", done.stdout)
-        self.assertEqual(len(self.calls()), 5)
+        self.assertEqual(len(self.calls()), 6)
 
     def test_finish_without_start_fails(self):
         self.assertNotEqual(self.run_step("finish").returncode, 0)

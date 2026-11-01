@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextHome
 @testable import MessagesLabSidebar
+import CmuxNextTestSupport
 import Testing
 import UniformTypeIdentifiers
 
@@ -9,6 +10,7 @@ import UniformTypeIdentifiers
 /// stacked in `.build/home-narrow-sidebar.png` (a fleet step returns it with `--artifact`). It
 /// checks only that each drew; the picture is for people. `HomeNarrowSidebarTests` checks the layout.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeNarrowSidebarCaptureTests {
     func render(listWidth: CGFloat) throws -> CGImage? {
         _ = NSApplication.shared

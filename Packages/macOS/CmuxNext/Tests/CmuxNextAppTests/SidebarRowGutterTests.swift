@@ -59,7 +59,7 @@ import Testing
     /// where its last trailing mark ends (the title's end in a row with no mark), and where that
     /// mark is centered (nil with no mark).
     private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat, lastMidX: CGFloat?) {
-        let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
+        let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots] as [NSView]
         guard let last = marks.filter({ !$0.isHidden && $0.frame.width > 0 }).max(by: { $0.frame.maxX < $1.frame.maxX }) else {
             return (row.icon.frame.minX, row.bounds.width - row.title.frame.maxX, nil)
         }

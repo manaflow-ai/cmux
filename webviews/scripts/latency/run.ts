@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, type BrowserType, type CDPSession, type Page } from "playwright";
+import { launchSelectedEngines, type EngineCoverage, type EngineLaunchFailure } from "./engine-selection";
 import { PAGES } from "../../test/latency/actions";
 import {
   BUDGET_120HZ,
@@ -114,6 +115,34 @@ async function closeServer(server: ChildProcess) {
 /** A terminal colour escape (ESC [ ... m), as a server banner may wrap its port in one. */
 const SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
+export function waitForServerReady(server: ChildProcess, port: number, timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      server.stdout!.off("data", ready);
+      server.stderr!.off("data", ready);
+      server.off("error", failed);
+      server.off("exit", exited);
+      if (error) reject(error);
+      else resolve();
+    };
+    const ready = (chunk: Buffer) => {
+      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
+      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
+      output = `${output}${String(chunk)}`.slice(-4096);
+      if (output.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) finish();
+    };
+    const failed = (error: Error) => finish(error);
+    const exited = (code: number | null) => finish(new Error(`server exited ${code}`));
+    const timer = setTimeout(() => finish(new Error("server startup timed out")), timeoutMs);
+    server.stdout!.on("data", ready);
+    server.stderr!.on("data", ready);
+    server.once("error", failed);
+    server.once("exit", exited);
+  });
+}
+
 async function startServer(dev: boolean) {
   const port = await freePort();
   const vp = path.join(webviews, "node_modules/.bin/vp");
@@ -140,29 +169,7 @@ async function startServer(dev: boolean) {
       [dev ? "dev" : "preview", "--config", "vite.config.latency.ts", "--port", String(port), "--strictPort"],
       { cwd: webviews, env, stdio: ["ignore", "pipe", "pipe"] },
     );
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("server startup timed out")), 30_000);
-      // The banner may color the port ("127.0.0.1:" ESC[1m port ESC[22m) and arrive split across
-      // chunks: match the output so far (its last 4 KB) with SGR escapes dropped, or startup times out.
-      let banner = "";
-      const ready = (chunk: Buffer) => {
-        banner = (banner + String(chunk)).slice(-4096);
-        if (banner.replaceAll(SGR, "").includes(`127.0.0.1:${port}`)) {
-          clearTimeout(timer);
-          resolve();
-        }
-      };
-      server!.stdout!.on("data", ready);
-      server!.stderr!.on("data", ready);
-      server!.once("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      server!.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(new Error(`server exited ${code}`));
-      });
-    });
+    await waitForServerReady(server, port);
     return { base: `http://127.0.0.1:${port}`, close };
   } catch (error) {
     await close();
@@ -257,6 +264,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     return 0;
   }
   const engines = ENGINES.filter(([name]) => !options.engineFilter || name === options.engineFilter);
+  const selectedEngines = engines.map(([name]) => name);
   const specs = PAGES.filter(
     (spec) => !options.pageFilter || spec.name.includes(options.pageFilter) || spec.path.includes(options.pageFilter),
   ).map((spec) => ({
@@ -268,6 +276,8 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   );
   const results: ActionResult[] = [];
   const errors: string[] = [];
+  const engineFailures: EngineLaunchFailure[] = [];
+  const measuredEngines: string[] = [];
   const source = {
     repository: git("config", "--get", "remote.origin.url"),
     head: git("rev-parse", "HEAD"),
@@ -292,7 +302,13 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const server = await startServer(options.dev);
   try {
     for (const [engineName, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
+      // A missing browser must be recorded as an incomplete sweep while the other
+      // selected engine continues and contributes its evidence.
+      const selection = await launchSelectedEngines([engineName], () => engine.launch({ headless: true }));
+      engineFailures.push(...selection.failures);
+      const browser = selection.launched[0]?.value;
+      if (!browser) continue;
+      measuredEngines.push(engineName);
       source.browsers.push({ engine: engineName, version: browser.version() });
       try {
         for (const spec of specs) {
@@ -350,6 +366,15 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     await server.close();
   }
   errors.push(...evidenceErrors(results, expectedCases, options.required));
+  const coverage: EngineCoverage = {
+    expectedEngines: selectedEngines,
+    measuredEngines,
+    expectedCount: selectedEngines.length,
+    measuredCount: measuredEngines.length,
+    complete: engineFailures.length === 0 && measuredEngines.length === selectedEngines.length,
+  };
+  for (const failure of engineFailures)
+    errors.push(`engine launch failure (${failure.stage}): ${failure.engine}: ${failure.error}`);
   if (git("rev-parse", "HEAD") !== source.head) errors.push("source head changed during measurement");
   const report = {
     schemaVersion: 1,
@@ -359,12 +384,16 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     cpuThrottle: options.cpuThrottle,
     budget60: BUDGET_60HZ,
     budget120: BUDGET_120HZ,
+    coverage,
+    engineFailures,
     results,
     errors,
   };
   if (options.jsonOut) fs.writeFileSync(options.jsonOut, `${JSON.stringify(report, null, 2)}\n`);
   const summary = [
     "## Web UI latency (ms)",
+    "",
+    `Engine coverage: ${coverage.measuredCount}/${coverage.expectedCount} (${coverage.measuredEngines.join(", ") || "none"} of ${coverage.expectedEngines.join(", ")}) — ${coverage.complete ? "complete" : "INCOMPLETE"}.`,
     "",
     "| case | metric | p50 | p95 | max |",
     "| --- | --- | ---: | ---: | ---: |",

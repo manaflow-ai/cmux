@@ -12,6 +12,29 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
+
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `8444cc1eb`): the pin `9ce9b7d08` plus only fork PR #66
+  (`fix-formatter-blank-carry`) and the release workflow change of fork PR #67. GhosttyNextKit
+  `xcframework-8444cc1eb8436b090fdccbdb2369e9c3816f9f26-apple-v6`.
+- Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
+  `cursorScrollAbove` with a bottom margin, `insertLines` and `deleteLines` with a full-width region move the rows
+  inside the region and keep the rows outside it. The row above the region kept `wrap` and the row below it kept
+  `wrap_continuation` while their neighbour inside was replaced. `Screen.breakWrapAbove` now clears both flags of the
+  pair (and a spacer head) at each edge after the scroll. At a bottom margin the cursor row moves up with its `wrap`:
+  a linefeed or SU first resets it (`cursorResetWrap`, red `93b615013`, fix `934f29984`); printWrap's index keeps its
+  wrap, which goes into the row the scroll makes. Left/right margin scrolls keep their old behavior.
+- Defense (`19ab1cbcb` red test, `406763ee6` fix): with `unwrap`, `PageFormatter` carried a row's trailing blank
+  cells into a `wrap_continuation` row even after it had emitted a line break, so a stale flag moved that row right.
+  Blank cells now reset when a line break goes out before the row (`broke_before`).
+- Why: cmux VT fuzz finding E2. After DECSTBM 3;10 and a soft wrap at the region bottom, the attach replay drew the
+  row under the region 43 or 163 columns to the right.
+- Conflict notes: keep the `breakWrapAbove` calls after each scroll's row moves (not before; the flags move with the
+  rows), and only for full-width regions. Keep `indexOpts(true)` in printWrap and `breakWrapAtBottomMargin` before the
+  scroll in index and scrollUp. In the formatter, keep `broke_before` read before the pending blank rows
+  are flushed (`blank_rows = 0`), and keep it in the `blank_cells = 0` condition next to `wrap_continuation`.
+- When cmux moves to fork `main`, take #66 from `main` (after it merges there); this release branch is then obsolete.
+
 ### Offscreen embedded platform behind `-Dembedded-offscreen`
 
 - Branch: `cmux-offscreen-platform`
