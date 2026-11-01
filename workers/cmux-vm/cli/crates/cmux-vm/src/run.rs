@@ -29,6 +29,7 @@
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -51,6 +52,11 @@ const MAX_TIMEOUT_SECONDS: u64 = 604_800;
 const CHUNK_BYTES: usize = 1_000_000;
 /// The largest archive `--sync` uploads.
 const MAX_SYNC_BYTES: u64 = 64 * 1024 * 1024;
+/// The most a `--sync` archive may unpack to on the guest, which extracts it
+/// with no limit of its own: 16 times the upload cap, past what source code
+/// compresses by (text gzips about 4 to 8 times), so only a tree of
+/// near-empty or sparse files (a large file of zeros) is refused.
+const MAX_SYNC_UNPACKED_BYTES: u64 = 16 * MAX_SYNC_BYTES;
 /// The largest archive `--pull` downloads, and the most it may unpack to: the
 /// guest reports both sizes, so neither is trusted past these.
 const MAX_PULL_BYTES: u64 = 256 * 1024 * 1024;
@@ -233,6 +239,9 @@ pub async fn run(
         }
     };
     note(stderr, &format!("vm {vm_id} created"));
+    // Set once an archive may be on the guest, so every exit path below
+    // (a failure or an interrupt included) removes it.
+    let staged = AtomicBool::new(false);
     // From here every exit path ends the VM: a boot failure or timeout too.
     let outcome = if interrupted {
         Ok(Outcome::Interrupted)
@@ -240,13 +249,16 @@ pub async fn run(
         tokio::select! {
             result = async {
                 wait_running(client, &vm_id).await?;
-                work(client, &vm_id, &args, archive.as_deref(), &command, &local, stdout, stderr).await
+                work(client, &vm_id, &args, archive.as_deref(), &command, &local, &staged, stdout, stderr).await
             } => result,
             () = &mut signal => Ok(Outcome::Interrupted),
         }
     };
     if matches!(outcome, Ok(Outcome::Interrupted)) {
         note(stderr, "interrupted");
+    }
+    if staged.load(Ordering::SeqCst) {
+        remove_archives(client, &vm_id, args.keep, stderr).await;
     }
     let ended = finish(client, &vm_id, args.keep).await;
     let p = crate::error::program();
@@ -484,9 +496,13 @@ async fn work(
     archive: Option<&[u8]>,
     command: &str,
     local: &Path,
+    staged: &AtomicBool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<Outcome, CliError> {
+    if archive.is_some() {
+        staged.store(true, Ordering::SeqCst);
+    }
     let workdir = prepare(client, vm_id, archive).await?;
     let launch = format!(
         "set -e; rm -rf {RUN_DIR}; mkdir -p {RUN_DIR}; cd {}; \
@@ -505,7 +521,8 @@ async fn work(
     .await?;
     let outcome = follow(client, vm_id, args.timeout, stdout, stderr).await?;
     if !args.pull.is_empty() && !matches!(outcome, Outcome::Interrupted) {
-        pull(client, vm_id, &workdir, &args.pull, local, stderr).await?;
+        staged.store(true, Ordering::SeqCst);
+        pull_archive(client, vm_id, &workdir, &args.pull, local, stderr).await?;
     }
     Ok(outcome)
 }
@@ -515,12 +532,13 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
     if let Some(archive) = archive {
         for (index, chunk) in archive.chunks(CHUNK_BYTES).enumerate() {
             let redirect = if index == 0 { ">" } else { ">>" };
-            let script = format!("cat {redirect} /tmp/cmux-run.tgz");
+            let script = fenced(STAGING_GUARD, &format!("cat {redirect} {SYNC_ARCHIVE}"));
             exec_stdin(client, vm_id, &script, chunk).await?;
         }
     }
+    // The archive goes once tar ends, whether it succeeded or not.
     let unpack = if archive.is_some() {
-        "tar -xzf /tmp/cmux-run.tgz -C \"$W\" && rm -f /tmp/cmux-run.tgz"
+        "tar -xzf /tmp/cmux-run.tgz -C \"$W\"; r=$?; rm -f /tmp/cmux-run.tgz; [ $r -eq 0 ]"
     } else {
         "true"
     };
@@ -529,6 +547,13 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
          if sudo -n mkdir -p \"$W\" 2>/dev/null && sudo -n chown \"$(id -u):$(id -g)\" \"$W\"; then :; \
          else W=\"$HOME/work\"; mkdir -p \"$W\"; fi; fi; {unpack} && printf %s \"$W\""
     );
+    // Unpacking reads the archive: a registered reader, which the cleanup
+    // stops before it removes the archive.
+    let script = if archive.is_some() {
+        fenced(STAGING_GUARD, &script)
+    } else {
+        script
+    };
     let result = exec(client, vm_id, &script, &[], 120_000).await?;
     if result.code != Some(0) {
         return Err(CliError::unexpected(format!(
@@ -636,29 +661,87 @@ fn poll_wait_tenths(deadline: Option<Instant>, now: Instant) -> u32 {
         .clamp(1, POLL_WAIT_TENTHS)
 }
 
-async fn pull(
-    client: &Client,
-    vm_id: &str,
-    workdir: &str,
-    paths: &[String],
-    local: &Path,
-    stderr: &mut dyn Write,
-) -> Result<(), CliError> {
-    let result = pull_archive(client, vm_id, workdir, paths, local, stderr).await;
-    // The guest's copy never outlives the pull (a kept VM is billed for it).
-    let _ = exec(
-        client,
-        vm_id,
-        &format!("rm -f {PULL_ARCHIVE} {PULL_ARCHIVE}.rc"),
-        &[],
-        30_000,
-    )
-    .await;
-    result
-}
-
+/// The guest's archive for `--sync`.
+const SYNC_ARCHIVE: &str = "/tmp/cmux-run.tgz";
 /// The guest's archive for `--pull`.
 const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
+
+/// The guard against writers outliving the run's cleanup, as a path prefix:
+/// `<guard>.fence` exists once the cleanup has begun, and `<guard>.writers/`
+/// holds one file per guest command in progress that writes or reads an
+/// archive (upload, unpack, pull pack and reads), named for its process
+/// group. Each registers, then checks the fence; the cleanup makes the
+/// fence, then stops every registered group. Whichever comes second sees
+/// the other, so no writer or reader holds an archive after the cleanup
+/// (an open file keeps its bytes even unlinked), not even one
+/// whose exec was still on its way when the run was interrupted.
+const STAGING_GUARD: &str = "/tmp/cmux-run";
+
+/// Every archive a run may leave on the guest.
+const ARCHIVES: [&str; 3] = [SYNC_ARCHIVE, PULL_ARCHIVE, "/tmp/cmux-pull.tgz.rc"];
+
+/// `script` as a registered writer (or reader) of an archive under `guard`: in its own process group
+/// (so the cleanup can stop all of it), refused with status 4 once the
+/// cleanup has begun.
+fn fenced(guard: &str, script: &str) -> String {
+    let inner = format!(
+        "mkdir -p {guard}.writers && : >{guard}.writers/$$ || exit 1; \
+         trap 'rm -f {guard}.writers/'$$ EXIT; \
+         if [ -e {guard}.fence ]; then echo 'the run is cleaning up' >&2; exit 4; fi; {script}"
+    );
+    format!("setsid -w sh -c {}", shell_quote(&inner))
+}
+
+/// The guest command that removes `archives` for good: it makes the fence,
+/// kills every registered writer's process group (an upload or pull whose
+/// exec outlived an interrupted client; an open file would keep its bytes
+/// even unlinked) until none is left, then removes the archives. It fails
+/// when they cannot be removed or a writer survives five seconds.
+fn remove_archives_script(archives: &[&str], guard: &str) -> String {
+    let files: Vec<String> = archives.iter().map(|path| shell_quote(path)).collect();
+    let files = files.join(" ");
+    format!(
+        ": >{guard}.fence || exit 1; n=0; while :; do w=; \
+         for m in {guard}.writers/*; do [ -e \"$m\" ] || continue; g=${{m##*/}}; a=; \
+         for s in /proc/[0-9]*/stat; do read -r l 2>/dev/null <$s || continue; set -- ${{l##*) }}; \
+         [ \"$3\" = \"$g\" ] && [ \"$1\" != Z ] && {{ s=${{s#/proc/}}; kill -s KILL ${{s%/stat}} 2>/dev/null; a=1; }}; done; \
+         if [ -n \"$a\" ]; then w=1; else rm -f \"$m\"; fi; done; \
+         [ -z \"$w\" ] && {{ rm -f {files} || exit 1; exit 0; }}; n=$((n+1)); \
+         [ $n -ge 50 ] && {{ rm -f {files}; echo 'a writer outlived its kill' >&2; exit 1; }}; sleep 0.1; done"
+    )
+}
+
+/// Removes the run's archives from the guest, whatever happened before: a
+/// kept VM is billed for them and they hold the user's files. A failure is
+/// reported when the VM is kept, with the command that finishes the job; a
+/// VM that is not kept is deleted with them.
+async fn remove_archives(client: &Client, vm_id: &str, keep: bool, stderr: &mut dyn Write) {
+    let script = remove_archives_script(&ARCHIVES, STAGING_GUARD);
+    let why = match exec(client, vm_id, &script, &[], 30_000).await {
+        Ok(result) if result.code == Some(0) => return,
+        Ok(result) => result.stderr.trim().to_owned(),
+        Err(error) => error.message().to_owned(),
+    };
+    if keep {
+        let p = crate::error::program();
+        note(
+            stderr,
+            &format!(
+                "could not remove the run's archives from the kept VM: {why}; run `{p} resume {vm_id}`, `{p} exec {vm_id} -- 'rm -f {}'`, then `{p} pause {vm_id}`",
+                ARCHIVES.join(" ")
+            ),
+        );
+    }
+}
+
+/// The guest command `--pull` sends to pack `paths`: the pack script, as a
+/// registered archive writer. Its size is what the API limits.
+fn pull_command(paths: &[String]) -> String {
+    fenced(
+        STAGING_GUARD,
+        &pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES),
+    )
+}
 
 /// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS",
 /// from the work directory named by `$CMUX_RUN_WORKDIR`.
@@ -690,7 +773,7 @@ async fn pull_archive(
     local: &Path,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let pack = pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES);
+    let pack = pull_command(paths);
     let packed = exec(client, vm_id, &pack, &[(WORKDIR_ENV, workdir)], 300_000).await?;
     let answer = String::from_utf8_lossy(&packed.stdout).trim().to_owned();
     let mut words = answer.split_whitespace();
@@ -714,9 +797,12 @@ async fn pull_archive(
     let size = size.unwrap_or_default();
     let mut bytes = Vec::with_capacity(usize::try_from(size.min(MAX_PULL_BYTES)).unwrap_or(0));
     while (bytes.len() as u64) < size {
-        let read = format!(
-            "tail -c +{} {PULL_ARCHIVE} | head -c {CHUNK_BYTES} | base64 -w0",
-            bytes.len() + 1
+        let read = fenced(
+            STAGING_GUARD,
+            &format!(
+                "tail -c +{} {PULL_ARCHIVE} | head -c {CHUNK_BYTES} | base64 -w0",
+                bytes.len() + 1
+            ),
         );
         let chunk = decode(
             String::from_utf8_lossy(&exec(client, vm_id, &read, &[], 60_000).await?.stdout).trim(),
@@ -922,10 +1008,10 @@ pub(crate) fn check_command_size(command: &str) -> Result<(), CliError> {
     )))
 }
 
-/// The `--pull` script, as it is sent, must fit the API's limit on one exec
+/// The `--pull` command, as it is sent (fenced), must fit the API's limit on one exec
 /// command.
 pub(crate) fn check_pull_size(paths: &[String]) -> Result<(), CliError> {
-    let length = api_length(&pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES));
+    let length = api_length(&pull_command(paths));
     if length <= MAX_EXEC_COMMAND_UNITS {
         return Ok(());
     }
@@ -1235,17 +1321,57 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
 /// A gzip tarball of the sync list, the number of files in it and the
 /// credential-shaped files left out.
 fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
-    archive_within(dir, MAX_SYNC_BYTES)
+    archive_within(dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES)
 }
 
-fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliError> {
+/// The sync archive, refused past `limit` compressed or `unpacked_limit`
+/// unpacked, before any VM exists. The guest's `tar -x` has no limit of its
+/// own and needs none: the files' sizes are summed first (a sparse file
+/// counts at its full length, which the guest writes out), and the tar
+/// stream itself is counted on its way into gzip, so a file that grows
+/// while it is packed is refused too.
+fn archive_within(
+    dir: &Path,
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<(Vec<u8>, SyncList), CliError> {
     let synced = sync_list(dir)?;
+    let sizes = synced
+        .files
+        .iter()
+        .filter_map(|file| std::fs::symlink_metadata(dir.join(file)).ok())
+        .filter(|meta| meta.is_file())
+        .fold(0_u64, |total, meta| total.saturating_add(meta.len()));
+    if sizes > unpacked_limit {
+        return Err(unpacks_past(unpacked_limit));
+    }
+    let archive = pack(dir, &synced.files, limit, unpacked_limit)?;
+    Ok((archive, synced))
+}
+
+fn unpacks_past(unpacked_limit: u64) -> CliError {
+    CliError::usage(format!(
+        "the synced files would unpack to more than {} MiB on the VM; sync a smaller directory with --dir",
+        unpacked_limit / (1024 * 1024)
+    ))
+}
+
+/// `tar -c` of `files` piped through gzip, with the tar stream (what the
+/// guest unpacks) counted against `unpacked_limit` and the gzip stream
+/// against `limit`. Neither is held past one byte over its limit.
+fn pack(
+    dir: &Path,
+    files: &[PathBuf],
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<Vec<u8>, CliError> {
+    use std::io::Read;
     let mut list = Vec::new();
-    for file in &synced.files {
+    for file in files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
-    let mut child = std::process::Command::new("tar")
+    let mut tar = std::process::Command::new("tar")
         .current_dir(dir)
         // No AppleDouble files or extended attributes from macOS.
         .env("COPYFILE_DISABLE", "1")
@@ -1253,7 +1379,7 @@ fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliErro
             "--no-recursion",
             "--no-xattrs",
             "--null",
-            "-czf",
+            "-cf",
             "-",
             "-T",
             "-",
@@ -1263,53 +1389,101 @@ fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliErro
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| CliError::usage(format!("--sync needs tar: {e}")))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stdin"))?;
-    let writer = std::thread::spawn(move || stdin.write_all(&list));
-    let mut errors = child
-        .stderr
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stderr"))?;
+    let mut gzip = match std::process::Command::new("gzip")
+        .args(["-c", "-n"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(gzip) => gzip,
+        Err(e) => {
+            let _ = tar.kill();
+            let _ = tar.wait();
+            return Err(CliError::usage(format!("--sync needs gzip: {e}")));
+        }
+    };
+    let (Some(mut tar_in), Some(mut tar_out), Some(mut errors), Some(mut gzip_in), Some(gzip_out)) = (
+        tar.stdin.take(),
+        tar.stdout.take(),
+        tar.stderr.take(),
+        gzip.stdin.take(),
+        gzip.stdout.take(),
+    ) else {
+        let _ = tar.kill();
+        let _ = gzip.kill();
+        let _ = tar.wait();
+        let _ = gzip.wait();
+        return Err(CliError::unexpected("tar or gzip has no pipes"));
+    };
+    let writer = std::thread::spawn(move || tar_in.write_all(&list));
     let error_reader = std::thread::spawn(move || {
         let mut text = Vec::new();
-        let _ = std::io::Read::read_to_end(&mut errors, &mut text);
+        let _ = errors.read_to_end(&mut text);
         text
     });
-    let mut out = child
-        .stdout
-        .take()
-        .ok_or_else(|| CliError::unexpected("tar has no stdout"))?;
-    // Read at most one byte over the limit: a larger tree is refused without
-    // holding its whole archive in memory.
+    // Counts what tar writes and passes it to gzip; stops one buffer past
+    // the limit, which ends both streams (tar's on a broken pipe).
+    let pump = std::thread::spawn(move || {
+        let mut total = 0_u64;
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = match tar_out.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            };
+            total = total.saturating_add(read as u64);
+            if total > unpacked_limit {
+                return true;
+            }
+            let Some(chunk) = buffer.get(..read) else {
+                break;
+            };
+            if gzip_in.write_all(chunk).is_err() {
+                break;
+            }
+        }
+        false
+    });
     let mut archive = Vec::new();
-    let read =
-        std::io::Read::read_to_end(&mut std::io::Read::take(&mut out, limit + 1), &mut archive);
+    let read = gzip_out.take(limit + 1).read_to_end(&mut archive);
     let oversized = archive.len() as u64 > limit;
     if oversized {
-        let _ = child.kill();
+        let _ = gzip.kill();
     }
-    drop(out);
-    let status = child.wait();
+    let unpacked_over = pump.join().unwrap_or(true);
+    if oversized || unpacked_over {
+        let _ = tar.kill();
+    }
+    let tar_status = tar.wait();
+    let gzip_status = gzip.wait();
     let _ = writer.join();
     let tar_errors = error_reader.join().unwrap_or_default();
+    if unpacked_over {
+        return Err(unpacks_past(unpacked_limit));
+    }
     if oversized {
         return Err(CliError::usage(format!(
             "the sync archive is over the {} MiB limit; sync a smaller directory with --dir",
             limit / (1024 * 1024)
         )));
     }
-    read.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
-    let status = status.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
-    if !status.success() {
+    read.map_err(|e| CliError::unexpected(format!("gzip failed: {e}")))?;
+    let tar_status = tar_status.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
+    if !tar_status.success() {
         return Err(CliError::unexpected(format!(
             "tar could not archive {}: {}",
             dir.display(),
             String::from_utf8_lossy(&tar_errors).trim()
         )));
     }
-    Ok((archive, synced))
+    match gzip_status {
+        Ok(status) if status.success() => Ok(archive),
+        _ => Err(CliError::unexpected(format!(
+            "gzip could not compress the archive of {}",
+            dir.display()
+        ))),
+    }
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
@@ -1529,10 +1703,12 @@ mod tests {
     #[test]
     fn the_pull_script_is_measured_as_it_is_sent() {
         // One path of `len` safe characters, named twice: the longest that
-        // fits leaves the script at the limit (or one under, since every path
-        // adds an even count), and one character more is over it.
+        // fits leaves the command at the limit (or one under, since every
+        // path adds an even count), and one character more is over it. The
+        // command is the fenced script, as `pull_archive` sends it.
         let paths = |len: usize| vec!["a".repeat(len)];
-        let sent =
+        let sent = |paths: &[String]| api_length(&pull_command(paths));
+        let bare =
             |paths: &[String]| api_length(&pull_pack_script(paths, PULL_ARCHIVE, MAX_PULL_BYTES));
         let one = sent(&paths(1));
         assert_eq!(sent(&paths(2)), one + 2);
@@ -1544,6 +1720,12 @@ mod tests {
         let over = check_pull_size(&paths(at + 1)).unwrap_err();
         assert_eq!(over.exit_code(), exit::USAGE);
         assert!(over.message().contains("--pull"), "{}", over.message());
+        // The fence counts: this list's bare script would fit, the command
+        // that is sent does not.
+        assert!(bare(&paths(at + 1)) < MAX_EXEC_COMMAND_UNITS);
+        // A quote is escaped again by the fence's quoting, and measured so.
+        let quoted = vec!["it's".to_owned()];
+        assert!(sent(&quoted) > bare(&quoted) + sent(&paths(4)) - bare(&paths(4)));
     }
 
     #[test]
@@ -1682,11 +1864,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("big.bin"), noise(256 * 1024)).unwrap();
-        let error = archive_within(&dir, 16 * 1024).unwrap_err();
+        let error = archive_within(&dir, 16 * 1024, u64::MAX).unwrap_err();
         assert!(error.message().contains("over the"), "{}", error.message());
-        let (bytes, synced) = archive_within(&dir, 1024 * 1024).unwrap();
+        let (bytes, synced) = archive_within(&dir, 1024 * 1024, u64::MAX).unwrap();
         assert!(!bytes.is_empty() && bytes.len() <= 1024 * 1024);
         assert_eq!(synced.files, vec![PathBuf::from("big.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sync_that_unpacks_past_its_limit_is_refused_before_upload() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-unpacked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        // Zeros gzip to almost nothing, so only the unpacked size can refuse them.
+        std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize + 1]).unwrap();
+        let error = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        // Just under, with room for tar's headers and its padding to a whole
+        // 10 KiB record: it syncs.
+        std::fs::write(
+            dir.join("zeros.bin"),
+            vec![0_u8; limit as usize - 16 * 1024],
+        )
+        .unwrap();
+        let (bytes, synced) = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap();
+        assert!(!bytes.is_empty() && (bytes.len() as u64) < limit);
+        assert_eq!(synced.files, vec![PathBuf::from("zeros.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_file_counts_at_its_full_size() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-sparse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A hole takes no disk here, but the guest's tar writes it out in full.
+        let file = std::fs::File::create(dir.join("sparse.img")).unwrap();
+        file.set_len(4 * 1024 * 1024 * 1024).unwrap();
+        drop(file);
+        let error = archive_within(&dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_packed_stream_is_counted_not_only_the_sizes_listed() {
+        // What tar actually writes is counted: a file that grew after its
+        // size was summed is still refused.
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        std::fs::write(dir.join("grown.bin"), vec![0_u8; limit as usize + 1]).unwrap();
+        let files = vec![PathBuf::from("grown.bin")];
+        let error = pack(&dir, &files, MAX_SYNC_BYTES, limit).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        assert!(pack(&dir, &files, MAX_SYNC_BYTES, 2 * limit).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1727,6 +1965,82 @@ mod tests {
         // A missing path: tar's failure is reported.
         let answer = run(&["missing"], 1024 * 1024);
         assert_ne!(answer.split_whitespace().nth(1), Some("0"), "{answer}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // /proc, as on the guest.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_cleanup_stops_writers_and_fences_out_late_ones() {
+        let base = std::env::temp_dir().join(format!("cmux-vm-run-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let path = |name: &str| base.join(name).to_str().unwrap().to_owned();
+        let (upload, pulled, guard) = (path("run.tgz"), path("pull.tgz"), path("guard"));
+        let sh = |script: &str| {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(script)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap()
+        };
+        let cleanup = || {
+            let out = sh(&remove_archives_script(&[&upload, &pulled], &guard));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        let writers =
+            || std::fs::read_dir(format!("{guard}.writers")).map_or(0, |entries| entries.count());
+        // An upload whose client was interrupted: it holds its archive open
+        // and is still writing (its stdin never closes).
+        let mut writer = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(fenced(&guard, &format!("cat > {upload}")))
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = writer.stdin.take().unwrap();
+        stdin.write_all(b"the user's files").unwrap();
+        stdin.flush().unwrap();
+        while std::fs::metadata(&upload).map_or(0, |meta| meta.len()) == 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // A pull that is past its fence check but has not opened its
+        // archive yet.
+        let mut late_opener = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(fenced(&guard, &format!("sleep 1; echo pulled > {pulled}")))
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap();
+        while writers() < 2 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        cleanup();
+        // Both are stopped, their archives are gone and none comes back.
+        assert!(
+            !writer.wait().unwrap().success(),
+            "the upload was not stopped"
+        );
+        assert!(
+            !late_opener.wait().unwrap().success(),
+            "the pull was not stopped"
+        );
+        drop(stdin);
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(!Path::new(&upload).exists());
+        assert!(!Path::new(&pulled).exists());
+        assert_eq!(writers(), 0);
+        // An upload or pull whose exec arrives after the cleanup writes nothing.
+        let late = sh(&fenced(&guard, &format!("echo late > {upload}")));
+        assert_eq!(late.status.code(), Some(4));
+        assert!(!Path::new(&upload).exists());
+        // With nothing to stop, the cleanup still succeeds.
+        cleanup();
         let _ = std::fs::remove_dir_all(&base);
     }
 

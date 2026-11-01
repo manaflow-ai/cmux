@@ -1152,7 +1152,8 @@ pub struct Config {
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
     /// length is how many attempts run, a chain of daemon restarts included. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
+    /// twelve exponential waits from 10 s capped at 20 min (about two hours); `[]` turns it off.
+    /// A provider reset hint extends the wait when needed. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
