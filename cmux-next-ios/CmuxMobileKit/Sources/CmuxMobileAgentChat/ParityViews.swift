@@ -216,7 +216,8 @@ struct SubagentTranscriptScreen: View {
             let turn = agent.asTurn
             let rows = turn.rows
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                // Lazy: a long subagent run builds the rows on screen only.
+                LazyVStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
                         Text("Subagent of \(agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name)")
@@ -235,7 +236,7 @@ struct SubagentTranscriptScreen: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
-                        SubagentRowView(row: row, turn: turn, store: store, isLast: row.id == rows.last?.id) { nested = $0 }
+                        SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)
@@ -267,6 +268,8 @@ struct SubagentRowView: View {
     let row: TurnRow
     let turn: AgentTurn
     let store: AgentChatStore
+    /// Diffs computed once each off the main thread (not per body).
+    let diffs: ChatDiffCache
     let isLast: Bool
     let open: (String) -> Void
 
@@ -286,7 +289,9 @@ struct SubagentRowView: View {
             if call.isRunning {
                 ToolRowView(call: call)
             } else {
-                DiffSnippet(call: call, changeSet: turn.changeSet ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: []))
+                DiffSnippet(call: call, previews: diffs.files(for: call)) {
+                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
+                }
             }
         case .plan(_, let entries):
             PlanCard(entries: entries)
