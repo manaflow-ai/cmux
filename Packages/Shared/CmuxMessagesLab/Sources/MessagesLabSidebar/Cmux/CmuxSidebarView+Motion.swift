@@ -43,10 +43,14 @@ extension CmuxSidebarView {
         set { controller.avatarMotion.gate = newValue }
     }
 
-    /// How a Chief's avatar moves (the host's Debug setting); a change applies on the next `show`.
+    /// How a Chief's avatar moves (the host's Debug setting); a change restyles every avatar at once.
     public var avatarMotionStyle: CmuxSidebarAvatarMotionStyle {
         get { controller.avatarMotion.style }
-        set { controller.avatarMotion.style = newValue }
+        set {
+            guard newValue != controller.avatarMotion.style else { return }
+            controller.avatarMotion.style = newValue
+            controller.refreshAvatarMotion()
+        }
     }
 
     /// Follows the system setting and the pin: bubbles already pulsing stop or start again. Runs at

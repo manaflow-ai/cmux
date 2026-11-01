@@ -140,6 +140,17 @@ struct ChiefAvatarMotionTests {
         #expect(f.loop("chief") == nil)
     }
 
+    @Test func aStyleChangeRestylesEveryAvatarAtOnce() throws {
+        defer { reset() }
+        let f = Fixture()
+        #expect(try #require(f.loop("scout")).keyPath == "transform.translation.y")
+        f.view.avatarMotionStyle = .breathe  // no data change, no reload
+        #expect(try #require(f.loop("scout")).keyPath == "transform.scale")
+        #expect(try #require(f.loop("chief")).keyPath == "transform.scale", "the pinned tile too")
+        f.view.avatarMotionStyle = .still
+        #expect(f.loop("scout") == nil && f.loop("chief") == nil)
+    }
+
     @Test func everyStyleLoopsAroundItsRestAndTwoChiefsDoNotMoveInStep() {
         for style in CmuxSidebarAvatarMotionStyle.allCases where style != .still {
             for mode in [SidebarAvatarMotion.Mode.idle, .working] {
