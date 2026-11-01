@@ -177,7 +177,7 @@ final class TopHomePageView: NSView {
         // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again).
         list.onDelete = { [weak self] id in
             guard id != HomeSidebarView.draftRowID, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
-            self?.confirmDelete {
+            HomeListActions.confirmDelete(in: self?.window) {
                 _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
             }
         }
@@ -606,18 +606,6 @@ final class TopHomePageView: NSView {
         window.beginSheet(panel)
     }
 
-    /// Delete Conversation…'s question (as Messages asks, the cmux dialog so the debug socket can answer it);
-    /// `delete` runs on Delete.
-    private func confirmDelete(_ delete: @escaping @MainActor () -> Void) {
-        let spec = CmuxDialogSpec(title: MiscHandlerStrings.deleteConversationTitle, lines: [MiscHandlerStrings.deleteConversationMessage],
-                                  buttons: [.cancel(), CmuxDialogButton(id: "delete", title: MiscHandlerStrings.deleteConversationConfirm, role: .destructive)],
-                                  identifier: "cmux.dialog.home.deleteConversation")
-        CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { answer in
-            guard answer.button == "delete" else { return }
-            delete()
-        }
-    }
-
     /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
     /// A neighbor the Engine row excludes (a cloud Chief under This Mac) is not one: the default
     /// conversation decides instead.
@@ -644,3 +632,5 @@ final class TopHomePageView: NSView {
         window.beginSheet(panel)
     }
 }
+
+extension TopHomePageView: HomeListPage {}
