@@ -51,6 +51,70 @@ import Testing
         #expect(textMerger.merged(base: "", transcript: "") == "")
     }
 
+    @Test func transcriptResetAfterPauseKeepsEarlierSentences() {
+        var merger = ComposerDictationTextMerger()
+        let base = "Notes:\n"
+        #expect(merger.merged(base: base, transcript: "First sentence. Second sentence.",
+                              startTime: 0.2, endTime: 5) == base + "First sentence. Second sentence.")
+        #expect(merger.merged(base: base, transcript: "Third sentence.",
+                              startTime: 6, endTime: 8) == base + "First sentence. Second sentence. Third sentence.")
+        #expect(merger.merged(base: base, transcript: "Third sentence. Fourth sentence.",
+                              startTime: 6, endTime: 10) == base + "First sentence. Second sentence. Third sentence. Fourth sentence.")
+        #expect(merger.merged(base: base, transcript: "Fifth sentence.",
+                              startTime: 12, endTime: 14) == base + "First sentence. Second sentence. Third sentence. Fourth sentence. Fifth sentence.")
+    }
+
+    @Test func partialCorrectionsReplaceOnlyTheirPhrase() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "Keep this.", startTime: 0, endTime: 2)
+        _ = merger.merged(base: "", transcript: "Buy flower", startTime: 3, endTime: 4)
+        #expect(merger.merged(base: "", transcript: "Buy flour.", startTime: 3.1, endTime: 4.2)
+            == "Keep this. Buy flour.")
+        #expect(merger.merged(base: "", transcript: "Buy", startTime: 3, endTime: 3.5)
+            == "Keep this. Buy")
+    }
+
+    @Test func cumulativeFinalReplacesEarlierHypothesesWithoutDuplication() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "Draft: ", transcript: "Hello", startTime: 0, endTime: 1)
+        _ = merger.merged(base: "Draft: ", transcript: "World", startTime: 2, endTime: 3)
+        #expect(merger.merged(base: "Draft: ", transcript: "Hello, world!", startTime: 0, endTime: 3)
+            == "Draft: Hello, world!")
+    }
+
+    @Test func emptyResultsPreserveLatestText() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "Draft: ", transcript: "Keep this.", startTime: 0, endTime: 2)
+        #expect(merger.merged(base: "Draft: ", transcript: "", startTime: nil, endTime: nil)
+            == "Draft: Keep this.")
+        #expect(merger.merged(base: "Draft: ", transcript: "   ", startTime: 3, endTime: 4)
+            == "Draft: Keep this.")
+    }
+
+    @Test func repeatedWordsInLaterPhraseAreNotDeduplicated() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "Thank you.", startTime: 0, endTime: 1)
+        #expect(merger.merged(base: "", transcript: "Thank you.", startTime: 2, endTime: 3)
+            == "Thank you. Thank you.")
+    }
+
+    @Test func missingTimingRevisesCurrentPhraseWithoutErasingHistory() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "First.", startTime: 0, endTime: 1)
+        _ = merger.merged(base: "", transcript: "Next", startTime: 2, endTime: 3)
+        #expect(merger.merged(base: "", transcript: "Next.", startTime: nil, endTime: nil)
+            == "First. Next.")
+    }
+
+    @Test func newRecordingDoesNotReuseSpeechHistory() {
+        var merger = ComposerDictationTextMerger()
+        _ = merger.merged(base: "", transcript: "First.", startTime: 0, endTime: 1)
+        _ = merger.merged(base: "", transcript: "Second.", startTime: 2, endTime: 3)
+        merger.reset()
+        #expect(merger.merged(base: "New draft", transcript: "New words", startTime: 4, endTime: 5)
+            == "New draft New words")
+    }
+
     // MARK: - State machine
 
     @Test func idleCanStartAndIsNotListening() {
