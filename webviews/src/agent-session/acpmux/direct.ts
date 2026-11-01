@@ -51,7 +51,7 @@ import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { isFramesNote, withoutFrames } from "./composer/videoPrompt";
+import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
 import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
 import { peerResourcesFromStatus } from "./machineResources";
@@ -6508,12 +6508,13 @@ export class AcpmuxDirectClient {
     }
     const blocks = promptBlocks(input, carried, options);
     const inline = inlinePrompt(input, carried);
+    const isFrame = frameTextOf(imageNames(blocks));
     const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
     const { text, pasted } = inline
       ? blocks.reduce(
           (shown, block) => {
             // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFramesNote(block.text)) return shown;
+            if (block.type !== "text" || isFrame(block.text)) return shown;
             if (shown.text) shown.text += "\n";
             const start = shown.text.length;
             shown.text += block.text;
