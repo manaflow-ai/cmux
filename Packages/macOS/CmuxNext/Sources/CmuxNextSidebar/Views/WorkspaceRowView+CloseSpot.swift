@@ -22,17 +22,24 @@ extension WorkspaceRowView {
         if showClose {
             // The end action stays on the column even on idle rows with counts or keycaps.
             closeButton.frame = column
-            // Keep the menu left of live tree controls/chips: hiding them would lose actions,
-            // and painting over them can make a visible chevron receive a close click.
-            let contentStart = ([treeFoldButton, rollUp, pullRequests] as [NSView]).filter { !$0.isHidden }.map { $0.frame.minX }.min()
-            let menuSlot = contentStart.map {
-                max(1, Int(ceil((column.midX + control / 2 + Metrics.space1 - $0) / SidebarStyle.trailingSlotPitch)))
-            } ?? 1
-            moreButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control, slot: menuSlot)
+            moreButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: cy, control: control, minimumSlot: 1)
         } else if showMore {
             // A row that cannot close: the menu on the column (the pin, when shown, left of it).
             moreButton.frame = column
         }
         return givesWay
     }
+
+    /// The next shared slot left of any still-visible tree control/chip. Both overflow and unpin
+    /// use it: neither may paint over a fold chevron whose hit target would then perform another action.
+    func trailingActionFrame(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, minimumSlot: Int) -> CGRect {
+        let contentStart = ([treeFoldButton, rollUp, pullRequests] as [NSView])
+            .filter { !$0.isHidden && ($0 !== treeFoldButton || treeFold != nil) }.map { $0.frame.minX }.min()
+        let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        let slot = contentStart.map {
+            max(minimumSlot, Int(ceil((center + control / 2 + Metrics.space1 - $0) / SidebarStyle.trailingSlotPitch)))
+        } ?? minimumSlot
+        return SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control, slot: slot)
+    }
+
 }

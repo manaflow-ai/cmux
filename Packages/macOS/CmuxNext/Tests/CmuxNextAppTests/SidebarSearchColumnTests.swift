@@ -33,6 +33,12 @@ import Testing
                         h.model.rowBadgeStyle = style
                         h.list.reload(animated: false)
                         h.sidebar.layoutSubtreeIfNeeded()
+                        // Leo: "the blue dot that home gets is misaligned with what the regular workspaces get".
+                        let home = try h.bandRow(T.home)
+                        home.layoutSubtreeIfNeeded()
+                        let homeMark = try #require(T.marks(in: home, named: "Home", list: h.list).first)
+                        let homeX = h.sidebar.convert(NSPoint(x: homeMark.midX, y: 0), from: h.list).x
+                        #expect(abs(homeX - column) <= tolerance)
                         for id in [T.unread, T.member, T.nested] {
                             let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
                             row.isHovered = false
@@ -47,6 +53,7 @@ import Testing
                                 let x = h.sidebar.convert(NSPoint(x: mark.midX, y: 0), from: h.list).x
                                 #expect(h.sidebar.convert(row.tabCount.bounds, from: row.tabCount).maxX < x - SidebarStyle.unreadDotSize / 2,
                                         "the resting count must not cover the unread dot")
+                                #expect(abs(x - homeX) <= tolerance, "Home and regular workspace dots must align")
                                 #expect(abs(x - column) <= tolerance,
                                         "\(appearance)/\(density)/\(width)/\(style) \(mark.what): \(x), Search \(column)")
                             }
@@ -102,6 +109,15 @@ import Testing
             let end = closable ? row.closeButton : row.moreButton
             #expect(abs(h.sidebar.convert(end.bounds, from: end).midX -
                         h.sidebar.convert(h.sidebar.searchButton.bounds, from: h.sidebar.searchButton).midX) <= SidebarTrailingSlotTests.tolerance(h))
+            row.isPinned = { true }
+            row.isExpanded = true
+            row.needsLayout = true
+            row.layoutSubtreeIfNeeded()
+            #expect(row.closeButton.isHidden)
+            #expect(!row.pinButton.isHidden)
+            #expect(!row.pinButton.frame.intersects(row.treeFoldButton.frame), "the visible fold must not unpin the row")
+            #expect(!row.moreButton.frame.intersects(row.treeFoldButton.frame))
+            #expect(!row.pinButton.frame.intersects(row.moreButton.frame))
         }
     }
 

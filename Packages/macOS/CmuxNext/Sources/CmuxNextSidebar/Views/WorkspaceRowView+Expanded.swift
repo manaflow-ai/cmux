@@ -45,7 +45,13 @@ extension WorkspaceRowView {
         setHoverShown(pinButton, showMore && pinned, fades: fades)
         guard pinned else { return nil }
         (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
-        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+        if SidebarTunables.rowCloseSpot.value.atEnd {
+            let center = SidebarStyle.trailingColumnCenterX(rowWidth: bounds.width)
+            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinButton.frame = trailingActionFrame(rowWidth: bounds.width, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+        } else {
+            pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+        }
         return showMore ? pinButton.frame.minX : nil
     }
 
