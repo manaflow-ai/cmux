@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4131344025701",
+  "notes": "notes/4131344025701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 30602,
+      "title": "cmux NEXT agent pane: chat switch motion experiment (rows, title and Session Info as one movement)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30774,
+      "title": "feat(chief): continue stopped turns and retry replies in Home",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30945,
+      "title": "base red: the prompt rail tests follow the tight gutter and the rest gap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 30935,
+      "title": "fix(agent-pane): the Cloud startup checklist's label comes from the pane's table (pane-english base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
