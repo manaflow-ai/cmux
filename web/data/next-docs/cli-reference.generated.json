@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 784,
-    "mcp": 700
+    "verbs": 785,
+    "mcp": 701
   },
   "nouns": [
     {
@@ -1546,6 +1546,13 @@
           "id": "cloudSetupGitHub",
           "mcp": true,
           "mcpTool": "app_cloud_setup_github"
+        },
+        {
+          "command": "cmux cloud share-machine",
+          "title": "Share Machine…",
+          "id": "cloudShareMachine",
+          "mcp": true,
+          "mcpTool": "app_cloud_share_machine"
         },
         {
           "command": "cmux cloud sign-in",
