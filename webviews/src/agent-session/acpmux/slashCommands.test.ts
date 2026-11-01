@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyCommand,
+  closesFence,
   commandSplice,
+  commandWords,
+  fenceOpening,
   matchCommands,
   shownName,
-  skillDollarsOf,
+  pickedSkillsOf,
+  returnPicks,
   slashMatches,
   slashNames,
   slashTokens,
@@ -209,35 +213,163 @@ describe("Codex skills read without their `$`", () => {
 });
 
 describe("a sent prompt reads its Codex skills as typed", () => {
-  test("`/$name` in a command position reads `/name`", () => {
-    expect(withoutSkillDollars("hello lets use /$emil-design-vocabulary to figure it out")).toBe(
+  const codex: SlashCommand[] = [
+    { name: "init", description: "", source: "agent" },
+    { name: "$emil-color", description: "Colour in CSS", source: "skill" },
+    { name: "$emil-design-vocabulary", description: "", source: "skill" },
+  ];
+
+  test("`/$name` of a skill in the list, in a command position, reads `/name`", () => {
+    expect(withoutSkillDollars("hello lets use /$emil-design-vocabulary to figure it out", codex)).toBe(
       "hello lets use /emil-design-vocabulary to figure it out",
     );
-    expect(withoutSkillDollars("/$emil-color\n/$emil-color")).toBe("/emil-color\n/emil-color");
-    expect(withoutSkillDollars("see \uFFFCid\uFFFC/$emil-color")).toBe("see \uFFFCid\uFFFC/emil-color");
+    expect(withoutSkillDollars("/$emil-color\n/$emil-color", codex)).toBe("/emil-color\n/emil-color");
+    expect(withoutSkillDollars("see \uFFFCid\uFFFC/$emil-color", codex)).toBe("see \uFFFCid\uFFFC/emil-color");
   });
 
-  test("other dollars, paths, words and code stay", () => {
+  test("other dollars, names not in the list, paths, words and code stay", () => {
     for (const text of [
       "echo $HOME costs $5",
-      "cd /$HOME",
+      "cd /$HOME and /$5",
+      "compare /$source to /source",
       "src/$emil-color and x/$emil-color",
       "/$emil-color/x",
       "run `/$emil-color` here",
+      "run `` a ` /$emil-color `` here",
       "```\n/$emil-color\n```",
+      "  ````md\nuse /$emil-color\n```\nstill /$emil-color\n````",
       "a\n~~~sh\nuse /$emil-color\n~~~",
+      "```\nunclosed /$emil-color",
     ])
-      expect(withoutSkillDollars(text)).toBe(text);
-    expect(withoutSkillDollars("`code` then /$emil-color")).toBe("`code` then /emil-color");
+      expect(withoutSkillDollars(text, codex)).toBe(text);
+    expect(withoutSkillDollars("`code` then /$emil-color", codex)).toBe("`code` then /emil-color");
+    expect(withoutSkillDollars("an ` unclosed tick then /$emil-color", codex)).toBe(
+      "an ` unclosed tick then /emil-color",
+    );
+    expect(withoutSkillDollars("``a`` /$emil-color", codex)).toBe("``a`` /emil-color");
+    // No list: nothing is known to be a skill.
+    expect(withoutSkillDollars("/$emil-color", [])).toBe("/$emil-color");
   });
 
-  test("an edit of the shown text goes back with its `$`", () => {
-    const sent = "use /$emil-color and /init";
-    const edited = `${withoutSkillDollars(sent)} please`;
-    expect(edited).toBe("use /emil-color and /init please");
-    expect(withSkillDollars(edited, skillDollarsOf(sent))).toBe("use /$emil-color and /init please");
-    expect(skillDollarsOf("`/$x` and /$emil-color")).toEqual([
-      { name: "$emil-color", description: "", source: "skill" },
+  test("send skips code the same way: fenced blocks and spaced inline code keep what was typed", () => {
+    for (const text of [
+      "```\n/emil-color\n```",
+      "run ` /emil-color ` here",
+      "run `` x /emil-color `` here",
+      "~~~\n/emil-color",
+    ])
+      expect(withSkillDollars(text, codex)).toBe(text);
+    expect(withSkillDollars("```\ncode\n```\nthen /emil-color", codex)).toBe("```\ncode\n```\nthen /$emil-color");
+  });
+
+  test("an edit of the shown text goes back with its `$`, a literal `/$word` stays one", () => {
+    const sent = "use /$emil-color and /init, compare /$source to /source";
+    const edited = `${withoutSkillDollars(sent, codex)} please`;
+    expect(edited).toBe("use /emil-color and /init, compare /$source to /source please");
+    expect(withSkillDollars(edited, codex, pickedSkillsOf(sent, codex))).toBe(`${sent} please`);
+    expect([...pickedSkillsOf("`/$emil-color` and /$emil-design-vocabulary and /$source", codex)]).toEqual([
+      "emil-design-vocabulary",
     ]);
+  });
+
+  test("where a command shares a skill's name, the prompt's first word is the command's unless picked", () => {
+    const both: SlashCommand[] = [...codex, { name: "emil-color", description: "", source: "agent" }];
+    expect(withSkillDollars("/emil-color now", both)).toBe("/emil-color now");
+    expect(withSkillDollars(" \uFFFCid\uFFFC /emil-color now", both)).toBe(" \uFFFCid\uFFFC /emil-color now");
+    expect(withSkillDollars("/emil-color now", both, new Set(["emil-color"]))).toBe("/$emil-color now");
+    const sent = "/$emil-color now";
+    expect(withSkillDollars(withoutSkillDollars(sent, both), both, pickedSkillsOf(sent, both))).toBe(sent);
+  });
+
+  test("mid-prompt only a skill is read, so a `$` skill named like a command always gets its `$`", () => {
+    const clash: SlashCommand[] = [
+      { name: "review", description: "", source: "agent" },
+      { name: "plan", description: "", source: "cmux" },
+      { name: "$review", description: "", source: "skill" },
+      { name: "$plan", description: "", source: "skill" },
+    ];
+    expect(withSkillDollars("then /review and /plan", clash)).toBe("then /$review and /$plan");
+    expect(withSkillDollars("/review then /review", clash)).toBe("/review then /$review");
+  });
+});
+
+describe("the code reading send, display and highlights share", () => {
+  const codex: SlashCommand[] = [{ name: "$emil-color", description: "", source: "skill" }];
+
+  test("a fence closed after `\r\n` or a lone `\r` ends there, the text kept as it is", () => {
+    for (const eol of ["\r\n", "\r"]) {
+      const typed = `\`\`\`${eol}/emil-color${eol}\`\`\`${eol}then /emil-color`;
+      expect(withSkillDollars(typed, codex)).toBe(`\`\`\`${eol}/emil-color${eol}\`\`\`${eol}then /$emil-color`);
+      const sent = `~~~${eol}/$emil-color${eol}~~~${eol}then /$emil-color`;
+      expect(withoutSkillDollars(sent, codex)).toBe(`~~~${eol}/$emil-color${eol}~~~${eol}then /emil-color`);
+    }
+  });
+
+  test("commandWords marks words in code only when asked", () => {
+    const text = "use `` a ` /x `` and\n~~~\n/y\n~~~\n/z";
+    expect(commandWords(text).map((word) => word.word)).toEqual(["z"]);
+    expect(commandWords(text, true).map((word) => [word.word, word.code])).toEqual([
+      ["x", true],
+      ["y", true],
+      ["z", false],
+    ]);
+  });
+});
+
+describe("CommonMark's code reading", () => {
+  test("a backtick fence's info string holds no backtick, and a fence has at most three spaces of indent", () => {
+    expect(fenceOpening("```ts")).toEqual({ mark: "```", info: "ts" });
+    expect(fenceOpening("~~~ a `b`")).toEqual({ mark: "~~~", info: " a `b`" });
+    expect(fenceOpening("```x``` y")).toBeUndefined();
+    expect(fenceOpening("    ```")).toBeUndefined();
+    expect(closesFence("  ````", "```")).toBe(true);
+    expect(closesFence("```", "````")).toBe(false);
+    expect(closesFence("~~~", "```")).toBe(false);
+  });
+
+  test("an inline span never runs over a paragraph's end: a blank line, a fence, a list item", () => {
+    const words = (text: string) => commandWords(text, true).map((word) => [word.word, word.code]);
+    expect(words("use `x`\n    ```\n/a\n```\n/b")).toEqual([
+      ["a", false],
+      ["b", true],
+    ]);
+    expect(words("- a `x\n- b` /c")).toEqual([["c", false]]);
+    expect(words("a `x\n\ny` /c")).toEqual([["c", false]]);
+    expect(words("a `x\ny` /c")).toEqual([["c", false]]);
+    expect(words("a `x\n/y` /c")).toEqual([
+      ["y", true],
+      ["c", false],
+    ]);
+  });
+});
+
+describe("Return picks only a command the person means", () => {
+  const list: SlashCommand[] = [
+    { name: "design-vocabulary", description: "", source: "skill" },
+    { name: "$emil-color", description: "", source: "skill" },
+    { name: "$emil", description: "", source: "skill" },
+    { name: "compact", description: "", source: "agent", hint: "instructions" },
+  ];
+  const mid = (query: string) => slashMatches(list, { query, length: query.length + 1, leading: false });
+
+  test("mid-prompt, scattered letters match nothing: a path or a short word is not a command", () => {
+    for (const query of ["dev", "tmp", "etc", "opt", "s"]) expect(mid(query)).toEqual([]);
+    expect(mid("voc").map((match) => match.command.name)).toEqual(["design-vocabulary"]);
+    // At the start the menu still finds scattered letters.
+    expect(matchCommands(list, "dev").map((match) => match.command.name)).toEqual(["design-vocabulary"]);
+  });
+
+  test("the name typed in full ranks first", () => {
+    expect(matchCommands(list, "emil").map((match) => match.command.name)).toEqual(["$emil", "$emil-color"]);
+  });
+
+  test("Return picks a row whose name the word begins, or one the arrows chose", () => {
+    const [vocabulary] = mid("voc");
+    expect(returnPicks(vocabulary, "voc", false)).toBe(false);
+    expect(returnPicks(vocabulary, "voc", true)).toBe(true);
+    expect(returnPicks(mid("des")[0], "des", false)).toBe(true);
+    // Typed in full with no arguments to take: Return sends it.
+    expect(returnPicks(mid("design-vocabulary")[0], "design-vocabulary", false)).toBe(false);
+    expect(returnPicks(undefined, "x", true)).toBe(false);
   });
 });

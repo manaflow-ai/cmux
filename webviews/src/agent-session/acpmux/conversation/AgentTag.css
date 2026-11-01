@@ -28,8 +28,8 @@
   margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
 /* A tag that opens a chat is a link chip (design/chat-transcript.md, "Session link chip"): the
-   theme's text on a wash of it, real padding, centred on its row's icon line, and an open cue (↗)
-   after the name, so it reads as a way to somewhere else and not as the row's own words (Leo,
+   theme's text on a wash of it, real padding, centred on its row's icon line, with no arrow glyph after the
+   name (Leo, 2026-11-01: "nobody asked for that up right arrow"), so it reads as a way to somewhere else and not as the row's own words (Leo,
    2026-11-01: "it's not obvious that clicking on this will be a new thing"). Its colours are the
    theme's, never the link blue (Leo, 2026-11-01: "dont do blue by default, theme it"). The look is
    this one rule's; rows only place it. */
@@ -54,20 +54,12 @@ button.cv-agent-tag.is-open {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-agent-tag__cue {
-  flex: none;
-  opacity: 0.6;
-}
 /* Pointing at it lights the chip alone; the row under it stays as it was (each row's hover rule
    skips a line whose open chip is pointed at). */
 button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-text) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 30%, transparent);
-}
-button.cv-agent-tag.is-open:is(:hover, :focus-visible, :active) .cv-agent-tag__cue,
-button.cv-agent-tag.is-open:is(:has([data-popup-open]), :focus-visible, :active) .cv-agent-tag__cue {
-  opacity: 1;
 }
 /* An opened message's line names its chat whole (AgentMessageRow.css `[data-open]`). */
 .cv-agentmsg[data-open] button.cv-agent-tag.is-open {
@@ -79,11 +71,9 @@ button.cv-agent-tag.is-open:is(:has([data-popup-open]), :focus-visible, :active)
   overflow-wrap: anywhere;
 }
 @media (prefers-reduced-motion: no-preference) {
-  button.cv-agent-tag.is-open,
-  .cv-agent-tag__cue {
+  button.cv-agent-tag.is-open {
     transition:
       background-color var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out),
-      box-shadow var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out),
-      opacity var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
+      box-shadow var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
   }
 }

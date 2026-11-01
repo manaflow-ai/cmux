@@ -23,6 +23,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
+| `app.touchBar` | boolean | `true` |  | Touch Bar Controls. Shows cmux actions on Touch Bar-equipped Macs. Turn this off to use only the system Control Strip. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon. A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit. |

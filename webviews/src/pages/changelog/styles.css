@@ -586,37 +586,60 @@ html[data-cmux-page="changelog"] {
 /* ---------- The What's New sheet (default; SheetPage.tsx, 2026-10-31) ----------
    An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
    under a small date heading; each change a row of an accent glyph, a bold title and one muted
-   line. One column of reading width, no rules between days, no motion. */
+   line. Wide and dense (Leo 2026-11-01: "this is way too narrow and not info dense enough"): the
+   column takes the pane up to 920px with the page margins, rows sit 4px apart on a 20px line,
+   and the layout (`.cls-inline` default, `.cls-stack`, `.cls-grid`; the route's `sheet=`) sets a
+   row's title and line. No rules between days, no motion. */
 .cls {
-  --cls-column: 560px;
-  padding-block: calc(var(--ds-space-6) * 1.5) calc(var(--ds-space-6) * 3);
+  --cls-column: 920px;
+  --cls-line: 20px;
+  padding-block: var(--ds-space-6) calc(var(--ds-space-6) * 2);
   padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
 }
 .cls-title {
-  margin: 0 0 32px;
-  font-size: 1.85em; /* the page's one large text, relative to the body step */
+  margin: 0 0 20px;
+  font-size: 1.6em; /* the page's one large text, relative to the body step */
   line-height: 1.2;
   font-weight: 700;
   letter-spacing: -0.015em;
   text-align: center;
   text-wrap: balance;
 }
-.cls .cls-day { padding-bottom: 0; margin-bottom: 32px; border-bottom: 0; }
+.cls .cls-day { padding-bottom: 0; margin-bottom: 20px; border-bottom: 0; }
 .cls-date {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin: 0 0 16px;
+  margin: 0 0 6px;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-weight: 600;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cls-rows { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
-.cls-row { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
-.cls-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--cmux-accent, var(--page-text)); }
-.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.cls-row-text { min-width: 0; padding-top: 4px; }
+.cls-rows { display: grid; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
+/* A day still loading holds about the rows it will have (SheetPage placeholderRows, `--cls-rows`),
+   so the days under it barely move when its rows arrive. */
+.cls .clj-placeholder {
+  height: calc(var(--cls-rows, 3) * var(--cls-line) + (var(--cls-rows, 3) - 1) * var(--ds-space-1));
+}
+.cls-row { display: grid; grid-template-columns: var(--cls-line) minmax(0, 1fr); gap: var(--ds-space-3); align-items: start; }
+.cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
+.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cls-row-text { min-width: 0; line-height: var(--cls-line); }
 .cls-row-title { color: var(--page-text); font-weight: 600; }
-.cls-row-line { margin-top: 2px; color: var(--page-text-2); }
+.cls-row-line { color: var(--page-text-2); }
+/* Inline (default): the muted line follows the title on its line and wraps under it when long. */
+.cls-inline .cls-row-title,
+.cls-inline .cls-row-line { display: inline; }
+.cls-inline .cls-row-line { margin-inline-start: 0.6em; }
+/* Stack: the line tight under the title, one step smaller. */
+.cls-stack .cls-rows { gap: var(--ds-space-2); }
+.cls-stack .cls-row-line,
+.cls-grid .cls-row-line {
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* Grid: stacked rows in two columns once each can be 360px wide. */
+.cls-grid .cls-rows { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: var(--ds-space-5); row-gap: var(--ds-space-2); }

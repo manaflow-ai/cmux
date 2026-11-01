@@ -246,6 +246,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// already on screen in that frame, or a chat read cold, which the pane's
     /// loading state fades in. An older page says nothing, which means cold.
     case painted(fromKeptTail: Bool)
+    /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
+    /// machines and first chat list are in, and its page actions answer), or lost its connection.
+    /// A prewarmed page serves a tab opening an existing chat only while it is ready
+    /// (``AgentPaneModel/clientReady``): one still connecting would hold that open behind its list.
+    case clientReady(Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
