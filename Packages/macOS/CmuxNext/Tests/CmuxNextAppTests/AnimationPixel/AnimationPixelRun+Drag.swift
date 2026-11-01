@@ -39,7 +39,7 @@ extension AnimationPixelRun {
         var palette = ScanlinePalette()
         for element in geometry {
             let center = Int(((element.start + element.end) / 2).rounded(.down))
-            try palette.learn(element.label, axis == .row ? rest.pixel(x: center, y: rowY) : rest.pixel(x: columnX, y: center))
+            try palette.learn(element.color, axis == .row ? rest.pixel(x: center, y: rowY) : rest.pixel(x: columnX, y: center))
         }
         let driver = PointerDriver(handle: handle, window: window, vertical: axis == .column, path: path)
         driver.press()
@@ -72,10 +72,12 @@ extension AnimationPixelRun {
             return zip(starts, gains).map { $0 + $1 * offset }
         }, originWindow: 0...5 * fixture.display.refreshPeriod, overshoot: [Double](repeating: 0, count: starts.count))
         let judge = ScanlineJudge(oracle: oracle, elements: judged, trigger: trigger, period: fixture.display.refreshPeriod)
-        let all = stream.captured.map { (time: $0.time, line: axis == .row ? $0.row : $0.column) }
+        let captured = stream.captured
+        let grid = ScanlineJudge.onVsyncGrid(captured.map(\.time), link: sampler.samples.map(\.time), period: fixture.display.refreshPeriod)
+        let all = zip(grid.times, captured).map { (time: $0, line: axis == .row ? $1.row : $1.column) }
         // The drag's frames: those shown before the release was sent (the band goes with the release).
         let verdict = judge.judge(all.filter { $0.time < release }, palette: palette, moves: true)
-        var failures = verdict.failures
+        var failures = grid.invalid + verdict.failures
         failures += sampler.gridFailures(from: trigger - fixture.display.refreshPeriod, scale: scale)
         for gap in sampler.missedRefreshes(from: trigger, to: release, period: fixture.display.refreshPeriod) {
             failures.append("the main thread missed a display refresh in the drag: \(String(format: "%.1f", gap)) ms between ticks")
@@ -85,13 +87,16 @@ extension AnimationPixelRun {
         if let last = all.last {
             let runs = palette.runs(last.line)
             let expected = landed.dropLast().map { Int($0.end.rounded()) }
-            if runs.map(\.name) != landed.map(\.label) || Array(runs.dropLast().map(\.end)) != expected {
+            if runs.map(\.name) != landed.map(\.color) || Array(runs.dropLast().map(\.end)) != expected {
                 failures.append("after the release the last frame reads \(runs), the final layout is "
                     + "\(landed.map { "\($0.label)[\($0.start)..<\($0.end)]" })")
             }
         }
         print("ANIMATION-PIXEL \(name): scale \(Int(scale))x, \(window.effectiveAppearance.name.rawValue), \(all.count) complete and "
-            + "\(stream.idleFrames) idle frames, \(moves.count) pointer moves, \(failures.count) failures")
+            + "\(stream.idleFrames) idle frames, \(moves.count) pointer moves, capture times on the vsync grid (max shift "
+            + "\(String(format: "%.2f", grid.maxResidual * 1000)) ms), \(failures.count) failures")
+        print("ANIMATION-PIXEL \(name): pointer moves (ms after the first, offset pt): "
+            + moves.map { "\(AnimationPixelRun.ms($0.time - trigger)):\(Int($0.offset))" }.joined(separator: " "))
         for line in verdict.report { print("ANIMATION-PIXEL \(name): \(line)") }
         for failure in failures.prefix(40) { print("ANIMATION-PIXEL \(name): FAIL \(failure)") }
         return failures
@@ -105,7 +110,7 @@ extension AnimationPixelRun {
             throw Failure(description: "\(name): the scanline does not cross \(band) between two elements: \(geometry.map(\.label))")
         }
         let runs = palette.runs(line)
-        let before = geometry[index - 1].label, after = geometry[index + 1].label
+        let before = geometry[index - 1].color, after = geometry[index + 1].color
         let center = (geometry[index].start + geometry[index].end) / 2
         guard let left = runs.last(where: { $0.label == before && Double($0.start) < center }),
               let right = runs.first(where: { $0.label == after && Double($0.end) > center }), left.end <= right.start else {

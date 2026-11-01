@@ -13,6 +13,10 @@ struct ScanlineSpan {
     let end: Double
     /// A separator's exact width in pixels; nil for a pane or the background.
     let exactLength: Int?
+    /// The color the palette knows it by: every divider line draws the one separator color.
+    var color: String { ScanlineSpan.color(of: label) }
+
+    static func color(of label: String) -> String { label.hasPrefix("divider") ? "divider" : label }
 
     /// `spans` cut to 0..<length, in order, with "background" spans filling what lies between
     /// and around them: the whole scanline.
@@ -45,6 +49,7 @@ struct ScanlineElement {
     /// with a 3 pt blurred halo, DividerGlowBand): its pixels are not named, but it is bounded by
     /// the elements on each side and its width stays `exactLength`, so it moves rigidly.
     var free = false
+    var color: String { ScanlineSpan.color(of: label) }
 }
 
 /// Where every boundary between two elements must be, computed by the test: from a declared
@@ -112,7 +117,7 @@ struct ScanlineJudge {
     /// the change shows frames between its start and end (false: animations off, one frame).
     func judge(_ frames: [(time: Double, line: [UInt32])], palette: ScanlinePalette, moves: Bool) -> Verdict {
         var verdict = Verdict()
-        let labels = elements.map(\.label)
+        let labels = elements.map(\.color)
         var valid: [Shown] = []
         for (index, frame) in frames.enumerated() where frame.time >= trigger - 3 * period {
             let runs = palette.runs(frame.line)
@@ -137,7 +142,8 @@ struct ScanlineJudge {
                 continue
             }
             for (span, element) in zip(spans, elements) where element.exactLength.map({ $0 != span.end - span.start }) == true {
-                verdict.failures.append("\(at): \(element.label) is \(span.end - span.start) px, not \(element.exactLength ?? 0)")
+                let pixels = frame.line[max(span.start - 1, 0)..<min(span.end + 1, frame.line.count)].map(ScanlinePalette.hex).joined(separator: " ")
+                verdict.failures.append("\(at): \(element.label) is \(span.end - span.start) px, not \(element.exactLength ?? 0) (pixels \(span.start - 1)...: \(pixels))")
             }
             valid.append((time: frame.time, boundaries: spans.dropLast().map { $0.end }))
         }
@@ -159,12 +165,12 @@ struct ScanlineJudge {
         for (position, element) in elements.enumerated() {
             guard index < runs.count else { return nil }
             if element.free {
-                let next = position + 1 < elements.count ? elements[position + 1].label : nil
+                let next = position + 1 < elements.count ? elements[position + 1].color : nil
                 let start = runs[index].start
                 while index < runs.count, next == nil || runs[index].label != next { index += 1 }
                 spans.append((start: start, end: index < runs.count ? runs[index].start : runs[runs.count - 1].end))
             } else {
-                guard runs[index].label == element.label else { return nil }
+                guard runs[index].label == element.color else { return nil }
                 spans.append((start: runs[index].start, end: runs[index].end))
                 index += 1
             }
@@ -253,27 +259,54 @@ struct ScanlineJudge {
         return failures
     }
 
-    /// Between the first frame that moved and the first final one: each display refresh with no
-    /// new frame although the oracle moved a boundary by a whole pixel there is a dropped frame.
+    /// Every display refresh from the first frame that moved to the first final one: the picture
+    /// shown at that refresh is the last frame at or before it. A refresh with no new frame whose
+    /// picture is more than the curve tolerance from the oracle there is a dropped frame.
     private func dropsAndIntervals(_ valid: [Shown], origin: Double) -> ([String], [Double]) {
         guard let first = valid.firstIndex(where: { $0.boundaries != startBoundaries }),
-              let landed = valid.lastIndex(where: { $0.boundaries != finalBoundaries }).map({ $0 + 1 }),
-              landed > first, landed < valid.count else { return ([], []) }
+              let landed = valid.firstIndex(where: { $0.boundaries == finalBoundaries }), landed > first else { return ([], []) }
         var drops: [String] = [], intervals: [Double] = []
-        for index in first..<landed {
-            let a = valid[index], b = valid[index + 1], gap = b.time - a.time
-            intervals.append(gap)
-            let missing = Int((gap / period).rounded()) - 1
-            guard missing > 0 else { continue }
-            let shown = oracle.boundaries(a.time - origin).map { $0.rounded() }
-            let due = (1...missing).contains { slot in
-                oracle.boundaries(a.time + Double(slot) * period - origin).map { $0.rounded() } != shown
+        for index in first..<landed { intervals.append(valid[index + 1].time - valid[index].time) }
+        var slot = valid[first].time + period
+        while slot < valid[landed].time - period / 2 {
+            if let shown = valid.last(where: { $0.time <= slot + period / 4 }), shown.time < slot - period / 2 {
+                let due = oracle.boundaries(slot - origin)
+                let error = zip(shown.boundaries, due).map { abs(Double($0) - $1) }.max() ?? 0
+                if error > Self.curveTolerance {
+                    drops.append("dropped frame at t=\(Self.ms(slot - origin)) ms: the screen still shows \(shown.boundaries) from "
+                        + "t=\(Self.ms(shown.time - origin)) ms, \(String(format: "%.2f", error)) px from the oracle")
+                }
             }
-            if due {
-                drops.append("dropped \(missing) frame(s) at t=\(Self.ms(a.time - origin)) ms: \(Self.ms(gap)) ms with no new frame while the oracle moved")
-            }
+            slot += period
         }
         return (drops, intervals)
+    }
+
+    /// The capture times put on the display's vsync grid, the grid's phase fitted per run from
+    /// `link`, the display link's own timestamps of the window's screen in this run (the window
+    /// server shows a frame only at a refresh). ScreenCaptureKit stamped the first frame after an
+    /// idle stretch 2.4 ms late (green 38dc511f); on the grid that stamp cannot shift the oracle.
+    ///
+    /// The snap never hides a late frame: a frame shown a refresh late lands on that later
+    /// refresh. A capture time more than 0.4 of a period from every refresh (3.3 ms at 120 Hz;
+    /// rounding to the nearest refresh could then pick the wrong one) makes the run's timing
+    /// invalid: `invalid` lists those frames and the caller fails the run with them.
+    static func onVsyncGrid(_ times: [Double], link: [Double], period: Double) -> (times: [Double], maxResidual: Double, invalid: [String]) {
+        let reference = link.isEmpty ? times : link
+        guard !times.isEmpty, !reference.isEmpty, period > 0 else { return (times, 0, []) }
+        let angles = reference.map { 2 * Double.pi * ($0 / period).truncatingRemainder(dividingBy: 1) }
+        let phase = atan2(angles.map(sin).reduce(0, +), angles.map(cos).reduce(0, +)) / (2 * Double.pi)
+        var snapped: [Double] = [], worst = 0.0, invalid: [String] = []
+        for time in times {
+            let grid = ((time / period - phase).rounded() + phase) * period
+            let residual = abs(time - grid)
+            worst = max(worst, residual)
+            if residual > 0.4 * period {
+                invalid.append("capture timing invalid: a frame stamped \(String(format: "%.2f", residual * 1000)) ms from the nearest refresh")
+            }
+            snapped.append(grid)
+        }
+        return (snapped, worst, invalid)
     }
 
     static func ms(_ seconds: Double) -> String { String(format: "%.1f", seconds * 1000) }
