@@ -102,6 +102,9 @@ extension DaemonService {
         // A stopped or wedged owner keeps its socket open: only the heartbeat
         // shows it not connected (cx-jniyz.4).
         configuration.localHeartbeat = true
+        // The reconnect starts the daemon itself (`server ensure`): it never waits for an event only, since a
+        // start that failed for a full disk gets none when the space comes back (restore fuzz h2).
+        configuration.retry = .localReconnect
         configuration.echoesPlacementShift = echoesPlacementShift
         return configuration
     }

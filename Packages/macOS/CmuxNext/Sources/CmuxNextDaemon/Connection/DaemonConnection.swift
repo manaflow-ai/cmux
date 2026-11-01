@@ -21,7 +21,9 @@ import os
 /// crashed daemon). Attempts are spaced by one capped backoff across
 /// consecutive drops (reset only after a connection stays up for
 /// `healthyAfter`), and after `retry.timedRetries` failures no timer runs:
-/// the loop waits for the daemon socket to change or `retryWake` to fire.
+/// the loop waits for the daemon socket to change or `retryWake` to fire,
+/// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
+/// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
 /// that dies on connect) only `retryWake` does.
 public actor DaemonConnection {
@@ -388,7 +390,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
