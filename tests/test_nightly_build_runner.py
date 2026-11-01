@@ -268,6 +268,35 @@ class DedicatedRefusal(unittest.TestCase):
         out, _ = self.run_pick(broken)
         self.assertEqual(out["owned"], DEDICATED)
 
+    # Production names the dedicated builder as the trusted pair too (vars.CI_NIGHTLY_NEXT_TRUSTED_POOL and
+    # _RUNNER are labels of the same cmux7s runner, BUILDER here), and build-nightly-app takes `trusted` before
+    # `owned`: a hold that cleared only `dedicated` sent the build back to the Mac that refused it (#29768).
+    def run_trusted_pick(self, admission):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
+                   "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/nightly-next", "ROUTE_TOKEN": "r",
+                   "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE,
+                   "DEDICATED_LABEL": DEDICATED, "TRUSTED_POOL": BUILDER[0], "TRUSTED_RUNNER": BUILDER[1]}
+            clock = Clock()
+            picker.main(env, now=NOW, sleep=clock.sleep, clock=clock,
+                        read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
+                        read_snapshot=lambda t, r: snapshot({}), read_admission_fn=admission)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_a_refusing_builder_is_not_offered_as_the_trusted_pair_either(self) -> None:
+        out = self.run_trusted_pick(lambda t, r: admission_job("failure", 5))
+        self.assertEqual((out["dedicated"], out["trusted"], out["owned"]), ("", "", SIDE))
+        out = self.run_trusted_pick(lambda t, r: admission_job("success", 5))
+        self.assertEqual(out["dedicated"], DEDICATED)
+
+    def test_a_refusal_of_a_build_routed_by_the_trusted_pair_counts(self) -> None:
+        # A trusted-routed build-nightly-app carries only the pair's labels, not the dedicated label.
+        job = dict(admission_job("failure", 5), labels=[BUILDER[0], BUILDER[1]])
+        self.assertIsNone(picker.latest_admission(DEDICATED, [job]))
+        self.assertEqual(picker.latest_admission([DEDICATED, BUILDER[1]], [job]), job)
+        self.assertIn("refused run 40614043040", picker.refusal(DEDICATED, job, NOW))
+
 
 class TrustedRoute(unittest.TestCase):
     def test_trusted_pair_is_selected_with_both_labels(self) -> None:
