@@ -191,7 +191,7 @@ async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Ref
     let links =
         control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
     let mut counts = HashMap::<(String, String), usize>::new();
-    for link in links.iter().filter(|link| link.owner) {
+    for link in &links {
         *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
     }
     let machines = links
