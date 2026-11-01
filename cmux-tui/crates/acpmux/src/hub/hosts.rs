@@ -483,6 +483,9 @@ impl Hub {
             return Ok(());
         }
         let resume_after = self.last_host_seq(session, &record.incarnation);
+        // The subagents the host still runs, before its first replayed line reaches the tap:
+        // a child's line is tagged with its session from the first one (`work_below.rs`).
+        self.seed_subagents_from_log(session);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
@@ -1984,18 +1987,8 @@ fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> boo
         "in" => {
             // An open turn's records: the model's signs of work, its tools, steers' answers.
             turn_open
-                // Every subagent the log starts, which a later turn's update may belong to
-                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
-                // a `spawnAgent` call or a `_meta.codex.subagent` object).
-                || matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
-                )
-                || (matches!(
-                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
-                    "tool_call" | "tool_call_update"
-                ) && (head.may_contain(b"\"spawnAgent\"")
-                    || head.may_contain(b"\"subagent\":{")))
+                // Every subagent the log starts, which a later turn's update may belong to.
+                || super::work_below::names_subagents(head)
                 // An agent request (an `id` and a `method`), answered or not.
                 || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
         }

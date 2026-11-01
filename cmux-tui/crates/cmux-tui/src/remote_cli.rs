@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::distribution::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
@@ -33,7 +34,6 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,

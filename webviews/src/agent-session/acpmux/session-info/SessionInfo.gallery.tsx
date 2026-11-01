@@ -410,6 +410,28 @@ const workflowProps = (
   };
 };
 
+/// A provider failure after an earlier progress message, read through the real summary fold.
+const workflowFailureProps = (): Props => {
+  const nodes = workflowFixture("finished").map((node) => ({
+    ...node,
+    state: "failed",
+    workflowAgents: new Map(
+      [...(node.workflowAgents ?? [])].map(([index, agent]) => [
+        index,
+        index === 4
+          ? {
+              ...agent,
+              state: "failed",
+              error: "503: No provider capacity available",
+              lastMessage: "Earlier reply before the request failed",
+            }
+          : agent,
+      ]),
+    ),
+  }));
+  return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
+};
+
 const assertNarrowWorkflowLayout: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
   const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
@@ -615,6 +637,19 @@ export default componentEntry<Props>({
       note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
       props: workflowProps("finished"),
       play: openPhase(2),
+    },
+    "workflow-agent-failed": {
+      note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
+      props: workflowFailureProps(),
+      play: async (ctx) => {
+        await openPhase(2)(ctx);
+        const message = ctx.find({
+          selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
+        });
+        if (message.textContent !== "503: No provider capacity available")
+          throw new Error("missing workflow failure reason");
+        await assertNarrowWorkflowLayout(ctx);
+      },
     },
     "workflow-agent-row-compact": {
       note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
@@ -853,6 +888,7 @@ export default componentEntry<Props>({
     "cloud-empty": {
       note: "A Cloud chat before the agent reports usage or edits anything: Context and Outputs have no sections yet.",
       props: {
+        cloudRepositoryAvailable: true,
         summary: {
           ...local.summary!,
           cwd: "/workspace/atlas-web",

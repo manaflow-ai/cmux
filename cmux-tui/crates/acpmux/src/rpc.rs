@@ -473,6 +473,8 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    pub const AGENT_SESSION_TURN_PREPARE: &str = "agent-session-turn-prepare";
+    pub const AGENT_SESSION_TURN_ABANDON: &str = "agent-session-turn-abandon";
     /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
     pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
     /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.

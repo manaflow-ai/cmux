@@ -183,6 +183,18 @@
     },
     {
       "kind": "request",
+      "name": "agent-session-turn-prepare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent-session-turn-abandon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/sessions",
       "params": {
         "$ref": "#/types/SessionsParams"
