@@ -44,7 +44,7 @@ SINGLE_SIZE: dict[str, int] = {
     "app-ffi-release.yml": 3,
     "auto-resume-nightly-notarization.yml": 6,
     "automation-bench.yml": 1,
-    "backend.yml": 12,
+    "backend.yml": 0,
     "ci-artifact-canary.yml": 1,
     "ci-artifact-transport.yml": 1,
     "ci-cache-receipts.yml": 1,

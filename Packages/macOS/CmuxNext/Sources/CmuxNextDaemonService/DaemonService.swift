@@ -261,7 +261,8 @@ public final class DaemonService {
                 }
                 await weakSelf?.noteStartupFailure(error)
             }
-            var connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, first: first,
+            // The first connect starts the local daemon too: it keeps trying past its budget (restore fuzz h2).
+            var connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock, first: first,
                                                                makeConnection: makeConnection, onFailure: onFailure)
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
@@ -272,8 +273,8 @@ public final class DaemonService {
                 self?.armStartupDeadline()
                 connected = nil
                 if !Task.isCancelled {
-                    connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection,
-                                                                   onFailure: onFailure)
+                    connected = await DaemonStartup.shared.connect(policy: .localFirstConnect, wake: wake, clock: clock,
+                                                                   makeConnection: makeConnection, onFailure: onFailure)
                 }
             }
             guard let (connection, identity) = connected else { return }

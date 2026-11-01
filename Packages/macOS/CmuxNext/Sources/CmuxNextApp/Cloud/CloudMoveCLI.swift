@@ -104,6 +104,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         return answer
     }
 
+    /// `cmux link machine pin` (cmux-tui `link/machine_pin.rs`): its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
+    func machinePin() async -> Data? { try? await ProcessRunner.run(executable: binary, arguments: ["link", "machine", "pin"], environment: nil, timeout: .seconds(150), clock: ContinuousClock()).stdout }
+
     /// `cmux link start-chat plan`'s answer: the machine a `cloud.startChat` send takes (nil: make
     /// one named `newName`), pinned to the send, and the send's keys.
     struct StartChatPlan: Sendable, Equatable {

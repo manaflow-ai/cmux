@@ -34,6 +34,10 @@
 //! `fuzz-g`), or when `ACPMUX_FUZZ_SEED` is set; elsewhere it prints `FUZZ-G SKIP` and passes.
 //! `ACPMUX_FUZZ_SEED` (a u64) and `ACPMUX_FUZZ_ROUNDS` (kills per seed) choose the run; without
 //! them each test runs its three seeds, 12 kills each, at most 70 s a seed.
+//!
+//! The `fuzz_g_oracle_*` tests at the end are not gated: they start no daemon, take about 15 ms
+//! each and run in every test run. Each builds the model state a fault leaves and asserts that
+//! the oracle reports it.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -301,6 +305,8 @@ struct Daemon {
     killed: Option<(u32, Vec<u32>)>,
     /// A start failed on the lock: the home stays for the diagnosis (candidate g3).
     keep_home: bool,
+    /// The daemon had already exited by itself when the test came to kill it: its status.
+    self_exit: Option<String>,
 }
 
 impl Daemon {
@@ -323,7 +329,15 @@ impl Daemon {
         std::fs::set_permissions(home.join("config.json"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
         let socket = home.join("s.sock");
-        Self { home, socket, child: None, starts: 0, killed: None, keep_home: false }
+        Self {
+            home,
+            socket,
+            child: None,
+            starts: 0,
+            killed: None,
+            keep_home: false,
+            self_exit: None,
+        }
     }
 
     /// Starts the daemon and waits until it answers `initialize`; the time it took.
@@ -373,7 +387,9 @@ impl Daemon {
     fn kill9(&mut self) {
         if let Some(mut child) = self.child.take() {
             self.killed = Some((child.id(), children_of(child.id())));
-            if child.try_wait().ok().flatten().is_none() {
+            if let Ok(Some(status)) = child.try_wait() {
+                self.self_exit = Some(status.to_string());
+            } else {
                 // SAFETY: the unreaped daemon child this test started.
                 unsafe { libc::kill(child.id() as i32, libc::SIGKILL) };
             }
@@ -509,6 +525,8 @@ struct ChatModel {
     names: Vec<RegWrite>,
     modes: Vec<RegWrite>,
     unread_acked: bool,
+    /// A `draft_set` was sent for this chat: only then does its draft check count as one.
+    draft_written: bool,
     /// Prompt ids the daemon accepted, and those it may have taken.
     accepted: BTreeSet<String>,
     maybe: BTreeSet<String>,
@@ -545,6 +563,15 @@ struct PromptVerdict {
     cut: Vec<String>,
     /// A removal was sent and its answer cut, and the prompt is still there: it did not.
     kept: Vec<String>,
+}
+
+impl PromptVerdict {
+    /// Nothing to read again: no loss, no prompt back, and no cut removal that seems to have
+    /// landed. A prompt moving from the queue to its turn between the two reads looks absent;
+    /// read as a landed removal, a later check would report it back.
+    fn settled(&self) -> bool {
+        self.lost.is_empty() && self.back.is_empty() && self.cut.is_empty()
+    }
 }
 
 fn classify_prompts(c: &ChatModel, queue: &str, ran: &str) -> PromptVerdict {
@@ -787,6 +814,7 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
                 let value = (!text.trim().is_empty()).then(|| text.clone());
                 if let Some(c) = m.chats.get_mut(chat) {
                     c.drafts.push(RegWrite { value, sent, acked: None, seq });
+                    c.draft_written = true;
                 }
             }
             Op::Rename { chat, name } => {
@@ -1016,8 +1044,13 @@ fn run_op(client: &mut Client, model: &Mutex<Model>, op: Op, home: &Path) -> boo
 
 /// How long a request the kill cut waited while the daemon was up: from `sent` to the kill.
 fn cut_ms(model: &Mutex<Model>, sent: Instant) -> u64 {
-    let killed = model.lock().unwrap().killed_at;
-    killed.map_or_else(|| sent.elapsed(), |k| k.saturating_duration_since(sent)).as_millis() as u64
+    // A kill before the request was sent (an earlier epoch's) did not cut it: the daemon went
+    // away by itself, and the request waited until it learned that, now.
+    match model.lock().unwrap().killed_at {
+        Some(k) if k >= sent => k.duration_since(sent),
+        _ => sent.elapsed(),
+    }
+    .as_millis() as u64
 }
 
 #[derive(Clone, Copy)]
@@ -1165,7 +1198,9 @@ fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
         }
         // Drafts: promised durable.
         if let Some(ok) = allowed(&c.drafts) {
-            checked("drafts", 1);
+            if c.draft_written {
+                checked("drafts", 1);
+            }
             let now = draft;
             match now {
                 Ok(now) if !ok.contains(&now) => {
@@ -1223,7 +1258,7 @@ fn check(daemon: &mut Daemon, model: &Model) -> (Vec<Finding>, Vec<Seen>) {
                 }
             };
             verdict = classify_prompts(c, &queue, &ran);
-            if (verdict.lost.is_empty() && verdict.back.is_empty()) || attempt == 5 {
+            if verdict.settled() || attempt == 5 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(300));
@@ -1435,6 +1470,15 @@ fn fuzz_seed(seed: u64, rounds: u32, budget: Duration, totals: &mut Totals) -> V
         }
         model.lock().unwrap().killed_at = Some(Instant::now());
         daemon.kill9();
+        if let Some(status) = daemon.self_exit.take() {
+            let step = model.lock().unwrap().issued.len();
+            totals.violations.push(Finding {
+                step,
+                op: "kill -9".into(),
+                kind: "daemon-exit",
+                what: format!("the daemon had exited by itself before the kill: {status}"),
+            });
+        }
         drop(admin.take());
         for t in threads.drain(..) {
             let _ = t.join();
@@ -1504,6 +1548,9 @@ fn replay(ops: &[Op], tag: &str) -> BTreeSet<&'static str> {
         if matches!(op, Op::Kill) {
             model.lock().unwrap().killed_at = Some(Instant::now());
             daemon.kill9();
+            if daemon.self_exit.take().is_some() {
+                kinds.insert("daemon-exit");
+            }
             drop(client.take());
             if daemon.start().is_err() {
                 kinds.insert("restart");
@@ -1838,4 +1885,39 @@ fn fuzz_g_oracle_an_answer_acks_its_own_write() {
 fn fuzz_g_oracle_two_daemons_with_one_tag_get_two_homes() {
     let (a, b) = (Daemon::new("same"), Daemon::new("same"));
     assert_ne!(a.home, b.home);
+}
+
+/// A request the daemon dropped by exiting by itself (no kill in this epoch) waited until it
+/// learned that, not 0 ms: the last kill was an earlier epoch's, before the request was sent.
+/// Review note (d) of #29103.
+#[test]
+fn fuzz_g_oracle_a_request_cut_by_a_self_exit_keeps_its_wait() {
+    let model = Mutex::new(Model::default());
+    let sent = Instant::now() - Duration::from_millis(2_500);
+    model.lock().unwrap().killed_at = Some(sent - Duration::from_secs(10));
+    let ms = cut_ms(&model, sent);
+    assert!(ms >= 2_400, "a cut request with an older kill counted {ms} ms");
+}
+
+/// Review note (a) of #29103: a verdict with a cut removal that seems to have landed is read
+/// again, as one with a loss is.
+#[test]
+fn fuzz_g_oracle_a_cut_removal_is_read_again() {
+    let landed = PromptVerdict { cut: vec!["p1".into()], ..PromptVerdict::default() };
+    assert!(!landed.settled(), "a cut removal was accepted on one read");
+    let kept = PromptVerdict { kept: vec!["p1".into()], ..PromptVerdict::default() };
+    assert!(kept.settled());
+}
+
+/// Review note (b) of #29103: a chat with no `draft_set` does not count as a checked draft,
+/// also after a restart check rebased its draft register.
+#[test]
+fn fuzz_g_oracle_a_chat_with_no_draft_set_is_no_draft_check() {
+    let mut m = Model::default();
+    m.chats.insert(1, oracle_chat());
+    let seen = Seen { label: 1, draft: Some(None), ..Seen::default() };
+    settle(&mut m, &[seen], Instant::now());
+    let c = &m.chats[&1];
+    assert!(allowed(&c.drafts).is_some(), "the rebased register has an acknowledged write");
+    assert!(!c.draft_written, "a chat with no draft_set would count as a draft check");
 }
