@@ -1066,7 +1066,7 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            // An orphaned host that ends its harness answers once it is reaped (`orphan.rs`).
+            // An orphaned host that ends its harness answers once its exit is logged (`orphan.rs`).
             if self.stall_hello
                 || self.orphan.hold_hello(id, &frame, &self.leader_alive, self.exit_h.is_some())
             {

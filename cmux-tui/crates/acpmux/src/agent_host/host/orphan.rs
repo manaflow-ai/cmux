@@ -69,15 +69,20 @@ pub(super) fn needs_a_daemon(entry: &Entry) -> bool {
 
 /// Whether a hello that comes while the host ends its harness waits: `ending` the end began,
 /// `alive` its leader is not reaped yet, `exit_in` its exit entry is in the log.
-pub(super) fn holds_hello(ending: bool, alive: bool, _exit_in: bool) -> bool {
-    ending && alive
+/// Until the exit entry is in: the waiter task marks the leader reaped before the main loop logs
+/// the exit (which also waits for the harness's output to close), so a reaped leader is not yet
+/// an exit a daemon can read. `alive` alone is not the rule.
+pub(super) fn holds_hello(ending: bool, _alive: bool, exit_in: bool) -> bool {
+    ending && !exit_in
 }
 
 /// Whether the hellos held while the host ends its harness are answered now (`reaped`: its leader
 /// is reaped, `exit_in`: its exit entry is in the log, `given_up`: the end stopped waiting for
 /// the exit entry, `end_by`).
-pub(super) fn answers_held(reaped: bool, exit_in: bool, _given_up: bool) -> bool {
-    reaped || exit_in
+/// Once the exit is in, or once the end stopped waiting for it (an exit entry the buffer cap
+/// holds back may never come): a held daemon is never left without an answer.
+pub(super) fn answers_held(_reaped: bool, exit_in: bool, given_up: bool) -> bool {
+    exit_in || given_up
 }
 
 /// A host's own end ([`OrphanExit`]), and what it tracks for it.
@@ -94,8 +99,8 @@ pub(super) struct Orphan {
     /// The census said clear, and its answer went round the event queue once more, so every
     /// event any task sent before it (a line, a connection) is handled before the end.
     confirming: bool,
-    /// Hellos that came while the harness ends, answered once it is reaped: no daemon starts a
-    /// turn on a harness that is ending.
+    /// Hellos that came while the harness ends, answered once its exit entry is in: no daemon
+    /// starts a turn on a harness that is ending, and each reads the exit.
     held: Vec<(u64, ControllerFrame)>,
     /// When the end gives up waiting for the harness's exit entry (output held back by the
     /// buffer cap with no daemon to drain it can keep it out for good).
@@ -112,8 +117,8 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
-    /// Holds connection `id`'s hello `frame` while the harness ends (`alive`: its leader is not
-    /// reaped yet): true when it is held, to be answered once it is.
+    /// Holds connection `id`'s hello `frame` while the harness ends and its exit entry is not in
+    /// the log yet ([`holds_hello`]): true when it is held, to be answered once it is.
     pub(super) fn hold_hello(
         &mut self,
         id: u64,
@@ -200,7 +205,7 @@ impl State {
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
     /// end is done: the harness exited and no controller is there to log it. A daemon that
-    /// connected while the harness ended is answered once it is reaped (`hold_hello`): it logs
+    /// connected while the harness ended is answered once its exit entry is in (`hold_hello`): it logs
     /// the rest and the exit, as of a harness that crashed, and the host then ends as every host
     /// does (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`]; what
     /// the harness wrote as it ended that a next daemon needs gets the whole wait again, for a
