@@ -197,6 +197,16 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
+    // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
+    Capability {
+        id: "agent-login-v1",
+        wire: &[
+            method::MUX_AGENT_LOGIN_START,
+            method::MUX_AGENT_LOGIN_FINISH,
+            method::MUX_AGENT_LOGIN_CANCEL,
+            method::MUX_AGENT_LOGIN_API_KEY,
+        ],
+    },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

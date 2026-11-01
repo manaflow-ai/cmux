@@ -88,7 +88,15 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx"
+        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
+        "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
+        "webviews/src/agent-session/acpmux/conversation/SentMessageLine.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css",
+        "webviews/src/agent-session/acpmux/conversation/TranscriptActivityRow.css",
+        "webviews/src/agent-session/acpmux/started/StartedSessionCard.tsx"
       ]
     },
     "settings": {
@@ -102,6 +110,15 @@
         "webviews/src/pages/settings/refined.css",
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "chat-header": {
+      "spec": "leo-workspace design/chat-header.md",
+      "aliases": ["chat header", "chat title", "title menu", "header tools"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/header/ThreadTitle.tsx",
+        "webviews/src/agent-session/acpmux/header/header.css",
+        "webviews/src/agent-session/acpmux/header/chatRows.ts"
       ]
     },
     "session-info": {
