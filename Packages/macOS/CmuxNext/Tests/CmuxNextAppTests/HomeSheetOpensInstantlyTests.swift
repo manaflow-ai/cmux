@@ -22,6 +22,7 @@ import Testing
         sheet.onFinish = { finished.append($0) }
 
         let held = ContinuousClock().measure { HomeSheetPresenter().present(sheet, over: window) }
+        print("Home invite presentation main-thread time: \(held)")
 
         #expect(window.attachedSheet == nil, "an AppKit sheet: its slide-in holds every key in a modal loop")
         // Measured on the main thread: the overlay path costs a few ms; the sheet's animation alone ~100 ms.

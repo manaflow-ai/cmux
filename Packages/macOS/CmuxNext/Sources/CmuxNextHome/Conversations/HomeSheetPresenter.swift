@@ -30,7 +30,6 @@ public struct HomeSheetPresenter {
         let content = sheet.view
         // A room's own theme: the sheet's views resolve their colors in the page's scope.
         if let themeSource { themeSource.themeScope.fullStrength.root(content) }
-        content.layoutSubtreeIfNeeded()
         content.setFrameSize(content.fittingSize)
         let handle = WindowOverlayHost.host(for: window).present(content, options: .dialog())
         sheet.dismissPresentation = { [weak handle] in handle?.dismiss() }
