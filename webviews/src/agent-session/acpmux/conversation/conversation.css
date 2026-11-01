@@ -4983,6 +4983,5 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   padding: 3px 7px;
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  cursor: pointer;
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
