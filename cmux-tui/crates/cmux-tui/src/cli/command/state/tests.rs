@@ -579,6 +579,31 @@ fn closed_reopen_takes_a_tab_and_a_fallback_pane() {
     assert!(!rejects(&["closed", "c1", "reopen", "--tab", TAB]).is_empty());
 }
 
+/// A closed workspace's link (`cmux://workspace/ws_...`) reopens it by its
+/// old id (#25659 added `closed.reopen {workspace}`); it excludes a group id
+/// and a tab.
+#[test]
+fn closed_reopen_takes_a_closed_workspace_id() {
+    const WS: &str = "ws_00000000000000000000000000000004";
+    assert_eq!(
+        sent(&["closed", "reopen", "--workspace", WS]),
+        ("closed.reopen".into(), json!({"workspace": WS}))
+    );
+    assert!(rejects(&["closed", "reopen", "--workspace", "w1"]).contains("ws_"));
+    assert!(!rejects(&["closed", "c1", "reopen", "--workspace", WS]).is_empty());
+    assert!(
+        !rejects(&[
+            "closed",
+            "reopen",
+            "--workspace",
+            WS,
+            "--tab",
+            "tab_00000000000000000000000000000007"
+        ])
+        .is_empty()
+    );
+}
+
 #[test]
 fn every_state_mutation_takes_an_explicit_idempotency_key() {
     let args = ["room", "Work", "move", "--index", "1", "--idempotency-key", "mutation_retry"]

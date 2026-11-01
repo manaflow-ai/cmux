@@ -55,7 +55,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-mobile-ffi.yml", "android", "runs-on", BIG),
     ("cmux-next-car-guards.yml", "linux", "runs-on", BIG),
     ("cmux-next-source-archive.yml", "vt-link-graph", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on", BIG),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
@@ -81,7 +80,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     # Swift on Linux: swift build and swift test of the portable packages in the swift.org
     # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
     ("swift-packages-linux.yml", "packages", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),

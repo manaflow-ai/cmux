@@ -25,8 +25,9 @@ enum PaneHandlers {
     /// several adjacent panes, and of a strip column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
-        // One logical line: docked columns before and after the strip.
-        let frames = content.layoutView.navigationFrames
+        // One logical line: docked columns before and after the strip. The frames of `pane`'s own screen,
+        // active or not: what opens beside a chat on a screen the person left reads that screen (#28044).
+        let frames = content.layoutView.navigationFrames(ofScreenContaining: pane)
         return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
                                         recency: content.recentPanes,
                                         columns: screen.layout.columns.map(\.root.panes))

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// shared CI hosts is not. Switching between tabs that already show, at rest, walks no row of tabs (no
 /// occlusion pass, no full separator pass, no frame pass) at 2, 10 or 30 tabs: its cost is the two
 /// cells whose selection changed. A change that brings back an O(tabs) pass on the switch path fails here.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct TabSwitchWorkBudgetTests {
     @Test(arguments: [2, 10, 30])
     func aSwitchAtRestWalksNoRow(_ count: Int) {

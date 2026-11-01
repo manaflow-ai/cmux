@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// one and rows whose spinners stack over a usage-warning triangle. Written as PNGs under `row-alignment-gallery/` in
 /// the package and bundled to `row-alignment-gallery.tar` for `cmux-ci run --artifact`. Runs only with
 /// `CMUX_TEST_REQUIRE_GUI=1`.
-@MainActor @Suite(.serialized) struct AASidebarRowAlignmentGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarRowAlignmentGalleryTests {
     static func sections() -> [SidebarSection] {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         func working(_ id: String) -> SidebarWorkspace {
