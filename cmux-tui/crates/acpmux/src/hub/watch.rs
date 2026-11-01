@@ -411,7 +411,10 @@ mod tests {
         ready_rx.await.unwrap();
         tokio::task::yield_now().await;
         assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
-        assert!(session.meta().watching.is_some(), "the view-only owner changed before the tail finished");
+        assert!(
+            session.meta().watching.is_some(),
+            "the view-only owner changed before the tail finished"
+        );
 
         drop(tail_guard);
         taking.await.unwrap().unwrap();
@@ -422,11 +425,15 @@ mod tests {
         // must neither create a watched turn nor append any record to the live
         // conversation's journal.
         let before = session.meta().event_count;
-        let late_line = json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
+        let late_line =
+            json!({"type": "user", "message": {"content": "late watched prompt"}}).to_string();
         hub.show_watched(&session, &[late_line], 128).await;
         assert_eq!(session.meta().turn_count, 0, "a watched turn was appended after Take Over");
         assert_eq!(session.meta().event_count, before, "the stale reader wrote after Take Over");
-        assert!(hub.watch_take_over(&session, IfLive::Open).await.is_err(), "Take Over succeeded twice");
+        assert!(
+            hub.watch_take_over(&session, IfLive::Open).await.is_err(),
+            "Take Over succeeded twice"
+        );
         hub.shutdown_all().await;
     }
 
