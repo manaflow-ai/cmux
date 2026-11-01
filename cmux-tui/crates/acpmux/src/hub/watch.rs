@@ -199,18 +199,30 @@ impl Hub {
         }
         let file = watching.file.clone();
         // The newest page that starts at a prompt, so the first turn followed opens as a turn.
-        let (start, mark) = tokio::task::spawn_blocking(move || {
-            let mut input = std::fs::File::open(&file).ok()?;
+        let scanned = tokio::task::spawn_blocking(move || -> std::io::Result<(u64, Option<String>)> {
+            // A missing/rotating source must retry the seed before the tail
+            // reader starts. A valid source with no prompt in its scan window
+            // still uses the original zero-offset fallback.
+            let mut input = std::fs::File::open(&file)?;
             let start = crate::adopt_replay::newest_prompt_start_open(
                 &mut input,
                 crate::adopt_replay::PAGE_TURNS,
-            )?;
-            Some((start, super::native_history::mark(&mut input, start)))
+            )
+            .unwrap_or(0);
+            Ok((start, super::native_history::mark(&mut input, start)))
         })
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or((0, None));
+        .await;
+        let (start, mark) = match scanned {
+            Ok(Ok(boundary)) => boundary,
+            Ok(Err(error)) => {
+                tracing::debug!(session = %session.id, "watched transcript not yet readable: {error}");
+                return false;
+            }
+            Err(error) => {
+                tracing::warn!(session = %session.id, "watched transcript seed scan failed: {error}");
+                return false;
+            }
+        };
         if start == 0 {
             return true;
         }
