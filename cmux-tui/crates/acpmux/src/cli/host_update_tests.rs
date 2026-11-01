@@ -1625,6 +1625,51 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
 }
 
+/// cosmic-gray (2026-10-31): the cmux NIGHTLY app installs acpmux as a
+/// link into its bundle and runs the daemon as its own LaunchAgent, with no
+/// `com.acpmux.daemon.plist`. The update refused only at the restart, after
+/// it had replaced the app's link with a hard link to the old binary. Now it
+/// refuses before it pushes anything, and the link is as it was.
+#[test]
+#[cfg(unix)]
+fn a_mac_whose_acpmux_the_cmux_app_runs_is_left_as_it_was() {
+    let bin = "Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    for (shape, app_link, app_job) in
+        [("app", true, true), ("app-link", true, false), ("app-job", false, true)]
+    {
+        let peer = FakePeer::new(shape);
+        peer.under_launchd();
+        let link = peer.home.join(".local/bin/acpmux");
+        let target = peer.home.join(bin);
+        if app_link {
+            peer.exe(bin, &fake_acpmux(OLD, Some(OLD)));
+            std::fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        }
+        if app_job {
+            std::fs::remove_file(peer.home.join("Library/LaunchAgents/com.acpmux.daemon.plist"))
+                .unwrap();
+            peer.write("Library/LaunchAgents/com.cmux.acpmux.daemon.3f9c2a.plist", "<plist/>\n");
+        }
+        peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+        let up = peer.update_with(true, true);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("appManaged")),
+            "{shape}: {up:?}"
+        );
+        assert!(up.error.as_deref().unwrap_or("").contains("cmux app"), "{shape}: {up:?}");
+        if app_link {
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{shape}: the app's link is still a link");
+            assert_eq!(std::fs::read_link(&link).unwrap(), target, "{shape}");
+            assert_eq!(peer.read(bin), fake_acpmux(OLD, Some(OLD)), "{shape}: the app's binary");
+        }
+        assert!(peer.exists("loaded"), "{shape}: launchd was not touched");
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
+}
+
 #[cfg(unix)]
 #[path = "host_lock_tests.rs"]
 mod lock;
