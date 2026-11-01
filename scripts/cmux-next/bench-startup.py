@@ -385,12 +385,13 @@ def daemon_verdict(app_bundle, daemons, spawned_wall):
     after this launch's spawn; else "not_run" with the reasons. A launch that found no daemon is "not_run" too: the
     build of the daemon that served it is unknown. Returns {"verdict", "reasons", "daemons"}."""
     bundle = os.path.realpath(app_bundle).rstrip("/") + "/"
+    hashes = bundle_binary_hashes(app_bundle)
     reasons = []
     for d in daemons:
         exe = os.path.realpath(d["exe"]) if d.get("exe") else ""
         if not exe:
             reasons.append(f"{d['name']} pid {d.get('pid')}: binary unknown")
-        elif not exe.startswith(bundle):
+        elif not (exe.startswith(bundle) or host_exe_hash(exe) in hashes):
             reasons.append(f"{d['name']} pid {d.get('pid')} runs {exe}, not a binary of the app under test {bundle}")
         if d.get("started_wall") is not None and spawned_wall is not None and d["started_wall"] < spawned_wall - 1.0:
             reasons.append(f"{d['name']} pid {d.get('pid')} started {spawned_wall - d['started_wall']:.1f} s before "
@@ -398,6 +399,35 @@ def daemon_verdict(app_bundle, daemons, spawned_wall):
     if not any(d["name"] == "cmux-tui" for d in daemons):
         reasons.append("no cmux-tui owner answered identify: the daemon's build is unknown")
     return {"verdict": "not_run" if reasons else "run", "reasons": reasons, "daemons": daemons}
+
+
+# The bundle's binaries a terminal host, holder or agent host may run (host_exe.rs: a host runs from
+# <host-exe root>/<sha256 of the bundle's file>/<name>, outside the bundle; acpmux agent hosts run the bundle's acpmux).
+HOST_BINARIES = ("cmux-tui", "cmux-tui-host", "cmux-holder", "acpmux")
+HOST_EXE_RE = re.compile(r"/host-exe/([0-9a-f]{64})/[^/]+$")
+
+
+def host_exe_hash(exe):
+    """The <sha256> of a content-addressed host copy's path, or None for any other path."""
+    found = HOST_EXE_RE.search(exe or "")
+    return found.group(1) if found else None
+
+
+def bundle_binary_hashes(app_bundle):
+    """SHA-256 of each host binary of the app under test (the names host_exe.rs copies), as hex."""
+    import hashlib
+    out = set()
+    for name in HOST_BINARIES:
+        path = os.path.join(app_bundle, "Contents/Resources/bin", name)
+        try:
+            digest = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+            out.add(digest.hexdigest())
+        except OSError:
+            continue
+    return out
 
 
 def process_start_wall(pid):
@@ -432,6 +462,7 @@ def read_daemons(tag):
                       "started_wall": process_start_wall(pid) if pid else None})
     except (OSError, SystemExit, ValueError, AttributeError) as error:
         print(f"  {tag}: could not read the cmux-tui owner ({error})", file=sys.stderr)
+    found += read_hosts(tag)
     homes = [d for d in state_directories(tag)[1:3] if os.path.isdir(d)]
     for line in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
         parts = line.strip().split(None, 1)
@@ -442,6 +473,37 @@ def read_daemons(tag):
                 found.append({"name": "acpmux", "pid": pid, "build_id": None, "exe": process_exe(pid),
                               "started_wall": process_start_wall(pid)})
     return found
+
+
+def read_hosts(tag):
+    """The tag's terminal hosts and holders (tag_teardown's own matching: --owner <bundle id>:<tag>@<daemon pid>,
+    holder sockets of the tag's host roots) and its acpmux agent hosts (`acpmux __agent-host` whose ACPMUX_HOME is a
+    home of the tag). Hosts keep their binary until their terminal or agent ends (DAEMON SKEW 2703), so each is judged
+    like a daemon."""
+    out = []
+    try:
+        from tag_teardown import TagTeardown  # noqa: E402
+        app = os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag))))
+        td = TagTeardown(app, log=lambda line: None)
+        rows = td._table()
+        td.learn_state_roots(rows)
+        for pid, _ in td.processes():
+            command = rows.get(pid, (None, None, ""))[2]
+            if " __terminal-host" in f" {command}" or "cmux-holder" in command or " __holder " in f" {command} ":
+                out.append({"name": "terminal-host", "pid": pid, "build_id": None, "exe": process_exe(pid),
+                            "started_wall": process_start_wall(pid)})
+    except (ImportError, OSError, AttributeError, TypeError, ValueError) as error:
+        print(f"  {tag}: could not read the terminal hosts ({error})", file=sys.stderr)
+    homes = [os.path.realpath(d) for d in state_directories(tag)[1:3] if os.path.isdir(d)]
+    for line in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and "acpmux __agent-host" in parts[1]:
+            pid = int(parts[0])
+            home = procargs_env(pid).get("ACPMUX_HOME")
+            if home and os.path.realpath(home) in homes:
+                out.append({"name": "agent-host", "pid": pid, "build_id": None, "exe": process_exe(pid),
+                            "started_wall": process_start_wall(pid)})
+    return out
 
 
 def procargs_env(pid):
