@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-01: hiding and showing the sidebar no longer snaps when the slide lands (#29894, carry of #28894; commit
+  27992af55ed). Leo, verbatim: "also the toggle of opening and closing the left sidebar it's just too wonky it snaps and
+  jitters after it overshoots and needs to correct itself". The sidebar edge already eased out with no overshoot; the
+  content beside it did not: `sidebar.slideHoldsContent` kept the panes at the wider width through a show and resized
+  them once at landing. That tunable is now off by default (the panes follow the card's edge every frame; the hold
+  stays in Debug Settings), and `SidebarContainerView` flushes layout at the target width before it publishes that
+  the motion ended. The sidebar's own look, widths and curve are unchanged. Regression: `SidebarToggleSettlementTests`
+  (GUI, on demand), `SidebarSlideHoldsContentTests`.
 - 2026-10-31: the update status card's download is cancellable; text left, a bigger cancel on the right, vertically
   centred (#29653). Leo, verbatim: "AND WHY CAN'T I CANCEL THE DOWNLOAD OPTIONALLY AND WHY IS THE SYMBOL SO FUCKING
   SMALL THIS IS SHIT ASS SPACING WHY NOT JUST LEFT ALIGN THE TEXT PUT A BIGGER SYMBOL ON THE RIGHT" / "ALSO CENTER THE
