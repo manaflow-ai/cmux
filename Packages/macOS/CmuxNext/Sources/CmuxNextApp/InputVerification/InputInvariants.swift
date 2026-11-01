@@ -67,10 +67,9 @@ nonisolated enum InputInvariants {
             if moved || new.expectation != old.expectation { fail(.noSteal, "stale expect (\(generation) at \(old.generation)) changed focus") }
         case .windowKey, .appActive, .overlayOpened, .overlayClosed, .contentPresented:
             if moved { fail(.passiveEvents, "\(event) moved focus \(old.pane ?? "nil")/\(old.target) -> \(new.pane ?? "nil")/\(new.target)") }
-        case .responder where !old.overlays.isEmpty:
-            if moved { fail(.passiveEvents, "responder report under an overlay moved focus") }
-        default:
-            break
+        case .responder where !old.overlays.isEmpty && moved: fail(.passiveEvents, "responder report under an overlay moved focus")
+        case .responder(.sidebar, .programmatic) where moved && old.target.isPaneScoped && old.pane.map(old.topology.contains(pane:)) == true: fail(.noUnrequestedResponderMove, "AppKit's own pick moved focus off \(old.pane ?? "nil")")
+        default: break
         }
         if new.generation < old.generation, old.generation != .max {
             fail(.monotonicGeneration, "generation \(old.generation) -> \(new.generation)")
