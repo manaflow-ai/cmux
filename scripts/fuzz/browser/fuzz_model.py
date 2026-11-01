@@ -262,6 +262,17 @@ def committed_url_violation(url: str, title: str, *, agent_op: bool, via_web: bo
     return None
 
 
+def download_row(rows: list[dict], token: str) -> dict | None:
+    """The newest downloads row of one download op: its file name (or the destination's) starts with the op's token
+    and a dash. A substring match let op fz5-12 read the row of fz5-123456 (review of #29769)."""
+    import os.path
+    prefix = token + "-"
+    mine = [r for r in rows or []
+            if os.path.basename(r.get("filename") or "").startswith(prefix)
+            or os.path.basename(r.get("destination") or "").startswith(prefix)]
+    return mine[-1] if mine else None
+
+
 def download_violation(row: dict, downloads_dir: str) -> str | None:
     """A finished download must land in the downloads folder under a plain file name."""
     destination = row.get("destination") or ""

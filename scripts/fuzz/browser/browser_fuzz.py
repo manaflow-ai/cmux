@@ -70,8 +70,10 @@ DEVTOOLS_OWNER = "the DevTools main-thread stall owner"
 # pending: the failure report() shrinks now (owned by report()). ending: the seed's own failures while its end steps
 # run (owned by run_ops, set only when no shrink is pending, cleared after cleanup). seen: the keys of the findings
 # reported so far, so a hang never prints one twice.
+# queued: the seed's failures that wait for report() (moved there from ending when the end steps end; report() takes
+# each out when it starts on it). run: (seed, ops, opts) of the seed now running, so a hang can print its judged stalls.
 LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None, "pending": None, "ending": [], "seen": set(),
-              "out": None}
+              "queued": [], "run": None, "out": None}
 
 
 def finding_key(record: dict) -> str:
@@ -80,13 +82,50 @@ def finding_key(record: dict) -> str:
 
 
 def unreported() -> list[dict]:
-    """The failures a hang or a stop must still print: the one being shrunk (unshrunk), else the seed's own failures
-    that its end steps were running for, less those already reported."""
+    """The failures a hang or a stop must still print, each once: the one being shrunk (unshrunk), the seed's failures
+    that wait for report(), those its end steps were running for, and the judged stalls of the seed that runs now;
+    less those already reported."""
+    out, keys = [], set()
     pending = LIVE.get("pending")
     if pending:
-        return [dict(pending, note="its shrink was cut short; the ops are unshrunk")]
-    return [dict(r, note="the run ended in the seed's end steps; not shrunk")
-            for r in LIVE.get("ending") or [] if finding_key(r) not in LIVE["seen"]]
+        out.append(dict(pending, note="its shrink was cut short; the ops are unshrunk"))
+        keys.add(finding_key(pending))
+    candidates = [(r, "it waited for its shrink; not shrunk") for r in LIVE.get("queued") or []]
+    candidates += [(r, "the run ended in the seed's end steps; not shrunk") for r in LIVE.get("ending") or []]
+    candidates += [(r, "a judged stall of the seed that ran; not shrunk") for r in live_stalls()]
+    for record, note in candidates:
+        key = finding_key(record)
+        if key in LIVE["seen"] or key in keys:
+            continue
+        keys.add(key)
+        out.append(dict(record, note=note))
+    return out
+
+
+def live_stalls() -> list[dict]:
+    """The judged stalls (bench builds) the running seed has seen so far, as finding records."""
+    run, session = LIVE.get("run"), LIVE.get("session")
+    if not run or session is None:
+        return []
+    seed, ops, opts = run
+    if getattr(opts, "build_config", "debug") == "debug":
+        return []
+    return [failure_record(stall, seed, ops, opts) for stall in list((getattr(session, "stalls", None) or {}).values())]
+
+
+def take_queued(record: dict | None):
+    """Removes `record` (by identity) from the queued failures."""
+    if record is not None:
+        LIVE["queued"] = [r for r in LIVE.get("queued") or [] if r is not record]
+
+
+def drain_queued(report, seed: int, ops: list[dict]):
+    """Reports the seed's queued failures in order; report() takes each out of the queue when it starts on it."""
+    while LIVE.get("queued"):
+        record = LIVE["queued"][0]
+        report(Failure(record["oracle"], record["detail"], record["op_index"], record.get("extra") or {}), seed, ops,
+               queued=record)
+        take_queued(record)
 WATCH_POLL_S = 5.0
 # Seconds the end-of-seed delete of this run's downloads may take. The files are in the account's real ~/Downloads (the
 # app ignores the step's HOME), where a file operation can wait on a Files and Folders prompt that nobody answers in a
@@ -698,8 +737,7 @@ class Session:
         row = None
         while time.monotonic() < deadline:
             rows = self.call("debug.downloads", {}, index=index).get("downloads") or []
-            mine = [r for r in rows if token in (r.get("filename") or "") or token in (r.get("destination") or "")]
-            row = mine[-1] if mine else None
+            row = model.download_row(rows, token)
             if row and row.get("status") != "inProgress":
                 break
             if not row and (self.call("debug.browser.prompts", {"tab": tab}, index=index).get("prompts") or []):
@@ -836,6 +874,8 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
     if ENDING.is_set():
         session.bm.end_bundle(opts.app)
         park()
+    if not LIVE.get("pending"):
+        LIVE["run"] = (seed, ops, opts)  # not for a shrink replay: its stalls are not the seed's findings
     try:
         session.settle_launch()
         LIVE["ops"] = ops
@@ -887,7 +927,11 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
                 end_step(session, step, work, seed, len(ops), label)
             except Exception as error:  # noqa: BLE001 (the next end step still runs)
                 print(f"browser-fuzz: {label} end:{step} failed: {type(error).__name__}: {error}", flush=True)
+        # The seed's failures wait for report() from here on: queued first, then ending cleared, so no stop between the
+        # two loses them (unreported() prints each key once).
+        LIVE["queued"] = (LIVE.get("queued") or []) + (LIVE.get("ending") or [])
         LIVE["ending"] = []
+        LIVE["run"] = None
         LIVE["session"] = None
 
 
@@ -1141,11 +1185,13 @@ def main() -> int:
                                "stack": failure.extra.get("stack"), "owner": failure.extra.get("owner"), "seen": 1}
         print("BROWSER-FUZZ-STALL " + json.dumps(dict(advisory[signature], signature=signature)), flush=True)
 
-    def report(failure: Failure, seed: int, ops: list[dict]):
-        """Shrinks one failure (fresh launches, within the budget and the deadline) and prints its finding."""
+    def report(failure: Failure, seed: int, ops: list[dict], queued: dict | None = None):
+        """Shrinks one failure (fresh launches, within the budget and the deadline) and prints its finding. `queued` is
+        its record in LIVE['queued'], taken out once this failure is the pending one (or a known one)."""
         key = finding_key({"oracle": failure.oracle, "extra": failure.extra, "detail": failure.detail})
         if key in seen:
             print(f"browser-fuzz: seed {seed}: {failure.oracle} again (already a finding): {failure.detail[:200]}", flush=True)
+            take_queued(queued)
             return
         seen.add(key)
         prefix = ops[:failure.op_index + 1] if failure.op_index >= 0 else ops[:1]
@@ -1173,6 +1219,7 @@ def main() -> int:
         LIVE["pending"] = {"target": "browser", "id": f"{failure.oracle}-{seed}", "seed": seed, "ops_per_seed": opts.ops,
                            "build_config": opts.build_config, "oracle": failure.oracle, "detail": failure.detail[:1500],
                            "op_index": failure.op_index, "reproduced": None, "ops": prefix, "extra": failure.extra}
+        take_queued(queued)  # it is the pending one now (set just above)
         reproduced = opts.shrink_replays > 0 and fails(prefix)
         shrunk = prefix
         if reproduced and len(prefix) > 1:
@@ -1197,6 +1244,7 @@ def main() -> int:
         except HarnessError as error:
             harness_errors += 1
             print(f"browser-fuzz: seed {seed}: harness error (no verdict): {error}", flush=True)
+            drain_queued(report, seed, ops)  # a bench seed's judged stalls before the error are still findings
             seed += 1
             if harness_errors >= 3 and total_ops == 0:
                 break
@@ -1212,12 +1260,11 @@ def main() -> int:
             print(f"browser-fuzz: seed {seed}: no fatal failure, {len(stalls)} stall signature(s), counts {brief}", flush=True)
         else:
             print(f"browser-fuzz: seed {seed} FAIL at op {failure.op_index}: {failure.oracle}: {failure.detail[:600]}", flush=True)
-            report(failure, seed, ops)
-        for stall in stalls.values():
-            if stalls_judged:
-                report(stall, seed, ops)
-            else:
+        if not stalls_judged:
+            for stall in stalls.values():
                 note_stall(stall, seed)
+        # The fatal failure, then (bench) the judged stalls: run_ops queued them when its end steps ended.
+        drain_queued(report, seed, ops)
         seed += 1
 
     summary = (f"seeds {attempts}, ops {total_ops}, harness errors {harness_errors}, config {opts.build_config}, "
