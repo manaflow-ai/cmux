@@ -271,9 +271,13 @@ public final class PaneToolbarView: NSView {
         for index in allButtons.indices.reversed() {
             let button = allButtons[index]
             let available = max(0, cursor)
-            let width = min(widths[index], available)
+            // A button needs its complete icon slot to stay reachable. If only a
+            // partial slot remains, hide it so nativeOverflowItems() can expose it
+            // under the trailing menu instead of drawing over the neighbor.
+            let fits = available >= side
+            let width = fits ? min(widths[index], available) : 0
             let x = cursor - width
-            button.isHidden = x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
+            button.isHidden = !fits || x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
             button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
             cursor = x - gap
         }

@@ -124,6 +124,28 @@ import Testing
 
     }
 
+    @Test func narrowToolbarHidesPartialNativeSlotWithoutOverlappingMore() {
+        DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
+            let tools = [
+                PaneTabRowTool(id: "first", symbol: "checkmark", label: "First"),
+                PaneTabRowTool(id: "second", symbol: "square", label: "Second"),
+            ]
+            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 60, height: 30))
+            view.show(more: true, lit: false, nativeItems: tools)
+            view.layoutSubtreeIfNeeded()
+
+            let visible = view.nativeButtons.filter { !$0.isHidden } + [view.moreButton]
+            for (index, button) in visible.enumerated() {
+                for other in visible.dropFirst(index + 1) {
+                    #expect(!button.frame.intersects(other.frame), "visible native controls must not overlap")
+                }
+            }
+            let hidden = zip(tools, view.nativeButtons).filter { $0.1.isHidden }.map(\.0.label)
+            #expect(!hidden.isEmpty, "a partial slot must move to overflow")
+            #expect(view.nativeOverflowItems().map(\.title) == hidden)
+        }
+    }
+
     @Test func textToolGetsAWiderSlotAndIconOnlyToolsKeepTheirSlot() {
         let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
         let text = PaneTabRowTool(id: "text", symbol: "checkmark", label: "Text", text: "#123 ✓3/5")
