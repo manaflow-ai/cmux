@@ -254,6 +254,14 @@ path = "tests/test_ci_linux_single_size.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -770,6 +778,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_are_bounded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_label_events_skip_full_ci.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2350,3 +2362,7 @@ reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it wit
 path = "tests/test_cef_cache_key_checkout_independent.py"
 lane = "manual"
 reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"

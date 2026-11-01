@@ -9,7 +9,8 @@ import { ChevronRight, Globe, Magnifier, Pencil, Spinner, TerminalSquare, ToolGr
 import { isFailed, isRunning } from "./toolGroups";
 import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { EditCounts, useEditTotals } from "./EditCounts";
 import { ToolLabel } from "./ToolVerb";
@@ -42,7 +43,11 @@ export function ToolRun({
 }) {
   const t = useT();
   const look = useToolRunLook();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the run to its calls; Thinking opens a run that holds a
+  // thought, so the thought it opens is on screen.
+  const thinking = useTranscriptViewContext() === "thinking";
+  const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();

@@ -91,6 +91,12 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
         }
+        // A prompt's ticket names its own id, as its frame's pick does (``AgentPaneGesturePick``): a
+        // Retry keeps the id its prompt went with, so the hold a trust refusal takes for it may name a
+        // hand-off turn's label (`handoff-<turn>-<id>`).
+        if method == "session/prompt", case .string(let id)? = params["promptId"] {
+            params["promptId"] = .string(AgentPaneHandoffPrompt.ownID(id))
+        }
         self.method = method
         self.params = params
     }
@@ -117,7 +123,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
 /// What a frame picks, as small values for the main actor: its method and its params other than
 /// `sessionId` and `_meta`, each a JSON scalar; nil params when one is not a scalar (no match).
-/// A session/prompt picks only its `_meta.acpmux.promptId` (its blocks are no pick).
+/// A session/prompt picks only its `_meta.acpmux.promptId` (its blocks are no pick), without a
+/// hand-off turn's label (``AgentPaneHandoffPrompt``).
 public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
     public var method: String?
     public var params: [String: AgentPaneJSONScalar]?
@@ -126,7 +133,8 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         self.method = method
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            // A hand-off turn's label is not part of the pick: the ticket names the prompt's own id.
+            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string(AgentPaneHandoffPrompt.ownID($0))] }
             return
         }
         // A permission answer's pick names its session too (the ticket binds the prompt), and a

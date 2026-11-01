@@ -13,7 +13,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
@@ -26,8 +26,8 @@ enum DebugDialog {
     /// the person approves, cx-t2rz), a browser pairing (it admits a client to the whole daemon, cx-hnmbt.2), an iPhone pairing,
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
-                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
+                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -190,6 +190,10 @@ enum DebugDialog {
             "cloudWorkspaceEmpty": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty),
             "cloudWorkspaceRepository": CloudWorkspaceSetupWizard.setupDialogSpec(source: .repository, repository: "octo/paint"),
             "cloudWorkspaceTeam": CloudWorkspaceSetupWizard.setupDialogSpec(availability: .teamMachine, source: .empty),
+            // The plan's sizes; only the 8 GB size has a listed machine, so only it shows a rate.
+            "cloudWorkspaceSized": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty, sizes: [
+                .init(memoryMb: 4096, vcpus: 2), .init(memoryMb: 8192, vcpus: 4, hourlyRateUsd: 0.26), .init(memoryMb: 16384, vcpus: 8),
+            ]),
             // Gallery-only alternatives: compare the selected labeled form with a compact choice
             // and with explicit source actions. These fixtures never ship or change production flow.
             "cloudWorkspaceCompact": CmuxDialogSpec(
