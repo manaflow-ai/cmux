@@ -242,7 +242,7 @@ function reducedMotionQuery(initial: boolean) {
     set(on: boolean) {
       query.matches = on;
       act(() => {
-        for (const listener of [...listeners]) listener();
+        for (const listener of listeners) listener();
       });
     },
   };
