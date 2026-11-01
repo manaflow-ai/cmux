@@ -272,12 +272,14 @@ import {
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { agentProgressSource } from "./subagents/agentProgressSource";
+import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
+import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
@@ -525,6 +527,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
+import { cloudAgentLogin } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -7513,6 +7516,20 @@ function AcpmuxPane() {
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => directClient.current ?? undefined,
       ),
+      // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01: "yes those are
+      // important"): its own login, never this Mac's. Its page opens as a link click does here.
+      cloudSignIn: cloudAgentLogin({
+        connected,
+        machineID: cloudMachineID,
+        sessionId: snapshot.sessionId,
+        harness: snapshot.summary?.harness,
+        supported: directClient.current?.supportsAgentLogin === true,
+        gesture: (intent) =>
+          postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+        openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+        isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+        currentClient: () => directClient.current ?? undefined,
+      }),
       review: hunkReview,
       route: {
         harness: snapshot.summary?.harness,
@@ -8015,27 +8032,58 @@ function AcpmuxPane() {
   // Each subagent's color (agentTones.ts), which the transcript's subagent rows share. A streamed
   // chunk makes a new list of the same agents: the last one stays while nothing a row shows changed,
   // so a snapshot that streams text redraws neither the row nor its tone.
-  const agentsKey = freshAgents
-    .map((agent) =>
-      [
-        agent.id,
-        agent.name,
-        agent.state,
-        agent.action ?? "",
-        agent.endedAt ?? "",
-        agent.agentId ?? "",
-        retryKey(agent),
-        agent.tokens ?? "",
-        agent.toolUses ?? "",
-        agent.progressVersion ?? "",
-        agent.agents
-          ? `${agent.agents.done}/${agent.agents.started}/${agent.agents.failed ?? 0}/${agent.agents.queued ?? 0}`
-          : "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
-  const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  const producerProgress = agentProgressSource(snapshot.rows);
+  // Direct snapshots carry only changed progress values from the event fold. The bridge store
+  // applies those ids without rebuilding a row list or joining every agent on usage updates.
+  const bridgeProgress = useMemo(
+    () => ({ sessionId: shownSessionId, store: new AgentProgressStore() }),
+    [shownSessionId],
+  ).store;
+  // Each session gets a fresh store. Track initialization by store identity so switching
+  // sessions cannot leave the new store empty because a ref from the prior session was set.
+  const bridgeInitialized = useRef<AgentProgressStore | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (producerProgress) return;
+    if (bridgeInitialized.current !== bridgeProgress) {
+      bridgeInitialized.current = bridgeProgress;
+      bridgeProgress.update(freshAgents);
+      return;
+    }
+    for (const [id, progress] of Object.entries(snapshot.subagentProgress ?? {}))
+      bridgeProgress.updateProgress(id, progress);
+  }, [producerProgress, bridgeProgress, freshAgents, snapshot.subagentProgress]);
+  // Older bridge/gallery snapshots have no structure version or keyed progress delta. Keep their
+  // row's own snapshot value as the fallback instead of exposing a stale one-time bridge value;
+  // direct snapshots and newer bridge snapshots use the keyed store above.
+  const compatibilitySnapshot = snapshot.subagentStructureVersion === undefined;
+  const progressStore =
+    producerProgress ??
+    (!compatibilitySnapshot || snapshot.subagentProgress !== undefined ? bridgeProgress : undefined);
+  const producerGeneration = useRef<{ source?: AgentProgressStore; value: number }>({ value: 0 });
+  if (producerGeneration.current.source !== producerProgress) {
+    producerGeneration.current = {
+      source: producerProgress,
+      value: producerGeneration.current.value + 1,
+    };
+  }
+  const structureVersion = producerProgress
+    ? `${producerGeneration.current.value}:${snapshot.subagentStructureVersion ?? 0}`
+    : (snapshot.subagentStructureVersion ?? shownSessionId);
+  // Compatibility snapshots do not carry a structure version, so use their fresh row list to
+  // reflect structural changes. Direct snapshots stay keyed by the producer's structure version.
+  const structuralAgents = useRef({
+    structureVersion,
+    sessionId: shownSessionId,
+    agents: freshAgents,
+  });
+  if (
+    compatibilitySnapshot ||
+    structuralAgents.current.structureVersion !== structureVersion ||
+    structuralAgents.current.sessionId !== shownSessionId
+  ) {
+    structuralAgents.current = { structureVersion, sessionId: shownSessionId, agents: freshAgents };
+  }
+  const chatAgents = structuralAgents.current.agents;
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =
@@ -8092,19 +8140,23 @@ function AcpmuxPane() {
       ].join("\u0000")
     : "";
   const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  // Session Info lists the subagent's rows as they stood when the reader started scrolling, until
+  // the scroll settles, as the chat's card does with `cardRows` (summary/heldWhileScrolling.ts,
+  // cmux#29639). Another subagent, or another chat, takes its rows at once.
+  const cardScopedRows = useHeldWhileScrolling(scopedRows, `${shownSessionId ?? ""}\u0000${shownSubagent ?? ""}`);
   const sessionInfoSubagent = useMemo((): SubagentScope | undefined => {
     if (!scopedAgent) return undefined;
     const parent = scopedAgent.parent;
     return {
       agent: scopedAgent,
-      rows: scopedRows ?? [],
+      rows: cardScopedRows ?? [],
       parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
       agents: descendants(chatAgents, scopedAgent.id),
       // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
       onBack: () => setSubagentView(parent ?? undefined),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
-  }, [scopedKey, scopedRows, chatName, chatAgents]);
+  }, [scopedKey, cardScopedRows, chatName, chatAgents]);
   // How many rows Session Info's Background tasks lists for the view on screen, read as it reads
   // them (sessionInfoLists drops a transcript shell the registry no longer lists): a subagent's view
   // from its own rows (none yet: empty) and processes, with how its shells ended in the chat's rows
@@ -13685,7 +13737,9 @@ function AcpmuxPane() {
     <SignInContext.Provider value={signIn}>
       <ChatAccountsContext.Provider value={chatAccounts}>
         <UpdateOfferContext.Provider value={updateOffer}>
-          <NoticeSlot>{pane}</NoticeSlot>
+          <AgentProgressContext.Provider value={progressStore}>
+            <NoticeSlot>{pane}</NoticeSlot>
+          </AgentProgressContext.Provider>
         </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </SignInContext.Provider>

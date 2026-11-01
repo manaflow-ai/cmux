@@ -116,7 +116,7 @@ export function SectionView({
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}
-      {groups.length > 0 && <GroupList groups={groups} focus={focus} />}
+      {groups.length > 0 && <GroupList groups={groups} focus={focus} pageTitle={text(category.title)} />}
       {category.trail.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
       ))}
