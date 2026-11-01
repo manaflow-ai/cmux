@@ -202,6 +202,9 @@ export type QueuedPrompt = {
   updating?: boolean;
   /// The newest revision acpmux listed or recorded for it, which `updating` waits for.
   listedRevision?: number;
+  /// The queued incarnation acpmux names for a held prompt (its record's or listing's `turnId`),
+  /// which Approve names with the revision (`_acpmux/queue_approve` requires both).
+  turnId?: string;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record

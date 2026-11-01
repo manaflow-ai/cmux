@@ -626,6 +626,7 @@ function queuedEntry(
     ...(hold.revision !== undefined ? { revision: hold.revision } : {}),
     ...(hold.awaitingOwner && hold.updating ? { updating: true } : {}),
     ...(hold.awaitingOwner && hold.listedRevision !== undefined ? { listedRevision: hold.listedRevision } : {}),
+    ...(hold.awaitingOwner && hold.turnId ? { turnId: hold.turnId } : {}),
   };
 }
 
@@ -643,25 +644,33 @@ function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): Queu
 /// preview) never sets it, whatever its preview looks like. `listedRevision` is the newest revision
 /// acpmux named anywhere; `updating` (not approvable) holds while the record the pane has is older
 /// than it, or there is none.
-type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number };
-const heldHold = (awaitingOwner: boolean | undefined, revision: number | undefined, listedRevision: number): Hold => ({
+type Hold = { awaitingOwner?: boolean; revision?: number; updating?: boolean; listedRevision?: number; turnId?: string };
+const heldHold = (
+  awaitingOwner: boolean | undefined,
+  revision: number | undefined,
+  listedRevision: number,
+  turnId: string | undefined,
+): Hold => ({
   awaitingOwner,
   revision,
   ...(listedRevision >= 0 ? { listedRevision } : {}),
+  ...(turnId ? { turnId } : {}),
   updating: awaitingOwner === true && (revision === undefined || listedRevision > revision),
 });
 /// The hold an authoritative record carries (`queued`, `queue_updated`): its revision is the text's.
 const holdOf = (msg: any, had?: Hold): Hold => {
   const revision = typeof msg?.revision === "number" ? msg.revision : had?.revision;
   const awaitingOwner = typeof msg?.awaitingOwner === "boolean" ? msg.awaitingOwner : had?.awaitingOwner;
-  return heldHold(awaitingOwner, revision, Math.max(revision ?? -1, had?.listedRevision ?? -1));
+  const turnId = typeof msg?.turnId === "string" && msg.turnId ? msg.turnId : had?.turnId;
+  return heldHold(awaitingOwner, revision, Math.max(revision ?? -1, had?.listedRevision ?? -1), turnId);
 };
 /// The hold a listing names: never a record. It only says which revision is current (a list older
 /// than the record the pane holds names a lower one, which changes nothing).
 function listedHold(entry: any, had: QueuedPrompt | undefined): Hold {
   const awaitingOwner = typeof entry?.awaitingOwner === "boolean" ? entry.awaitingOwner : had?.awaitingOwner;
   const listed = typeof entry?.revision === "number" ? entry.revision : -1;
-  return heldHold(awaitingOwner, had?.revision, Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1));
+  const turnId = typeof entry?.turnId === "string" && entry.turnId ? entry.turnId : had?.turnId;
+  return heldHold(awaitingOwner, had?.revision, Math.max(listed, had?.listedRevision ?? -1, had?.revision ?? -1), turnId);
 }
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
@@ -907,7 +916,8 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     a.awaitingOwner === b.awaitingOwner &&
     a.revision === b.revision &&
     a.updating === b.updating &&
-    a.listedRevision === b.listedRevision
+    a.listedRevision === b.listedRevision &&
+    a.turnId === b.turnId
   );
 }
 
@@ -2281,7 +2291,6 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
-      const features = initialized?._meta?.acpmux?.features;
       // The owner's Approve and Decline of a guest's prompt (`_acpmux/queue_approve`), and a held
       // prompt's record read whole (`_acpmux/queue_get`).
       this.queueApproval = Array.isArray(features) && features.includes("queueApproval");
@@ -7055,28 +7064,29 @@ export class AcpmuxDirectClient {
   /// revision (`updating`: an attach whose page starts after their record, or a list ahead of the
   /// records): one `_acpmux/queue_get` each, the prompt's own record whole (text, blocks, parts,
   /// revision), never older than the pane's own. Only where acpmux serves it (`queueGet`); without
-  /// it the card stays Updating, never approvable. One read per prompt and selection at a time
-  /// (keyed `generation:promptId`, cleared with the session); a read for a selection the pane left
-  /// is dropped. A record that arrives live meanwhile wins.
+  /// it the card stays Updating, never approvable. One read per prompt, listed revision and
+  /// selection (keyed `generation:promptId:listedRevision`, cleared with the session), kept after
+  /// it settles: a failed read is not retried until acpmux lists a newer revision, so a failing
+  /// `queue_get` never repeats on every update. A read for a selection the pane left is dropped. A
+  /// record that arrives live meanwhile wins.
   private heldTextReads = new Set<string>();
   private fetchHeldText(): void {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     if (!sessionId || !this.queueGet) return;
-    const key = (promptId: string) => `${generation}\u0000${promptId}`;
+    const key = (entry: QueuedPrompt) => `${generation}\u0000${entry.id}\u0000${entry.listedRevision ?? -1}`;
     const wanted = this.queue.filter(
-      (entry) => entry.awaitingOwner && entry.updating && !this.heldTextReads.has(key(entry.id)),
+      (entry) => entry.awaitingOwner && entry.updating && !this.heldTextReads.has(key(entry)),
     );
     const current = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
     for (const entry of wanted) {
-      this.heldTextReads.add(key(entry.id));
+      this.heldTextReads.add(key(entry));
       void this.request("_acpmux/queue_get", { sessionId, promptId: entry.id })
         .then((record: Record<string, any> | undefined) => {
           if (!current() || !record) return;
           this.installHeldRecord(entry.id, record);
         })
-        .catch(() => undefined)
-        .finally(() => this.heldTextReads.delete(key(entry.id)));
+        .catch(() => undefined);
     }
   }
   /// A held prompt's own record (`queue_get`, the same fields a `queued` record names): its text,
@@ -7100,6 +7110,7 @@ export class AcpmuxDirectClient {
         ...(parts?.length ? { inlineParts: parts } : {}),
         revision,
         ...(hold.listedRevision !== undefined ? { listedRevision: hold.listedRevision } : {}),
+        ...(hold.turnId ? { turnId: hold.turnId } : {}),
         ...(hold.updating ? { updating: true } : {}),
       };
     });
@@ -7111,7 +7122,10 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     if (!approve) return this.request("_acpmux/queue_decline", { sessionId, promptId });
-    return this.request("_acpmux/queue_approve", { sessionId, promptId, revision });
+    // acpmux approves only the queued incarnation the owner saw (`turnId`, with its revision).
+    const turnId = this.queue.find((entry) => entry.id === promptId)?.turnId;
+    if (!turnId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/queue_approve", { sessionId, promptId, turnId, revision });
   }
   /// Whether this acpmux serves the owner's Approve and Decline (initialize feature `queueApproval`).
   private queueApproval = false;
