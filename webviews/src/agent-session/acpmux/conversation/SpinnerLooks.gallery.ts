@@ -13,7 +13,10 @@ export default componentEntry<SpinnerLooksBoardProps>({
   title: "Working spinner: looks",
   area: "Agent pane",
   height: 240,
-  covers: ["agent-session/acpmux/conversation/icons.tsx#Spinner"],
+  covers: [
+    "agent-session/acpmux/conversation/icons.tsx#Spinner",
+    "agent-session/acpmux/conversation/SpinnerLooksBoard.tsx",
+  ],
   keywords: ["spinner", "working", "ring", "sweep", "arc", "spokes", "conic"],
   styles: () => import("./spinner.css"),
   load: () => import("./SpinnerLooksBoard").then((module) => module.SpinnerLooksBoard),
