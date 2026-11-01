@@ -277,7 +277,13 @@ test("Cloud repository rows follow the native route flag and keep the machine ro
 test("an attached repository matching the folder repository keeps one linked row", async () => {
   const container = installDom();
   setNativeHost(async (method) => {
-    if (method === "cloud.repo.attached") return { repos: [{ repo: "acme/atlas", folder: "/home/chats/s/atlas" }] };
+    if (method === "cloud.repo.attached")
+      return {
+        repos: [
+          { repo: "acme/atlas", folder: "/home/chats/s/atlas" },
+          { repo: "other/tools", folder: "/home/chats/s/tools" },
+        ],
+      };
     throw new Error(`unexpected native method: ${method}`);
   });
   await act(async () => {
@@ -291,11 +297,13 @@ test("an attached repository matching the folder repository keeps one linked row
     );
     await Promise.resolve();
   });
-  const repositoryRows = [...container.querySelectorAll<HTMLElement>("a.acpmux-session-info-row")].filter(
+  const repositoryRows = [...container.querySelectorAll<HTMLElement>(".acpmux-session-info-row")].filter(
     (row) => row.textContent === "acme/atlas",
   );
   expect(repositoryRows).toHaveLength(1);
+  expect(repositoryRows[0]?.tagName).toBe("A");
   expect(repositoryRows[0]?.getAttribute("href")).toBe("https://github.com/acme/atlas");
+  expect(container.textContent).toContain("other/tools");
 });
 
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
