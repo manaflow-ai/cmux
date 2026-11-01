@@ -1,0 +1,30 @@
+{
+ "title": "Chief tell variant T2",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "T2",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "variant": 2
+    }
+   },
+   "wait": 4
+  }
+ ]
+}

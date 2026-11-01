@@ -1,0 +1,42 @@
+{
+ "title": "Notes block B0",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Notes run",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "notes": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Open the fold (today's link)",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "link",
+     "prefix": "cmux://agent-messages/"
+    }
+   },
+   "wait": 2.5
+  }
+ ]
+}

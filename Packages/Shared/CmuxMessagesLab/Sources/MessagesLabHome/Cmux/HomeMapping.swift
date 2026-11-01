@@ -150,7 +150,11 @@ enum HomeMapping {
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
             let link = "[\(expanded ? "▾" : "▸") \(label)](\(HomeAgentMessageRow.toggleLink(group: row.group)))"
             return expanded ? link : "\(link) · \(peers.map(markdownEscaped).joined(separator: ", "))"
-        case let .message(from, to, _, text):
+        case let .message(from, to, outgoing, text):
+            #if DEBUG
+            // SCRATCH (scratch-chief-tell-variants): the Chief → agent bubble prototypes.
+            if outgoing, let shown = HomeTellVariant.text(from: from, to: to, body: text, group: row.group) { return shown }
+            #endif
             return "**\(markdownEscaped(from)) → \(markdownEscaped(to))**\n\(text)"
         }
     }

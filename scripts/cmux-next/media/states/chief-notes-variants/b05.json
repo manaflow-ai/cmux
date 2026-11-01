@@ -1,0 +1,45 @@
+{
+ "title": "Notes block B5",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "post",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "stream",
+     "text": "**5 agents stopped without a report**\n- `a931` session disconnected\n- `a933` session disconnected\n- `a936` session disconnected\n- `a939` session disconnected\n- `a940` session disconnected",
+     "done": true
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "post",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "stream",
+     "text": "**a891 \u2192 Chief**\nFixed the stuck nightly feed: the feed and the installed NIGHTLY are on the same build. [run 41156389247](https://github.com/manaflow-ai/cmux/actions/runs/41156389247)",
+     "done": true
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  }
+ ]
+}

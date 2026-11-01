@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
+import MessagesLabHome
 public import CmuxNextDesign
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
@@ -22,6 +23,8 @@ public final class HomeNativeFixture {
     /// The Chief's streamed turn (`debugStream`) and its last draft seq.
     private var streamTurn: IdempotencyKey?
     private var streamSeq: UInt64 = 0
+    /// The Chief reply key of the last `debugAgentMessages` run (its fold's anchor).
+    private var lastAgentTurn: IdempotencyKey?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -135,17 +138,27 @@ public final class HomeNativeFixture {
     /// Shows the Chief's messages to its agents and their reports as a real run brings them: my
     /// question, the Chief's reply, then one run with five messages to agents and one report, which
     /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
-    public func debugAgentMessages() -> Bool {
+    /// With `notes`, the run is instead five agents that stopped with no report (their session
+    /// Disconnected, the Chief producer's note) and one real report.
+    /// With `open`, nothing is posted: the notes row of the last such run opens or closes, as a click on it does.
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false) -> Bool {
         guard let shown else { return false }
+        if open {
+            guard let turn = lastAgentTurn else { return false }
+            let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: turn)
+            store.toggleAgentMessages(HomeAgentMessageRow.notesGroup(group), in: shown.conversation)
+            return true
+        }
         let source = self.source
         let turn = IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
+        lastAgentTurn = turn
         let start = Date()
         // task-owner: three mock events, ends when the mock source has published them
         Task {
             let me = await source.me.id
             _ = await source.post("What did you tell the agents just now?", from: me, in: shown.conversation, key: .make())
             _ = await source.post("I sent five messages and got one report back.", from: shown.chief, in: shown.conversation, key: turn)
-            let messages = Self.agentMessages.enumerated().map { index, m in
+            let messages = (notes ? Self.agentNotes : Self.agentMessages).enumerated().map { index, m in
                 HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
                                      outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
             }
@@ -156,6 +169,33 @@ public final class HomeNativeFixture {
         }
         return true
     }
+
+    /// SCRATCH: Chief → agent bubble prototype `variant`: my question, the Chief's reply, and one tell to
+    /// a948 under it (one message: no fold), drawn in that variant. False before the conversation shows.
+    public func debugTellVariant(_ variant: Int) -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        let turn = IdempotencyKey("debug-tell-\(UUID().uuidString)")
+        // task-owner: three mock events, ends when the mock source has published them
+        Task {
+            let me = await source.me.id
+            _ = await source.post("Can you get someone to fix the sidebar alignment?", from: me, in: shown.conversation, key: .make())
+            _ = await source.post("On it: a948 is taking it.", from: shown.chief, in: shown.conversation, key: turn)
+            let tell = HomeAgentRun.Message(id: "tell", sequence: 1, revision: 1, peer: "a948", outgoing: true,
+                text: MessagesLabHomeView.debugTellMarker(variant) + "Fix the sidebar alignment: the purple \"Sleep alarm\" header and the \"New Workspace\" row must share one left edge. Before/after shots light and dark, then plain push to feat-cmux-next.",
+                date: Date())
+            let run = HomeAgentRun(conversation: shown.conversation, id: turn.rawValue, author: shown.chief, turn: turn,
+                                   answers: [], revision: 1, messages: [tell])
+            await source.streamLive(.run(HomeLiveRunChange(conversation: shown.conversation, author: shown.chief, run: turn.rawValue,
+                                                           turn: turn, status: "done", agentRun: run)))
+        }
+        return true
+    }
+
+    /// The notes fixture run: five status notes in the Chief producer's words, a real report.
+    private static let agentNotes: [(peer: String, outgoing: Bool, text: String)] =
+        ["a931", "a933", "a936", "a939", "a940"].map { ($0, false, "(stopped without a report: its session is Disconnected)") }
+        + [("a891", false, "Fixed the stuck nightly feed: the feed and the installed NIGHTLY are on the same build. [run 41156389247](https://github.com/manaflow-ai/cmux/actions/runs/41156389247)")]
 
     /// The fixture run's messages (made-up agents and work, in the Chief's real wording).
     private static let agentMessages: [(peer: String, outgoing: Bool, text: String)] = [

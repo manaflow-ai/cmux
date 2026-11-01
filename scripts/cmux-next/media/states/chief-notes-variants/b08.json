@@ -1,0 +1,32 @@
+{
+ "title": "Notes block B8",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "post",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "stream",
+     "text": "| Agent | State |\n|---|---|\n| `a891` | \u2713 reported |\n| `a931` | \u2717 disconnected |\n| `a933` | \u2717 disconnected |\n| `a936` | \u2717 disconnected |\n| `a939` | \u2717 disconnected |\n| `a940` | \u2717 disconnected |",
+     "done": true
+    }
+   },
+   "wait": 2.5,
+   "shot": true
+  }
+ ]
+}
