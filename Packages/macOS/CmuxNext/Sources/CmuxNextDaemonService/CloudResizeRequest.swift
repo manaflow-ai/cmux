@@ -3,13 +3,16 @@ import Foundation
 
 /// `cloud resize-machine`'s grow (POST /api/vm/{id}/resize): `--size small|medium|large|xlarge`
 /// (vCPUs and memory), `--disk GIB` (the disk's new size in whole GiB), or both in one call.
-/// The disk must be a positive whole number; its 4 GiB steps, 256 GiB cap and grow-only rule
-/// are the server's checks.
+/// The disk must be a whole number of GiB in 4 GiB steps up to 256, as the server takes it (so
+/// the MiB conversion never overflows); growing only is the server's check.
 public struct CloudResizeRequest: Equatable, Sendable {
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
     public static let sizes: [String: (cpu: Int, memoryMb: Int)] = [
         "small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576),
     ]
+
+    /// `--disk` bounds in GiB (the route's `VM_DISK_MB_MAX`); it takes 4 GiB steps.
+    public static let diskRange = 4...256
 
     public private(set) var size: String?
     public private(set) var cpu: Int?
@@ -29,7 +32,7 @@ public struct CloudResizeRequest: Equatable, Sendable {
         if let value = invocation["disk"] {
             // A bare `--disk` (no value) arrives as `true`: refused like any other non-number.
             let disk = value.intValue ?? value.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces), radix: 10) }
-            guard let disk, disk > 0 else { throw ActionFailure(message: CloudStrings.resizeNeedsSizeOrDisk(names)) }
+            guard let disk, Self.diskRange.contains(disk), disk % 4 == 0 else { throw ActionFailure(message: CloudStrings.resizeNeedsSizeOrDisk(names)) }
             diskGiB = disk
         }
         guard size != nil || diskGiB != nil else { throw ActionFailure(message: CloudStrings.resizeNeedsSizeOrDisk(names)) }

@@ -1331,8 +1331,8 @@ class Controller:
         return sorted(failed)
 
     def job_log(self, job_id: int | str) -> str | None:
-        # The job's log, readable while the rest of its run still goes.
-        # A gh too old for the escape flag is asked once more without it; any other failure stays None.
+        # The job's log, readable while the rest of its run still goes. The classifier
+        # strips ANSI in Python; use its compatible flag-first request here too.
         route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
         got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
         if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
@@ -1360,9 +1360,9 @@ class Controller:
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
-        if base_red_excuse.test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
+        if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        crashes = base_red_excuse.crash_signals(log)  # a non-test job's (a test job's crash returned above)
+        crashes = base_red_excuse.crash_signals(log)  # test_reds covers cut-short evidence; this adds step signals.
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
