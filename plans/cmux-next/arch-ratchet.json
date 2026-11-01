@@ -755,16 +755,6 @@
     {
       "date": "2026-10-31",
       "row": "app_lines",
-      "allow": 15,
-      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDragGhostPanel.swift, TabDragSession.swift, TabDragSession+Ghost.swift: the tab-drag ghost's FrameClient gets a settle (settleGhost: snap the ghost motion, render, finishLanding for a landing drag), so a landing ghost whose panel goes out of sight still ends the drag and brings the input invariant monitor back (review round 2 finding). TabDragSession and its ghost panel live in CmuxNextApp, so the wiring cannot go elsewhere without moving the drag session out of the app target (out of scope).",
-      "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
-      "owner": "ux-tabs-panes area owner (move with TabDragSession out of CmuxNextApp)",
-      "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
-      "expiry": "2026-12-31"
-    },
-    {
-      "date": "2026-10-31",
-      "row": "app_lines",
       "allow": 24,
       "why": "#28794 (HQ #4877 G4/G5, Leo's recovery-flow ask): SSHMachineSession's retriesSpent/waitsForUser reads and its restart() (a fresh link and daemon connection once the daemon reconnect gave up), and SSHService's byPerson gate on reconnect and connect. The decisions live outside the App (DaemonConnection.observeRetriesSpent, DaemonStore.retriesSpent, SSHConnectionMachine.waitsForUser, Status.reconnectStep's .restart). The PR had offset these lines by moving the reconnect step out of SSHService, which base's #28799 (SSHConnectionMachine+Reconnect) has since done itself.",
       "author": "cloud-ux-flows builder (claude)",
