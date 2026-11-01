@@ -144,4 +144,3 @@ def rescue_control(api: object, run: Mapping[str, object], *, now: Callable[[], 
         sleep(min(10, max(1, CANCEL_WAIT_SECONDS - elapsed)))
     api.rerun(run_id, attempt + 1)
     return decision
-
