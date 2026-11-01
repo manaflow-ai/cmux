@@ -3,6 +3,7 @@ import UserNotifications
 
 /// The app's notification-center delegate: banners show while the app is in
 /// front; banner actions go to the feed responder.
+@MainActor
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     private let responder: FeedNotificationResponder
     /// A cold-start tap can arrive before RootViewController installs its
@@ -24,19 +25,19 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         self.responder = responder
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         [.banner, .sound, .list]
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
         if let attention = CloudChatAttention(userInfo: response.notification.request.content.userInfo) {
-            await MainActor.run { [weak self] in self?.deliverCloudAttention(attention) }
+            await self.deliverCloudAttention(attention)
             return
         }
         let decision = FeedNotificationResponder.decision(for: response)
-        await responder.handle(decision)
+        await self.responder.handle(decision)
     }
 
     @MainActor

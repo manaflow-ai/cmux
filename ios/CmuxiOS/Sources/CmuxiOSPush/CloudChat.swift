@@ -153,19 +153,43 @@ public final class CloudChatViewModel: ObservableObject {
     /// The UI must not silently switch the user to an unrelated chat.
     @Published public private(set) var requestedSessionUnavailable = false
 
-    private let transport: any CloudChatTransport
+    private var transport: (any CloudChatTransport)?
     private var preferredSessionID: String?
+    private var transportGeneration = 0
 
     public init(transport: any CloudChatTransport, preferredSessionID: String? = nil) {
         self.transport = transport
         self.preferredSessionID = preferredSessionID
     }
 
+    /// Swaps the paired client without leaving an open screen holding a stale
+    /// RPC connection. The selected session remains the reload target.
+    public func replaceTransport(_ transport: (any CloudChatTransport)?) {
+        transportGeneration &+= 1
+        self.transport = transport
+        guard transport != nil else {
+            sessions = []
+            messages = []
+            selectedSessionID = nil
+            requestedSessionUnavailable = false
+            errorMessage = "Cloud relay disconnected."
+            return
+        }
+        Task { await load() }
+    }
+
     public func load() async {
         isLoading = true
         defer { isLoading = false }
+        let generation = transportGeneration
         do {
-            sessions = try await transport.sessions()
+            guard let transport else {
+                errorMessage = "Cloud relay disconnected."
+                return
+            }
+            let loadedSessions = try await transport.sessions()
+            guard generation == transportGeneration else { return }
+            sessions = loadedSessions
             let targetID = preferredSessionID ?? selectedSessionID
             if let targetID {
                 guard let target = sessions.first(where: { $0.id == targetID }) else {
@@ -180,37 +204,62 @@ public final class CloudChatViewModel: ObservableObject {
                     return
                 }
                 preferredSessionID = nil
-                await select(target)
+                await select(target, transport: transport, generation: generation)
             } else if let first = sessions.first {
-                await select(first)
+                await select(first, transport: transport, generation: generation)
             }
             requestedSessionUnavailable = false
             errorMessage = nil
-        } catch { errorMessage = "Cloud chats are unavailable right now." }
+        } catch {
+            guard generation == transportGeneration else { return }
+            errorMessage = "Cloud chats are unavailable right now."
+        }
     }
 
     public func select(_ session: CloudChatSession) async {
         preferredSessionID = nil
+        guard let transport else {
+            errorMessage = "Cloud relay disconnected."
+            return
+        }
+        await select(session, transport: transport, generation: transportGeneration)
+    }
+
+    private func select(_ session: CloudChatSession, transport: any CloudChatTransport, generation: Int) async {
         requestedSessionUnavailable = false
         selectedSessionID = session.id
-        await loadHistory(sessionID: session.id)
+        await loadHistory(sessionID: session.id, transport: transport, generation: generation)
     }
 
     public func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let selectedSessionID else { return }
+        guard let transport else {
+            errorMessage = "Cloud relay disconnected."
+            return
+        }
+        let generation = transportGeneration
         do {
             let sent = try await transport.send(sessionID: selectedSessionID, text: trimmed)
+            guard generation == transportGeneration else { return }
             messages.append(sent)
             errorMessage = nil
-        } catch { errorMessage = "Your message could not be sent. Try again." }
+        } catch {
+            guard generation == transportGeneration else { return }
+            errorMessage = "Your message could not be sent. Try again."
+        }
     }
 
-    private func loadHistory(sessionID: String) async {
+    private func loadHistory(sessionID: String, transport: any CloudChatTransport, generation: Int) async {
         do {
-            messages = try await transport.history(sessionID: sessionID)
+            let loadedMessages = try await transport.history(sessionID: sessionID)
+            guard generation == transportGeneration else { return }
+            messages = loadedMessages
             errorMessage = nil
-        } catch { errorMessage = "This chat's history is unavailable right now." }
+        } catch {
+            guard generation == transportGeneration else { return }
+            errorMessage = "This chat's history is unavailable right now."
+        }
     }
 }
 

@@ -14,6 +14,7 @@ final class RootViewController: UIViewController {
     private var current: UIViewController?
     private weak var home: HomeViewController?
     private weak var homeNavigation: UINavigationController?
+    private var cloudChatModel: CloudChatViewModel?
     private var pendingCloudAttentions: [CloudChatAttention] = []
     private var shownState: AuthState?
 
@@ -36,7 +37,7 @@ final class RootViewController: UIViewController {
             self?.presentCloudChat(attention: attention)
         }
         container.onCloudChatTransportChange = { [weak self] in
-            self?.presentPendingCloudAttentionIfPossible()
+            self?.cloudChatTransportChanged()
         }
         #if DEBUG
         if let minimum = ProcessInfo.processInfo.environment["CMUX_IOS_PREVIEW_UPDATE_REQUIRED"] {
@@ -164,11 +165,17 @@ final class RootViewController: UIViewController {
               let navigation = homeNavigation else { return }
         pendingCloudAttentions.removeFirst()
         let model = CloudChatViewModel(transport: transport, preferredSessionID: attention.sessionID)
+        cloudChatModel = model
         navigation.pushViewController(model.viewController(), animated: true)
         Task { @MainActor in
             await model.load()
             self.presentPendingCloudAttentionIfPossible()
         }
+    }
+
+    private func cloudChatTransportChanged() {
+        cloudChatModel?.replaceTransport(container.cloudChatTransport)
+        presentPendingCloudAttentionIfPossible()
     }
 
     private func install(_ next: UIViewController) {
