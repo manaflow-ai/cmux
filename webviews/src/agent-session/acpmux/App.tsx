@@ -483,6 +483,7 @@ import {
   type ChatMenuItem,
 } from "./header/ChatHeaderTools";
 import { ThreadTitle } from "./header/ThreadTitle";
+import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
@@ -11038,8 +11039,32 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Move to machine and Delete were the title's menu rows until the title became plain text
+    // (header/ThreadTitle.tsx); they live here so no action is lost. Cloud targets come from the
+    // host's live MachineRegistry list and dispatch through the existing CloudMove action.
+    const sessionId = snapshot.sessionId;
+    const client = directClient.current;
+    // A menu kept open across a chat switch never moves or deletes the chat now shown.
+    const sameChat = () =>
+      client !== undefined && client === directClient.current && client.selectedSession === sessionId;
+    const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
+      row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
+    const moveMachine = moveMachineRow(
+      {
+        move: moves.includes(CONNECT_ACTIONS.move),
+        bringBack: moves.includes(CONNECT_ACTIONS.bringBack),
+        targets: moveTargets,
+      },
+      {
+        moveTo: (id) => moveChatToMachine(id, sessionId),
+        bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
+      },
+      t,
+    );
+    const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
+    const moveRow = guarded(moveMachine);
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], tools);
+    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -11094,12 +11119,13 @@ function AcpmuxPane() {
             ]
           : []),
       ],
-      machine,
+      [...moveRow, ...machine],
       tools,
       [
         ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
+        ...remove,
         {
           key: "close",
           label: t("chatMenu.close"),
@@ -11110,104 +11136,8 @@ function AcpmuxPane() {
       ],
     );
   };
-  // The title is a compact identity control. Keep its actions on the same existing paths as the
-  // header menu. Cloud targets come from the host's live MachineRegistry list and dispatch through
-  // the existing CloudMove action; there is no client-side machine inventory.
-  const titleMenu = (): ChatMenuItem[] => {
-    const client = directClient.current;
-    const sessionId = snapshot.sessionId;
-    const rows = chatMenu();
-    const row = (key: string) =>
-      rows.find((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && item.key === key);
-    const rename = row("rename");
-    const fork = row("fork");
-    const archive = row("archive");
-    const archiveItem = archive
-      ? { ...archive, accelerator: "A" }
-      : {
-          key: "archive",
-          label: t("chatMenu.archive"),
-          icon: "inbox",
-          disabled: true,
-          accelerator: "A",
-        };
-    const moveChildren = [
-      ...(moves.includes(CONNECT_ACTIONS.move) && moveTargets.length > 0
-        ? moveTargets.map((target) => ({
-            key: `machine:${target.id}`,
-            label: target.label,
-            onSelect: () => moveChatToMachine(target.id, sessionId),
-          }))
-        : []),
-      ...(moves.includes(CONNECT_ACTIONS.bringBack)
-        ? [
-            {
-              key: "bringBack",
-              label: t("composer.bringBackLocal"),
-              onSelect: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
-            },
-          ]
-        : []),
-    ];
-    // Two groups with one line between them, before the destructive pair, as Claude and ChatGPT
-    // draw it (design/menus.md); no line between every row.
-    return guardedChatMenu(
-      menuGroups(
-        [
-          ...(rename ? [{ ...rename, accelerator: "R" }] : []),
-          // `F` only on a Fork row that runs: a submenu row (children, no onSelect) takes no letter.
-          fork
-            ? fork.onSelect
-              ? { ...fork, accelerator: "F" }
-              : fork
-            : {
-                key: "fork",
-                label: t("chatMenu.fork"),
-                icon: "agent.fork",
-                disabled: true,
-                accelerator: "F",
-              },
-          {
-            key: "moveMachine",
-            label: moves.includes(CONNECT_ACTIONS.move)
-              ? t("chatMenu.moveToMachine")
-              : moveChildren.length === 1
-                ? moveChildren[0]!.label
-                : t("composer.environment"),
-            icon: "machine.remote",
-            disabled: moveChildren.length === 0,
-            children: moveChildren,
-          },
-          {
-            key: "openIn",
-            label: t("preview.openIn"),
-            icon: "app.open.external",
-            children: [
-              { key: "browser", label: t("header.browser"), onSelect: newBrowser },
-              { key: "terminal", label: t("header.terminal"), onSelect: newTerminal },
-              {
-                key: "window",
-                label: t("chatMenu.newWindow"),
-                shortcutAction: HEADER_ACTIONS.newWindow,
-                onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
-              },
-            ],
-          },
-        ],
-        [
-          archiveItem,
-          {
-            key: "delete",
-            label: t("permission.verb.delete"),
-            icon: "action.delete",
-            onSelect: requestDelete,
-            accelerator: "D",
-          },
-        ],
-      ),
-      () => client !== undefined && client === directClient.current && client.selectedSession === sessionId,
-    );
-  };
+  // A double-click on the plain title renames, as ⌘R does; Quick Chat's panel is not a tab to rename.
+  const renameFromTitle = quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename);
   // Before the handshake the New Tab frame shows (cx-0rpl.10) unless the host failed: then the
   // chat view's error card with Retry shows, as before.
   const showNewTab =
@@ -13014,12 +12944,7 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle
-                        key={snapshot.sessionId}
-                        title={chatName}
-                        menu={titleMenu}
-                        onMenuOpen={readTabState}
-                      />
+                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
@@ -13030,12 +12955,7 @@ function AcpmuxPane() {
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {!showNewTab && snapshot.sessionId && (
-                          <ThreadTitle
-                            key={snapshot.sessionId}
-                            title={chatName}
-                            menu={titleMenu}
-                            onMenuOpen={readTabState}
-                          />
+                          <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
                         )}
                       </ChatHeaderInlineStatus>
                     )}
