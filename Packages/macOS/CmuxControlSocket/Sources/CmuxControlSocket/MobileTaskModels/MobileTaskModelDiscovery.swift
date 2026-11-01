@@ -42,14 +42,18 @@ public actor MobileTaskModelDiscovery {
     /// - Parameters:
     ///   - homeDirectory: Current user's home directory.
     ///   - shellPath: Login shell used to resolve the user's CLI `PATH`.
+    ///   - environment: Environment agent sessions inherit, which carries
+    ///     provider overrides such as `CODEX_HOME`.
     /// - Returns: A ten-minute cached discovery actor.
     public static func live(
         homeDirectory: URL,
-        shellPath: String
+        shellPath: String,
+        environment: [String: String] = [:]
     ) -> MobileTaskModelDiscovery {
         let shellRunner = MobileTaskModelShellRunner(shellPath: shellPath)
         let strategy = MobileTaskModelProviderStrategy(
             homeDirectory: homeDirectory,
+            environment: environment,
             commandRunner: { command, timeout in
                 await shellRunner.run(command: command, timeout: timeout)
             },
