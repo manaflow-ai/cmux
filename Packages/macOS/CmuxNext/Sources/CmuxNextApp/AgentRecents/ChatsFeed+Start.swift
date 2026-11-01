@@ -34,7 +34,8 @@ extension ChatsFeed {
         let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
         // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
         // open through the shared Open Chat path.
-        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } },
+                                            liveTabs: { services.machines.daemons.flatMap { $0.store.liveTabs } }, localHost: localHost,
                                             open: { [weak services] key in services?.chatsOpener.open(key) }, windows: feed.windows)
         return feed
     }

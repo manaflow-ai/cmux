@@ -28,22 +28,25 @@ public final class SidebarChatHistoryFeed {
 
     private var task: Task<Void, Never>?
 
-    /// Follows the setting, acpmux's windows, the lanes, every machine's `workspaces` and the
+    /// Follows the setting, acpmux's windows, the lanes, every machine's live tabs and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
-    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
+    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
+                      liveTabs: (@MainActor @Sendable () -> [TabModel])? = nil, localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
         guard task == nil else { return }
         history.onOpen = open
         let earlier = windows.window(Self.earlierWindow)
         let pinned = windows.window(Self.pinnedWindow)
+        let liveTabs = liveTabs
         // task-owner: the app (one feed for the app's life); event-driven (Observation). One value
         // per change of what the history shows besides the index (the windows' specs for acpmux)
         // or of a window's rows (the state, O(visible rows)).
         task = Task {
             for await shown in ObservationStream({ () -> Shown? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let inputs = Inputs(live: Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost),
+                let inputs = Inputs(live: liveTabs.map { Self.liveChats($0(), lanes: lanes, localHost: localHost) }
+                                       ?? Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost),
                                     pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: inputs))
             }) {
@@ -102,6 +105,18 @@ public final class SidebarChatHistoryFeed {
                       let chat = lanes[session]?.chat else { continue }
                 live.insert(chat)
             }
+        }
+        return live
+    }
+
+    /// The live-tab projection used by the app. It observes each session's chat binding only;
+    /// turn-state changes, usage detail and terminal output leave the projection unchanged.
+    static func liveChats(_ tabs: [TabModel], lanes: AgentLaneStore, localHost: String?) -> Set<String> {
+        var live: Set<String> = []
+        for tab in tabs {
+            guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session,
+                  let chat = lanes.chat(session) else { continue }
+            live.insert(chat)
         }
         return live
     }

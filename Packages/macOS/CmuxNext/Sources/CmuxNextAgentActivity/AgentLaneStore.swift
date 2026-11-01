@@ -68,6 +68,10 @@ public final class AgentLaneStore {
     /// state, observing only that: a new step of the session does not notify the reader.
     public func links(_ session: String) -> AgentLaneLinks? { cell(session).links }
 
+    /// The chat key for `session`, observing only the chat binding. A turn-state update leaves
+    /// this value alone, so chat-history projections do not re-scan every tab while an agent works.
+    public func chat(_ session: String) -> String? { cell(session).chat }
+
     private func cell(_ session: String) -> AgentLaneCell {
         if let cell = cells[session] { return cell }
         let cell = AgentLaneCell(storage[session])
