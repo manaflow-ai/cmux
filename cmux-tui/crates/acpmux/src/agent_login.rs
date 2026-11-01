@@ -10,7 +10,7 @@
 //!   an https link on a host of `parse::ALLOWED_HOSTS`) and Codex's one-time
 //!   code. One sign-in per agent: a new start stops the previous one. A
 //!   sign-in is stopped after [`EXPIRY`], on `cancel`, and with this daemon
-//!   (its own process group; on Linux also the parent-death signal).
+//!   (its own process group, killed on drop).
 //! - `finish {loginId, code?}`: Claude gets the code the callback page shows
 //!   on stdin and has [`CLAUDE_FINISH_WAIT`] to exit; Codex finishes its
 //!   device flow by itself, waited for until the sign-in expires. Signed in
@@ -80,6 +80,9 @@ pub const MODEL_PLANE_ENV: &[&str] = &[
     "OPENAI_BASE_URL",
     "CODEX_API_KEY",
     "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
 ];
 
 /// `error.data.reason` values.
@@ -93,6 +96,8 @@ pub mod reason {
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
+    /// A  that names no chat here or on a peer.
+    pub const UNKNOWN_SESSION: &str = "unknown_session";
 }
 
 /// An agent whose own sign-in this runs.
@@ -498,12 +503,13 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         table.get(&agent).map(|e| (e.id.clone(), e.running.clone()))
     };
     if let Some((id, running)) = previous {
-        if running.try_lock().is_err() {
+        // Held across the stop, so no finish takes it in between.
+        let Ok(_held) = running.try_lock() else {
             return Err(LoginError::new(
                 reason::BUSY,
                 format!("a {} sign-in is finishing on this machine", agent.name()),
             ));
-        }
+        };
         end(&id);
     }
     let store = cli.store(agent);
@@ -523,14 +529,6 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
-    #[cfg(target_os = "linux")]
-    // SAFETY: prctl is async-signal-safe; the child dies with this daemon.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-            Ok(())
-        });
-    }
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => LoginError::new(
             reason::CLI_MISSING,

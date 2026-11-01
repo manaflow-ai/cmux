@@ -37,7 +37,10 @@ pub const REMOTE_REFUSED: &str = "remote_refused";
 
 fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
-        reason::UNSUPPORTED_AGENT | reason::BAD_CODE | reason::UNKNOWN_LOGIN => -32602,
+        reason::UNSUPPORTED_AGENT
+        | reason::BAD_CODE
+        | reason::UNKNOWN_LOGIN
+        | reason::UNKNOWN_SESSION => -32602,
         _ => -32000,
     };
     RpcError::new(code, e.message).with_data(json!({"reason": e.reason}))
@@ -143,6 +146,17 @@ pub(super) async fn handle(
             "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
         )
         .with_data(json!({"reason": REMOTE_REFUSED})));
+    }
+    // A named chat this daemon does not have: never run the sign-in here in its place (a chat
+    // on a peer was forwarded before this; one that resolves nowhere is stale or not mirrored
+    // yet, and this machine's own sign-in is not the one asked for).
+    if let Some(key) = text(params, "sessionId")
+        && hub.resolve(key).is_err()
+    {
+        return Err(error(LoginError::new(
+            reason::UNKNOWN_SESSION,
+            format!("no chat {key:?} here: open the chat again"),
+        )));
     }
     match m {
         method::MUX_AGENT_LOGIN_START => {

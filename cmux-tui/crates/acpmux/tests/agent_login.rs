@@ -219,10 +219,13 @@ async fn agent_login_over_the_wire() {
     assert_eq!(s["url"], "https://auth.openai.com/codex/device");
     assert_eq!(s["userCode"], "ABCD-EFGHI");
     assert_eq!(s["needsCode"], false);
-    let r = c
+    // A chat this daemon does not have: refused, never signed in here in its place.
+    let e = c
         .call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"], "sessionId": "nope"}))
         .await
-        .unwrap();
+        .unwrap_err();
+    assert_eq!(reason(&e), "unknown_session");
+    let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
     assert_eq!(r, json!({"signedIn": true, "restarted": false}));
     assert_eq!(
         std::fs::read_to_string(home.join(".config/cmux/agent-auth/codex")).unwrap(),
