@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4135814557601",
+  "notes": "notes/4135814557601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 31391,
+      "title": "fix cloud upgrade script resource drift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31383,
+      "title": "Toast Details: the open control is a quiet Hide Details link, not a chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 31370,
+      "title": "base red: web-lint design tokens, #31331's Session Info padding uses tokens",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
