@@ -598,3 +598,86 @@ fn a_path_the_work_user_may_not_write_goes_to_the_proxy() {
     assert!(proxied.line.starts_with(&format!("POST /v1/cloud/machines/{VM}/fs/write ")));
     assert_eq!(proxied.json()["dataBase64"], BASE64.encode("x"));
 }
+
+#[test]
+fn a_change_the_machine_may_have_made_is_not_made_again_through_the_proxy() {
+    for (op, proxied) in [
+        (Op::Write, false),
+        (Op::Mkdir, false),
+        (Op::Remove, false),
+        (Op::Stat, true),
+        (Op::Dir, true),
+        (Op::Read, true),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let cell = Arc::new(Mutex::new(String::new()));
+        let c = Arc::clone(&cell);
+        let (origin, seen) = fake(move |s| {
+            if s.is_mint() {
+                minted(&c.lock().unwrap())
+            } else if s.is_exec_await() {
+                (500, "{}".into())
+            } else {
+                proxy_reply()
+            }
+        });
+        *cell.lock().unwrap() = origin.clone();
+        let req =
+            Request { data_base64: Some(BASE64.encode("x")), ..request(&origin, dir.path(), op) };
+        let (route, answer) = go(&req, T0);
+        if proxied {
+            assert_eq!((route, answer.status), (Route::Proxy, 200), "{op:?}");
+        } else {
+            assert_eq!(
+                (route, answer.status, answer.code.as_deref()),
+                (Route::Direct, 502, Some("vm_unavailable")),
+                "{op:?}"
+            );
+            assert_eq!(count(&seen, Seen::is_proxy), 0, "{op:?}");
+        }
+    }
+}
+
+/// The fake machine replaces the file once, between a read's first and second chunk.
+#[test]
+fn a_read_never_mixes_two_versions_of_the_file() {
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.bin");
+    let old: Vec<u8> = vec![1; direct::READ_CHUNK as usize + 17];
+    let new: Vec<u8> = vec![2; direct::READ_CHUNK as usize + 5];
+    std::fs::write(&path, &old).unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let reads = Arc::new(Mutex::new(0_usize));
+    let r = Arc::clone(&reads);
+    let (target, replacement) = (path.clone(), new.clone());
+    let (origin, _seen) = fake(move |s| {
+        if s.is_mint() {
+            return minted(&c.lock().unwrap());
+        }
+        if s.json()["command"].as_str().is_some_and(|c| c.contains(" read ")) {
+            let mut n = r.lock().unwrap();
+            *n += 1;
+            if *n == 2 {
+                let staged = target.with_extension("next");
+                std::fs::write(&staged, &replacement).unwrap();
+                std::fs::rename(&staged, &target).unwrap();
+            }
+        }
+        run_here(s)
+    });
+    *cell.lock().unwrap() = origin.clone();
+    let req = Request {
+        path: Some(path.display().to_string()),
+        ..request(&origin, &dir.path().join("cache"), Op::Read)
+    };
+    let (route, answer) = go(&req, T0);
+    assert_eq!((route, answer.status), (Route::Direct, 200));
+    let got = BASE64.decode(answer.body["dataBase64"].as_str().unwrap()).unwrap();
+    assert_eq!(got, new, "read again from the start: all of the new file, none of the old");
+    assert!(*reads.lock().unwrap() >= 3);
+}

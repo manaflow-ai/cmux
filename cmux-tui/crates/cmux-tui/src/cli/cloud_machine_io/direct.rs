@@ -32,6 +32,10 @@ const ROOT: i32 = 47;
 pub(super) const NEEDS_ROOT: i32 = 48;
 /// A staged write whose bytes do not match the sha256 they were sent with.
 const CORRUPT: i32 = 49;
+/// The file changed while one ranged read read it.
+const CHANGED: i32 = 50;
+/// How many times a read starts over when the file changes between its chunks.
+const READ_TRIES: usize = 3;
 
 /// Freestyle's limit on one exec's stdin (decoded).
 pub(super) const STDIN_MAX: usize = 1024 * 1024;
@@ -69,6 +73,7 @@ def staged(q,d):
  if not stat.S_ISREG(s.st_mode) or s.st_uid!=os.getuid():sys.exit(%WRONG_KIND%)
 def mode(a,o):return int(a) if a else (stat.S_IMODE(o.st_mode) if o else 0o600)
 def done(t,q,m,o):
+ if o and os.stat(t).st_gid!=o.st_gid:os.chown(t,-1,o.st_gid)
  os.chmod(t,m)
  fd=os.open(t,os.O_RDONLY)
  try:os.fsync(fd)
@@ -90,8 +95,11 @@ try:
   s=os.stat(p)
   if stat.S_ISDIR(s.st_mode):sys.exit(%WRONG_KIND%)
   with open(p,"rb") as f:
-   f.seek(int(sys.argv[3]));b=f.read(int(sys.argv[4]))
-  o={"path":p,"dataBase64":base64.b64encode(b).decode(),"size":len(b),"total":s.st_size}
+   s=os.fstat(f.fileno());f.seek(int(sys.argv[3]));b=f.read(int(sys.argv[4]))
+   v=os.fstat(f.fileno())
+  w=lambda s:"%d:%d:%d:%d:%d"%(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+  if w(s)!=w(v):sys.exit(%CHANGED%)
+  o={"path":p,"dataBase64":base64.b64encode(b).decode(),"size":len(b),"total":s.st_size,"version":w(s)}
  elif op=="write":
   b=sys.stdin.buffer.read();s=old(p);m=mode(sys.argv[3] if len(sys.argv)>3 else None,s)
   fd,t=tempfile.mkstemp(dir=os.path.dirname(p),prefix=P)
@@ -217,7 +225,8 @@ pub(super) fn fs_command(op: &str, path: &str, args: &[String]) -> String {
         .replace("%TOO_LARGE%", &TOO_LARGE.to_string())
         .replace("%ROOT%", &ROOT.to_string())
         .replace("%NEEDS_ROOT%", &NEEDS_ROOT.to_string())
-        .replace("%CORRUPT%", &CORRUPT.to_string());
+        .replace("%CORRUPT%", &CORRUPT.to_string())
+        .replace("%CHANGED%", &CHANGED.to_string());
     let mut words =
         vec!["python3".to_owned(), "-c".to_owned(), quote(&program), op.to_owned(), quote(path)];
     words.extend(args.iter().map(|a| quote(a)));
@@ -261,6 +270,13 @@ async fn exec(
     exec_answer(body).map_err(|_| Failure::Unavailable)
 }
 
+/// Whether a file program op changes what the caller asked about. Only these are never replayed
+/// through the proxy once they may have run: a replay could undo a change someone made after the
+/// first run did its work. `stage`, `append` and `abort` touch only this call's own staging file.
+fn changes_target(op: &str) -> bool {
+    matches!(op, "write" | "commit" | "mkdir" | "remove")
+}
+
 /// One file program run. `Ok(value)` is its JSON answer; `Err` is what the caller does.
 async fn fs(
     client: &reqwest::Client,
@@ -274,16 +290,26 @@ async fn fs(
     {
         Ok(answer) => answer,
         Err(Failure::Auth) => return Err(Direct::Auth),
-        // A file operation is safe to run again through the proxy: reads change nothing, a write
-        // renames into place whole or not at all, and mkdir and remove end in the same state.
-        Err(Failure::NotSent | Failure::Unavailable) => return Err(Direct::Fallback),
+        // Nothing ran, or what may have run changed nothing the caller can see: the proxy runs it.
+        Err(Failure::NotSent) => return Err(Direct::Fallback),
+        Err(Failure::Unavailable) if !changes_target(op) => return Err(Direct::Fallback),
+        // A change that may have been made is reported, never made a second time.
+        Err(Failure::Unavailable) => {
+            return Err(Direct::Done(Answer::error(
+                502,
+                "vm_unavailable",
+                "the machine did not answer; the change may have been made",
+            )));
+        }
     };
     let refuse = |status, code: &str, message: String| {
         Err(Direct::Done(Answer::error(status, code, &message)))
     };
     match answer.exit_code {
         0 => {}
-        NEEDS_ROOT => return Err(Direct::Fallback),
+        // The program checks before it changes anything; a remove or mkdir stopped part way by a
+        // root-owned entry is finished by the proxy, as root would have done it whole.
+        NEEDS_ROOT | CHANGED => return Err(Direct::Fallback),
         NOT_FOUND => return refuse(404, "vm_file_not_found", format!("no such file: {path}")),
         ROOT if op == "remove" => {
             return refuse(400, "vm_invalid_path", "the path is the machine's root".into());
@@ -349,24 +375,39 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
     }
 }
 
+/// The file in ranged chunks, every chunk from the same version of it (device, inode, size and
+/// change times, read from the open file). A file that changes between chunks is read again from
+/// the start; one that keeps changing goes to the proxy, which reads it in one go.
 async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Value, Direct> {
-    let mut bytes = Vec::new();
-    loop {
-        let args = [bytes.len().to_string(), READ_CHUNK.to_string()];
-        let value = fs(client, grant, "read", path, &args, None).await?;
-        let chunk = value
-            .get("dataBase64")
-            .and_then(Value::as_str)
-            .and_then(|b| BASE64.decode(b).ok())
-            .ok_or(Direct::Fallback)?;
-        let total = value.get("total").and_then(Value::as_u64).ok_or(Direct::Fallback)?;
-        let empty = chunk.is_empty();
-        bytes.extend_from_slice(&chunk);
-        if empty || bytes.len() as u64 >= total {
-            break;
+    'tries: for _ in 0..READ_TRIES {
+        let (mut bytes, mut version) = (Vec::new(), None::<String>);
+        loop {
+            let args = [bytes.len().to_string(), READ_CHUNK.to_string()];
+            let value = fs(client, grant, "read", path, &args, None).await?;
+            let chunk = value
+                .get("dataBase64")
+                .and_then(Value::as_str)
+                .and_then(|b| BASE64.decode(b).ok())
+                .ok_or(Direct::Fallback)?;
+            let total = value.get("total").and_then(Value::as_u64).ok_or(Direct::Fallback)?;
+            let seen = value.get("version").and_then(Value::as_str).ok_or(Direct::Fallback)?;
+            if version.as_deref().is_some_and(|v| v != seen) {
+                continue 'tries;
+            }
+            version = Some(seen.to_owned());
+            let empty = chunk.is_empty();
+            bytes.extend_from_slice(&chunk);
+            if empty || bytes.len() as u64 >= total {
+                if bytes.len() as u64 != total {
+                    continue 'tries;
+                }
+                return Ok(
+                    json!({ "path": path, "dataBase64": BASE64.encode(&bytes), "size": bytes.len() }),
+                );
+            }
         }
     }
-    Ok(json!({ "path": path, "dataBase64": BASE64.encode(&bytes), "size": bytes.len() }))
+    Err(Direct::Fallback)
 }
 
 async fn write(
