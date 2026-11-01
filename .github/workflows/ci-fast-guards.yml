@@ -47,7 +47,40 @@ jobs:
         with:
           persist-credentials: false
 
+      # The fleet-pool reconciler is maintained on feat-cmux-next and imports
+      # the policy from trusted main. Check out both explicitly; this keeps the
+      # guard independent of whichever branch supplied this workflow copy.
+      - name: Checkout main runner-pool policy tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            .github/runners.json
+            scripts/ci/runner_pools.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          persist-credentials: false
+
+      - name: Checkout feat runner-pool workflow boundary
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .runner-pool-feat
+          sparse-checkout: |
+            .github/workflows/ci.yml
+            .github/workflows/cmux-next-ios-kit.yml
+            scripts/ci/runner_pool_reconcile.py
+            tests/test_ci_runner_pool_reconcile.py
+          persist-credentials: false
+
       - name: Run the fast guard tests
         env:
           CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
         run: scripts/ci/guards-local.sh --no-stamp --jobs 8
+
+      - name: Validate fleet Linux runner-pool reconciliation
+        env:
+          RUNNER_POOL_POLICY_ROOT: ${{ github.workspace }}/.runner-pool-tooling
+          RUNNER_POOL_WORKFLOW_ROOT: ${{ github.workspace }}/.runner-pool-feat
+        run: python3 .runner-pool-feat/tests/test_ci_runner_pool_reconcile.py
