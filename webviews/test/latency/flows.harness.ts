@@ -2,6 +2,12 @@
 import { MockAcpmuxSocket } from "../../src/agent-session/acpmux/mock";
 import { WORKED_SESSION } from "../../src/agent-session/acpmux/mockFixture";
 import { setChatDisplay, MINIMAP_KEY } from "../../src/agent-session/acpmux/chatDisplay";
+import type {} from "../../src/experiments/experiment";
+
+// CHAT SWITCH MOTION: `switch=<arm>` runs the pane under that arm of the chat-switch-motion
+// experiment (chatSwitch.ts), set before the pane mounts, as the gallery's stage sets it.
+const switchArm = new URLSearchParams(location.search).get("switch");
+if (switchArm) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "chat-switch-motion": switchArm };
 
 await import("../../src/agent-session/acpmux/dev");
 
@@ -31,6 +37,10 @@ const flows = {
   resident,
   restoreChat() {
     window.cmuxAcpmuxDebug!.selectSession(sessionId);
+  },
+  /** Another chat of the mock daemon (mockFixture.ts), for the chat switch case. */
+  openOtherChat() {
+    window.cmuxAcpmuxDebug!.selectSession("mock-ci-cache");
   },
   openNewTab() {
     // Same context event used when the native Cmd-T action adopts a prewarmed page. This
