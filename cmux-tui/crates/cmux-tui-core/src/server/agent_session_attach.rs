@@ -463,10 +463,13 @@ fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, D
     let (body, timeout) = match params.op.as_str() {
         "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
         "finish" => {
-            let mut body = json!({"loginId": text(&params.login_id)?, "sessionId": session});
-            if params.code.is_some() {
-                body["code"] = json!(text(&params.code)?);
-            }
+            let login_id = text(&params.login_id)?;
+            let body = match &params.code {
+                Some(_) => {
+                    json!({"loginId": login_id, "code": text(&params.code)?, "sessionId": session})
+                }
+                None => json!({"loginId": login_id, "sessionId": session}),
+            };
             (body, LOGIN_FINISH_TIMEOUT)
         }
         // acpmux waits up to 60 s for a Codex key to save.
