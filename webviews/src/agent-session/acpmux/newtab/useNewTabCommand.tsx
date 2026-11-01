@@ -7,7 +7,7 @@ import {
   type CmuxCommandResult,
 } from "../cmuxCommands";
 import { useT } from "../i18n";
-import type { ComposerAttachment } from "../attachments";
+import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 
 export type NewTabCommandActions = {
   importError?: string | undefined;
@@ -37,7 +37,12 @@ export function useNewTabCommand(
   const currentText = useRef(text);
   currentText.current = text;
   const intercept = (prompt: string, harness?: string, attachmentCount = 0, ownedOnly = false): boolean => {
-    const command = composerCommand(prompt, harness, attachmentCount);
+    // Inline chips mark positions, not command words; pending chips count too.
+    const words = withoutInlineTokens(
+      prompt,
+      (id) => intake.attachments.some((chip) => chip.id === id) || intake.pending.some((chip) => chip.id === id),
+    );
+    const command = composerCommand(words, harness, attachmentCount);
     if (!command) return false;
     const refuse = (message: string) => setRefusal({ text, message });
     if (command.kind === "cliOnly") {

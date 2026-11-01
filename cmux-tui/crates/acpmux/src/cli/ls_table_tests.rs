@@ -56,9 +56,11 @@ fn all_lists_the_hidden_rows_and_a_filter_hides_none() {
 
 #[test]
 fn a_named_session_whose_name_looks_generated_is_kept() {
-    // Someone ran `acpmux new -n codex-2`: the daemon marks it named.
-    let named = with(lane("codex-2"), json!({"harness": "codex"}));
-    assert!(compact(&[named]).contains("codex-2"));
+    // Someone ran `acpmux new -n codex-2`: the daemon marks it launched, or named once renamed.
+    for source in ["launched", "named"] {
+        let named = with(lane("codex-2"), json!({"harness": "codex", "titleSource": source}));
+        assert!(compact(&[named]).contains("codex-2"), "{source}");
+    }
     // A lane named after its harness and more is someone's name too.
     let lane_name =
         with(lane("codex-review"), json!({"harness": "codex", "titleSource": "harness"}));
@@ -129,21 +131,34 @@ fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
 #[test]
 fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     assert!(!compact(&[lane("a")]).contains("WARN"));
-    let warned = with(
-        lane("big"),
-        json!({"usageWarnings": [{"rule": "contextTokens"}, {"rule": "noAutocompactCap"}]}),
+    // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
+    let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
+    let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
+    let warnings = crate::hub::usage_warnings::usage_warnings(
+        &summary,
+        &crate::config::UsageLimits::default(),
     );
+    let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
     assert!(out.lines().any(|l| l.starts_with("big") && l.ends_with("warn")), "{out}");
     let wide = render(&[warned], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert!(wide.contains("contextTokens noAutocompactCap"), "{wide}");
+    // Wide names each rule with its number and the command that answers it.
+    assert!(
+        wide.contains(
+            "no-cap: lane-place rotate big --harness claude-sr2; \
+             ctx 955k: acpmux send big /compact | lane-place rotate big; \
+             90 sub/h: acpmux session cancel big"
+        ),
+        "{wide}"
+    );
 }
 
 #[test]
 fn wide_prints_every_column() {
     let out = render(&[lane("a")], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert_eq!(out.lines().next(), Some("NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAST"), "{out}");
+    let header = "NAME  AGENT   STATUS   TURNS  AGE  STUCK  LAUNCHER  CAP  CTX  CMP  SUBS  TOK24H  $24H  LAST";
+    assert_eq!(out.lines().next(), Some(header), "{out}");
     assert!(out.lines().nth(1).unwrap().ends_with("a long brief"), "{out}");
 }
 
@@ -179,6 +194,33 @@ fn every_view_keeps_the_daemons_order() {
 }
 
 #[test]
+fn wide_usage_cells_say_unknown_as_a_question_mark() {
+    let row = json!({"usageStats": {"launcher": "claude-sr2", "autocompact": "none",
+        "autocompactCap": null, "contextTokens": 312_400, "compactions24h": 3,
+        "subagentsLive": 4, "subagents24h": 90, "tokens24h": 1_234_567_890u64,
+        "costUsd24h": 1234.5}});
+    assert_eq!(usage(&row), ["claude-sr2", "none", "312k", "3", "4/90", "1234.6M", "$1234"]);
+    let capped = json!({"usageStats": {"autocompact": "capped", "autocompactCap": 200_000,
+        "contextTokens": 0, "compactions24h": 0, "subagentsLive": 0, "subagents24h": 0,
+        "tokens24h": 0, "costUsd24h": null, "launcher": "claude"}});
+    assert_eq!(usage(&capped), ["claude", "200k", "0", "0", "0/0", "0", "?"]);
+    // Read but not known (a cut first read, an adopted chat's flags): `?`, never 0.
+    let unread = json!({"usageStats": {"autocompact": "unknown", "autocompactCap": null,
+        "contextTokens": 9_000, "compactions24h": null, "subagentsLive": null,
+        "subagents24h": null, "tokens24h": null, "costUsd24h": null, "launcher": null}});
+    assert_eq!(usage(&unread), ["?", "?", "9k", "?", "?/?", "?", "?"]);
+    // A cap is known to be set but not its value: what is known, the rest `?`.
+    let set = json!({"usageStats": {"autocompact": "capped", "autocompactCap": null}});
+    assert_eq!(usage(&set)[1], "capped");
+    assert_eq!(usage(&json!({})), ["?", "?", "?", "?", "?/?", "?", "?"]);
+    // The wide table puts them before LAST; the compact one has none.
+    let out =
+        render(&[with(lane("a"), row)], Some(&[]), View { all: false, wide: true }, false, NOW);
+    assert!(out.lines().nth(1).unwrap().contains("claude-sr2  none  312k"), "{out}");
+    assert!(!compact(&[lane("a")]).contains("LAUNCHER"));
+}
+
+#[test]
 fn a_short_or_empty_row_pads_without_panicking() {
     let s = |cells: &[&str]| cells.iter().map(|c| (*c).to_owned()).collect::<Vec<_>>();
     assert_eq!(table(vec![]), "");
@@ -188,4 +230,26 @@ fn a_short_or_empty_row_pads_without_panicking() {
     );
     // A row longer than the header: its extra cells are padded to no width.
     assert_eq!(table(vec![s(&["A", "B"]), s(&["x", "y", "z"])]), "A  B\nx  yz\n");
+}
+
+#[test]
+fn a_lane_keeps_its_row_once_its_chat_is_titled() {
+    // A lane started under a name gets a generated title after its first prompt (`titles.rs`);
+    // ls lists it by its name, as before, also one named like the daemon's `HARNESS-N` default.
+    for name in ["p0m-as-p2", "codex-2"] {
+        for source in ["launched", "prompt", "asked", "generated", "harness"] {
+            let row = with(
+                lane(name),
+                json!({"harness": "codex", "nameGiven": true, "titleSource": source,
+                       "title": "Fix the rail"}),
+            );
+            let out = compact(&[row]);
+            let listed = out.lines().nth(1).is_some_and(|l| l.starts_with(&format!("{name} ")));
+            assert!(listed, "{name} {source}: {out}");
+            assert!(!out.contains("hidden"), "{name} {source}: {out}");
+        }
+    }
+    // The daemon's own name stays hidden once the chat is titled.
+    let unnamed = with(lane("codex-2"), json!({"harness": "codex", "titleSource": "generated"}));
+    assert!(compact(&[unnamed]).contains("1 unnamed"));
 }

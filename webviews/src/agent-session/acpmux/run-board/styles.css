@@ -6,7 +6,7 @@
   min-height: 100vh;
   accent-color: var(--page-text);
 }
-.run-board button { cursor: pointer; }
+.run-board button { cursor: default; }
 .run-board button:disabled { cursor: default; opacity: .4; }
 .run-board button:focus-visible { outline: 2px solid var(--page-text-3); outline-offset: 3px; }
 .run-board-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

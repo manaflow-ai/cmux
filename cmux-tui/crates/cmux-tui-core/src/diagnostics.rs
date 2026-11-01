@@ -24,7 +24,13 @@ pub use resource_projection::{
 };
 mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
+mod hook_queue;
 mod write_path;
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
+    JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -646,9 +652,44 @@ pub struct ConnectionStats {
     reclaimed: AtomicU64,
     /// The admitted connections whose client can be watched for a hang-up.
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
+    /// terminal connection gives this slot back with its main one
+    /// (`connection_leases`).
+    terminal_active: AtomicU64,
+    /// The socket these connections come in on, once a server attached the
+    /// session to it.
+    socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64) -> bool {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed =
+            self.terminal_active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim).is_ok();
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self
+                .terminal_active
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, claim)
+                .is_ok();
+        }
+        if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    pub fn release_terminal(&self) {
+        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
     /// At the limit it first takes back the slots of clients that hung up
     /// (`reclaim_hung_up`): a connection thread parked on the registry lock
@@ -681,6 +722,15 @@ impl ConnectionStats {
 
     pub fn active(&self) -> u64 {
         self.active.load(Ordering::Acquire)
+    }
+
+    /// Records the socket the session serves (the first one wins).
+    pub fn note_socket(&self, path: &std::path::Path) {
+        let _ = self.socket.set(path.to_path_buf());
+    }
+
+    pub fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.get().map(std::path::PathBuf::as_path)
     }
 
     pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
@@ -730,6 +780,10 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `locks` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locks: Option<LocksSnapshot>,
+    /// Present only when the request names `hook_queue` in `include` and the
+    /// session serves a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<HookQueueSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

@@ -218,7 +218,7 @@ export function codeViewUnsafeCSS(): string {
       border-radius: 4px;
       background: var(--cmux-diff-accent, light-dark(#0a84ff, #7ab7ff));
       color: light-dark(#fff, #08233f);
-      cursor: pointer;
+      cursor: default;
       transform: scale(0.9);
       transition: transform 80ms ease;
     }

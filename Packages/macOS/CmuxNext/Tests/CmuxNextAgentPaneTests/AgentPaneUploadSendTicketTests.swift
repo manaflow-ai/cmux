@@ -174,18 +174,22 @@ struct AgentPaneUploadSendTicketTests {
         #expect(!gestures.redeem(ticket, connection: 1, pick: prompt(), sessionId: "s-1"), "the clock did not run again after the upload")
     }
 
-    /// A newer Send replaces the prompt; the page's release, a prompt that went out and the
-    /// connection's end drop the ticket: each reports the uploads it held.
+    /// Each prompt keeps its own ticket during a burst. A same-prompt replacement, the page's
+    /// release, a prompt that went out and the connection's end drop the ticket: each reports the
+    /// uploads it held.
     @Test func replacementReleaseAndConnectionEndDropTheHolds() throws {
         let (gestures, ticket, ended) = try reserved()
         #expect(gestures.holdForUpload(ticket, upload: "a", connection: 1, sessionId: "s-1", promptId: "p-1"))
         gestures.record()
         let newer = try #require(gestures.reserve(connection: 1, intent: intent(promptId: "p-2")))
-        #expect(ended.uploads == ["a"] && !gestures.holdsTicket(upload: "a"), "a replaced prompt's upload kept its hold")
+        #expect(ended.uploads.isEmpty && gestures.holdsTicket(upload: "a"), "a different prompt replaced an unrelated ticket")
 
         #expect(gestures.holdForUpload(newer, upload: "b", connection: 1, sessionId: "s-1", promptId: "p-2"))
+        gestures.record()
+        _ = try #require(gestures.reserve(connection: 1, intent: intent(promptId: "p-2")))
+        #expect(ended.uploads == ["b"] && gestures.holdsTicket(upload: "a"), "a same-prompt replacement did not drop its upload")
         gestures.clearTickets() // a prompt went out, or the page released its tickets
-        #expect(ended.uploads == ["a", "b"] && !gestures.holdsTicket(upload: "b"))
+        #expect(ended.uploads == ["a", "b"] && !gestures.holdsTicket(upload: "b") && !gestures.holdsTicket(upload: "a"))
 
         gestures.record()
         let third = try #require(gestures.reserve(connection: 1, intent: intent(promptId: "p-3")))

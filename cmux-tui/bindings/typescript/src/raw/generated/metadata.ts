@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13. */
+/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13" as const;
+export const SDK_IR_SHA256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -687,7 +687,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-op": {
@@ -2700,7 +2700,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, locks); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -10188,6 +10188,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsHookQueue": {
+    "additional_properties": false,
+    "constraints": [
+      "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+      "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+      "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
+    ],
+    "fields": {
+      "queued_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reset_dropped_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "undeliverable_events": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsJournalWriter": {
     "additional_properties": false,
     "constraints": [
@@ -10306,7 +10341,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
-      "sites counts the distinct acquiring source locations that released the lock since daemon start.",
+      "sites counts the distinct acquiring source locations since daemon start.",
       "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
     ],
     "fields": {
@@ -10394,7 +10429,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
-      "site is the file:line that acquired the lock (the registry lock, or in locks also the mux state lock)."
+      "site is the file:line that acquired the registry lock."
     ],
     "fields": {
       "held_for_us": {
@@ -10811,7 +10846,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
       "write_path is present only when the request names it in include.",
-      "locks is present only when the request names it in include."
+      "locks is present only when the request names it in include.",
+      "hook_queue is present only when the request names it in include and the session serves a socket."
     ],
     "fields": {
       "connections": {
@@ -10820,6 +10856,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsConnections"
+        }
+      },
+      "hook_queue": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHookQueue"
         }
       },
       "journal_writer": {
@@ -16436,6 +16480,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "cursor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "include_archived": {
           "default": false,
           "nullable": false,

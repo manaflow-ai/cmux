@@ -7748,6 +7748,10 @@
     },
     "request:cloud-host-replica-status": {},
     "request:cloud-inbox-list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/include_archived": {
         "ty": "boolean"
       },
@@ -19033,6 +19037,21 @@
         "required": true
       },
       "/data/connections/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue": {
+        "ty": "object"
+      },
+      "/data/hook_queue/queued_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/reset_dropped_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/undeliverable_events": {
         "ty": "uint64",
         "required": true
       },

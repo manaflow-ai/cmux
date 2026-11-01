@@ -67,12 +67,32 @@ def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     return Verdict("unexplained", f"dropped {change} with no fast-tier reason")
 
 
+# A cmux-tui path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON) drops only the Swift
+# compiles: native and scheme, nothing else, and the same Swift test targets.
+NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+SWIFT_COMPILE_TIERS = frozenset(("native", "scheme"))
+
+
+def explain(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) -> Verdict:
+    """compare(), and a drop of the Swift compiles alone is explained by the router's no-Swift-compile reason."""
+    verdict = compare(old, new, new_reasons)
+    if verdict.kind != "unexplained":
+        return verdict
+    added = [t for t in TIERS if tier(old, t) == "false" and tier(new, t) == "true"]
+    dropped = {t for t in TIERS if tier(old, t) == "true" and tier(new, t) == "false"}
+    reason = next((r for r in new_reasons if NO_SWIFT_COMPILE_REASON in r), None)
+    if (reason and dropped and dropped <= SWIFT_COMPILE_TIERS and not added
+            and old.get("swift_targets", "") == new.get("swift_targets", "")):
+        return Verdict("explained", f"dropped {', '.join(sorted(dropped))}: {reason}")
+    return verdict
+
+
 def replay(prs: list[tuple[int, list[str]]], old: Router, new: Router) -> tuple[list[str], bool]:
     lines, failed = [], False
     for number, files in prs:
         before, _ = old(files)
         after, reasons = new(files)
-        verdict = compare(before, after, reasons)
+        verdict = explain(before, after, reasons)
         failed |= verdict.kind == "unexplained"
         label = "UNEXPLAINED" if verdict.kind == "unexplained" else verdict.kind
         lines.append(f"#{number} {label} ({len(files)} files){': ' + verdict.detail if verdict.detail else ''}")

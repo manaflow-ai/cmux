@@ -21,10 +21,20 @@ mod app_browser_route;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
+mod apps_list;
+#[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod auth_token;
+#[cfg(unix)]
+mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
+#[cfg(unix)]
+mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
 mod chief;
@@ -60,6 +70,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vnc;
+#[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 #[cfg(unix)]
@@ -93,12 +105,15 @@ mod screen_help;
 mod script;
 #[cfg(unix)]
 mod setup;
+#[cfg(unix)]
+mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+mod tab_capabilities;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
@@ -445,6 +460,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    #[cfg(unix)]
+    let alias_args;
+    #[cfg(unix)]
+    let args = match vm::machine_alias(args) {
+        Some(rewritten) => {
+            alias_args = rewritten;
+            alias_args.as_slice()
+        }
+        None => args,
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -462,13 +488,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -625,9 +655,31 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
 /// the app marks one for the CLI. `None` when it does not, or no app answers.
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_action_globals(args).ok()?;
+    let (mut global, command_args) = parse_action_globals(args).ok()?;
     if let Some((name, action_args)) = agent_view::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
+    }
+    match share_cli::action(&command_args) {
+        Some(Ok((name, mut action_args))) => {
+            for switch in share_cli::take_output_switches(&mut action_args) {
+                let output = match switch.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    _ => OutputMode::Quiet,
+                };
+                if let Err(error) = set_output_mode(&mut global, output, &switch) {
+                    let error = serde_json::json!({"code": "usage.invalid", "message": error.0,
+                        "details": {}, "retryable": false});
+                    return Some(wire::print_local_error(&error, global.output, 2));
+                }
+            }
+            return app::run_cli_action(&global, &name, &action_args);
+        }
+        Some(Err(message)) => {
+            let error = serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false});
+            return Some(wire::print_local_error(&error, global.output, 2));
+        }
+        None => {}
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {
@@ -1019,7 +1071,9 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
-        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
+        (Some("machine"), Surface::Cmux) => {
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+        }
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => {
             let root = catalog.local_server.cmux_root_help;
@@ -1056,7 +1110,7 @@ fn scope_help_for(
         "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Borrowed(MACHINE_HELP),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),
@@ -1168,7 +1222,7 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
 
 const MACHINE_HELP: &str = "\
 USAGE
-  cmux machine list
+  cmux machine ls
   cmux machine <selector> show
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
