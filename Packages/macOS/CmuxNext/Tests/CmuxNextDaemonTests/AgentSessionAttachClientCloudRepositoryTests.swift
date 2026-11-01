@@ -18,7 +18,7 @@ struct AgentSessionAttachClientCloudRepositoryTests {
         await client.close()
         let value = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(value["repos"] as? [Any] != nil)
-        let request = try #require(daemon.requests.first(where: { $0["cmd"] as? String == "cloud.repo.list" }))
+        let request = try #require(daemon.request(where: { $0["cmd"] as? String == "cloud.repo.list" }))
         #expect(request["surface"] as? Int == 42)
         #expect(request["session"] as? String == "chat-1")
         #expect(request["query"] as? String == "cmux-platform")
@@ -29,12 +29,13 @@ private final class CloudRepositoryDaemon: @unchecked Sendable {
     let path: String
     private let descriptor: Int32
     private let lock = NSLock()
-    private(set) var requests: [[String: Any]] = []
+    private var requests: [[String: Any]] = []
 
     init() throws {
-        path = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-repo-(UUID().uuidString).sock").path
+        path = "/tmp/cr-\(UUID().uuidString).sock"
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw POSIXError(.ENFILE) }
+        unlink(path)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         path.withCString { raw in
@@ -48,7 +49,10 @@ private final class CloudRepositoryDaemon: @unchecked Sendable {
                 bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bound == 0, listen(descriptor, 2) == 0 else { throw POSIXError(.EADDRINUSE) }
+        guard bound == 0, listen(descriptor, 2) == 0 else {
+            close(descriptor)
+            throw POSIXError(.EADDRINUSE)
+        }
         Thread.detachNewThread { [self] in
             let client = accept(descriptor, nil, nil)
             guard client >= 0 else { return }
@@ -92,5 +96,10 @@ private final class CloudRepositoryDaemon: @unchecked Sendable {
         shutdown(descriptor, SHUT_RDWR)
         close(descriptor)
         unlink(path)
+    }
+
+    func request(where predicate: ([String: Any]) -> Bool) -> [String: Any]? {
+        lock.lock(); defer { lock.unlock() }
+        return requests.first(where: predicate)
     }
 }
