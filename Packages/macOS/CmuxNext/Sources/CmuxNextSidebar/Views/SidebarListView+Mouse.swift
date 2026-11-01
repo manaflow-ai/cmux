@@ -62,7 +62,7 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiView.value {
+            } else if SidebarTunables.multiViewOn {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
