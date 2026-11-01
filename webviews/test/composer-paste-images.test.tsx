@@ -1,17 +1,18 @@
 // Leo 2026-10-20: two images copied in Chrome and pasted into the composer showed as chips and also
 // full size in the field, as `![Screenshot · 778×696](data:image/png;base64,…)`; the prompt went out
 // with that text, the bubble showed pages of base64 and the chat's compaction failed. A pasted image
-// is an attachment chip only: the field gets nothing but plain text, a prompt's text never carries a
-// `data:` URI (it goes as an ACP image block), and a bubble never draws one.
+// is an attachment atom: only its thumbnail is rendered, its data never becomes prompt text
+// (it goes as an ACP image block), and a bubble never draws the data URI as text.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef, type RefObject } from "react";
+import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -37,7 +38,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -154,21 +158,31 @@ async function until(ready: () => boolean, what: string) {
 /// The open composer's handle, for `paste` to read its chips.
 let opened: RefObject<ComposerHandle | null> | undefined;
 
-async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
+let composerCount = 0;
+type ComposerProps = ComponentProps<typeof import("../src/agent-session/acpmux/Composer").Composer>;
+
+/// `extra`: more props; `newChat`, a chat not started yet (no session id), whose text goes to
+/// `onUnsentDraft`.
+async function openComposer(
+  sent: { text: string; attachments: ComposerAttachment[] }[] = [],
+  extra: Partial<ComposerProps> = {},
+  newChat = false,
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
   opened = handle;
-  const snapshot = noChat([], {
-    sessionId: "chat-a",
-    summary: { sessionId: "chat-a", harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
-  });
+  const sessionId = newChat ? undefined : `chat-${++composerCount}`;
+  const snapshot = noChat(
+    [],
+    sessionId ? { sessionId, summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+  );
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <Composer
         snapshot={snapshot}
-        sessionId="chat-a"
+        {...(sessionId ? { sessionId } : {})}
         chips={Chips}
         onSend={(text, attachments) => {
           sent.push({ text, attachments: attachments ?? [] });
@@ -180,6 +194,7 @@ async function openComposer(sent: { text: string; attachments: ComposerAttachmen
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={handle}
+        {...extra}
       />,
     ),
   );
@@ -187,6 +202,7 @@ async function openComposer(sent: { text: string; attachments: ComposerAttachmen
 }
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
+const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 
 /// Pastes on the prompt field as WebKit delivers it: one ClipboardEvent with the clipboard's data.
 async function paste(clipboard: { files?: File[]; html?: string; plain?: string }) {
@@ -211,25 +227,21 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
 
-test("pasting two copied images makes two chips and puts nothing in the prompt", async () => {
+test("pasting two copied images puts two attachment atoms in the prompt", async () => {
   const composer = await openComposer();
   await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
   const chips = composer.current!.wakeState().attachments ?? [];
   expect(chips.map((chip) => chip.kind)).toEqual(["image", "image"]);
   expect(chips.every((chip) => chip.data === pngBase64)).toBe(true);
-  // Nothing inline: no image drawn in the field and no markup or base64 in its text.
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
 });
 
 test("an image copied as HTML alone (no file on the clipboard) still comes in as a chip, its text as text", async () => {
   const composer = await openComposer();
   await paste({ html: `<p>look at these</p>${imageHtml(2)}`, plain: "look at these" });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("look at these");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
+  expect(field().textContent).toContain("look at these");
 });
 
 test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
@@ -294,7 +306,12 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
 test("re-attaching design selection chips replaces both stable ids", async () => {
   const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
-  const selection = { id: "card-1", name: "Card", text: "hello", image: { mimeType: "image/png", data: "AA==" } };
+  const selection = {
+    id: "card-1",
+    name: "Card",
+    text: "hello",
+    image: { mimeType: "image/png", data: "AA==" },
+  };
   const chips = designSelectionChips(selection);
   expect(appendAttachments(appendAttachments([], chips), chips)).toEqual(chips);
 });
@@ -316,7 +333,9 @@ test("attachment intake wires local link deduplication through its hook state", 
   await act(async () => root!.render(<Field />));
   const files = [new File([], "assets", { type: "" }), new File([], "assets-copy", { type: "" })];
   for (const file of files)
-    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.reject(new Error("folder")) });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: () => Promise.reject(new Error("folder")),
+    });
   const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
   await act(async () => {
@@ -348,12 +367,168 @@ test("attachment intake wires local link deduplication through its hook state", 
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
 });
 
+test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
+  const asked: unknown[] = [];
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": (params) => {
+      asked.push(params);
+      return { sources: [shot] };
+    },
+  };
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    // What WebKit does once the person picks in the open panel: the input holds the files, then `change`.
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the chosen screenshot's chip with its source",
+    );
+    // Asked as a pick, never as a drop or paste: the host answers from the panel's own record.
+    expect(asked).toEqual([
+      { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
+    ]);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+  }
+});
+
+// A ready file never waits for where it came from: the source is a label, so a slow host answer
+// (up to its 1.5 s deadline) must not hold the chip, or a send, behind it. The answer, when it comes,
+// is added to the chip already staged.
+test("a slow source answer never holds a ready chip; the source is added when it comes", async () => {
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  let answer: (value: { sources: unknown[] }) => void = () => {};
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": () => new Promise((resolve) => (answer = resolve)),
+  };
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    const picked = performance.now();
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // The host has not answered: the chip is in, with no source yet, well before the lookup's
+    // 1.5 s deadline (SOURCES_DEADLINE_MS) could have let it through.
+    await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chip, before the answer");
+    expect(performance.now() - picked).toBeLessThan(750);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([undefined]);
+    await act(async () => answer({ sources: [shot] }));
+    await until(
+      () => composer.current!.wakeState().attachments?.[0]?.source !== undefined,
+      "the late source on the staged chip",
+    );
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+  }
+});
+
+// Review (Codex): a loading chip cancelled and brought back by an undo is read again under its id
+// while its first read still runs. That stale read ending (here a failed upload) must leave the new
+// read's chip alone: only the read that owns the id settles it.
+test("an undone cancel's chip is settled by its new read, never by the cancelled one", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const answers: ((result: { paths: string[] } | { error: string }) => void)[] = [];
+  let intake!: ReturnType<typeof useAttachmentIntake>;
+  function Field() {
+    intake = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      upload: () => new Promise((resolve) => answers.push(resolve)),
+    });
+    return null;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const file = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  await act(async () => void intake.attach([file], true));
+  await until(() => answers.length === 1, "the first upload");
+  const id = intake.pending[0]!.id;
+  // Its x, then an undo that brings its node back: the file is read again under the same id.
+  await act(async () => intake.cancel(id));
+  expect(intake.pending).toEqual([]);
+  let revived = false;
+  await act(async () => {
+    revived = intake.revive(id);
+  });
+  expect(revived).toBe(true);
+  await until(() => answers.length === 2, "the second upload");
+  // The cancelled read's upload fails: the revived chip is still loading, not failed.
+  await act(async () => answers[0]!({ error: "The upload failed." }));
+  for (let turn = 0; turn < 5; turn += 1)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  expect(intake.pending.map((chip) => [chip.id, chip.failed])).toEqual([[id, undefined]]);
+  // The revived read's upload lands: one attachment, under the id.
+  await act(async () => answers[1]!({ paths: ["/tmp/notes.bin"] }));
+  await until(() => intake.attachments.length === 1, "the revived attachment");
+  expect(intake.pending).toEqual([]);
+  expect(intake.attachments.map((chip) => [chip.id, chip.path])).toEqual([[id, "/tmp/notes.bin"]]);
+});
+
+// Review (Codex): a huge paste's file is made a slice per task (pastedText.ts pastedTextFile), so its
+// chip can be cancelled before its bytes exist. An undo then brings it back and reads it once they
+// are, rather than leaving the text with nothing.
+test("an undone cancel of a file still being made reads it once its bytes are made", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let intake!: ReturnType<typeof useAttachmentIntake>;
+  function Field() {
+    intake = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      upload: async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) }),
+    });
+    return null;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  let made!: (file: File) => void;
+  const bytes = new Promise<File>((resolve) => {
+    made = resolve;
+  });
+  await act(async () => void intake.attach([{ name: "Pasted text.txt", type: "text/plain", file: bytes }], true));
+  const id = intake.pending[0]!.id;
+  await act(async () => intake.cancel(id));
+  let revived = false;
+  await act(async () => {
+    revived = intake.revive(id);
+  });
+  expect(revived).toBe(true);
+  expect(intake.pending.map((chip) => [chip.id, chip.name])).toEqual([[id, "Pasted text.txt"]]);
+  await act(async () => made(new File(["a".repeat(64)], "Pasted text.txt", { type: "text/plain" })));
+  await until(() => intake.attachments.length === 1, "the revived attachment");
+  expect(intake.pending).toEqual([]);
+  expect(intake.attachments.map((chip) => [chip.id, chip.path])).toEqual([[id, "/tmp/Pasted text.txt"]]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   let held: ComposerAttachment[] = [];
   function Field() {
-    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    const { attachments } = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => ({ uploads: false }),
+    });
     held = attachments;
     return <textarea aria-label="Prompt" />;
   }
@@ -379,13 +554,12 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
 });
 
-test("a prompt copied from a bubble with `![…](data:…)` text pastes as a chip and its text, nothing inline", async () => {
+test("a prompt copied from a bubble with `![…](data:…)` text pastes as an attachment atom beside its text", async () => {
   const composer = await openComposer();
   await paste({ plain: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck` });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("what the heck");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "inline thumbnail");
+  expect(field().textContent).toContain("what the heck");
 });
 
 test("the same text pasted into a plain text field leaves its text there without the image", async () => {
@@ -393,7 +567,10 @@ test("the same text pasted into a plain text field leaves its text there without
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   let held: ComposerAttachment[] = [];
   function Field() {
-    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    const { attachments } = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => ({ uploads: false }),
+    });
     held = attachments;
     return <textarea aria-label="Prompt" defaultValue="see: " />;
   }
@@ -444,4 +621,438 @@ test("a bubble never draws a data: URI: each image reads as its name", async () 
   expect(bubble.textContent).not.toContain(pngBase64);
   expect(bubble.textContent).toContain("[Screenshot · 778×696]what the heck, and [Image]");
   expect(withoutDataUris("no images here", "Image")).toBe("no images here");
+});
+
+test("inline images keep the text on both sides in the sent prompt", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "between",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text"]);
+  expect(blocks[0]).toEqual({ type: "text", text: "before " });
+  expect(blocks[2]).toEqual({ type: "text", text: " after" });
+});
+
+// Review of #26545: a new chat's unsent draft (`chat.unsentDraft`) is the person's words only. An
+// attachment's token is the composer's, and the host keeps no attachment with the text, so a token
+// left in it came back after a relaunch as raw U+FFFC text in the prompt.
+const MARK = "\uFFFC";
+
+test("a new chat's unsent draft leaves out the token of an attachment still uploading", async () => {
+  const drafts: string[] = [];
+  // The host's upload never answers: the file stays a placeholder in the text.
+  const upload = () => new Promise<never>(() => {});
+  const composer = await openComposer([], { onUnsentDraft: (text) => void drafts.push(text), upload }, true);
+  await act(async () => composer.current!.restore("see", []));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(() => Boolean(field().querySelector("[data-inline-attachment]")), "the placeholder in the text");
+  await act(async () => composer.current!.settleDraft());
+  expect(drafts.at(-1)).toBe("see");
+  for (const draft of drafts) expect(draft).not.toContain(MARK);
+});
+
+test("settling a new chat's draft sends its words without its attachments' tokens", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const drafts: string[] = [];
+  const composer = await openComposer([], { onUnsentDraft: (text) => void drafts.push(text) }, true);
+  const image: ComposerAttachment = {
+    id: "settled",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.settleDraft());
+  expect(drafts.at(-1)).toBe("before  after");
+  for (const draft of drafts) expect(draft).not.toContain(MARK);
+});
+
+test("a chat's draft read before its kept attachments places them once they come", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const image: ComposerAttachment = {
+    id: "kept-later",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  const composer = await openComposer([], { draft: `look ${inlineToken(image.id)} here` });
+  await until(() => field().textContent?.includes("look") === true, "the draft");
+  await act(async () => composer.current!.wake({ attachments: [image] }));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "the kept image in the text");
+  expect(field().textContent).not.toContain(MARK);
+  expect(field().textContent).not.toContain(image.id);
+});
+
+// Review of #26545: after a send cleared the prompt, its Undo brought back the sent attachments'
+// tokens (U+FFFC, the id, U+FFFC) with no attachment to draw, and the next send sent them as raw
+// text. They went with the first prompt: an undo of the clear brings back the words, and a resend
+// (in the undo's own task too) sends the words with no token and no attachment.
+test("sending, undoing the clear, and resending never sends a sent attachment's token", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "sent-then-undone",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  // A person sends a moment after writing: the field's history keeps the clear as its own step
+  // (prosemirror-history joins steps less than 500 ms apart, by each transaction's Date.now()). The
+  // clock moves past that gap instead of the test sleeping through it.
+  const now = Date.now;
+  Date.now = () => now() + 600;
+  try {
+    await act(async () => composer.current!.send());
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+    await until(() => !field().textContent?.includes("before"), "the cleared prompt");
+    // Undo, and a send in the same task, before anything after the undo ran.
+    await act(async () => {
+      markdownField().undo();
+      composer.current!.send();
+    });
+    await until(() => field().textContent?.includes("before") === true, "the undone clear");
+    for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+    expect(field().textContent).not.toContain(MARK);
+    expect(markdownField().value()).not.toContain(MARK);
+    expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+    if (sent.length === 1) await act(async () => composer.current!.send());
+    expect(sent).toHaveLength(2);
+    const resent = sent[1]!;
+    expect(resent.attachments).toEqual([]);
+    expect(resent.text).toContain("before");
+    expect(resent.text).toContain("after");
+    expect(resent.text).not.toContain(MARK);
+    expect(resent.text).not.toContain(image.id);
+    expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
+  } finally {
+    Date.now = now;
+  }
+});
+
+// Review of #26545: a failed attachment's Retry read its file again as a new paste under a new id,
+// so the failed tile's node left the text and the retried attachment went in at the caret wherever
+// it was by then. The retried attachment is the same one, where it was pasted, and goes with the
+// prompt there.
+test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
+  let uploads = 0;
+  // The host refuses the first upload and takes the retry.
+  const upload = async (files: File[]) => {
+    uploads += 1;
+    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+  };
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload });
+  await act(async () => composer.current!.restore("before after", []));
+  await until(() => field().textContent?.includes("before after") === true, "the prompt");
+  await act(async () => markdownField().setCaret("before ".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const retry = () => field().querySelector<HTMLElement>('[data-state="failed"] .acpmux-md-inline-retry');
+  await until(() => Boolean(retry()), "the failed tile");
+  const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  const placedAt = markdownField().value();
+  expect(placedAt.indexOf("before")).toBeLessThan(placedAt.indexOf(MARK));
+  expect(placedAt.indexOf(MARK)).toBeLessThan(placedAt.indexOf("after"));
+  // The caret moves on before the Retry.
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => {
+    retry()!.click();
+  });
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the retried attachment");
+  await until(() => Boolean(field().querySelector('[data-inline-attachment] [data-state="ready"]')), "its chip");
+  expect(uploads).toBe(2);
+  const [attachment] = composer.current!.wakeState().attachments!;
+  expect(attachment!.id).toBe(original);
+  expect(attachment!.path).toBe("/tmp/notes.bin");
+  const nodes = [...field().querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(nodes).toEqual([original]);
+  expect(markdownField().value()).toBe(placedAt);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.text).toBe(placedAt);
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[original, "/tmp/notes.bin"]]);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks[0]).toEqual({ type: "text", text: "before " });
+  // Pasted at "before |after": nothing between the attachment and "after".
+  expect(blocks.at(-1)).toEqual({ type: "text", text: "after" });
+});
+
+// 2df2917eec9 kept every sent attachment out of the text for good, so a prompt the host put back after
+// its send (a refusal, Edit on a failed prompt) lost its attachments: the same ids come back, and
+// they are the composer's again.
+test("a prompt put back after its send keeps its inline attachment, and sends it again", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "put-back",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  const prompt = `before ${inlineToken(image.id)} after`;
+  await act(async () => composer.current!.restore(prompt, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  // The host refused it: the composer gets the prompt back, then the person types on.
+  await act(async () => composer.current!.restore(sent[0]!.text, sent[0]!.attachments));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped("!"));
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(field().querySelector("[data-inline-attachment] img")).not.toBeNull();
+  expect((composer.current!.wakeState().attachments ?? []).map((attachment) => attachment.id)).toEqual([image.id]);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.text).toBe(`${prompt}!`);
+  expect(sent[1]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+});
+
+// Review of #26545 at 6c074193: only a command goes first with its attachments after it. A prompt
+// that only starts with "/" (a path) keeps its image where it was put.
+test.each([
+  ["/tmp", true],
+  ["/plan", false],
+] as const)("a prompt starting %s keeps its inline image in place: %p", async (head, keeps) => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: `slash-${keeps}`,
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`${head} ${inlineToken(image.id)} exists`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  if (keeps) {
+    // The words around the image, the image between them.
+    expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text"]);
+    expect(blocks[0]).toEqual({ type: "text", text: `${head} ` });
+    expect(blocks[2]).toEqual({ type: "text", text: " exists" });
+  } else {
+    // A command: its words first, whole, the image after them.
+    expect(blocks.map((block) => block.type)).toEqual(["text", "image"]);
+    expect((blocks[0] as { text: string }).text.replace(/\s+/g, " ")).toBe(`${head} exists`);
+  }
+});
+
+// Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
+// text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
+// Retry and × in the strip, never hidden as "placed" with no node to draw it.
+test("a failed attachment left out of a send stays reachable with Retry and its x", async () => {
+  const upload = async () => ({ error: "The upload failed." });
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload });
+  await act(async () => composer.current!.restore("look", []));
+  await until(() => field().textContent?.includes("look") === true, "the prompt");
+  await act(async () => markdownField().setCaret("look".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(() => Boolean(field().querySelector('[data-state="failed"]')), "the failed tile in the text");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments).toEqual([]);
+  await until(() => !field().querySelector("[data-inline-attachment]"), "the cleared prompt");
+  const strip = () => document.querySelector(".acpmux-attachments");
+  await until(() => Boolean(strip()?.querySelector(".acpmux-attachment-retry")), "the failed chip in the strip");
+  expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
+  expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+});
+
+// Review of #26667 (Astra), finding 1: the composer read the draft's tokens from its markdown, where
+// text typed or pasted in the shape of a placed attachment's token (U+FFFC, its id, U+FFFC) reads
+// the same as the editor's own node of it. That text then took the attachment's place: the prompt
+// sent the pasted marker as the attachment, and once the node itself was deleted the attachment
+// stayed with no chip drawn anywhere. Only the editor's own nodes are attachments; the rest is text.
+const WORD_JOINER = "⁠";
+const blockTexts = (sent: { text: string; attachments: ComposerAttachment[] }) =>
+  promptBlocks(sent.text, sent.attachments).map((block) =>
+    block.type === "text" ? `text:${block.text.replaceAll(WORD_JOINER, "")}` : block.type,
+  );
+
+async function withPlacedImage(id: string) {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id,
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`see ${inlineToken(image.id)} here`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  return { composer, sent, image, token: inlineToken(image.id) };
+}
+const settleTurns = async () => {
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+};
+
+test("text pasted with a placed attachment's token in it stays text, and the attachment keeps its place", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("pasted-marker");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => markdownField().pasteText(`look ${token} `));
+  await settleTurns();
+  const nodes = [...field().querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(nodes).toEqual([image.id]);
+  expect(field().querySelectorAll("[data-inline-attachment] img")).toHaveLength(1);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  // The image goes where its chip is, between "see" and "here"; the pasted marker goes as the text it was.
+  expect(blockTexts(sent[0]!)).toEqual([`text:look ${token} see `, "image", "text: here"]);
+});
+
+test("text typed with a placed attachment's token in it after the attachment goes as text", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("typed-marker");
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped(` ${token}`));
+  await settleTurns();
+  expect(field().querySelectorAll("[data-inline-attachment] img")).toHaveLength(1);
+  await act(async () => composer.current!.send());
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  expect(blockTexts(sent[0]!)).toEqual(["text:see ", "image", `text: here ${token}`]);
+});
+
+test("deleting a placed attachment with its token pasted as text beside it takes the attachment out", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("deleted-beside-marker");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => markdownField().pasteText(`${token} `));
+  await settleTurns();
+  // The person deletes the attachment's own chip.
+  await act(async () => markdownField().removeInline(image.id));
+  await settleTurns();
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  // No attachment hides behind the pasted text: none is left, in the text or the strip.
+  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+  await act(async () => composer.current!.send());
+  expect(sent[0]!.attachments).toEqual([]);
+  expect(blockTexts(sent[0]!)).toEqual([`text:${token} see  here`]);
+});
+
+// Review of #26667 (Astra), finding 2: a file still streaming to the session's machine does not
+// hold a send; it stays for the next prompt (attachmentIntake.tsx useSendWhenAttached). The send's
+// clear took its node out of the text as an edit, and the edit cancelled it: its upload was dropped
+// and the next prompt went without it. A node the person deletes is still cancelled.
+async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
+  let finish: ((paths: string[]) => void) | undefined;
+  const upload = () =>
+    new Promise<{ paths: string[] }>((resolve) => {
+      finish = (paths) => resolve({ paths });
+    });
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}) });
+  await act(async () => composer.current!.restore("see", []));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(
+    () => finish !== undefined && Boolean(field().querySelector("[data-inline-attachment]")),
+    "the uploading placeholder in the text",
+  );
+  const id = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
+}
+
+test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
+  // The host takes the prompt a moment later; the person types on meanwhile.
+  let take: (() => void) | undefined;
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const upload = await withUploadingFile((text, attachments) => {
+    sent.push({ text, attachments: attachments ?? [] });
+    return new Promise<void>((resolve) => {
+      take = resolve;
+    });
+  });
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments).toEqual([]);
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped(" next"));
+  await act(async () => take!());
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await until(
+    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
+    "the uploaded file, kept for the next prompt",
+  );
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+});
+
+test("a file still uploading whose node the person deletes is cancelled", async () => {
+  const upload = await withUploadingFile();
+  await act(async () => markdownField().removeInline(upload.id));
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await settleTurns();
+  expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(host.querySelector('[aria-busy="true"]')).toBeNull();
 });

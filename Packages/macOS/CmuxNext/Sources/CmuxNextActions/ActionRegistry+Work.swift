@@ -76,6 +76,15 @@ extension ActionRegistry {
         if capturedWork != nil { capturedWork?.append(task) }
     }
 
+    /// Reports `task` to a capturing caller (a CLI or MCP run awaits it, ``track(_:)``); a menu or
+    /// keyboard run nobody waits on shows its failure as a refusal (``refuse(_:quiet:)``) instead of
+    /// dropping it (Archive Chief on an unreachable Chief did nothing).
+    public func trackOrRefuse(_ task: ActionWork) {
+        if isCapturingWork { return track(task) }
+        // task-owner: one-shot; ends with `task`, and holds the registry weakly.
+        Task { @MainActor [weak self] in if let failure = await task.value { self?.refuse(failure.message) } }
+    }
+
     /// Reports a task that produces the action's value (a screenshot's
     /// path and size): a capturing caller awaits it like ``track(_:)`` work
     /// and answers its fields (`action.run` `result`). Ignored unless a

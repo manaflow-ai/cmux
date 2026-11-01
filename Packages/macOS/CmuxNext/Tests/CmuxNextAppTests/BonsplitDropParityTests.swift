@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextTestSupport
 import enum CmuxNextDaemon.PaneEdge
 @testable import CmuxNextLayout
 import CmuxNextTabs
@@ -12,6 +13,7 @@ import Testing
 /// even split sizing, and no flicker. Band size and corners follow plans/cmux-next/drop-zones/DESIGN.md
 /// (`DropZoneRuleTests`).
 @MainActor
+@Suite(.closesItsWindows)
 struct BonsplitDropParityTests {
     // MARK: Zones
 
@@ -58,7 +60,7 @@ struct BonsplitDropParityTests {
     /// End to end through the layout's drag API, which the App's drop target drives.
     @Test func theLayoutDragPreviewsTheJoinAndSplitsWithoutIt() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         let p2 = try #require(window.root.frame(of: "p2"))
         let nearLeft = window.root.convert(CGPoint(x: p2.minX + 40, y: p2.midY), to: nil)
         #expect(window.root.updateTabDrag("t", locationInWindow: nearLeft) == .pane("p2", .left))
@@ -120,7 +122,7 @@ struct BonsplitDropParityTests {
     /// hiding again on every move (the reported flicker), and the next target draws.
     @Test func aRefusedTargetStaysHiddenUntilTheTargetChanges() throws {
         let window = Window()
-        defer { window.window.orderOut(nil) }
+        defer { window.window.closeAfterTest() }
         let p2 = try #require(window.root.frame(of: "p2"))
         let nearLeft = window.root.convert(CGPoint(x: p2.minX + 40, y: p2.midY), to: nil)
         #expect(window.root.updateTabDrag("t", locationInWindow: nearLeft) == .pane("p2", .left))

@@ -354,7 +354,9 @@ public final class SidebarView: NSView {
         // sits above it there and takes the clicks), and the + takes the trailing slot alone.
         let segment = SidebarStyle.toolbarMenuSegmentWidth
         let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
-        let showsChevron = pairMinX >= x
+        // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
+        // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
+        let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
         newWorkspaceOptionsButton.isHidden = !showsChevron
         newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
@@ -392,7 +394,8 @@ public final class SidebarView: NSView {
             updateBands()
         }
         // `sidebar.noFade` hides the footer row, so the list takes its height.
-        let footerHeight: CGFloat = noFade ? 0 : spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = noFade ? 0 : (footerBand.needsDedicatedSearchRow ||
+            !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0)
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
         let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
