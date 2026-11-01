@@ -240,8 +240,22 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         log(f"the last base tier run ({last_sha[:12]}) started {int(window - wait)} s ago; "
             f"waiting {int(wait)} s for the window to open")
         sleep(wait)
+        seen_at = last_at
         firsts = base_tier_runs(api, repo)  # what landed while it waited (a hand dispatch)
         last_sha, last_at = max(firsts.items(), key=lambda item: item[1])
+        # A hand dispatch may have started during our sleep. It owns a fresh
+        # window, so the older run's deadline must not buy another Mac tier.
+        # The next queued kick will handle pushes made after that dispatch.
+        # Only a run created after the one seen before the sleep counts: the
+        # local clock may be behind GitHub's created_at (skew), so comparing
+        # the run seen before the sleep against now() would skip every kick.
+        if last_at > seen_at:
+            log(f"a newer base tier run ({last_sha[:12]}) started during the wait; "
+                "leaving its full window to the next kick")
+            # It still supersedes the older runs no Mac has started; with no
+            # later push, no other kick would cancel them.
+            cancel_superseded(api, repo, last_sha, log)
+            return None
     tip = (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
     if not SHA.match(tip):
         raise RuntimeError(f"could not read the {BRANCH} tip")

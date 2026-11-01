@@ -28,7 +28,7 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-queued-kind": "lead",
   ".acpmux-permission-request-icon": "icon",
   ".acpmux-permission-card-leading": "icon",
-  ".acpmux-chat-inspector-section__icon": "icon",
+  ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
   ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
@@ -336,36 +336,36 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
+  // Glance has a bare Environment and heterogeneous section bodies (SessionInfo.tsx).
   // Section roots keep a proven header absence from excusing another section's selector.
   ...[
-    ["environment", ".acpmux-chat-inspector-row__name"],
-    ["context", ".acpmux-chat-inspector-context__total > span:first-child"],
-    ["connectors", ".acpmux-chat-inspector-row__name"],
-    ["changes", ".acpmux-chat-inspector-pr__title"],
-    ["sources", ".acpmux-chat-inspector-source__label"],
-    ["outputs", ".acpmux-chat-inspector-row__name"],
+    ["environment", ".acpmux-session-info-row__name"],
+    ["context", ".acpmux-session-info-context__total > span:first-child"],
+    ["connectors", ".acpmux-session-info-row__name"],
+    ["changes", ".acpmux-session-info-pr__title"],
+    ["sources", ".acpmux-session-info-source__label"],
+    ["outputs", ".acpmux-session-info-row__name"],
     ["subagents", ".acpmux-summary-text"],
-    ["tasks", ".acpmux-chat-inspector-task__command"],
+    ["tasks", ".acpmux-session-info-task__command"],
   ].map(([section, body]) => {
     const entry = card(
       "transcript.cards",
       "agent-pane.chat-inspector",
       "layout-glance-open",
-      `.acpmux-chat-inspector-section[data-section="${section}"]`,
-      ".acpmux-chat-inspector-section__icon",
-      ".acpmux-chat-inspector-section__title",
+      `.acpmux-session-info-section[data-section="${section}"]`,
+      ".acpmux-session-info-section__icon",
+      ".acpmux-session-info-section__title",
       body!,
-      ".acpmux-chat-inspector-section__fold",
+      ".acpmux-session-info-section__fold",
     );
     entry.absent = {};
     if (section !== "context" && section !== "connectors")
-      entry.absent[".acpmux-chat-inspector-section__icon"] =
-        `ChatInspector's ${section} section supplies no header icon in layout-glance-open.`;
+      entry.absent[".acpmux-session-info-section__icon"] =
+        `SessionInfo's ${section} section supplies no header icon in layout-glance-open.`;
     if (section === "environment") {
-      entry.absent[".acpmux-chat-inspector-section__title"] =
-        "Glance Environment is bare: InspectorSection renders its body without a header.";
-      entry.absent[".acpmux-chat-inspector-section__fold"] = "Bare Environment has no section disclosure control.";
+      entry.absent[".acpmux-session-info-section__title"] =
+        "Glance Environment is bare: SessionInfoSection renders its body without a header.";
+      entry.absent[".acpmux-session-info-section__fold"] = "Bare Environment has no section disclosure control.";
     }
     return entry;
   }),
