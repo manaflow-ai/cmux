@@ -333,6 +333,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")
     private let factsStack = NSStackView()
+    private let hostRow = HoverCardRowView()
     /// CPU and memory with the last seconds of CPU as bars (`WorkspaceHoverCardContent.resourceRow`).
     private let resourceRow = HoverCardRowView()
     /// "Prompts: 4 · Worked 12m", under the status (u3320).
@@ -438,6 +439,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let tabIndex = tabPlacement == .afterTitle ? 2 : (tabPlacement == .afterStatus ? 4 : 7)
         rows.insert(tabList, at: tabIndex)
         rows.insert(detailsToggle, at: tabIndex + 1)
+        rows.insert(hostRow, at: 2)
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -458,6 +460,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            hostRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resourceRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
@@ -475,9 +478,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The text the card shows, one entry per row (tests, accessibility).
     var lines: [String] {
-        if !customSlot.isHidden { return ["custom card"] + Self.texts(in: customSlot) + tabList.reportedLines }
+        if !customSlot.isHidden { return ["custom card"] + (hostRow.isHidden ? [] : [hostRow.shownText]) + Self.texts(in: customSlot) + tabList.reportedLines }
         var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
+        if !hostRow.isHidden { lines.append(hostRow.shownText) }
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         if !statsRow.isHidden { lines.append(statsLabel.stringValue) }
         if !factsStack.isHidden { lines += factViews.filter { !$0.isHidden }.map(\.shownText) }
@@ -514,6 +518,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
         self.content = content
+        hostRow.isHidden = content.host == nil
+        if let host = content.host {
+            hostRow.configure(host.row, image: Self.ownImage(host) ?? NSImage.icon(host.icon, size: Self.iconSize))
+        }
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
         widthLimit?.constant = width
         statsLabel.stringValue = content.stats ?? ""
@@ -535,7 +543,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let wrap = width - 2 * Self.padding - Self.iconSize - Metrics.space2
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
-            row.isHidden = fact == nil
+            row.isHidden = fact == nil || fact?.kind == "machine"
             guard let fact else { continue }
             var shown = fact.row
             shown.text = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
@@ -549,7 +557,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             let next = index + 1 < content.facts.count ? content.facts[index + 1] : nil
             factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
-        factsStack.isHidden = content.facts.isEmpty
+        factsStack.isHidden = !content.facts.contains { $0.kind != "machine" }
         let log = content.options.layout == .log
         timeline.isHidden = content.timeline.isEmpty
         if !content.timeline.isEmpty {
@@ -607,14 +615,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             customSlot.isHidden = true
             activityRow.isHidden = activityWord == nil
             statsRow.isHidden = content?.stats == nil
-            factsStack.isHidden = content?.facts.isEmpty ?? true
+            factsStack.isHidden = !(content?.facts.contains(where: { $0.kind != "machine" }) ?? false)
             timeline.isHidden = content?.timeline.isEmpty ?? true
             resourceRow.isHidden = !resourceShown
             customError.isHidden = customError.stringValue.isEmpty
         }
         ageLabel.isHidden = !detailsExpanded || content?.age == nil
         let hasBuiltInDetails = activityWord != nil || content?.age != nil || content?.stats != nil
-            || content?.facts.isEmpty == false || content?.timeline.isEmpty == false || resourceShown
+            || content?.facts.contains(where: { $0.kind != "machine" }) == true || content?.timeline.isEmpty == false || resourceShown
         detailsToggle.isHidden = !hasBuiltInDetails && customView == nil && customError.stringValue.isEmpty
     }
 
@@ -751,5 +759,6 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
+        hostRow.applyColors()
     }
 }

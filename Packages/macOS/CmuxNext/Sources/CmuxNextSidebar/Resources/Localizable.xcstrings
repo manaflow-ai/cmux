@@ -29862,6 +29862,18 @@
           }
         }
       }
+    },
+    "sidebar.hoverCard.cloud": {
+      "comment": "Cloud execution location shown in the workspace hover preview; local workspaces have no location label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
