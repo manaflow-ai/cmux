@@ -149,9 +149,8 @@ public final class SandboxRunFollower {
         add(record)
     }
 
-    /// Past ``cancelLimit`` ids, drops the oldest of tasks no longer followed (dropped for age, a sign-out or
-    /// a 403). The id of a task still followed, and `id`, are never dropped: such a task, found again after a
-    /// relaunch, must stay incognito however many are in flight.
+    /// Past ``cancelLimit`` ids, drops the oldest of tasks no longer followed (age, a sign-out, a 403). A task
+    /// still followed, and `id`, keep theirs: found again after a relaunch, it stays incognito however many run.
     private func pruneIncognitoIDs(keeping id: String) {
         var excess = incognitoIDs.count - Self.cancelLimit
         guard excess > 0 else { return }
@@ -174,6 +173,10 @@ public final class SandboxRunFollower {
         }
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
+            save()
+        } else if record.incognito == true, records[record.id].map({ $0.incognito != true }) == true {
+            // Followed already as a normal one (the owner's list answered before the watch): incognito from now on.
+            records[record.id]?.incognito = true
             save()
         }
         start(record)
