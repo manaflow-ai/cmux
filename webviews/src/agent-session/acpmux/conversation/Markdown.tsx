@@ -145,16 +145,19 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
+    // A fence is three or more backticks and closes on a line of at least as many (a reply that
+    // quotes Markdown opens with four to show its own three).
+    const fence = line.match(/^\s*(`{3,})([^\s`]*)[^`]*$/);
     if (fence) {
       const body: string[] = [];
+      const closer = new RegExp(`^\\s*\`{${fence[1]!.length},}\\s*$`);
       i++;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closer.test(lines[i])) body.push(lines[i++]);
       const open = i >= lines.length;
       i++;
       out.push({
         type: "code",
-        lang: fence[1] || "text",
+        lang: fence[2] || "text",
         code: body.join("\n"),
         ...(open ? { open: true as const } : {}),
       });
@@ -197,13 +200,14 @@ function parseLines(lines: string[], depth = 0): MdBlock[] {
       i + 1 < lines.length &&
       /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])
     ) {
+      // An escaped pipe (`\|`) is a literal one inside its cell, not a column break.
       const cells = (l: string) =>
         l
           .trim()
           .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((c) => c.trim());
+          .replace(/(?<!\\)\|$/, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.replace(/\\\|/g, "|").trim());
       const header = cells(line);
       const align = cells(lines[i + 1]).map<Align>((c) =>
         c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : null,
