@@ -52,15 +52,17 @@ struct WindowResizePixelTests {
             throw AnimationPixelRun.Failure(description: "\(name): ScreenCaptureKit gave no frame of the window at rest")
         }
         let style = fixture.model.style
-        func expected(width: Double) -> [(label: String, start: Double, end: Double, exactLength: Int?)] {
-            let geometry = ScreenGeometry.compute(layout, viewport: CGSize(width: width, height: window.frame.height), style: style, scale: scale)
-            var found: [(label: String, start: Double, end: Double, exactLength: Int?)] = geometry.panes.map {
-                ($0.key.rawValue, Double($0.value.minX * scale), Double($0.value.maxX * scale), nil)
+        func expected(width: Double) -> [ScanlineSpan] {
+            let geometry = ScreenGeometry.compute(Self.layout, viewport: CGSize(width: width, height: window.frame.height), style: style, scale: scale)
+            var found: [ScanlineSpan] = []
+            for (pane, rect) in geometry.panes {
+                found.append(ScanlineSpan(label: pane.rawValue, start: Double(rect.minX * scale), end: Double(rect.maxX * scale), exactLength: nil))
             }
-            found += geometry.dividers.map {
-                ("divider:\($0.id.rawValue)", Double($0.frame.minX * scale), Double($0.frame.maxX * scale), Int((style.dividerThickness * scale).rounded()))
+            for divider in geometry.dividers {
+                found.append(ScanlineSpan(label: "divider:\(divider.id.rawValue)", start: Double(divider.frame.minX * scale),
+                                          end: Double(divider.frame.maxX * scale), exactLength: Int((style.dividerThickness * scale).rounded())))
             }
-            return found.sorted { $0.start < $1.start }
+            return ScanlineSpan.tile(found, length: Int((width * scale).rounded()))
         }
         var palette = ScanlinePalette()
         for element in expected(width: window.frame.width) {
@@ -77,7 +79,7 @@ struct WindowResizePixelTests {
         await stream.stop()
 
         var failures: [String] = [], shownWidths: [(time: Double, width: Double)] = []
-        let allowed = Set(([window.frame.width] + widths + [1200]).map { Int(($0 * scale).rounded()) })
+        let allowed = Set(([Double(window.frame.width)] + widths + [1200]).map { Int(($0 * Double(scale)).rounded()) })
         for (index, frame) in stream.captured.enumerated() where frame.time >= trigger - period {
             let at = "frame \(index) (t=\(AnimationPixelRun.ms(frame.time - trigger)) ms)"
             // The window's extent on the row: its opaque pixels (the capture is transparent past a narrower window).
@@ -90,19 +92,19 @@ struct WindowResizePixelTests {
                 failures.append("\(at): the window shows \(extent) px wide, not a width the test set (\(fullWidth) px at rest): scaled or torn")
                 continue
             }
-            shownWidths.append((frame.time, Double(extent) / Double(scale)))
+            shownWidths.append((time: frame.time, width: Double(extent) / Double(scale)))
             let runs = palette.runs(Array(frame.row[first...last]))
-            let layout = expected(width: Double(extent) / Double(scale))
-            let labels = layout.map(\.label), bounds = layout.dropLast().map { Int($0.end.rounded()) }
-            if runs.map(\.label) != labels {
+            let due = expected(width: Double(extent) / Double(scale))
+            let labels = due.map(\.label), bounds = due.dropLast().map { Int($0.end.rounded()) }
+            if runs.map(\.name) != labels {
                 failures.append("\(at): at \(extent) px the row reads \(runs), the layout at that width is "
-                    + "\(layout.map { "\($0.label)[\(Int($0.start.rounded()))..<\(Int($0.end.rounded()))]" }): content laid out for another width, a blend or a gap")
+                    + "\(due.map { "\($0.label)[\(Int($0.start.rounded()))..<\(Int($0.end.rounded()))]" }): content laid out for another width, a blend or a gap")
                 continue
             }
-            for (shown, due) in zip(runs.dropLast().map(\.end), bounds) where abs(shown - due) > Int(ScanlineJudge.curveTolerance) {
-                failures.append("\(at): at \(extent) px a boundary shows at \(shown) px, the layout puts it at \(due) px")
+            for (shown, place) in zip(runs.dropLast().map(\.end), bounds) where abs(shown - place) > Int(ScanlineJudge.curveTolerance) {
+                failures.append("\(at): at \(extent) px a boundary shows at \(shown) px, the layout puts it at \(place) px")
             }
-            for (run, element) in zip(runs, layout) where element.exactLength.map({ $0 != run.length }) == true {
+            for (run, element) in zip(runs, due) where element.exactLength.map({ $0 != run.length }) == true {
                 failures.append("\(at): \(element.label) is \(run.length) px, not \(element.exactLength ?? 0)")
             }
         }

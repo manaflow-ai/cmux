@@ -32,14 +32,15 @@ struct DeclaredSpring: Equatable, CustomStringConvertible {
         let structural = (motion["structural"] as? [String: Any])?["value"] as? [String] ?? []
         if let response = value?["response"] as? Double, let damping = value?["dampingFraction"] as? Double {
             if abs(response - source.response) > 1e-9 || abs(damping - source.dampingFraction) > 1e-9 {
-                Issue.record("FINDING: the \(token.rawValue) spring differs: design-tokens.json \(response)/\(damping), "
-                    + "MotionTunables.springDefaults \(source.response)/\(source.dampingFraction)")
+                Issue.record(Comment(rawValue: "FINDING: the \(token.rawValue) spring differs: design-tokens.json \(response)/\(damping), "
+                    + "MotionTunables.springDefaults \(source.response)/\(source.dampingFraction)"))
             }
         } else {
             Issue.record("FINDING: design-tokens.json motion.springs declares no \(token.rawValue) spring")
         }
         if structural.contains(token.rawValue) != token.isStructural {
-            Issue.record("FINDING: \(token.rawValue) is structural in \(structural.contains(token.rawValue) ? "design-tokens.json" : "the source") only")
+            let only = structural.contains(token.rawValue) ? "design-tokens.json" : "the source"
+            Issue.record("FINDING: \(token.rawValue) is structural in \(only) only")
         }
         let damping = structural.contains(token.rawValue) ? max(source.dampingFraction, 1) : source.dampingFraction
         return DeclaredSpring(token: token.rawValue, response: source.response, dampingFraction: damping)

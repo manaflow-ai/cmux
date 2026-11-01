@@ -48,7 +48,7 @@ struct DividerDragPixelTests {
     /// Out `distance` points at 4 pt a refresh (480 pt/s) and back. In the 1200 x 700 pt window the
     /// side-by-side divider goes 659 -> 755 pt (snaps 400, 600, 800 +- 8) and the stacked one
     /// 370 -> 450 pt (snaps 233, 350, 466 +- 8).
-    static func drag(_ layout: ScreenLayout, kind: DividerHandleView.Kind, axis: AnimationPixelRun.Axis, distance: Double, scale: Int,
+    static func drag(_ layout: ScreenLayout, kind: DividerHandleView.Kind, axis: ScanlineAxis, distance: Double, scale: Int,
                      dark: Bool, animations: Bool) async throws {
         guard #available(macOS 14.4, *) else {
             Issue.record("the own-process window capture needs macOS 14.4")

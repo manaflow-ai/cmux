@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 import CmuxNextTestSupport
 import Foundation
@@ -47,22 +48,23 @@ final class LayoutPixelFixture {
 
     init(layout: ScreenLayout, focused: PaneID, scale: Int, dark: Bool, animations: Bool = true,
          size: CGSize = CGSize(width: 1200, height: 700)) async throws {
+        display = try await VirtualDisplay120(points: CGSize(width: 1600, height: 1000), scale: scale)
+        self.scale = CGFloat(scale)
         let design = DesignSettings.shared
         let saved = (design.animationsEnabled, design.animationSpeed, design.animationBounce, design.paneAnimations, Motion.reduceMotionOverride)
-        restore = {
+        let restore = {
             design.animationsEnabled = saved.0
             design.animationSpeed = saved.1
             design.animationBounce = saved.2
             design.paneAnimations = saved.3
             Motion.reduceMotionOverride = saved.4
         }
+        self.restore = restore
         design.animationsEnabled = animations
         design.animationSpeed = .fast
         design.animationBounce = .none
         design.paneAnimations = true
         Motion.reduceMotionOverride = false
-        display = try await VirtualDisplay120(points: CGSize(width: 1600, height: 1000), scale: scale)
-        self.scale = CGFloat(scale)
         for (index, pane) in layout.panes.enumerated() { panes.colors[pane] = Self.colors[index % Self.colors.count] }
         model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
         model.followsDesignMetrics = false
@@ -71,15 +73,17 @@ final class LayoutPixelFixture {
         root = LayoutRootView(model: model, contentProvider: panes)
         let visible = display.screen.visibleFrame
         let frame = CGRect(x: (visible.minX + 40).rounded(), y: (visible.minY + 40).rounded(), width: size.width, height: size.height)
-        window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false, screen: display.screen)
+        window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = root
         window.setFrame(frame, display: true)
         window.orderFrontRegardless()
         guard window.screen == display.screen, window.backingScaleFactor == CGFloat(scale) else {
-            throw VirtualDisplay120.Failure(description: "the test window is on \(window.screen?.localizedName ?? "no screen") at "
-                + "\(window.backingScaleFactor)x, not on the \(scale)x virtual display")
+            let shown = "\(window.screen?.localizedName ?? "no screen") at \(window.backingScaleFactor)x"
+            window.closeAfterTest()
+            restore()
+            throw VirtualDisplay120.Failure(description: "the test window is on \(shown), not on the \(scale)x virtual display")
         }
         root.layoutSubtreeIfNeeded()
     }

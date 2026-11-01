@@ -60,7 +60,8 @@ struct ColumnPixelTests {
         let run = AnimationPixelRun(fixture: fixture, name: "new-column-\(scale)x-\(dark ? "dark" : "light")\(animations ? "" : "-off")")
         let period = fixture.display.refreshPeriod
         var moved = false
-        let failures = try await run.judge(.row, moves: false, oracle: { .spring(try DeclaredSpring.declared(.split), $0, period: period) }) {
+        let declared = try DeclaredSpring.declared(.split)
+        let failures = try await run.judge(.row, moves: false, oracle: { ScanlineOracle.spring(declared, $0, period: period) }) {
             fixture.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: three)])
             fixture.root.syncWithModel()
             moved = fixture.screen?.hasMotion ?? false
