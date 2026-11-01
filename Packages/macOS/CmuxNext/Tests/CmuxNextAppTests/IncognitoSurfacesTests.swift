@@ -1,0 +1,118 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
+@testable import CmuxNextApp
+import CmuxNextBridge
+@testable import CmuxNextDaemon
+import CmuxNextSettings
+import CmuxNextSidebar
+import Foundation
+import Testing
+
+/// What an incognito window holds stays out of the places that outlive it (leo-workspace design/spaces.md
+/// "Incognito": nothing of it is kept, and normal and incognito content never mix; spaces-incognito-audit
+/// leaks 5, 6 and 9): Notification Center's history, the files the quit writes for the next launch, and
+/// normal windows' space bars and sidebar snapshots.
+@MainActor @Suite(.serialized)
+struct IncognitoSurfacesTests {
+    static func services() -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        return services
+    }
+
+    // MARK: Leak 5: banners
+
+    /// The banner the app posts for a finished agent turn in workspace "secret-project", which is an incognito
+    /// window's when `incognito`.
+    func banner(incognito: Bool) throws -> DesktopNotifier.Posted? {
+        let services = Self.services()
+        var key = WorkspaceKey.generate()
+        if incognito {
+            let window = services.windows.newIncognitoWindow()
+            key = WorkspaceKey(rawValue: try #require(services.windows.pendingClaims.first { $0.value == window }?.key))
+        }
+        let store = DaemonStore()
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", name: "deploy keys")])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: key, name: "secret-project", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let paneModel = try #require(workspace.screens.first?.panes.first)
+        let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
+        let wire = #"{"notification":5,"title":"Claude finished","subtitle":"rotated the prod key","body":"","preview":"Rotated the production signing key.","level":"info","surface":1,"source":"agent"}"#
+        let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
+        let service = NotificationCenterService()
+        service.services = services
+        service.screenLocked = { false }
+        var decision = NotificationPolicy.Decision()
+        decision.desktop = true
+        service.deliver(notification, source: .agent, located: located, decision: decision, program: nil)
+        return service.desktop.posted.last
+    }
+
+    @Test func anIncognitoBannerNamesNothingOfTheWindow() throws {
+        let posted = try #require(try banner(incognito: true), "an incognito arrival posted no banner at all")
+        let shown = [posted.title, posted.subtitle ?? "", posted.body].joined(separator: " | ")
+        for secret in ["secret-project", "deploy keys", "Claude finished", "prod key", "signing key"] {
+            #expect(!shown.contains(secret), "Notification Center keeps \"\(secret)\" from an incognito window: \(shown)")
+        }
+        #expect(posted.title == DesktopNotifier.incognitoTitle)
+        #expect(posted.body == DesktopNotifier.incognitoBody)
+        #expect(posted.subtitle == nil && posted.attachment == nil && !posted.approval)
+    }
+
+    @Test func aNormalBannerIsUnchanged() throws {
+        let posted = try #require(try banner(incognito: false))
+        #expect(posted.title.hasPrefix("secret-project"))
+        #expect(posted.body == "Rotated the production signing key.")
+    }
+
+    // MARK: Leak 6: the quit's agent tab files
+
+    static let thisMac = "install:incognito-surfaces-test"
+
+    /// An incognito chat's composer (its chips and shell command) is never written for the next launch.
+    @Test func theQuitKeepsNoIncognitoChatsComposer() async throws {
+        let records = [
+            "tab_normal": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-normal", harness: "claude"),
+            "tab_secret": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-secret", harness: "claude"),
+        ]
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
+        tabs.localHost = Self.thisMac
+        let tree = DaemonStore()
+        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
+        tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
+        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0 == "tab_secret" })
+        #expect(saved["tab_normal"]?.shellText == "make test")
+        #expect(saved["tab_secret"] == nil, "the quit saved an incognito chat's composer for the next launch")
+    }
+
+    // MARK: Leak 9: the space bar
+
+    /// A normal window's space bar (and so its sidebar snapshot) never lists an incognito space; the incognito
+    /// window still shows its own. The space is marked before the daemon mirrors it, so no frame lists it.
+    @Test func normalWindowsNeverListTheIncognitoSpace() {
+        let services = Self.services()
+        let work = ProfileID(rawValue: "prof_work"), secret = ProfileID(rawValue: "prof_incognito_bar")
+        services.machines.local.store.profiles = [ProfileModel(ProfileSnapshot(id: work, name: "Work")),
+                                                  ProfileModel(ProfileSnapshot(id: secret, name: "Incognito", index: 1))]
+        services.windows.incognitoSpaceMarks.mark(secret)
+        let normal = SidebarSpaceBar.profiles(services.machines.local, window: "normal-window", windows: services.windows)
+        #expect(normal.map(\.name) == ["Work"], "a normal window's space bar lists the incognito space")
+        let window = services.windows.newIncognitoWindow(space: secret)
+        let own = SidebarSpaceBar.profiles(services.machines.local, window: window, windows: services.windows)
+        #expect(own.map(\.name).contains("Incognito"), "the incognito window lost its own space")
+        #expect(SidebarSpaceBar.profiles(services.machines.local, window: "normal-window", windows: services.windows).map(\.name) == ["Work"])
+    }
+
+    @Test func spacesLeaveOutTheHiddenOnes() {
+        let store = DaemonStore()
+        store.profiles = [ProfileModel(ProfileSnapshot(id: ProfileID(rawValue: "a"), name: "A")),
+                          ProfileModel(ProfileSnapshot(id: ProfileID(rawValue: "b"), name: "B", index: 1))]
+        #expect(SidebarMapping.spaces(store, image: { _ in nil }, hiding: ["b"]).map(\.name) == ["A"])
+        #expect(SidebarMapping.spaces(store, image: { _ in nil }).map(\.name) == ["A", "B"])
+    }
+}
