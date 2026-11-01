@@ -78,24 +78,26 @@ async function notNow(ctx: PlayContext) {
 async function staleFolder(ctx: PlayContext) {
   const view = await ready(ctx);
   const chip = () => ctx.document.querySelector('[aria-label="Folder"]')?.textContent ?? "";
-  // Choose folder… takes atlas-web through the host (`project.browse`, then `workspace.useFolder`,
-  // which answers after FOLDER_DELAY_MS).
+  const trustAsk = () => ctx.document.querySelector(".acpmux-trust-ask-text")?.textContent ?? "";
+  // Choose folder… picks atlas-web (`project.browse`); the tab inherited harbor, so it is a real pick.
   await ctx.click({ selector: '[aria-label="Folder"]' });
   await ctx.click({ role: "option", name: "Choose folder…" });
   await ctx.waitFor(() => chip().includes("atlas-web"), { capMs: 10_000 });
   await ctx.type(DRAFT, { selector: ".nt-field" });
-  // Return asks the host about atlas-web again for this send; before it answers, a newer folder
-  // request (the pane's own pick of relay) replaces it. The send's late reply is stale.
+  // Return asks the host about atlas-web for this send (`workspace.useFolder`, which answers after
+  // FOLDER_DELAY_MS); before it answers, a newer folder request (the pane's own pick of relay)
+  // replaces it, so the send's late reply is stale.
   await ctx.press("Enter");
-  // atlas-web is a real pick (the tab inherited harbor), so the send waits on the host's reply.
   if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the send started before its folder reply");
   view.cmuxAcpmuxDebug!.pickFolder(FOLDER_B);
-  await ctx.waitFor(() => chip().includes("relay"), { capMs: 10_000 });
+  // The newer request's own reply lands last (asked later, same delay) and the pane asks about
+  // relay's trust: both replies are in.
+  await ctx.waitFor(() => trustAsk().includes("relay"), { capMs: 10_000 });
   await frames(ctx);
   if (notice(ctx)) throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
   if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the stale reply started a chat");
-  // Not stuck asking: the next Return starts the chat (in relay).
-  if (!field(ctx)?.value) await ctx.type(DRAFT, { selector: ".nt-field" });
+  if (field(ctx)?.value !== DRAFT) throw new Error(`the draft is gone after a stale folder reply (${field(ctx)?.value})`);
+  // Not stuck asking: the next Return starts the chat.
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
 }
