@@ -17,7 +17,11 @@
 //! Seeds 38, 44, 57, 81 and 88 were re-recorded from the Rust rules when a
 //! closed pane's column whose id changed (two columns collapsing into a
 //! split screen) started to map to its surviving panes: each now focuses
-//! the closed pane's column neighbor instead of the first pane.
+//! the closed pane's column neighbor instead of the first pane. Seed 111
+//! step 7 was re-recorded from the Rust rules when a sidebar responder the
+//! platform picked on its own (programmatic, no sidebar target) stopped
+//! taking a pane's keyboard (QUIT P0, 2026-11-01): it now re-applies the
+//! pane (revealPane, moveResponder) and leaves the state as it was.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent};
 use cmux_focus_core::reducer;
