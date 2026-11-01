@@ -34,6 +34,7 @@ import {
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
+  hasHugeTypedPart,
   isHugePrompt,
   promptHead,
   promptParts,
@@ -1607,7 +1608,15 @@ function measuredRowHeight(
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
-  if (row.kind === "user" && !pasted && row.from !== "chief" && isHugePrompt(row.text) && !chiefEnvelope(row.text)) {
+  // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
+  if (
+    row.kind === "user" &&
+    !pasted &&
+    row.from !== "chief" &&
+    isHugePrompt(row.text) &&
+    (!row.inlineParts || hasHugeTypedPart(row.inlineParts)) &&
+    !chiefEnvelope(row.text)
+  ) {
     const height =
       messageBelow(beforeFooter) +
       chromeHeight(row, actions) +

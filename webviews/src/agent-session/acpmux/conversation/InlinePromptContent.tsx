@@ -3,7 +3,7 @@ import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
-import { HUGE_PROMPT_HEAD_CHARS, headParts } from "./promptCollapse";
+import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -27,6 +27,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       // what Find searches and the fold measures.
       text={parts.flatMap((part) => blockText(part) ?? []).join("\n")}
       show={show}
+      huge={hasHugeTypedPart(parts)}
     >
       {(open, head) => (
         <span className="cv-user__inline-content" data-inline-content="true">

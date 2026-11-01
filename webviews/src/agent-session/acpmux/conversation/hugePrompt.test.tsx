@@ -160,3 +160,13 @@ test("a huge prompt whose drawn head measures short stays collapsed, never flipp
     for (const [key, value] of saved) scope[key] = value;
   }
 });
+
+test("a huge paste beside a short note is its chip, not a huge prompt with a dead Show more", () => {
+  const note = "see this log";
+  const text = `${note}\n${"log line\n".repeat(HUGE_PROMPT_CHARS / 8)}`;
+  const html = renderToStaticMarkup(
+    <PromptText rowId="paste-huge" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
+  );
+  expect(html).not.toContain("is-clamped");
+  expect(html).not.toContain("cv-user__more");
+});

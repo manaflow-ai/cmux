@@ -12,6 +12,7 @@ import {
   COLLAPSED_PROMPT_LINES,
   HUGE_PROMPT_HEAD_CHARS,
   type PasteRange,
+  hasHugeTypedPart,
   isHugePrompt,
   looksLongPrompt,
   pasteLines,
@@ -34,6 +35,7 @@ export function PromptText({
   pasted,
   show,
   children,
+  huge: hugeTyped,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -45,6 +47,9 @@ export function PromptText({
   /// `head`: the prompt is huge and collapsed, so only its first `HUGE_PROMPT_HEAD_CHARS` of text
   /// need drawing (`headParts`).
   children?: (open: () => void, head: boolean) => ReactNode;
+  /// Whether its typed text is huge (`hasHugeTypedPart`), for `children`, whose parts `text` alone
+  /// cannot tell from its pastes.
+  huge?: boolean;
 }) {
   const t = useT();
   const id = useId();
@@ -54,15 +59,13 @@ export function PromptText({
   // then measured against its line height (open or closed), again when its width changes. A
   // measure is of one text: a bubble drawn again with another prompt guesses again.
   // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
-  const guess =
-    looksLongPrompt(pasted?.length ? "" : text) ||
-    parts.length > 3 ||
-    parts.some((part) => part.kind === "text" && isHugePrompt(part.text));
+  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
   // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
   // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
   // whole text without end. Its Show more stays; the cost is at most a needless one.
-  const huge = isHugePrompt(text);
+  // Its typed text, not its pastes (chips whatever their size); an inline prompt says (`huge`).
+  const huge = hugeTyped ?? hasHugeTypedPart(parts);
   const long = huge || (measured?.parts === parts ? measured.long : guess);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {

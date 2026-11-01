@@ -31,6 +31,11 @@ export const HUGE_PROMPT_HEAD_CHARS = 4_000;
 
 export const isHugePrompt = (text: string) => text.length > HUGE_PROMPT_CHARS;
 
+/// Whether a prompt's typed text makes it huge: one of its typed parts is. Pasted blocks are chips
+/// whatever their length (a huge paste draws as one chip, nothing more), so they never count.
+export const hasHugeTypedPart = (parts: readonly { kind: string; text?: string }[]) =>
+  parts.some((part) => part.kind === "text" && typeof part.text === "string" && isHugePrompt(part.text));
+
 /// A huge prompt's typed parts as its collapsed bubble draws them: the parts within its first `chars`
 /// characters of typed text, the last one cut short, and nothing after. A paste or an attachment is
 /// a chip whatever its length, so it counts nothing. `huge` marks a part cut from a huge one, which
