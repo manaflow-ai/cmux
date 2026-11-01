@@ -10,10 +10,11 @@ enum SidebarCompactListToggle {
 
     static func bind(into registry: ActionRegistry, store: TunableStore = .shared) {
         let tunable = SidebarTunables.workspacesAsTabs
-        registry.bind(id, unavailable: { nil }) { _ in
-            guard store.isActive else { return }
+        registry.bindEffect(id, unavailable: { nil }) { _ in
+            guard store.isActive else { return .done }
             if tunable.value(in: store) { store.reset([tunable.key]) }
             else { store.set(tunable.key, .bool(true)) }
+            return .done
         }
         ActionTargetTitles.setState(id, in: registry) { _ in tunable.value(in: store) }
         ActionTargetTitles.setPaletteState(id, in: registry) { tunable.value(in: store) }
