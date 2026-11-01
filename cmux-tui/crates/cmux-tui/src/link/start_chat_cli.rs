@@ -324,8 +324,9 @@ impl StartCopy {
 
     /// A new folder for one copy of the send, under its [`Keys::place`].
     pub(super) fn fresh_place(&self) -> String {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("{}/{}", Keys::of(&self.key).place, &id[..8])
+        // The first 8 hex digits of a random id (all ASCII, so 8 chars are 8 bytes).
+        let id: String = uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect();
+        format!("{}/{}", Keys::of(&self.key).place, id)
     }
 
     /// The copied folder and the chat's folder in it, in `place` under `work_root`.

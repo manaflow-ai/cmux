@@ -378,7 +378,7 @@ fn a_local_reload_preserves_a_completed_registry_update() {
     let (resume, resume_rx) = channel();
     let supervisor = Arc::clone(&f.supervisor);
     let reload = std::thread::spawn(move || {
-        supervisor.reload_local_apps_with(&Default::default(), |sources| {
+        supervisor.reload_local_apps_from(&Default::default(), |sources| {
             let catalog = super::super::catalog::load(sources);
             captured.send(()).unwrap();
             resume_rx.recv_timeout(Duration::from_secs(10)).expect("resume catalog read");
