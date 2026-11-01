@@ -26,8 +26,13 @@ struct AgentModelCatalogTests {
     /// `sonnet-5-5` is in the 1M-window family list but not yet in
     /// `claudePrices`; keep it out of the priced rows so their
     /// `pricing != nil` assertion stays meaningful.
-    @Test func sonnet55HasMillionWindowButNoPrice() throws {
-        let info = try #require(catalog.info(forModelID: "claude-sonnet-5-5"))
+    @Test(arguments: [
+        "claude-sonnet-5-5",
+        "claude-sonnet-5-5-20260901",
+        "us.anthropic.claude-sonnet-5-5-v1:0",
+    ])
+    func sonnet55HasMillionWindowButNoPrice(modelID: String) throws {
+        let info = try #require(catalog.info(forModelID: modelID))
         #expect(info.displayName == "Sonnet 5.5")
         #expect(info.contextWindow == 1_000_000)
         #expect(info.pricing == nil)
