@@ -25,6 +25,11 @@ const ROW_ICON = rowIconSize(12);
 /// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
 export type ProjectRowLook = "name" | "branch" | "parent";
 
+/// Remote Control's row icon. Shipped: `computeruse.click`, a pointer, as Claude Code desktop marks its
+/// Remote Control row; Leo, 2026-11-01: "i think we should rethink what symbol we have for remote
+/// control at least" (it was `device.phone`, a bare phone outline). The gallery shows the others.
+export const REMOTE_CONTROL_ICON = "computeruse.click";
+
 /// Where the session runs, as the composer's computer chip names it (ComposerContext computerId):
 /// a peer or a Cloud host is another machine, else it is this Mac by its name. With no name known
 /// (an older App), the row says nothing rather than a generic "This computer".
@@ -118,6 +123,7 @@ export function EnvironmentSection({
   onSave,
   onOpenFolder,
   projectLook = "name",
+  remoteControlIcon = REMOTE_CONTROL_ICON,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -131,6 +137,7 @@ export function EnvironmentSection({
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   projectLook?: ProjectRowLook;
+  remoteControlIcon?: string;
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
@@ -219,7 +226,7 @@ export function EnvironmentSection({
       )}
       {remoteControl && (
         <li className="acpmux-session-info-row">
-          <Icon name="device.phone" size={ROW_ICON} row fit />
+          <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
             <input
