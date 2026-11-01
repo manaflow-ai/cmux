@@ -305,6 +305,13 @@ fn summary(
     scenes: bool,
 ) -> String {
     let mut text = describe(path, info);
+    if frames.is_empty() && dropped > 0 {
+        text.push_str(&format!(
+            " Its first frame alone passes the {} MiB budget: ask again with a smaller maxSide.",
+            MAX_TOTAL_BYTES >> 20
+        ));
+        return text;
+    }
     if frames.is_empty() {
         text.push_str(" No frame could be decoded at those times.");
         return text;
@@ -461,7 +468,7 @@ fn run_frames(
     let fps = info["fps"].as_f64().unwrap_or(0.0);
     let (mut wanted, tolerance) = times(&request.pick, duration, fps);
     let mut changes = Vec::new();
-    if let Pick::Scenes(count) = request.pick {
+    if let Pick::Scenes(count) = &request.pick {
         let sampled = match decode(
             app,
             with(
@@ -483,7 +490,7 @@ fn run_frames(
                 Some(Sample { at_ms: frame["atMs"].as_u64()?, pixels })
             })
             .collect::<Vec<_>>();
-        let picked = scene_times(&samples, count);
+        let picked = scene_times(&samples, *count);
         wanted = picked.iter().map(|(at, _)| *at as f64 / 1000.0).collect();
         changes = picked;
     }
@@ -770,6 +777,22 @@ mod tests {
             missing["content"][0]["text"].as_str().unwrap().contains("cannot read"),
             "{missing}"
         );
+    }
+
+    #[test]
+    fn a_first_frame_over_the_budget_says_so() {
+        let file = video();
+        let path = file.path().to_str().unwrap().to_owned();
+        let mut over = |params: Value| -> Result<Value, CallFailure> {
+            let dropped = params["times"].as_array().map_or(0, Vec::len);
+            Ok(
+                json!({"durationMs": 2000, "width": 8000, "height": 8000, "fps": 30, "hasAudio": false,
+                      "frames": [], "dropped": dropped}),
+            )
+        };
+        let answer = run_frames(&args(json!({"path": path, "at": [1]})), &same, &mut over);
+        let text = answer["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("smaller maxSide"), "{text}");
     }
 
     #[test]
