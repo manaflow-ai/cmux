@@ -205,8 +205,7 @@ export function ContextSection({
   const free = breakdown?.rows.some((row) => row.kind === "buffer")
     ? breakdown.rows.find((row) => row.kind === "free")
     : undefined;
-  const label = (id: ContextPart["id"]) =>
-    t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
+  const label = (id: ContextPart["id"]) => t(id === "used" ? "sessionInfo.context.used" : "sessionInfo.context.free");
   return (
     <div className="acpmux-session-info-context" data-section="context">
       <div className="acpmux-session-info-context__total">
