@@ -41,6 +41,109 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+#[test]
+fn space_mutations_use_the_catalog_actions_and_name_targets() {
+    for (words, action, target, action_args) in [
+        (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
+        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
+        (
+            &["space", "rename", "Work", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "close", "Work"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "move", "workspace", "ws_1", "Work"][..],
+            "workspace move-to-space",
+            Some("workspace:ws_1"),
+            json!({"space": "Work"}),
+        ),
+        (
+            &["space", "move", "tab", "tab_1", "Work"][..],
+            "tab move-to-space",
+            Some("tab:tab_1"),
+            json!({"space": "Work"}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], action);
+        assert_eq!(params.get("target").and_then(Value::as_str), target);
+        // `run_action` leaves `args` out when the action takes none.
+        assert_eq!(params.get("args").cloned().unwrap_or_else(|| json!({})), action_args);
+    }
+}
+
+#[test]
+fn space_catalog_actions_keep_their_generic_cli_routes() {
+    let (method, params) = call(parse(&args(&["space", "new-window"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "space new-window");
+    assert_eq!(params["cli"], true);
+}
+
+/// A flag is never a positional space name: `space rename --name Office`
+/// renames the current space through the catalog action, as it did before the
+/// positional forms, instead of targeting a space called `--name`.
+#[test]
+fn space_flags_are_not_positional_names() {
+    for (words, action, target, action_args) in [
+        (
+            &["space", "rename", "--name", "Office"][..],
+            "space rename",
+            None,
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "rename", "--target", "room:Work", "--name", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "delete", "--target", "room:Work", "--confirm"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "switch", "--target", "room:Work"][..],
+            "space switch",
+            Some("room:Work"),
+            json!({}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run", "{words:?}");
+        assert_eq!(params["action"], action, "{words:?}");
+        assert_eq!(params.get("target").and_then(Value::as_str), target, "{words:?}");
+        assert_eq!(
+            params.get("args").cloned().unwrap_or_else(|| json!({})),
+            action_args,
+            "{words:?}"
+        );
+    }
+}
+
+/// Options after a positional form still reach the action.
+#[test]
+fn space_positional_forms_keep_trailing_options() {
+    let (_, params) =
+        call(parse(&args(&["space", "rename", "Work", "Office", "--no-wait"])).unwrap().unwrap());
+    assert_eq!(params["action"], "space rename");
+    assert_eq!(params["target"], "room:Work");
+    assert_eq!(params["args"], json!({"name": "Office"}));
+    assert_eq!(params["wait"], false);
+}
+
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
 /// a folder of the caller's working directory, so the app gets it absolute:
 /// the app runs elsewhere, and a space's default directory must be absolute.
@@ -172,6 +275,26 @@ fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
     assert_eq!(params["action"], "app quit");
     assert_eq!(params["args"], json!({ "keepSessions": true, "browserProfile": "work" }));
     assert!(parse(&args(&["action", "run", "quit", "--target"])).is_err());
+}
+
+#[test]
+fn app_settings_forwards_section_and_setting_arguments() {
+    let (method, params) = call(
+        parse(&args(&[
+            "app",
+            "settings",
+            "--section",
+            "accounts",
+            "--setting",
+            "accounts.provider",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "app settings");
+    assert_eq!(params["cli"], true);
+    assert_eq!(params["args"], json!({ "section": "accounts", "setting": "accounts.provider" }));
 }
 
 #[test]
@@ -1421,20 +1544,27 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
-/// The agent cursor's tag says who drives and where, and goes there on a click
-/// (user, 2026-10-20): every page input verb sends its caller, so the app knows
-/// the agent's terminal or chat. Reads and navigation do not need it.
+/// Every page verb sends its caller: the app runs a verb without a tab on the
+/// browser nearest the caller, not the person's focused tab in another window
+/// (#26648), and an input verb's agent cursor tag says who drives and where
+/// (user, 2026-10-20).
 #[test]
-fn page_input_verbs_send_the_caller() {
-    for method in
-        ["browser.page.click", "browser.page.fill", "browser.page.press", "browser.page.drag"]
-    {
+fn page_verbs_send_the_caller() {
+    for method in [
+        "browser.page.click",
+        "browser.page.fill",
+        "browser.page.press",
+        "browser.page.drag",
+        "browser.page.text",
+        "browser.page.navigate",
+        "browser.page.screenshot",
+        "browser.page.snapshot",
+        "browser.page.tabs",
+    ] {
         assert!(takes_caller(method), "{method}");
     }
-    for method in ["browser.page.text", "browser.page.navigate", "browser.page.screenshot"] {
-        assert!(!takes_caller(method), "{method}");
-    }
     assert!(takes_caller("action.run"));
+    assert!(!takes_caller("settings.get"));
 }
 
 #[path = "right_tests.rs"]
@@ -1516,6 +1646,18 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
             "{stray:?} needs --link"
         );
     }
+}
+
+/// The app's `not_found` for an unknown CLI action has no reason; an action whose target names
+/// nothing gives one, and that reaches the caller instead of reading as a missing command.
+#[test]
+fn a_missing_target_is_not_a_missing_action() {
+    let unknown =
+        serde_json::json!({"code": "not_found", "message": "Unknown action 'share chat'"});
+    assert!(!names_a_target(&unknown));
+    let missing = serde_json::json!({"code": "not_found", "message": "No agent chat is on surface 99.",
+        "data": {"action": "share chat", "reason": "No agent chat is on surface 99."}});
+    assert!(names_a_target(&missing));
 }
 
 /// `cmux workspace group create --remote HOST` is the app's New Remote Group

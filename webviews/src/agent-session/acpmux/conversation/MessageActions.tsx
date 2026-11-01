@@ -1,4 +1,3 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -18,6 +17,7 @@ import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
 export const ROW_ICON = 16;
@@ -85,6 +85,7 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
+  const readOnly = useTranscriptReadOnly();
   const label =
     state === "pending"
       ? `${t("turn.fork")}…`
@@ -121,6 +122,7 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
       },
     );
   };
+  if (readOnly) return null;
   return (
     <button
       type="button"
@@ -154,7 +156,8 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
 export function PinButton({ rowId }: { rowId: string }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
-  if (!mark.can) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!mark.can || readOnly) return null;
   const label = t(mark.marked ? "message.unpin" : "message.pin");
   return (
     <button
@@ -176,7 +179,8 @@ export function PinButton({ rowId }: { rowId: string }) {
 /// right-click's report (messageMenu.ts); nothing where no host shows that menu.
 export function MessageMore({ rowId }: { rowId: string }) {
   const t = useT();
-  if (!hasMessageMenuHost()) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!hasMessageMenuHost() || readOnly) return null;
   const label = t("message.moreMenu");
   return (
     <button
@@ -253,7 +257,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
-  if (!retry || !prompt) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!retry || !prompt || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button
@@ -306,21 +311,21 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the
-/// same group, never a second one beside it. No read receipt: the message is the agent's to read.
-export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
+/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
+/// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
+/// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
+/// stuff from messages from other sessions... weird to be able to pin them etc").
+export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNode }) {
   return (
     <>
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <MessageCopy text={text} />
           <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-          <PinButton rowId={row.id} />
           {more}
         </MessageFooterRow>
       </span>
-      <PullRequestDock />
     </>
   );
 }
@@ -332,7 +337,10 @@ export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: str
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    <div className="cv-turn-actions cv-reply-actions">
+    // Over a status row this line is the reply's whole bottom room (conversation.css
+    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
+    // can start from (gutterSelect.ts).
+    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
       <span className="cv-turn-action-group">
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
@@ -340,7 +348,6 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
-      <PullRequestDock />
     </div>
   );
 }

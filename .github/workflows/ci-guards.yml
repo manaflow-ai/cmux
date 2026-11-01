@@ -18,6 +18,12 @@ on:
       linux_guard_source:
         required: true
         type: string
+      # A label the caller placed workflow-guard-tests on (cmux-next-guards.yml's portable-placement:
+      # fleet Linux or a free mini); empty keeps the runner below.
+      guard_tests_runner:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -66,7 +72,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || inputs.guard_tests_runner != '' && inputs.guard_tests_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -83,6 +89,11 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # A mini or fleet Linux host (guard_tests_runner) reuses its workspace: drop the submodule checkouts a
+      # previous job left there. Only on a self-hosted runner: never in a checkout run_ci_guards.py runs locally.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then scripts/ci/reset-stale-submodules.sh; fi
 
       # toolchain_notices.py (the license compliance test) reads
       # ghostty-next/build.zig.zon and fails when it is missing; only
@@ -261,7 +272,9 @@ jobs:
 
       - name: Validate fleet compiler-cache wiring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: bash tests/test_ci_fleet_compilation_cache.sh
+        run: |
+          bash tests/test_ci_fleet_compilation_cache.sh
+          python3 tests/test_ci_fleet_compilation_cache.py
 
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -904,6 +917,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
 
+      - name: Validate portable placement (fleet Linux, then a free mini, then Blacksmith)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_ci_portable_job_placement.py
+          python3 tests/test_nightly_linux_admission.py
+          python3 tests/test_nightly_admission_receipt.py
+          python3 tests/test_nightly_dedicated_mini.py
+
       - name: Validate the rescue's re-runs route alike for both bot identities
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rescue_actors.py
@@ -962,6 +983,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_single_size.py
 
+      - name: Validate stalled CI paths use the runner set
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_set.py
+
+      - name: Validate fast checks fail over from stalled labels
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_failover.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
@@ -997,6 +1026,10 @@ jobs:
       - name: Validate superseded pull request runs are cancelled
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runs_cancel_superseded.py
+
+      - name: Validate label events skip CI for labels it does not read
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_label_events_skip_full_ci.py
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1624,6 +1657,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_legacy_publish_linux.py
 
+      - name: Validate every build-src worktree add prunes a stale registration first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_src_worktree_prune.py
+
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_edge_feed.py
@@ -1705,6 +1742,7 @@ jobs:
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
+          python3 tests/test_cmux_next_static_capability_runtime_only.py
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py

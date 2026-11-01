@@ -98,10 +98,33 @@ extension SidebarListViewComponents {
         }
     }
 
+    /// Whether `row` is a group's one row (`SidebarLayout+SoleMember`) and a drop goes into its group: the row draws
+    /// the group's drop fill, as its header did, since that group has no header and the drop opens no gap.
+    func standsForDropGroup(_ row: SidebarRow) -> Bool {
+        guard row.standsForGroup, let group = row.group else { return false }
+        return drag?.target == .intoGroup(group) || external?.proposal == .intoGroup(group)
+    }
+
+    /// The header a drop into `group` lines up with (its depth sets the gap's and the card's step-in): the group's
+    /// header row, or for a group drawn as its one row, the header that row stands for (`SidebarRow.standingHeader`).
+    func dropHeader(_ group: GroupID, in layout: SidebarLayout) -> SidebarRow? {
+        guard let row = layout.groupRow(group) else { return nil }
+        return row.standingHeader ?? row
+    }
+
     /// Escape while a press or drag is held: the gesture ends as a cancel (true: the key is used).
     func escapeSeen() -> Bool {
         guard holdsPointerGesture else { return false }
         endPointerGesture()
+        return true
+    }
+
+    /// An open empty group's insertion position is its header's drop target, too. Keep this
+    /// visual state tied to the live drag; at rest the header has no empty-state decoration.
+    func highlightsDropGroup(_ id: GroupID) -> Bool {
+        if drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id) { return true }
+        guard case let .position(position)? = drag?.target, position.group == id,
+              groups[id]?.members.isEmpty == true else { return false }
         return true
     }
 
@@ -115,8 +138,9 @@ extension SidebarListViewComponents {
             case let (.workspace(id), row as WorkspaceRowView):
                 paintSecondaryFills(row, id)
                 row.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+                    || displayed.row(for: key).map(standsForDropGroup) == true
             case let (.group(id), header as GroupHeaderRowView):
-                header.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
+                header.isDropTarget = highlightsDropGroup(id)
             default:
                 break
             }

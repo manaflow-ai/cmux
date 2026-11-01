@@ -141,6 +141,7 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed reopen --workspace <ws>
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
@@ -158,6 +159,17 @@ delete and clear remove groups permanently (and their terminal archives; the
 journals keep what they recorded); clear --since-ms removes only the groups
 closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
+";
+
+pub(super) const SPACE_HELP: &str = "\
+USAGE
+  cmux space list [--json]
+  cmux space new <name> [--json]
+  cmux space switch <name> [--json]
+  cmux space rename <old-name> <new-name> [--json]
+  cmux space move workspace <workspace> <space> [--json]
+  cmux space move tab <tab> <space> [--json]
+  cmux space close <name> [--json]
 ";
 
 pub(super) const GIT_HELP: &str = "\

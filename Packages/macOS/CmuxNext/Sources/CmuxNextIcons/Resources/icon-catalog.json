@@ -1791,6 +1791,13 @@
    "family": "terminal"
   },
   {
+   "name": "terminal.prompt",
+   "meaning": "Terminal command (the prompt alone, no window box)",
+   "sf": "terminal",
+   "family": "terminal",
+   "alias": false
+  },
+  {
    "name": "text.description",
    "meaning": "Logs / description",
    "sf": "text.alignleft",
