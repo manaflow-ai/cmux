@@ -53,7 +53,7 @@ final class SandboxRunNotices {
     /// A send's Run `id`, followed here for the account signed in now; answers its terminal snapshot.
     /// The server decides who may read it: if the create went out under another account (a switch
     /// during the send), this account's wait is refused (403, 404) and the follow ends, untold.
-    /// `incognito` is the send's own, read as it started (``sendIsIncognito(key:)``): by the time the
+    /// `incognito` is the send's own, read as it was issued (``sendIsIncognito(_:)``): by the time the
     /// create answers, its tab may be gone (#31040).
     func follow(id: String, task: String, key: String, team: String?, incognito: Bool) async throws -> Data {
         guard let user = currentUser() else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
@@ -62,9 +62,8 @@ final class SandboxRunNotices {
         return try await follower.follow(record)
     }
 
-    /// Whether the send of attempt `key` is an incognito chat's, read as the send starts, while its
-    /// pane holds the key. A send no tab holds may be an incognito one: it is taken as one.
-    func sendIsIncognito(key: String) -> Bool { tab(holding: key) == nil || incognito(key) }
+    /// Whether `view`'s tab is incognito, read as its send is issued, before the line drains (#31109). No tab: taken as one.
+    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key) } ?? true }
 
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
@@ -163,10 +162,9 @@ final class SandboxRunNotices {
     }
 
     /// Whether attempt `key`'s tab is in an incognito window.
-    private func incognito(_ key: String) -> Bool {
-        guard let services, let tab = tab(holding: key) else { return false }
-        return services.cache.browserTabs.isIncognitoTab(services.agentTabs.resolve(tab))
-    }
+    private func incognito(_ key: String) -> Bool { tab(holding: key).map { incognito(tab: $0) } ?? false }
+
+    private func incognito(tab: String) -> Bool { services.map { $0.cache.browserTabs.isIncognitoTab($0.agentTabs.resolve(tab)) } ?? false }
 
     /// The agent tab whose page holds the send of attempt `key`.
     private func tab(holding key: String) -> String? {
