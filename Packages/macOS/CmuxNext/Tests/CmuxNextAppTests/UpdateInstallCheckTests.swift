@@ -93,12 +93,11 @@ import Testing
     }
 
     @Test func onlyTheBuildWhoseInstallFailedCarriesTheReason() {
-        let updater = Self.updater(defaults: Self.defaults())
-        updater.failedInstall = ("200", .notReplaced)
-        updater.stagedBuild = { "200" }
-        #expect(updater.stagedInstallFailure == .notReplaced)
-        updater.stagedBuild = { "201" }
-        #expect(updater.stagedInstallFailure == nil, "a newer build is a new install, offered as usual")
+        let failed: (build: String, failure: UpdateInstallFailure)? = ("200", .notReplaced)
+        #expect(UpdateInstallFailure.forStaged("200", failed: failed) == .notReplaced)
+        #expect(UpdateInstallFailure.forStaged("201", failed: failed) == nil, "a newer build is a new install, offered as usual")
+        #expect(UpdateInstallFailure.forStaged(nil, failed: failed) == nil)
+        #expect(UpdateInstallFailure.forStaged("200", failed: nil) == nil)
     }
 
     @Test func diagnoseNamesTheCauseItCanSee() throws {

@@ -54,6 +54,21 @@ public nonisolated struct UpdateInstallCheck: Codable, Equatable, Sendable {
         defaults.set(data, forKey: key)
     }
 
+    /// At launch: reads the record once and, when this launch is still the build it was meant to
+    /// replace, returns the build whose install failed and why (logged either way).
+    public static func launchFailure(defaults: UserDefaults, build: String, now: Date, bundle: URL = Bundle.main.bundleURL,
+                                     log: UpdateLogBuffer) -> (build: String, failure: UpdateInstallFailure)? {
+        guard let last = consume(defaults: defaults, build: build, now: now) else { return nil }
+        guard last.outcome == .failed else {
+            log.append("installed \(last.record.targetBuild) over \(last.record.fromBuild)")
+            return nil
+        }
+        // concurrency-allow: once per launch after a failed install: a path test, two access checks and one volume read.
+        let failure = UpdateInstallFailure.diagnose(bundle: bundle)
+        log.append("install of \(last.record.targetBuild) did not replace \(last.record.fromBuild): \(failure)")
+        return (last.record.targetBuild, failure)
+    }
+
     /// Reads and clears the record at launch: the record and this launch's outcome, else nil (no
     /// record, unreadable, or one that says nothing about this launch).
     public static func consume(defaults: UserDefaults, build: String, now: Date = Date())
@@ -91,6 +106,13 @@ public nonisolated enum UpdateInstallFailure: Equatable, Sendable {
         case .notEnoughSpace(let free, let needed): return .notEnoughSpace(free: free, needed: needed)
         case .updateMissing, nil: return .notReplaced
         }
+    }
+
+    /// The reason the staged update card shows for `staged`: only the build whose install failed
+    /// carries it; a newer build is a new install, offered as usual.
+    public static func forStaged(_ staged: String?, failed: (build: String, failure: UpdateInstallFailure)?) -> UpdateInstallFailure? {
+        guard let failed, failed.build == staged else { return nil }
+        return failed.failure
     }
 
     /// The staged update card's one-line reason.
