@@ -302,7 +302,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 }
                 self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                                 "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 steps = job["steps"]
                 self.assertEqual(steps[0]["name"], "Hold the whole Mac before any credential")
