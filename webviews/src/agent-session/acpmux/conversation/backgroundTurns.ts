@@ -41,15 +41,24 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
 /// `rows` with each background turn's line and rows as they draw: a folding line stands alone
 /// while closed and its rows follow it while open (`expanded` holds its id); a line that does not
 /// fold draws nothing and its rows stay. Without a background turn, `rows` itself.
-export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
-  if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
+/** IDs whose owner background line currently hides its rows. Kept separately from the
+ * current prompt: a background subagent may end after a newer user prompt, but its done line
+ * still belongs behind the original background line. A later owner update wins for an ID.
+ */
+export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds): Set<string> {
   const folding = new Map<string, boolean>();
   for (const row of rows)
     if (row.kind === BACKGROUND_TURN && row.background)
       folding.set(row.background.id, foldsBackground(row) && !expanded.has(row.id));
+  return new Set([...folding].filter(([, closed]) => closed).map(([id]) => id));
+}
+
+export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
+  if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
+  const folding = foldedBackgroundIds(rows, expanded);
   return rows.filter((row) => {
     if (row.kind === BACKGROUND_TURN) return foldsBackground(row);
-    return !(row.inBackground !== undefined && folding.get(row.inBackground) === true);
+    return !(row.inBackground !== undefined && folding.has(row.inBackground));
   });
 }
 
