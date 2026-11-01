@@ -129,7 +129,7 @@ class Linger(unittest.TestCase):
         saved = bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S
         bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = 0.3, 5.0
         try:
-            p = self.start_helper("cmux-tui", 30, "--session", "cmux-app-lingertest", "--headless")
+            p = self.start_helper("cmux-tui", 30, "--headless", "--session", "cmux-app-lingertest")  # local_owner.rs order
             time.sleep(0.2)
             started = time.monotonic()
             report, _ = self.watch()
@@ -141,6 +141,36 @@ class Linger(unittest.TestCase):
         self.assertEqual(report["past_limit"], [])
         self.assertLess(took, 4.0, "the probe waited for a documented survivor")
         self.assertIsNone(p.poll())
+
+    def test_an_ssh_or_cloud_link_is_not_kept(self):
+        # `cmux-tui remote connect ... --headless --exit-with-parent` ends with the app: it is watched, not kept.
+        saved = bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S
+        bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = 0.3, 1.0
+        try:
+            p = self.start_helper("cmux-tui", 30, "remote", "connect", "host", "--headless", "--exit-with-parent")
+            time.sleep(0.2)
+            report, _ = self.watch()
+        finally:
+            bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = saved
+        self.assertEqual(report["kept"], [])
+        self.assertEqual([r["pid"] for r in report["still"]], [p.pid])
+
+    def test_the_survivor_rules(self):
+        app = os.path.join(self.root, f"cmux DEV {self.tag}.app/Contents/Resources/bin")
+        row = lambda pid, ppid, words: {"pid": pid, "ppid": ppid, "command": f"{app}/{words}"}
+        tui = row(10, 1, "cmux-tui --headless --session s")
+        chief = row(20, 1, "optchat-chief host --daemon-socket x")
+        chief_acpmux = row(21, 20, "acpmux daemon run")
+        role = bench_startup.kept_role
+        self.assertTrue(role(tui, None, None))
+        self.assertTrue(role(row(11, 10, "cmux-agent-screen-detection"), tui, None))
+        self.assertIsNone(role(row(12, 1, "cmux-agent-screen-detection"), None, None), "a plugin with no kept daemon")
+        self.assertTrue(role(chief, None, None))
+        self.assertIsNone(role(row(22, 1, "optchat-chief usage"), None, None), "a one-shot Chief command")
+        self.assertTrue(role(chief_acpmux, chief, None))
+        self.assertTrue(role(row(23, 21, "acpmux router"), chief_acpmux, chief))
+        self.assertIsNone(role(row(30, 1, "acpmux daemon run --ready-fd 3"), None, None), "the app's own acpmux")
+        self.assertIsNone(role(row(31, 10, "cmux-browser-host serve --supervised"), tui, None), "the browser host")
 
     def test_no_process_is_an_empty_report(self):
         report, _ = self.watch()

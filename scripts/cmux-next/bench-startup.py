@@ -271,20 +271,29 @@ def helper_name(command):
     return match.group(1) if match else ""
 
 
+def helper_args(command):
+    """The words after the helper's executable in `command` (["--headless", ...]), or []."""
+    match = re.search(r"/Contents/Resources/bin/[^/\s]+(.*)$", command)
+    return match.group(1).split() if match else []
+
+
 def kept_role(row, parent, grandparent):
     """Why a helper may outlive the app's quit (plans/cmux-next/quit-persistence.md, a quit that keeps sessions), or
     None when it must end soon after the app: the cmux-tui daemon keeps the terminals, its screen-detection plugin ends
     with it, and the Chief's brain host with its own acpmux outlives the app by design (HomeBrainHost.swift). The app's
     own acpmux and browser host are not here: idle, they end after the quit (#30090); a turn the bench never starts
     would keep acpmux."""
-    name, command = helper_name(row["command"]), row["command"]
+    name, args = helper_name(row["command"]), helper_args(row["command"])
     up = helper_name(parent["command"]) if parent else ""
     upper = helper_name(grandparent["command"]) if grandparent else ""
-    if name == "cmux-tui" and " --headless" in f" {command} ":
+    # The session owner starts `cmux-tui --headless ...` (cmux-tui local_owner.rs). An SSH or Cloud link
+    # (`cmux-tui remote connect ... --headless --exit-with-parent`) must end with the app: it is not kept.
+    if name == "cmux-tui" and args[:1] == ["--headless"] and "--exit-with-parent" not in args:
         return "cmux-tui daemon (kept terminals)"
     if name == "cmux-agent-screen-detection" and up == "cmux-tui":
         return "screen-detection plugin of the kept cmux-tui daemon"
-    if name == "optchat-chief":
+    # The brain host is `optchat-chief host ...` (HomeBrainHost.swift); a one-shot command ends by itself.
+    if name == "optchat-chief" and args[:1] == ["host"]:
         return "Chief brain host"
     if name == "acpmux" and (up == "optchat-chief" or (up == "acpmux" and upper == "optchat-chief")):
         return "the Chief's acpmux"
