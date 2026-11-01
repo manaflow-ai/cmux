@@ -470,6 +470,7 @@ impl Hub {
         // no host replay, so carry their terminal control state into this decision too: a Web
         // continuation must not cross a remote-floor cancellation or stale ended control.
         let mut started = false;
+        let mut trigger = false;
         // A carried turn's input is the steers it carried (`carried_turn.rs`), logged in the
         // turns before it: the steers since the last turn that was not carried, by prompt id.
         let mut steered: std::collections::HashMap<String, (Option<String>, Vec<Value>)> =
@@ -504,6 +505,7 @@ impl Hub {
             match e.kind.as_str() {
                 "turn_started" if is_turn => {
                     started = true;
+                    trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
                     tool_start = Some(e.seq);
                     prompt_id = field("promptId");
                     control = field("control");
@@ -552,6 +554,11 @@ impl Hub {
             }
             true
         });
+        // The trigger dispatcher must reauthorize any retry. A generic restart
+        // continuation would drop its principal and execute as the person.
+        if trigger {
+            return None;
+        }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
         let mut carried_images = Vec::new();

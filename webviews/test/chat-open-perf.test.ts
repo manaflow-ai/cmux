@@ -87,6 +87,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const FADE_FRAME_SLACK_MS = 50;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
+  /// What the chat's permission groups and handoff reads cost in the side-reads run: longer than the
+  /// attach, as on a daemon whose permission store is busy (HQ#5914, finding 3). Every other run
+  /// answers them in CALL_MS, inside the attach's time.
+  const SIDE_READ_MS = 400;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
   const videoDir = process.env.CMUX_CHAT_OPEN_PERF_VIDEO;
 
@@ -157,7 +161,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       kind,
       msg,
     }));
-    return { sessionId, marker, listed, attached: { ...listed, modes: modes(listed.currentModeId) }, events };
+    return {
+      sessionId,
+      marker,
+      title: listed.title,
+      listed,
+      attached: { ...listed, modes: modes(listed.currentModeId) },
+      events,
+    };
   };
   const chats = [...Array(CHAT_COUNT).keys()].map(chat);
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
@@ -196,11 +207,37 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// The load is on, which the second phase turns on; `pushed` is how many changes have gone out.
   let busy = false;
   let pushed = 0;
+  /// The side-reads run is on: the permission and handoff reads take SIDE_READ_MS.
+  let slowSideReads = false;
   const timers = new Map<unknown, ReturnType<typeof setInterval>>();
+  const SIDE_OPERATIONS = [
+    "_acpmux/permission_groups",
+    "_acpmux/permission_group_respond",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/handoff_prepare",
+    "_acpmux/handoff_get",
+    "_acpmux/handoff_draft",
+    "_acpmux/handoff_start",
+    "_acpmux/handoff_discard",
+  ];
+  const sideRead = (method: string) => method === "_acpmux/permission_groups" || method === "_acpmux/handoff_get";
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        // The permission group and handoff operations, so every open reads them as the app's does.
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: SIDE_OPERATIONS } },
+        };
+      case "_acpmux/permission_groups":
+        return {
+          groups: [],
+          chatAllowance: { active: false, expires: "session_stop_or_daemon_restart" },
+          coverage: { label: "acp_requests_only", isolation: "unverified", detail: "ACP requests only" },
+          batching: { windowMs: 50, maxItems: 8, maxPendingGroups: 4, maxReceipts: 8 },
+        };
+      case "_acpmux/handoff_get":
+        return null;
       case "_acpmux/watch":
         return { sessions: chats.map((entry) => entry.listed) };
       case "_acpmux/attach": {
@@ -318,7 +355,13 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
                 attachAnsweredAt.set(String(message.params?.sessionId), Date.now());
               ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
             },
-            slow ? SLOW_ATTACH_MS : message.method === "_acpmux/attach" ? ATTACH_MS : CALL_MS,
+            slow
+              ? SLOW_ATTACH_MS
+              : message.method === "_acpmux/attach"
+                ? ATTACH_MS
+                : slowSideReads && sideRead(message.method)
+                  ? SIDE_READ_MS
+                  : CALL_MS,
           );
         },
       },
@@ -360,6 +403,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   type Opened = {
     /// Milliseconds from the select to the first frame that draws this chat; null when it never did.
     drawn: number | null;
+    /// Milliseconds from the select to the first frame whose header names this chat (its title);
+    /// null when none did inside the window.
+    header: number | null;
     /// Frames after that one where a row that was already drawn moved in the view.
     shifted: number;
     /// The largest move of a drawn row, in pixels.
@@ -391,14 +437,22 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const openChat = async ({
     sessionId,
     marker,
+    title,
     settleMs,
     limitMs,
   }: {
     sessionId: string;
     marker: string;
+    title?: string;
     settleMs: number;
     limitMs: number;
   }) => {
+    /// Whether the pane's header names the chat: its title, in the header or the tab row's tools.
+    const headerNames = () =>
+      title !== undefined &&
+      [...document.querySelectorAll<HTMLElement>(".acpmux-header, .acpmux-handoff-header-tools")].some((node) =>
+        (node.textContent ?? "").includes(title),
+      );
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     /// Each mounted row's top in the view, by its id.
     const rowTops = () => {
@@ -439,6 +493,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     };
     const start = performance.now();
     let drawn: number | null = null;
+    let header: number | null = null;
     let shifted = 0;
     let moved = 0;
     let blank = 0;
@@ -468,6 +523,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       window.cmuxAfterPaint(() => {
         const at = performance.now() - start;
         const shows = scroller.innerText.includes(marker);
+        if (header === null && headerNames()) header = at;
         const seen = opacity();
         const behind = backdrop();
         if (behind !== lastBackdrop) {
@@ -538,6 +594,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         if (drawn !== null && lastOpacity < 0.999) fadeMs = at - drawn;
         resolve({
           drawn,
+          header,
           shifted,
           moved,
           blank,
@@ -567,6 +624,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     const worst = Math.max(...drawn);
     console.log(
       `chat-open-perf ${name}: draws ${drawn.map((ms) => (Number.isFinite(ms) ? ms.toFixed(0) : "never")).join("/")} ms ` +
+        `(header ${opened.map((entry) => (entry.header === null ? "never" : entry.header.toFixed(0))).join("/")} ms) ` +
         `(worst ${Number.isFinite(worst) ? worst.toFixed(0) : "never"}), ` +
         `shifted frames ${opened.map((entry) => entry.shifted).join("/")} (worst move ${Math.max(...opened.map((entry) => entry.moved)).toFixed(1)} px), ` +
         `blank frames ${opened.map((entry) => entry.blank).join("/")}, ` +
@@ -633,6 +691,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `(${openChat.toString()})(${JSON.stringify({
           sessionId: entry.sessionId,
           marker: entry.marker,
+          title: entry.title,
           settleMs: SETTLE_MS,
           limitMs: 8_000,
         })})`,
@@ -758,10 +817,15 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         `(${openChat.toString()})(${JSON.stringify({
           sessionId: slowChat.sessionId,
           marker: LIVE_MARKER,
+          title: slowChat.title,
           settleMs: SLOW_ATTACH_MS,
           limitMs: 8_000,
         })})`,
       )) as Opened;
+      console.log(
+        `chat-open-perf slow attach: live row ${opened.drawn?.toFixed(0) ?? "never"} ms, ` +
+          `header ${opened.header?.toFixed(0) ?? "never"} ms (attach ${SLOW_ATTACH_MS} ms, hold 1500 ms)`,
+      );
       expect(opened.drawn).not.toBeNull();
       expect(opened.drawOpacity).toBe(1);
       expect(opened.animated).toEqual([]);
@@ -926,6 +990,19 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       holdToTheBrief(run, DEV_RENDER_MS);
     } finally {
       busy = false;
+    }
+  });
+
+  /// HQ#5914, finding 3: the chat's permission groups and handoff, read with its attach, answer
+  /// after it (a daemon whose permission store is busy). The rows draw on the attach page, not on
+  /// the slowest of the three reads, and the same no-shift, no-blank rules hold.
+  test("opening chats whose side reads outlast the attach draws on the attach", async () => {
+    slowSideReads = true;
+    try {
+      const run = await openEachTwice("side reads");
+      holdToTheBrief(run);
+    } finally {
+      slowSideReads = false;
     }
   });
 });

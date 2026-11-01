@@ -71,6 +71,9 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
+    /// The app's table of processes that post input (`AppServices.personInput.sources`): whether a key or click
+    /// is the person's (``AgentPanePersonInput``) is read from it, never by a system call per event.
+    let eventSources: EventSourceProcesses
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
     let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
@@ -165,12 +168,15 @@ public final class AgentPaneView: NSView {
     ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - eventSources: The app's table of processes that post input (`AppServices.personInput.sources`); tests get their own.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil) {
+                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
+                 eventSources: EventSourceProcesses = EventSourceProcesses()) {
         self.terminations = terminations ?? Self.processGroups.terminations
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
+        self.eventSources = eventSources
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
         self.source = source

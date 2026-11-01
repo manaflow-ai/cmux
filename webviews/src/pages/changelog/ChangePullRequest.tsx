@@ -50,7 +50,7 @@ function ValidChangePullRequest({
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   const href = ref.href;
-  const mark = <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />;
+  const mark = <GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" />;
   return (
     <>
       {/* The title is a link too (Leo 2026-10-21: "more colored links? not just the #"). */}
