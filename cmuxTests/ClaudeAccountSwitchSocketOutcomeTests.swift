@@ -81,6 +81,27 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
     }
 
     @Test
+    func switchWhoseTranscriptResyncFailedSaysWhyItDidNotResume() throws {
+        let plan = try makePlan(to: "work")
+        let manualResume = ClaudeAccountSwitchManualResume(
+            command: "cd /Users/cmux-test/project && claude --resume \(sessionID)",
+            typedInput: "x\n",
+            reason: .transcriptResyncFailed
+        )
+        let outcome = ClaudeAccountSwitchSocketOutcome.finished(.switchedWithoutResume(plan, .copied, manualResume))
+
+        guard case .ok(.object(let payload)) = outcome.controlCallResult(surfaceId: surfaceId, requestedAccountName: "work") else {
+            Issue.record("a switch whose resume was held back still succeeds")
+            return
+        }
+        #expect(payload["resumed"] == .bool(false))
+        #expect(payload["pane_closed"] == .bool(false))
+        #expect(payload["not_resumed_reason"] == .string("transcript_resync_failed"))
+        #expect(payload["resume_command"] == .string(manualResume.command))
+        #expect(outcome.resumeNotification?.body.contains(manualResume.command) == true)
+    }
+
+    @Test
     func everyRefusalHasItsOwnErrorCode() {
         let cases: [(ClaudeAccountSwitchSocketOutcome, String)] = [
             (.finished(.refused(.unknownAccount("ghost"))), "unknown_account"),
