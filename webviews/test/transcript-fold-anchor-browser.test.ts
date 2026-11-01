@@ -323,6 +323,43 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("empty and zero-width replies add no vertical gap between tool groups", async () => {
+    const page = await open("reduce");
+    const rows = (withInvisible: boolean) => [
+      row("spacing-user", "user", "Run both checks."),
+      row("spacing-first", "activity", undefined, { items: [read("spacing-first-tool")] }),
+      ...(withInvisible
+        ? [row("spacing-empty", "assistant", ""), row("spacing-zero", "assistant", "\u200B\u200C\u200D\uFEFF\u2060")]
+        : []),
+      row("spacing-second", "activity", undefined, { items: [read("spacing-second-tool")] }),
+      row("spacing-answer", "assistant", "Both checks passed."),
+      row("spacing-summary", "turnSummary", undefined, { status: "completed", durationMs: 9_000 }),
+    ];
+    const gapAfterOpenFold = async (withInvisible: boolean) => {
+      await show(page, rows(withInvisible));
+      await settle(page);
+      const fold = page.locator('[data-row-id="worked-spacing-user"] .cv-worked');
+      if ((await fold.getAttribute("aria-expanded")) !== "true") await fold.click();
+      await settle(page);
+      return page.evaluate(() => {
+        const first = document.querySelector<HTMLElement>('[data-row-id="spacing-first"]');
+        const second = document.querySelector<HTMLElement>('[data-row-id="spacing-second"]');
+        if (!first || !second) throw new Error("tool groups were not mounted");
+        const a = first.getBoundingClientRect();
+        const b = second.getBoundingClientRect();
+        return {
+          gap: b.top - a.bottom,
+          emptyRows: document.querySelectorAll('[data-row-id="spacing-empty"], [data-row-id="spacing-zero"]').length,
+        };
+      });
+    };
+    const normal = await gapAfterOpenFold(false);
+    const withInvisible = await gapAfterOpenFold(true);
+    expect(withInvisible.emptyRows).toBe(0);
+    expect(Math.abs(withInvisible.gap - normal.gap)).toBeLessThanOrEqual(0.5);
+    await page.close();
+  });
+
   test("a completed turn keeps the reply before a personal steer visible across fold toggles", async () => {
     const page = await open("reduce");
     await show(page, [

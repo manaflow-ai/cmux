@@ -361,7 +361,7 @@ impl Hub {
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
             Made::Copy(_) | Made::Agent(..) => {}
         }
-        if let Err(e) = self.store.save(&new.meta()) {
+        if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
             // asks about a chat that must not outlive the question).
