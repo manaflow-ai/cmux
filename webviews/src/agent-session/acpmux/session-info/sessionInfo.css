@@ -225,7 +225,8 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The body's 6px side padding (data-layout). */
+  /* The first 6px of the body's right padding (data-layout); in glance and rules the 4px past it keep it
+     off the scrollbar. */
   right: -6px;
   width: 6px;
   height: 28px;
@@ -263,7 +264,9 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  padding-right: 6px;
+  /* The handle's 6px, then 4px clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a bit
+     too close to the thumb"). */
+  padding-right: 10px;
   padding-left: 6px;
 }
 .acpmux-session-info-group {

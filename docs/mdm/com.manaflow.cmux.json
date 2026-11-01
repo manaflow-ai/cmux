@@ -90,6 +90,16 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.presentation" : {
+      "default" : "transcript",
+      "description" : "agentPane.display.presentation",
+      "enum" : [
+        "transcript",
+        "messages"
+      ],
+      "title" : "Chat Presentation",
+      "type" : "string"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
