@@ -235,11 +235,11 @@ final class EmptySectionRowView: SidebarRowView {
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         let width = max(0, b.width - x - Metrics.space2)
         let titleHeight = ceil(label.intrinsicContentSize.height)
         guard !hint.isHidden else {
-            label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: titleHeight)
+            label.frame = NSRect(x: x, y: (b.height - titleHeight) / 2, width: width, height: titleHeight)
             hint.frame = .zero
             needsDisplay = true
             return

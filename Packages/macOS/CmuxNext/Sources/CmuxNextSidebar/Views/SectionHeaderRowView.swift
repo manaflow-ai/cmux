@@ -259,12 +259,11 @@ final class SectionHeaderRowView: SidebarRowView {
         glyph.isHidden = true
         name.isHidden = false
         // A machine's own icon leads the name; without one the header stays text only.
-        let columns = SidebarStyle.columns(rowWidth: b.width)
-        var nameX = columns.lead
+        var nameX = SidebarStyle.horizontalInset
         if !machineIcon.isHidden {
             let side = SidebarStyle.leadingGlyphSide
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
-            nameX = columns.text
+            nameX += side + Metrics.space2
         }
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
@@ -274,35 +273,31 @@ final class SectionHeaderRowView: SidebarRowView {
         if allowsAdd {
             addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: control)
         }
+        // The disclosure is a section control too; keep it stable instead of
+        // making the header reflow when the pointer arrives.
         chevron.isHidden = isEmpty
-        let chevronSide = SidebarStyle.controlSize
-        // Without the add button the chevron takes the trailing column, as a group header's does; with it, the
-        // chevron steps one shared pitch left of the add button.
+        let chevronSide = Metrics.smallIconSize
+        // Without the add button the chevron takes the trailing column, as a group header's does.
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY,
                                                          side: chevronSide, slot: allowsAdd ? 1 : 0)
-        var trailing = columns.trailingEdge(before: chevron.frame)
+        let trailing = chevron.frame.minX - Metrics.space2
+        let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
+        let nh = ceil(name.intrinsicContentSize.height)
+        // The label cell draws inside its frame: the text starts where row titles do.
+        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
         let dot = SidebarStyle.dotSize
-        status.isHidden = statusTone == nil
-        if !status.isHidden {
-            status.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: dot, height: dot))
-            trailing = columns.trailingEdge(before: status.frame)
-        }
+        status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2
         // The spinner takes the dot's place, a little larger so its arc reads at the header's size.
         let spin = Metrics.smallIconSize - Metrics.space1
         spinner.frame = NSRect(x: status.frame.midX - spin / 2, y: (b.height - spin) / 2, width: spin, height: spin)
         badge.isHidden = badgeText == nil
         if !badge.isHidden {
+            let bx = status.frame.maxX + Metrics.space2
+            let bw = min(ceil(badge.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - bx))
             let bh = ceil(badge.intrinsicContentSize.height)
-            let bw = min(ceil(badge.naturalSize.width), max(0, (trailing - nameX) / 2))
-            badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: bw, height: bh))
-            badge.frame.origin.y = SidebarStyle.textY(badge, centerY: b.midY)
-            trailing = badge.frame.minX - LayoutGrid.base
+            badge.frame = NSRect(x: bx, y: (b.height - bh) / 2, width: bw, height: bh)
         }
-        let nw = min(ceil(name.naturalSize.width), max(0, trailing - nameX))
-        let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding,
-                             y: SidebarStyle.textY(name, centerY: b.midY), width: nw, height: nh)
         needsDisplay = true
     }
 
