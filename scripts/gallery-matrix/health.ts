@@ -2,8 +2,8 @@
 // Gallery health: every gallery state must render. A state is broken when its stage errors (a
 // fixture that cannot find its control fails the mount), never reports ready, the renderer dies, or
 // its play throws (it cannot find or reach the state it describes, or fails its own assertion). A
-// stage that draws nothing is not broken by itself: some states are empty on purpose. Quality
-// findings (layout shift, long frames, motion) are the matrix's, not this check's.
+// stage that draws nothing is not broken by itself: some states are empty on purpose. Long frames
+// and motion are the matrix's findings, not this check's; layout shift is this check's (below).
 //
 // A case broken on the first run is rendered twice more; only a case broken every time counts.
 // broken-allowlist.json names known broken states (`entry#variant`) with the reason each is
@@ -14,6 +14,11 @@
 // state past its budget's margin is rendered again with the broken ones, and fails only if its
 // fastest run is still past it. A state well under its budget is printed so its row can come down.
 //
+// And each state must not shift more than its row in shift-baseline.json (shift-baseline.ts): its
+// load and play steps, measured from the browser's layout-shift entries and from the tracked rows'
+// boxes frame by frame. A state whose row is 0 fails on any shift; a state with no row only warns.
+// A state that shifted is rendered again with the others, and fails only if it shifts every time.
+//
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
@@ -21,6 +26,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Timing, BUDGETS_PATH, fastest, lowerable, overBudget, readBudgets, readyTimes } from "./ready-budgets";
 import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } from "./runner";
+import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
 
 export type HealthResult = {
   id: string;
@@ -29,7 +35,8 @@ export type HealthResult = {
   /** Navigation start to the stage's first ready report (runner.ts). */
   readyMs?: number | null;
   error?: string;
-  play?: { status?: string; error?: string; motion?: { status?: string; problems?: string[] } | null } | null;
+  play?: ({ status?: string; error?: string; motion?: { status?: string; problems?: string[] } | null } & ShiftResult["play"]) | null;
+  load?: ShiftResult["load"];
 };
 
 /** Play errors (frame/playRunner.ts) that mean the state was never reached; they are their own label. */
@@ -124,6 +131,7 @@ async function main(): Promise<void> {
       "output-dir": { type: "string", default: "gallery-health-output" },
       allowlist: { type: "string", default: join(import.meta.dir, "broken-allowlist.json") },
       budgets: { type: "string", default: BUDGETS_PATH },
+      "shift-baseline": { type: "string", default: SHIFT_BASELINE_PATH },
       engines: { type: "string", default: "chromium" },
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
@@ -136,6 +144,7 @@ async function main(): Promise<void> {
   const engines = values.engines.split(",").filter(Boolean) as Engine[];
   const allowlist = JSON.parse(await readFile(values.allowlist, "utf8")) as Record<string, string>;
   const budgets = readBudgets(values.budgets);
+  const shiftBaseline = readShiftBaseline(values["shift-baseline"]);
   const all = parseManifest(JSON.parse(await readFile(values.manifest, "utf8")));
   const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
@@ -158,10 +167,18 @@ async function main(): Promise<void> {
   const timings = [readyTimes(results)];
   const slowStates = () => new Set(overBudget(fastest(timings), budgets).map(({ state }) => state));
   let slow = slowStates();
-  for (let attempt = 1; attempt <= Number(values.retries) && (broken.size || slow.size); attempt++) {
-    // Render again only the cases of states still broken or slow; a state stays broken only if it
-    // breaks again, and slow only if it is slow again.
-    const retried = new Set([...broken.keys(), ...slow]);
+  const shiftRuns = [shiftScores(results)];
+  const shiftingStates = () =>
+    new Set(
+      [...least(shiftRuns)]
+        .filter(([state, { score }]) => state in shiftBaseline.states && score > shiftLimit(shiftBaseline.states[state]!))
+        .map(([state]) => state),
+    );
+  let shifting = shiftingStates();
+  for (let attempt = 1; attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size); attempt++) {
+    // Render again only the cases of states still broken, slow or shifting; a state stays broken
+    // only if it breaks again, slow only if it is slow again, and shifting only if it shifts again.
+    const retried = new Set([...broken.keys(), ...slow, ...shifting]);
     const again: MatrixCase[] = cases.filter((item) => retried.has(stateKey(item)));
     const manifest = join(outputDir, `retry-${attempt}.json`);
     await writeFile(manifest, JSON.stringify(again));
@@ -170,6 +187,8 @@ async function main(): Promise<void> {
     broken = new Map([...broken].filter(([state]) => still.has(state)));
     timings.push(readyTimes(results));
     slow = slowStates();
+    shiftRuns.push(shiftScores(results));
+    shifting = shiftingStates();
   }
   // runLocal sets a failing exit code for quality findings; this check judges only broken states.
   process.exitCode = 0;
@@ -178,11 +197,16 @@ async function main(): Promise<void> {
   const best = new Map([...fastest(timings)].filter(([state]) => !broken.has(state)));
   const over = overBudget(best, budgets);
   const lower = lowerable(best, budgets);
-  const text = [summary(verdict, cases.length), budgetSummary(over, lower)].filter(Boolean).join("\n");
-  await writeFile(join(outputDir, "health.json"), `${JSON.stringify({ ...verdict, slow: over, lower }, null, 2)}\n`);
+  // A broken state answers to the allowlist, not to its shift baseline.
+  const shift = judgeShift(new Map([...least(shiftRuns)].filter(([state]) => !broken.has(state))), shiftBaseline);
+  const text = [summary(verdict, cases.length), budgetSummary(over, lower), shiftSummary(shift)].filter(Boolean).join("\n");
+  await writeFile(
+    join(outputDir, "health.json"),
+    `${JSON.stringify({ ...verdict, slow: over, lower, shifted: shift.shifted, unbaselined: shift.unbaselined, shiftLower: shift.lower }, null, 2)}\n`,
+  );
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
-  if (verdict.fresh.length || over.length) process.exitCode = 1;
+  if (verdict.fresh.length || over.length || shift.shifted.length) process.exitCode = 1;
 }
 
 if (import.meta.main) await main();
