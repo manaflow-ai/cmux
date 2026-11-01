@@ -67,9 +67,8 @@ extension WindowManager {
                 if registry.value.window(window) == nil { pendingPlacements[id] = nil }
                 continue
             }
-            pendingPlacements[id] = nil
-            // One store-backed rows pass per window; each following placement
-            // reads the model with the preceding optimistic moves applied.
+            // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot); each
+            // following placement reads the model with the preceding optimistic moves applied.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
@@ -78,26 +77,25 @@ extension WindowManager {
             // the band, not the list), or one this window does not list (another window's, another space's), has no
             // row to wait for: the rule resolves as if it never had one. So does a wait past its limit.
             var byDefault = pending.byDefault
-            if byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
+            if pending.slot == nil, byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) == true, let current = byDefault?.current {
                 let since = pending.anchorWaitSince ?? .now
                 if services.machines.workspace(id: current) != nil,
                    !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
                                                        legacy: services.sidebarLayout.unavailableReason != nil, machines: services.machines),
                    NewWorkspacePlacements.lists(current, in: window, windows: self),
                    ContinuousClock.now < since + NewWorkspacePlacements.anchorWaitLimit {
-                    var waiting = pending
-                    waiting.anchorWaitSince = since
-                    pendingPlacements[id] = waiting
+                    pendingPlacements[id]?.anchorWaitSince = since
                     retryDeferredPlacements(after: since + NewWorkspacePlacements.anchorWaitLimit - .now)
                     continue
                 }
                 byDefault?.currentMachine = nil
             }
+            pendingPlacements[id] = nil // its move goes to the sidebar now: the next rows pass lists its own row
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
-            // slot. Another machine's create writes no row in this Mac's order, so the app places it.
-            let slot = pending.slot ?? (daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
-                : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp))
-            if let position = slot?.position(moving: [id], section: section, in: sections) {
+            // slot. Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
+            let fallback = daemon.isLocal ? byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+                : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+            if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }

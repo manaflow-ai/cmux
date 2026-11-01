@@ -965,6 +965,10 @@ impl Guests {
     /// A room frame about the guests' browsers, after the daemon's `guests`; what to send the
     /// room back (a prompt no relay can take is refused, `share.busy`).
     fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) -> Vec<Value> {
+        // Only `cmux.share/1` frames: another version (or none) starts no relay, sends nothing.
+        if frame.get("v").and_then(Value::as_u64) != Some(1) {
+            return Vec::new();
+        }
         let guest = frame.get("guest_id").and_then(Value::as_str).unwrap_or_default();
         let ask = match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
             // `hello` names each connected guest once; its socket count when the room gives it

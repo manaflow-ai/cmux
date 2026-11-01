@@ -105,7 +105,11 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil,
+              incognito: Bool = false) {
+        // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
+        let title = incognito ? Self.incognitoTitle : title, subtitle = incognito ? nil : subtitle, body = incognito ? Self.incognitoBody : body
+        let attachment = incognito ? nil : attachment, approval = approval && !incognito
         let category = category ?? (approval ? AgentApprovalBanners.category : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,

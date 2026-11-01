@@ -134,7 +134,7 @@ import Testing
             }
             for (index, word) in words.enumerated() {
                 guard let first = word.first, first.isLowercase else { continue }
-                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                if word.hasPrefix("cmux") || word == "acpmux" || word.contains(".") { continue }
                 #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
             }
         }
@@ -194,11 +194,33 @@ import Testing
         #expect(transcriptActions.allSatisfy { $0.keywords.contains("minimap") })
     }
 
+    /// Leo, 2026-10-25: "minimap? i dont see any command for the vscode minimap".
+    @Test func editorMinimapToggleIsAPaletteCommand() throws {
+        let toggle = try #require(ActionCatalog.all.first { $0.id == "toggleFileEditorMinimap" })
+        #expect(toggle.isPaletteVisible)
+        #expect(toggle.requires.contains(.codeEditorFocused))
+        #expect(toggle.keywords.contains("minimap"))
+        #expect(toggle.keywords.contains("vscode"))
+    }
+
     @Test func completeConversationCopyIsReachableFromThePalette() throws {
         let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
         #expect(copy.surfaces.contains(.palette))
         #expect(copy.requires.contains(.agentPaneFocused))
         #expect(copy.keywords.contains("conversation"))
         #expect(copy.keywords.contains("markdown"))
+    }
+
+    @Test func sessionFileCopiesAreReachableFromThePalette() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let ids: [ActionID] = ["agentChat.copySessionFilePaths", "agentChat.copyTranscriptFile", "agentChat.copyHarnessConfigFile",
+                               "agentChat.copyHarnessSettingsFile", "agentChat.copyAcpmuxSessionFile"]
+        for id in ids {
+            let action = try #require(byID[id])
+            #expect(action.surfaces.contains(.palette))
+            #expect(action.requires.contains(.agentPaneFocused))
+        }
+        #expect(byID["agentChat.copyHarnessConfigFile"]?.keywords.contains("claude.json") == true)
+        #expect(byID["agentChat.copyTranscriptFile"]?.keywords.contains("jsonl") == true)
     }
 }

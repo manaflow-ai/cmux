@@ -81,7 +81,10 @@ export type TurnActions = {
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
-  transferCloudCredentials?: (rowId: string, prompt: string) => Promise<void>;
+  transferCloudCredentials?: (rowId: string, prompt: string, automatic?: boolean) => Promise<void>;
+  /// A Cloud chat's agent signs in on its own machine (cloudAgentLogin.ts): its own login run there,
+  /// or an API key saved there, never this Mac's login. Absent where acpmux lacks `agent_login`.
+  cloudSignIn?: import("../cloudAgentLogin").CloudSignIn;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
   route?: { name?: string; harness?: string; hostKind?: "local" | "cloud"; host?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).

@@ -5,7 +5,7 @@ import CmuxNextCompat
 /// back button opens history. The strip holds one: `start` on a press on +, `end` on mouse-up.
 @MainActor final class TabNewTabHold {
     private weak var strip: TabStripView?
-    private var task: Task<Void, Never>?
+    private(set) var task: Task<Void, Never>?
     private var openedMenu = false
 
     init(strip: TabStripView) { self.strip = strip }

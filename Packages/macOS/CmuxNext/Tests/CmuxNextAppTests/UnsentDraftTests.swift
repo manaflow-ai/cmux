@@ -17,16 +17,16 @@ struct UnsentDraftTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
 
         // This run's drafts, held as the tab store holds them.
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
 
         // The next run's tab, still without a session, opens as the chat with its draft.
-        let relaunched = AgentUnsentDrafts(file: file)
+        let relaunched = AgentUnsentDrafts(file: file, files: files)
         let seed = try #require(relaunched.seed(for: "tab-1", session: nil))
         #expect(await seed.take()?.draft == "compare the two retry policies")
         #expect(relaunched.seed(for: "tab-1", session: "s-1") == nil, "a chat with a session keeps its draft in acpmux")
@@ -34,9 +34,9 @@ struct UnsentDraftTests {
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
         withExtendedLifetime(drafts) {}
     }
 
@@ -52,30 +52,30 @@ struct UnsentDraftTests {
     @Test func aKeptDraftSurvivesTheLoadAndAClearStillClears() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
-        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        AgentUnsentDrafts(file: file, files: files).set("the saved draft", for: "tab-1")
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         // (c) The page's empty text before it has the draft is no clear.
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft")
         // (a, b) Text typed before the draft reached the page joins it, after it.
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed while loading"]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft\n\ntyped while loading")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft\n\ntyped while loading")
         // The page still has not taken the draft: its next text is still only its typing, merged with
         // the kept draft, never in place of it (cmux#28204 review at 027ee470: "x" then "xy" left "xy").
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed while loading, more"]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft\n\ntyped while loading, more")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft\n\ntyped while loading, more")
         // Deleting its typing leaves the kept draft, which the page never had.
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft")
         // (d) Once the page takes it (its seed), the page's text is the draft: deleting it clears it.
         let seed = try #require(drafts.seed(for: "tab-1", session: nil))
         _ = await seed.take()
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == nil)
         withExtendedLifetime(drafts) {}
     }
 
@@ -83,22 +83,22 @@ struct UnsentDraftTests {
     @Test func aClearAfterTheSeedClears() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
-        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        AgentUnsentDrafts(file: file, files: files).set("the saved draft", for: "tab-1")
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         let seed = try #require(drafts.seed(for: "tab-1", session: nil))
         #expect(await seed.take()?.draft == "the saved draft")
         drafts.typed("the saved draft, edited", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft, edited")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft, edited")
         drafts.typed("", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == nil)
         // A send starts the chat's session: the tab's copy goes (acpmux keeps the chat's draft).
         drafts.typed("next", for: "tab-1")
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == nil)
     }
 
     /// A seed made but never taken (the host failed before its handshake, and a stand-in page mounted
@@ -107,34 +107,34 @@ struct UnsentDraftTests {
     @Test func aSeedNeverTakenKeepsTheDraftForTheNextHost() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
-        AgentUnsentDrafts(file: file).set("the saved draft", for: "tab-1")
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
+        AgentUnsentDrafts(file: file, files: files).set("the saved draft", for: "tab-1")
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         _ = try #require(drafts.seed(for: "tab-1", session: nil))
         drafts.typed("", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == "the saved draft")
         let retry = try #require(drafts.seed(for: "tab-1", session: nil))
         #expect(await retry.take()?.draft == "the saved draft")
         drafts.typed("", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == nil)
     }
 
     /// A file this run cannot read is set aside, never replaced by an empty or partial one.
     @Test func anUnreadableFileIsSetAsideNotOverwritten() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
         let corrupt = Data("{\"tab-1\": \"half a dra".utf8)
         try corrupt.write(to: file)
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         // Nothing written yet: the file is as it was.
         drafts.typed("", for: "tab-2")
         #expect(try Data(contentsOf: file) == corrupt)
         drafts.typed("new text", for: "tab-2")
         // A fresh store reads after the queued save (AgentPaneStateFile), so the move has run too.
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-2") == "new text")
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         let aside = try #require(names.first { $0.contains("unreadable") })
         #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
@@ -146,14 +146,14 @@ struct UnsentDraftTests {
     @Test func aFileUnreadableAtLoadIsSetAsideEvenWhenItReadsLater() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
         try Data("{\"tab-1\": \"half a dra".utf8).write(to: file)
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         let readable = Data("{\"tab-1\":\"kept draft\"}".utf8)
         try readable.write(to: file)
         drafts.typed("new text", for: "tab-2")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-2") == "new text")
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         let aside = try #require(names.first { $0.contains("unreadable") })
         #expect(try Data(contentsOf: directory.appending(path: aside)) == readable)
@@ -163,11 +163,11 @@ struct UnsentDraftTests {
     @Test func aTextPastTheLimitKeepsTheSavedDraft() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
         let saved = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters - 1)
-        AgentUnsentDrafts(file: file).set(saved, for: "tab-1")
+        AgentUnsentDrafts(file: file, files: files).set(saved, for: "tab-1")
 
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         // Typed before the page was handed it: the merge is past the limit, so nothing changes.
         drafts.typed("x", for: "tab-1")
         #expect(drafts.draft(for: "tab-1") == saved)
@@ -176,11 +176,11 @@ struct UnsentDraftTests {
         drafts.typed("", for: "tab-1")
         #expect(drafts.draft(for: "tab-1") == saved)
         drafts.set(saved + "\n\nx", for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == saved)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved)
         // At the limit it is kept.
         let atLimit = String(repeating: "s", count: AgentUnsentDrafts.maximumCharacters)
         drafts.set(atLimit, for: "tab-1")
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == atLimit)
+        #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == atLimit)
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

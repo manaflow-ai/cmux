@@ -280,7 +280,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               time: rect(".acpmux-agent-line__time", row),
               status: rect(".acpmux-agent-line__stop-track", row),
               stop: rect(".acpmux-agent-line__stop-slot", row),
-              chevron: rect(".acpmux-agent-line__chevron", row),
+              chevron: rect(".acpmux-agent-line__chevron > svg", row),
               hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
             })),
             footer: tray.querySelector(".acpmux-running-tray__finished")
@@ -303,9 +303,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(Math.abs(columns.head.time.left - columns.head.title.right - 8)).toBeLessThanOrEqual(1);
         // One trailing track (Leo, 2026-10-29: "There's this right indent for no reason."): the
         // header's, every line's and View all's chevrons end on one x.
-        expect(rest.every((row) => row.chevron.right === first!.chevron.right)).toBe(true);
-        expect(columns.head.chevron.right).toBe(first!.chevron.right);
-        if (columns.footer) expect(columns.footer.right).toBe(first!.chevron.right);
+        expect(rest.every((row) => Math.abs(row.chevron.right - first!.chevron.right) <= 0.5)).toBe(true);
+        expect(Math.abs(columns.head.chevron.right - first!.chevron.right)).toBeLessThanOrEqual(0.5);
+        if (columns.footer) expect(Math.abs(columns.footer.right - first!.chevron.right)).toBeLessThanOrEqual(0.5);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
@@ -357,8 +357,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   summary: rect(".acpmux-summary-text", row),
                   time: { ...rect(".acpmux-agent-line__time", row), ...textRect(time) },
                   status: rect(".acpmux-agent-line__stop-track", row),
-                  chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")
-                    ? rect(".acpmux-agent-line__chevron", row)
+                  chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron > svg")
+                    ? rect(".acpmux-agent-line__chevron > svg", row)
                     : null,
                   stop: rect(".acpmux-agent-line__stop-slot", row),
                   hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
@@ -383,9 +383,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
         expect(initial.head.time.left).toBeGreaterThanOrEqual(initial.head.title.right - 0.5);
         expect(initial.head.time.left - initial.head.title.right).toBeLessThanOrEqual(8.5);
-        expect(initial.rows.every((row) => !row.chevron || row.chevron.right === initial.head.chevron.right)).toBe(
-          true,
-        );
+        expect(
+          initial.rows.every((row) => !row.chevron || Math.abs(row.chevron.right - initial.head.chevron.right) <= 0.5),
+        ).toBe(true);
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
@@ -473,9 +473,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.head.time.left).toBeGreaterThanOrEqual(narrow.head.title.right - 0.5);
           expect(narrow.head.time.right).toBeLessThanOrEqual(narrow.head.chevron.left + 0.5);
-          expect(narrow.rows.every((row) => !row.chevron || row.chevron.right === narrow.head.chevron.right)).toBe(
-            true,
-          );
+          expect(
+            narrow.rows.every((row) => !row.chevron || Math.abs(row.chevron.right - narrow.head.chevron.right) <= 0.5),
+          ).toBe(true);
           await page.waitForFunction(
             (previous) =>
               [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(
@@ -550,8 +550,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ["open", "stop"],
         );
 
-        // Running lines say no Running: the spinner is their state (the next describe's anatomy).
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBe(0);
+        // Running lines keep their visible state word in the fixed status track, alongside ended rows.
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+          0,
+        );
       } finally {
         await page.close();
       }

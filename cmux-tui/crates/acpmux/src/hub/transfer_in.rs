@@ -350,6 +350,16 @@ impl Hub {
                 format!("this daemon takes {TRANSFER_SCHEMA} or {DURABLE_TRANSFER_SCHEMA}"),
             ));
         }
+        // Prompts the owner approved that still wait for their place (`transfer_out.rs`): taken
+        // only by a daemon that runs them under the approved rules (`queue_approve.rs`).
+        if let Some(ids) = manifest
+            .get("approvedWaiting")
+            .filter(|ids| ids.as_array().is_some_and(|a| !a.is_empty()))
+            && !self.understands_queue_approval()
+        {
+            let why = "this daemon does not understand queue approval";
+            return Err(super::approved_prompts_error(ids.clone(), why));
+        }
         let id = manifest["sessionId"].as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
             return Err(RpcError::invalid_params(format!("transfer: bad session id {id:?}")));
@@ -674,5 +684,18 @@ impl Hub {
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
+    }
+}
+
+impl Hub {
+    /// Whether this daemon runs a prompt the owner approved under the approved rules
+    /// (`queue_approve.rs`, `author::QUEUE_APPROVAL_FEATURE` in its `initialize`): every build
+    /// with this code does; a test stands in for an older one.
+    pub(super) fn understands_queue_approval(&self) -> bool {
+        #[cfg(test)]
+        if self.queue_approval_off.load(Ordering::SeqCst) {
+            return false;
+        }
+        true
     }
 }

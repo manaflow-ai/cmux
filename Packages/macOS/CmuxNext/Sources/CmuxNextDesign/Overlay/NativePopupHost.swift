@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq
@@ -25,6 +26,11 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    private(set) var dismissalReason = "outside"
+    /// A nested popup temporarily owns the keys; ancestor panels remain open.
+    var keepsOpenOnKeyLoss: () -> Bool = { false }
+    /// Nested declarative panels observe their owning window, not ancestor popup layout.
+    weak var dismissalWindow: NSWindow?
     /// The control the popup opened from (screen), which it closes toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -32,6 +38,8 @@ public final class NativePopupHost {
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
+    /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
+    private var menus: MenuTracking?
     private var monitors: [Any] = []
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
@@ -53,6 +61,7 @@ public final class NativePopupHost {
     /// being handled then (nil for none).
     func lostKeys(elsewhere: Bool, press: NSEvent?) {
         guard let keyed = panel as? NativePopupPanel else { return }
+        if keepsOpenOnKeyLoss() { return }
         // A menu or window opened from inside the popup took the keys: the popup stays, and takes
         // them back when the menu closes.
         if hasOpenChild { return }
@@ -64,11 +73,10 @@ public final class NativePopupHost {
         // starts inside it, is noted synchronously) the popup closes unless a child took them.
         if let press, contains(press.window) {
             let showing = generation
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated { // main-proof: DispatchQueue.main
-                    guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
-                    self.dismiss()
-                }
+            // task-owner: one deferred dismiss check after the press, on the main actor; it checks the generation itself
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == showing, self.isShown, !self.hasOpenChild, !self.panel.isKeyWindow else { return }
+                self.dismiss()
             }
             return
         }
@@ -149,10 +157,21 @@ public final class NativePopupHost {
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     tooltipEntrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     tooltipEntrance: Bool = false, sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
-        let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                                 centered: centered, screen: screen.visibleFrame)
+        let frame: CGRect
+        let side: PopupPlacement.Side
+        if sideBySide {
+            frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: size, screen: screen.visibleFrame).frame
+            // Side-by-side placement follows the row vertically; preserve the conventional side
+            // in the return value for callers that only record the vertical preference.
+            side = preferred
+        } else {
+            let placed = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
+                                              centered: centered, screen: screen.visibleFrame)
+            frame = placed.frame
+            side = placed.side
+        }
         generation += 1
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing
@@ -171,7 +190,7 @@ public final class NativePopupHost {
             let pivot = panel.popupPivot(toward: anchor)
             if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
-        watch(window)
+        watch(dismissalWindow ?? window)
         return (frame, side)
     }
 
@@ -208,8 +227,9 @@ public final class NativePopupHost {
     }
 
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
-    public func dismiss() {
+    public func dismiss(reason: String = "outside") {
         guard isShown else { return unwatch() }
+        dismissalReason = reason
         hide()
         onDismiss?()
     }
@@ -227,17 +247,16 @@ public final class NativePopupHost {
                 Task { @MainActor in self?.dismiss() }
             }
         }
-        // A menu opened from inside the popup, noted as AppKit posts it (no queue: delivered at
-        // once on the posting thread, inside the press that opens the menu) so a key loss checked
-        // after the press sees it.
-        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            MainActor.assumeIsolated { self?.menuBegan(menu) }
-        })
-        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { [weak self] note in
-            guard Thread.isMainThread, let menu = note.object as? NSMenu else { return } // main-proof: returns off the main thread
-            MainActor.assumeIsolated { self?.menuEnded(menu) }
-        })
+        // A menu opened from inside the popup, noted as AppKit posts it (MenuTracking delivers at
+        // once, inside the press that opens the menu) so a key loss checked after the press sees it.
+        let menus = MenuTracking(center: center)
+        menus.subscribe { [weak self] change in
+            switch change {
+            case .began(let menu): self?.menuBegan(menu)
+            case .ended(let menu): self?.menuEnded(menu)
+            }
+        }
+        self.menus = menus
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, !self.contains(event.window), !self.hasOpenChild, !self.keepsOpen(event) else { return event }
             self.dismiss()
@@ -247,7 +266,10 @@ public final class NativePopupHost {
         // with a menu of the popup open, Escape closes only that menu.
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown, self.childMenus.isEmpty else { return event }
-            self.dismiss()
+            // The input method owns Escape while cancelling marked text. Closing the popup
+            // here would discard the composition before the editor sees the key.
+            if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
+            self.dismiss(reason: "escape")
             return nil
         }
         monitors = [clicks, escape].compactMap { $0 }
@@ -258,6 +280,7 @@ public final class NativePopupHost {
         observers = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        menus = nil
         childMenus = []
     }
 }

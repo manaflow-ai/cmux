@@ -6,7 +6,7 @@ import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
-import "../../src/agent-session/acpmux/inspector/inspector.css";
+import "../../src/agent-session/acpmux/session-info/sessionInfo.css";
 import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
 import { TurnFooter, WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
@@ -15,8 +15,8 @@ import { PlanList } from "../../src/agent-session/acpmux/conversation/PlanList";
 import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubble";
 import { ReadReceipt, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
 import { TurnActionsContext, type TurnActions } from "../../src/agent-session/acpmux/conversation/turnActions";
-import { InspectorSection } from "../../src/agent-session/acpmux/inspector/InspectorSection";
-import { EnvironmentSection } from "../../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { SessionInfoSection } from "../../src/agent-session/acpmux/session-info/SessionInfoSection";
+import { EnvironmentSection } from "../../src/agent-session/acpmux/session-info/EnvironmentSection";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import type { AcpmuxActivity, AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
@@ -168,7 +168,7 @@ function App() {
         </div>
         <div data-glyph-row="session-info">
           <EnvironmentSection machineName="Studio" />
-          <InspectorSection
+          <SessionInfoSection
             id="glyph-session-info"
             title="Session Info"
             icon="status.complete"
