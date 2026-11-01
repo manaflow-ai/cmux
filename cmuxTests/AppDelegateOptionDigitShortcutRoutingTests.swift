@@ -49,25 +49,9 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let terminalPanelId = try #require(firstWorkspace.focusedPanelId)
             let terminalPanel = try #require(firstWorkspace.terminalPanel(for: terminalPanelId))
-            testWindow.makeKeyAndOrderFront(nil)
-            testWindow.displayIfNeeded()
-            _ = await AppKitTestEventPump().waitUntil {
-                terminalPanel.hostedView.uiWindow === testWindow
-                    && terminalPanel.hostedView.surfaceView.window === testWindow
-            }
-            appDelegate.noteTerminalKeyboardFocusIntent(
-                workspaceId: terminalPanel.surface.tabId,
-                panelId: terminalPanel.id,
-                in: testWindow
-            )
-            terminalPanel.hostedView.setVisibleInUI(true)
-            terminalPanel.hostedView.setActive(true)
-            terminalPanel.hostedView.moveFocus()
-            testWindow.makeKeyAndOrderFront(nil)
-            testWindow.displayIfNeeded()
-            _ = await AppKitTestEventPump().waitUntil {
-                terminalPanel.hostedView.isSurfaceViewFirstResponder()
-            }
+            try #require(await appDelegate.focusTerminalForTesting(
+                terminalPanel, workspace: firstWorkspace, in: testWindow
+            ))
             #expect(terminalPanel.hostedView.isSurfaceViewFirstResponder())
 
             let settingsFileURL = try writeShortcutSettingsFile(bindings: [
@@ -615,25 +599,9 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let secondWorkspace = try #require(manager.addTab(select: false))
             manager.selectTab(at: 0)
-            testWindow.makeKeyAndOrderFront(nil)
-            testWindow.displayIfNeeded()
-            _ = await AppKitTestEventPump().waitUntil {
-                terminalPanel.hostedView.uiWindow === testWindow
-                    && terminalPanel.hostedView.surfaceView.window === testWindow
-            }
-            appDelegate.noteTerminalKeyboardFocusIntent(
-                workspaceId: terminalPanel.surface.tabId,
-                panelId: terminalPanel.id,
-                in: testWindow
-            )
-            terminalPanel.hostedView.setVisibleInUI(true)
-            terminalPanel.hostedView.setActive(true)
-            terminalPanel.hostedView.moveFocus()
-            testWindow.makeKeyAndOrderFront(nil)
-            testWindow.displayIfNeeded()
-            _ = await AppKitTestEventPump().waitUntil {
-                terminalPanel.hostedView.isSurfaceViewFirstResponder()
-            }
+            try #require(await appDelegate.focusTerminalForTesting(
+                terminalPanel, workspace: workspace, in: testWindow
+            ))
 
             #expect(
                 terminalPanel.hostedView.isSurfaceViewFirstResponder(),

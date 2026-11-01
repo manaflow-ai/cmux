@@ -55,6 +55,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     }
 
     func currentWorkingDirectory(of resource: SurfaceResource) async -> String? { resource.detail }
+    func connectedWorkingDirectory(of resource: SurfaceResource) async -> String? { resource.detail }
 
     func closeTerminal(_ id: SurfaceResourceID) async throws { closedTerminals.append(id) }
     func refresh() async {}

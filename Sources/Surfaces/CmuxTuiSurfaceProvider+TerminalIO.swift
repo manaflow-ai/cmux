@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -26,21 +27,41 @@ extension CmuxTuiSurfaceProvider {
         do {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { return nil }
-            let data = try await link.run(
-                arguments: CloudTuiRequests.processInfoArguments(
-                    socketPath: connected.socketPath,
-                    terminalID: resource.id.key
-                )
-            )
-            guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return nil
-            }
-            return CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: result)
+            return try await foregroundWorkingDirectory(of: resource, link: link, socketPath: connected.socketPath)
         } catch {
             // Directory inheritance is best effort. A daemon without the process
             // query capability must retain the existing workspace fallback.
             return nil
         }
+    }
+
+    /// Never dials: a Cmd-click on a sleeping link falls back to the reported
+    /// directory instead of waiting out a carrier login.
+    func connectedWorkingDirectory(of resource: SurfaceResource) async -> String? {
+        guard resource.kind == .terminal,
+              let link = await links.link(machineID: machineID),
+              await link.isConnected,
+              let connected = await link.connected else { return nil }
+        return try? await foregroundWorkingDirectory(
+            of: resource, link: link, socketPath: connected.socketPath, timeout: .seconds(5)
+        )
+    }
+
+    /// Reads the foreground process directory over the supplied link within the request deadline.
+    private func foregroundWorkingDirectory(
+        of resource: SurfaceResource,
+        link: CloudMachineLink,
+        socketPath: String,
+        timeout: Duration = .seconds(30)
+    ) async throws -> String? {
+        let data = try await link.run(
+            arguments: CloudTuiRequests.processInfoArguments(socketPath: socketPath, terminalID: resource.id.key),
+            timeout: timeout
+        )
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: result)
     }
 
     /// Block until the remote terminal's process exits or `timeoutMs` elapses (the same
