@@ -264,8 +264,12 @@ struct ClickedLinkFocusTests {
     }
 
     /// The chat header's Preview (Changes and Files take the same path): a person's click, so the
-    /// tab that opens in a new column right of the page takes the focus, unlike an agent's own
+    /// tab that opens in a new split right of the page takes the focus, unlike an agent's own
     /// beside_caller open, and its close gives the focus back to the page it was clicked in.
+    /// Since #29682 the open is placed by ``RightColumnPlacement``: a split right only when both
+    /// halves keep ``RightColumnPlacement/minimumChatWidth``, else a tab in the page's own pane
+    /// (Leo, design/pane-placement.md). The restored test window's one pane is narrower than that,
+    /// so the window is made wide enough for the split this test is about.
     @Test func theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
@@ -273,6 +277,10 @@ struct ClickedLinkFocusTests {
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
             let source = try #require(model.tabs.first?.id)
+            try #require(services.windows.active?.window).setFrame(NSRect(x: 0, y: 0, width: 1500, height: 800), display: true)
+            let splits = 2 * RightColumnPlacement.minimumChatWidth
+            try await PinnedPageTests.until({ (LinkOpener.width(of: pane) ?? 0) >= splits },
+                                            report: { "the page's pane is not \(Int(splits)) pt wide: " + Self.describe(content, source) })
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
