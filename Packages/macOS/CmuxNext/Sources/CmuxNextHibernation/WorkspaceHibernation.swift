@@ -132,13 +132,16 @@ public final class WorkspaceHibernation {
     }
 
     /// The shown workspaces changed: one that left starts its idle clock, one that came back is awake.
+    /// One that left re-arms the deadline a minute out even when a later one is pending: a window that
+    /// switched space may have hidden that space, whose workspaces wait the shorter hidden-space time,
+    /// so the pending deadline (planned on the old shown set) can be too late. That pass re-plans it.
     public func noteShown(_ current: Set<String>) {
         let time = now()
         for id in shown.symmetricDifference(current) { lastShown[id] = time }
         for id in current { hibernated.remove(id) }
         let left = !shown.subtracting(current).isEmpty
         shown = current
-        if left, !deadline.isScheduled { schedulePass(after: .seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))) }
+        if left { schedulePass(after: .seconds(Int64(WorkspaceHibernationPlanner.minimumRecheck))) }
     }
 
     /// Memory pressure changed: a higher level shortens the idle time, so plan now.
