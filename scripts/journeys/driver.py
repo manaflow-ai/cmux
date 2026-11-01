@@ -119,6 +119,25 @@ PLAYED = []
 
 # ---- the app: control socket, daemon CLI, process table, frames -----------------------------
 
+def wait_exit(pid, timeout):
+    """When `pid` exited (`now()` clock), waiting on the kernel's exit event (kqueue EVFILT_PROC NOTE_EXIT) up to
+    TIMEOUT s; None on a timeout or where kqueue cannot watch it (then the caller polls). Our own app's pid only."""
+    import select
+    if not hasattr(select, "kqueue"):
+        return None
+    queue = select.kqueue()
+    try:
+        event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                              fflags=select.KQ_NOTE_EXIT)
+        try:
+            ready = queue.control([event], 1, max(0.0, timeout))
+        except ProcessLookupError:
+            return now()  # already gone
+        return now() if ready else None
+    finally:
+        queue.close()
+
+
 class App:
     def __init__(self, sock, bundle, home, ocr):
         self.sock, self.home, self.ocr = sock, home, ocr
@@ -1143,11 +1162,12 @@ class Journey:
             end = now() + QUIT_SECONDS
         else:
             raise StepError(f"relaunch: how is quit, crash, kill-app, kill-both or one of {sorted(QUIT_ACTIONS)}, not {how!r}")
-        while now() < end and app.alive(old):
-            time.sleep(0.25)
-        if app.alive(old):
+        exited_at = wait_exit(old, end - now())
+        if exited_at is None and app.alive(old):
             raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
-        record["ended_after_s"] = round(now() - started, 2)
+        # The kernel's exit event (kqueue NOTE_EXIT), not a poll: quit_to_gone is exact to the event.
+        record["ended_after_s"] = round((exited_at or now()) - started, 3)
+        record["exit_wait"] = "kqueue" if exited_at is not None else "poll"
         if callable(step.get("after_end")):
             # A caller's read between the end and the reopen (the action fuzzer: what the daemon kept).
             record["after_end"] = step["after_end"]()
