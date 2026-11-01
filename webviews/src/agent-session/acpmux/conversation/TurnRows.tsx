@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { copyTextResult } from "./clipboard";
 import { MessageCard } from "./MessageCard";
@@ -38,7 +38,7 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, isCloudRejectedCredential, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -295,6 +295,16 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
   const [retryNote, setRetryNote] = useState<RetryNote>();
+  const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
+  const automaticRecoveryRow =
+    failed && row.retryable === true && row.retryRowId && prompt && isCloudRejectedCredential(row.error, route)
+      ? row.retryRowId
+      : undefined;
+  useEffect(() => {
+    if (!automaticRecoveryRow || !transferCloudCredentials || !prompt || automaticRecoveryAttempted.current === automaticRecoveryRow) return;
+    automaticRecoveryAttempted.current = automaticRecoveryRow;
+    void transferCloudCredentials(automaticRecoveryRow, prompt, true).catch(() => undefined);
+  }, [automaticRecoveryRow, prompt, transferCloudCredentials]);
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
   const failedRetry = !failed

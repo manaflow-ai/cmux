@@ -81,7 +81,7 @@ export type TurnActions = {
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
-  transferCloudCredentials?: (rowId: string, prompt: string) => Promise<void>;
+  transferCloudCredentials?: (rowId: string, prompt: string, automatic?: boolean) => Promise<void>;
   /// A Cloud chat's agent signs in on its own machine (cloudAgentLogin.ts): its own login run there,
   /// or an API key saved there, never this Mac's login. Absent where acpmux lacks `agent_login`.
   cloudSignIn?: import("../cloudAgentLogin").CloudSignIn;
