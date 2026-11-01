@@ -16,11 +16,12 @@ Steps (`do`):
                                          (`snapshot.get`): what must come back
   require_whole_host {}                  `not run` at once in a capture slot (its window is never key, so a real key
                                          cannot reach it): run it with run.py --whole-host
-  quit_speed     {count?, how?}          COUNT quit-and-reopen cycles (default quit-keep), each timed from the new
+  quit_speed     {count?, how?, cold?}   COUNT quit-and-reopen cycles (default quit-keep), each timed from the new
                                          process's main(): last frame, window frame, interactive, quit-to-gone;
                                          every cmux-tui daemon's identify (pid, build_commit, build_id) before and
                                          after each cycle; a cycle with a daemon not of the bundle's build is
-                                         `not_run`; speed.json
+                                         `not_run`; cold (true or "alternate"): the file cache emptied between the
+                                         end and the reopen (a failed purge: `not_run`); speed.json
   quit_why       {}                      evidence after the checks: the app's quit and daemon log lines since the real
                                          key (log show --info), the daemon_version_handoff mark, the daemon pid now
   real_quit      {ask_wait?, mark?, env?}      a REAL Cmd-Q (CuaDriver hotkey to the key window), then: when the app shows
@@ -441,7 +442,7 @@ def purge_file_cache():
     """Empties the file cache (`sudo -n /usr/sbin/purge`, no password prompt); {"ok", "seconds", "error"?}."""
     started = time.monotonic()
     try:
-        done = subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, text=True, timeout=120)
+        done = subprocess.run(["sudo", "-n", "/usr/sbin/purge"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired) as error:
         return {"ok": False, "seconds": round(time.monotonic() - started, 2), "error": str(error)[-200:]}
     out = {"ok": done.returncode == 0, "seconds": round(time.monotonic() - started, 2)}
@@ -483,7 +484,10 @@ def step_quit_speed(j, step):
         relaunch = {"how": step.get("how", "quit-keep")}
         if cold:
             # COLD: between the old app's end and the reopen, the file cache is emptied (`purge`), so the reopen
-            # reads the app's binaries and the frames from disk. A cycle whose purge failed is not run.
+            # reads the app's binaries, frameworks and its saved terminal frames (files in the app's state folder)
+            # from disk. The daemon keeps running (quit-keep): its memory is not cold. Most cold cost is before
+            # main(): compare `socket_ms` and `main_start_ms` too, not only the *_ms from main(). A cycle whose
+            # purge failed is not run (the timeout, 60 s, is inside the sampler's 90 s wait for the new process).
             relaunch["after_end"] = lambda: purge.update(purge_file_cache())
         record = ext_restore.step_restore_relaunch(j, relaunch)
         r = getattr(j, "restore", None) or {}
@@ -539,7 +543,8 @@ def step_quit_speed(j, step):
     return {"rows": rows, "summary": {"cycles": len(rows), "censored": sum(1 for x in rows if x["censored"]),
                                       "frames_censored": sum(1 for x in rows if x["frames_censored"]),
                                       "occluded": sum(1 for x in rows if x["occluded"]),
-                                      "not_run_daemon_build": sum(1 for x in rows if x["not_run"]),
+                                      "not_run": sum(1 for x in rows if x["not_run"]),
+                                      "not_run_purge": sum(1 for x in rows if x["arm"] == "cold" and not (x["purge"] or {}).get("ok")),
                                       # Censored, or no timeline read (None): neither is a number.
                                       "app_censored": sum(1 for x in rows if x["app_censored"] is not False)}}
 
