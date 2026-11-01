@@ -404,12 +404,13 @@ def daemon_builds(j):
     return {"daemons": out, "bundled_commit": commit, "of_build_under_test": ok}
 
 
-def app_timeline(entries, sub):
+def app_timeline(entries, sub, visible=0):
     """The app's own per-terminal launch timeline (`debug.timings` `launch_terminals`, Debug and bench builds),
     from main(): each terminal a pane showed, its first frame (its saved frame from the last quit or its first
     live content, whichever committed first) and when it was interactive (that frame up and its link to the
     daemon live). `app_all_frames_ms` and `app_interactive_ms` are the slowest terminal's, None while one has
-    no mark (`app_censored`); an app without the timeline gives `app_terminals` None."""
+    no mark (`app_censored`), or while the app recorded fewer terminals than the sampler saw visible (the slowest
+    could be one it missed); an app without the timeline gives `app_terminals` None."""
     if not isinstance(entries, list):
         return {"app_terminals": None, "app_all_frames_ms": None, "app_interactive_ms": None, "app_censored": None,
                 "app_timeline": None}
@@ -421,9 +422,10 @@ def app_timeline(entries, sub):
         rows.append({"key": e.get("key"), "shown_ms": sub(e.get("shown_ms")), "held_frame_ms": sub(e.get("held_frame_ms")),
                      "live_frame_ms": sub(e.get("live_frame_ms")), "link_live_ms": link, "frame_ms": frame,
                      "interactive_ms": max(frame, link) if frame is not None and link is not None else None})
-    censored = not rows or any(x["interactive_ms"] is None for x in rows)
+    censored = not rows or len(rows) < visible or any(x["interactive_ms"] is None for x in rows)
     return {"app_terminals": len(rows),
-            "app_all_frames_ms": None if not rows or any(x["frame_ms"] is None for x in rows) else max(x["frame_ms"] for x in rows),
+            "app_all_frames_ms": None if not rows or len(rows) < visible or any(x["frame_ms"] is None for x in rows)
+            else max(x["frame_ms"] for x in rows),
             "app_interactive_ms": None if censored else max(x["interactive_ms"] for x in rows),
             "app_censored": censored, "app_timeline": rows}
 
@@ -464,7 +466,6 @@ def step_quit_speed(j, step):
         marks = timings.get("launch_ms_since_process_start") or {}
         main = r.get("main_start")
         sub = lambda mark: round(mark - main, 1) if isinstance(mark, (int, float)) and isinstance(main, (int, float)) else None
-        app = app_timeline(timings.get("launch_terminals"), sub)
         first_content = {}
         trace = r.get("trace") or []
         for at, panes in trace:
@@ -476,6 +477,7 @@ def step_quit_speed(j, step):
                 if kind == "terminal" and (held or (replayed and has_text)) and pane not in first_content and at is not None:
                     first_content[pane] = at
         visible = int(r.get("visible_terminals") or 0)
+        app = app_timeline(timings.get("launch_terminals"), sub, visible)
         live = list((r.get("live_from_main_ms") or {}).values())
         censored = not live or len(live) < visible
         occluded = False
@@ -501,7 +503,9 @@ def step_quit_speed(j, step):
     return {"rows": rows, "summary": {"cycles": len(rows), "censored": sum(1 for x in rows if x["censored"]),
                                       "frames_censored": sum(1 for x in rows if x["frames_censored"]),
                                       "occluded": sum(1 for x in rows if x["occluded"]),
-                                      "not_run_daemon_build": sum(1 for x in rows if x["not_run"])}}
+                                      "not_run_daemon_build": sum(1 for x in rows if x["not_run"]),
+                                      # Censored, or no timeline read (None): neither is a number.
+                                      "app_censored": sum(1 for x in rows if x["app_censored"] is not False)}}
 
 
 STEPS = {"quit_state": step_quit_state, "quit_speed": step_quit_speed, "real_quit": step_real_quit, "require_whole_host": step_require_whole_host,

@@ -40,6 +40,14 @@ class AppTimeline(unittest.TestCase):
         got = ext_quit.app_timeline([entry("tab_a", held=1150, link=1250), entry("tab_b", held=1160)], sub)
         self.assertEqual((got["app_all_frames_ms"], got["app_interactive_ms"], got["app_censored"]), (160.0, None, True))
 
+    def test_fewer_app_terminals_than_visible_ones_censor_the_cycle(self):
+        got = ext_quit.app_timeline([entry("tab_a", held=1150, link=1250)], sub, visible=2)
+        self.assertEqual((got["app_all_frames_ms"], got["app_interactive_ms"], got["app_censored"]), (None, None, True))
+
+    def test_a_link_live_before_the_frame_is_interactive_at_the_frame(self):
+        got = ext_quit.app_timeline([entry("tab_a", live=1300, link=1100)], sub, visible=1)
+        self.assertEqual((got["app_interactive_ms"], got["app_censored"]), (300.0, False))
+
     def test_an_app_without_the_timeline_reports_none(self):
         got = ext_quit.app_timeline(None, sub)
         self.assertIsNone(got["app_terminals"])

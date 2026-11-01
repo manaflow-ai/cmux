@@ -133,6 +133,10 @@ def wait_exit(pid, timeout):
             ready = queue.control([event], 1, max(0.0, timeout))
         except ProcessLookupError:
             return now()  # already gone
+        if ready and ready[0].flags & select.KQ_EV_ERROR:
+            # The kernel reports a pid already gone as an error event (ESRCH); any other error: the caller polls.
+            import errno
+            return now() if ready[0].data == errno.ESRCH else None
         return now() if ready else None
     finally:
         queue.close()
@@ -1163,11 +1167,16 @@ class Journey:
         else:
             raise StepError(f"relaunch: how is quit, crash, kill-app, kill-both or one of {sorted(QUIT_ACTIONS)}, not {how!r}")
         exited_at = wait_exit(old, end - now())
-        if exited_at is None and app.alive(old):
-            raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
-        # The kernel's exit event (kqueue NOTE_EXIT), not a poll: quit_to_gone is exact to the event.
+        if exited_at is None:
+            # No kernel event (no kqueue, or an error other than "gone"): poll to the same deadline.
+            while now() < end and app.alive(old):
+                time.sleep(0.05)
+            if app.alive(old):
+                raise StepError(f"relaunch ({how}): app pid {old} still runs {QUIT_SECONDS} s later: {json.dumps(record)[:300]}")
+        # The kernel's exit event (kqueue NOTE_EXIT): quit_to_gone is exact to the event, except after Cmd-Q
+        # (`quit`), whose sheet loop above may poll until the end: labelled poll.
         record["ended_after_s"] = round((exited_at or now()) - started, 3)
-        record["exit_wait"] = "kqueue" if exited_at is not None else "poll"
+        record["exit_wait"] = "poll" if exited_at is None or how == "quit" else "kqueue"
         if callable(step.get("after_end")):
             # A caller's read between the end and the reopen (the action fuzzer: what the daemon kept).
             record["after_end"] = step["after_end"]()
